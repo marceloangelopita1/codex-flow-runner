@@ -1,0 +1,16 @@
+[Unit]
+Description=Codex Flow Runner
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/workspace/codex-flow-runner
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+User=YOUR_USER
+Environment=NODE_ENV=production
+EnvironmentFile=/workspace/codex-flow-runner/.env
+
+[Install]
+WantedBy=multi-user.target
