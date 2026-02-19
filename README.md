@@ -53,3 +53,19 @@ Pastas esperadas no repositório alvo:
 ## Execução com systemd (WSL)
 
 Há uma unit de exemplo em `docs/systemd/codex-flow-runner.service`.
+
+## Documentacao operacional
+
+Este repositorio agora possui tres documentos canonicos para evolucao operacional:
+
+- `EXTERNAL_PROMPTS.md`: padrao para requests/responses/decisions de IA externa.
+- `INTERNAL_TICKETS.md`: ciclo oficial de abertura, triagem e fechamento de tickets internos.
+- `PLANS.md`: padrao de ExecPlan para criacao de planos em `execplans/`.
+
+Estruturas associadas:
+
+- `external_prompts/requests/`
+- `external_prompts/responses/`
+- `external_prompts/decisions/`
+- `external_prompts/templates/`
+- `tickets/templates/internal-ticket-template.md`

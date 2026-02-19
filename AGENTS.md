@@ -35,3 +35,8 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - Não commitar segredos.
 - Usar `.env` para configuração local.
 - Preparar o app para execução contínua no WSL via `systemd`.
+
+## Documentação operacional obrigatória
+- `EXTERNAL_PROMPTS.md`: padrão para prompts externos e trilha request/response/decision.
+- `INTERNAL_TICKETS.md`: padrão de tickets internos e ciclo de fechamento.
+- `PLANS.md`: padrão de ExecPlan para criação e execução em `execplans/`.
