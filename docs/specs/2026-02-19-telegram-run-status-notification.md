@@ -5,10 +5,11 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 10:53Z
+- Last reviewed at (UTC): 2026-02-19 14:42Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-19-telegram-final-summary-per-ticket-gap.md
+  - tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -47,13 +48,23 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Definicao de gatilho de notificacao no final dos 3 prompts por ticket.
+  - O runner executa as fases `plan -> implement -> close-and-version` de forma sequencial por ticket.
+  - O runner registra estado interno por fase, sucesso e erro (`phase`, `currentTicket`, `lastMessage`, `updatedAt`) e esse snapshot ja e exposto por `/status`.
 - Pendencias em aberto:
-  - Implementar payload final de notificacao e formato padrao de mensagem.
-  - Garantir coleta confiavel de commit hash e resultado de push para incluir no resumo.
-  - Criar testes de contrato para notificacoes de sucesso/falha.
+  - Implementar emissao automatica de resumo final por ticket no Telegram ao fim do ciclo (sucesso e falha), com garantia de emissao unica por ticket.
+  - Incluir no resumo final os campos minimos obrigatorios de rastreabilidade (ticket, status, fase final, timestamp UTC).
+  - Incluir no resumo de sucesso referencia de artefato de plano e identificador de commit/push.
+  - Garantir que `/status` reflita de forma coerente o ultimo evento efetivamente notificado no chat autorizado.
+  - Criar testes de contrato cobrindo sucesso/falha, emissao unica por ticket, multiplos tickets e coerencia de `/status`.
 - Evidencias de validacao:
-  - A definir na implementacao (ticket, execplan, commit).
+  - src/core/runner.ts
+  - src/types/state.ts
+  - src/integrations/telegram-bot.ts
+  - src/integrations/git-client.ts
+  - src/core/runner.test.ts
+  - src/integrations/telegram-bot.test.ts
+  - tickets/open/2026-02-19-telegram-final-summary-per-ticket-gap.md
+  - tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 
 ## Riscos e impacto
 - Risco funcional: duplicidade de mensagens ou falta de notificacao em falhas.
@@ -66,3 +77,4 @@
 
 ## Historico de atualizacao
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
+- 2026-02-19 14:42Z - Revisao de gaps concluida, com abertura de tickets para notificacao final por ticket e rastreabilidade/coerencia de status.
