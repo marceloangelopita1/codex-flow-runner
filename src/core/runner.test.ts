@@ -5,6 +5,8 @@ import {
   CodexAuthenticationError,
   CodexStageExecutionError,
   CodexStageResult,
+  PlanSpecSession,
+  PlanSpecSessionStartRequest,
   CodexTicketFlowClient,
   SpecFlowStage,
   SpecRef,
@@ -92,6 +94,13 @@ class StubCodexClient implements CodexTicketFlowClient {
     return {
       stage,
       output: `ok:${stage}`,
+    };
+  }
+
+  async startPlanSession(_request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
+    return {
+      sendUserInput: async () => undefined,
+      cancel: async () => undefined,
     };
   }
 }

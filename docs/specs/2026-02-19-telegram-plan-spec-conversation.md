@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 21:06Z
-- Last reviewed at (UTC): 2026-02-19 21:18Z
+- Last reviewed at (UTC): 2026-02-19 21:33Z
 - Source: product-need
 - Related tickets:
   - tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
@@ -78,10 +78,10 @@
 - [ ] CA-04 - durante sessao ativa, tentativa de trocar projeto por `/select_project` ou callback de `/projects` retorna bloqueio e nao altera projeto ativo.
 - [ ] CA-05 - comando `/plan_spec_status` exibe fase atual, projeto ativo e timestamp da ultima atividade.
 - [ ] CA-06 - comando `/plan_spec_cancel` encerra a sessao e limpa estado associado.
-- [ ] CA-07 - perguntas de desambiguacao parseadas geram teclado inline com opcoes clicaveis.
-- [ ] CA-08 - alem dos botoes, o bot aceita resposta livre em texto durante a mesma pergunta.
-- [ ] CA-09 - ao receber bloco final do planejamento, o bot mostra botoes `Criar spec`, `Refinar`, `Cancelar`.
-- [ ] CA-10 - ao escolher `Refinar`, a conversa retorna ao ciclo de perguntas sem criar arquivos.
+- [x] CA-07 - perguntas de desambiguacao parseadas geram teclado inline com opcoes clicaveis.
+- [x] CA-08 - alem dos botoes, o bot aceita resposta livre em texto durante a mesma pergunta.
+- [x] CA-09 - ao receber bloco final do planejamento, o bot mostra botoes `Criar spec`, `Refinar`, `Cancelar`.
+- [x] CA-10 - ao escolher `Refinar`, a conversa retorna ao ciclo de perguntas sem criar arquivos.
 - [ ] CA-11 - ao escolher `Cancelar`, nenhuma spec e criada e a sessao e encerrada.
 - [ ] CA-12 - ao escolher `Criar spec`, runner executa prompt dedicado fora de `/plan` e cria `docs/specs/YYYY-MM-DD-<slug>.md`.
 - [ ] CA-13 - arquivo criado contem metadata inicial `Status: approved` e `Spec treatment: pending`.
@@ -90,8 +90,8 @@
 - [ ] CA-16 - trilha de sessao e persistida em `spec_planning/requests/`, `spec_planning/responses/`, `spec_planning/decisions/`.
 - [ ] CA-17 - apos 30 minutos sem atividade, sessao expira automaticamente com mensagem de timeout.
 - [ ] CA-18 - com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chat nao autorizado nao consegue usar `/plan_spec`, `/plan_spec_status`, `/plan_spec_cancel` nem callbacks associados.
-- [ ] CA-19 - em falha da sessao interativa, bot retorna erro acionavel e orienta retry sem iniciar fallback automatico.
-- [ ] CA-20 - em resposta interativa nao parseavel, bot repassa conteudo bruto saneado no Telegram.
+- [x] CA-19 - em falha da sessao interativa, bot retorna erro acionavel e orienta retry sem iniciar fallback automatico.
+- [x] CA-20 - em resposta interativa nao parseavel, bot repassa conteudo bruto saneado no Telegram.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -100,14 +100,16 @@
   - Runner ja possui fluxo sequencial de `/run_all` e `/run_specs`, com estado observavel em `/status`.
   - Troca de projeto ja possui bloqueio durante execucao de rodada em andamento.
   - Fila sequencial ja prioriza `P0` antes de `P1` e `P1` antes de `P2`.
+  - Bridge interativa `/plan` do Codex implementada com sessao stateful, parser estruturado de pergunta/finalizacao, fallback `raw-sanitized`, tratamento de trust de diretorio e falha acionavel sem fallback batch (`src/integrations/codex-client.ts`, `src/integrations/plan-spec-parser.ts`).
+  - Telegram integra callbacks `plan-spec:*`, renderiza teclado de pergunta e botoes finais `Criar spec`/`Refinar`/`Cancelar`, com suporte a retorno de falha e raw saneado (`src/integrations/telegram-bot.ts`).
 - Pendencias em aberto:
   - [P0/S1] Orquestrar ciclo de vida da sessao `/plan_spec` (comandos, bloqueios de conflito, timeout, status e cancelamento). Ticket: `tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md`. RFs/CAs: RF-01..RF-08, RF-14, RF-22, RF-26, RF-27, RF-28; CA-01..CA-06, CA-17, CA-18.
-  - [P0/S1] Implementar bridge interativa do Codex em `/plan` com parser de perguntas/finalizacao, opcoes clicaveis + texto livre e tratamento de falhas/parsing. Ticket: `tickets/open/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md`. RFs/CAs: RF-09, RF-10, RF-12, RF-13, RF-15, RF-16, RF-23, RF-24, RF-27; CA-07..CA-10, CA-19, CA-20.
   - [P1/S2] Implementar `Criar spec` fora de `/plan` com naming/metadata, commit `feat(spec): add <arquivo>.md`, escopo restrito e trilha `spec_planning/*`. Ticket: `tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md`. RFs/CAs: RF-11, RF-17..RF-21, RF-25; CA-11..CA-16.
   - [P2/S3] Adicionar cobertura automatizada completa da jornada `/plan_spec` (happy path e falhas). Ticket: `tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md`. RFs/CAs: validacao transversal de CA-01..CA-20 e regressao de RF-28.
 - Evidencias de validacao:
   - Revisao de gaps concluida em 2026-02-19 21:13Z com evidencia em `src/`, `prompts/` e abertura de tickets em `tickets/open/`.
   - Validacao final da triagem executada em 2026-02-19 21:18Z, mantendo `Status: approved` e `Spec treatment: pending` devido a gaps rastreados em tickets abertos.
+  - Implementacao e testes deste ticket executados em 2026-02-19 21:33Z com cobertura dedicada em `src/integrations/codex-client.test.ts`, `src/integrations/plan-spec-parser.test.ts`, `src/integrations/telegram-bot.test.ts` e regressao verde em `npm test && npm run check && npm run build`.
 
 ## Riscos e impacto
 - Risco funcional: parsing instavel da saida interativa do Codex gerar UX inconsistente no Telegram.
@@ -128,3 +130,4 @@
 - 2026-02-19 21:06Z - Versao inicial da spec criada e aprovada para derivacao tecnica.
 - 2026-02-19 21:13Z - Revisao de gaps concluida; 4 tickets abertos em `tickets/open/` para implementacao sequencial da jornada `/plan_spec`.
 - 2026-02-19 21:18Z - Validacao final da triagem concluida; status/metadados confirmados com pendencias rastreadas para tickets abertos.
+- 2026-02-19 21:33Z - Ticket de bridge interativa/parser concluido com CAs CA-07..CA-10, CA-19 e CA-20 marcados como atendidos.

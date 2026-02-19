@@ -1,8 +1,17 @@
-import { spawn } from "node:child_process";
+import { ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger } from "../core/logger.js";
+import {
+  PlanSpecFinalBlock,
+  PlanSpecParserEvent,
+  PlanSpecParserState,
+  PlanSpecQuestionBlock,
+  createPlanSpecParserState,
+  parsePlanSpecOutputChunk,
+  sanitizePlanSpecRawOutput,
+} from "./plan-spec-parser.js";
 import {
   PlanDirectoryName,
   buildExecPlanPath,
@@ -25,10 +34,46 @@ export interface CodexStageResult {
   execPlanPath?: string;
 }
 
+export type PlanSpecSessionEvent =
+  | {
+      type: "question";
+      question: PlanSpecQuestionBlock;
+    }
+  | {
+      type: "final";
+      final: PlanSpecFinalBlock;
+    }
+  | {
+      type: "raw-sanitized";
+      text: string;
+    };
+
+export interface PlanSpecSessionCloseResult {
+  exitCode: number | null;
+  cancelled: boolean;
+}
+
+export interface PlanSpecSessionCallbacks {
+  onEvent: (event: PlanSpecSessionEvent) => void;
+  onFailure: (error: CodexPlanSessionError) => void;
+  onClose?: (result: PlanSpecSessionCloseResult) => void;
+}
+
+export interface PlanSpecSessionStartRequest {
+  initialUserInput?: string;
+  callbacks: PlanSpecSessionCallbacks;
+}
+
+export interface PlanSpecSession {
+  sendUserInput(input: string): Promise<void>;
+  cancel(): Promise<void>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult>;
   runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult>;
+  startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession>;
 }
 
 interface CodexCommandRequest {
@@ -42,16 +87,24 @@ interface CodexAuthStatusRequest {
   env: NodeJS.ProcessEnv;
 }
 
+interface CodexInteractiveSessionRequest {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+}
+
 interface CodexCommandResult {
   stdout: string;
   stderr: string;
 }
+
+type InteractiveCodexProcess = ChildProcessWithoutNullStreams;
 
 interface CodexClientDependencies {
   loadPromptTemplate: (filePath: string) => Promise<string>;
   runCodexCommand: (request: CodexCommandRequest) => Promise<CodexCommandResult>;
   runCodexAuthStatusCommand: (request: CodexAuthStatusRequest) => Promise<CodexCommandResult>;
   resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
+  spawnCodexInteractiveProcess: (request: CodexInteractiveSessionRequest) => InteractiveCodexProcess;
 }
 
 const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
@@ -66,6 +119,8 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 };
 
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
+const PLAN_COMMAND = "/plan";
+const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 
 export class CodexStageExecutionError extends Error {
   constructor(
@@ -91,6 +146,22 @@ export class CodexAuthenticationError extends Error {
   }
 }
 
+export class CodexPlanSessionError extends Error {
+  constructor(
+    public readonly phase: "start" | "input" | "runtime",
+    details: string,
+  ) {
+    super(
+      [
+        "Falha na sessao interativa de planejamento no Codex CLI.",
+        INTERACTIVE_RETRY_HINT,
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexPlanSessionError";
+  }
+}
+
 export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private readonly dependencies: CodexClientDependencies;
 
@@ -104,6 +175,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       runCodexCommand: runCodexCommand,
       runCodexAuthStatusCommand: runCodexAuthStatusCommand,
       resolvePlanDirectoryName: resolvePlanDirectoryName,
+      spawnCodexInteractiveProcess: spawnCodexInteractiveProcess,
       ...dependencies,
     };
   }
@@ -223,6 +295,26 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
+    this.logger.info("Iniciando sessao interativa de planejamento via Codex CLI", {
+      repoPath: this.repoPath,
+      mode: PLAN_COMMAND,
+    });
+
+    try {
+      const childProcess = this.dependencies.spawnCodexInteractiveProcess({
+        cwd: this.repoPath,
+        env: {
+          ...process.env,
+        },
+      });
+
+      return new CodexInteractivePlanSession(childProcess, request, this.logger);
+    } catch (error) {
+      throw new CodexPlanSessionError("start", errorMessage(error));
+    }
+  }
+
   private buildTicketPrompt(
     stage: TicketFlowStage,
     promptTemplate: string,
@@ -286,6 +378,189 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
   private buildSpecCommitMessage(specFileName: string): string {
     return `chore(specs): triage ${specFileName}`;
+  }
+}
+
+class CodexInteractivePlanSession implements PlanSpecSession {
+  private parserState: PlanSpecParserState = createPlanSpecParserState();
+  private closed = false;
+  private cancelled = false;
+  private failureNotified = false;
+  private trustPromptHandled = false;
+
+  constructor(
+    private readonly process: InteractiveCodexProcess,
+    private readonly request: PlanSpecSessionStartRequest,
+    private readonly logger: Logger,
+  ) {
+    this.process.stdout.on("data", (chunk: Buffer | string) => {
+      this.handleStdoutChunk(chunk.toString());
+    });
+    this.process.stderr.on("data", (chunk: Buffer | string) => {
+      this.handleStderrChunk(chunk.toString());
+    });
+    this.process.on("error", (error) => {
+      this.notifyFailure("runtime", errorMessage(error));
+    });
+    this.process.on("close", (code) => {
+      this.handleClose(code);
+    });
+
+    this.write(`${PLAN_COMMAND}\n`, "start");
+    const initialUserInput = this.request.initialUserInput?.trim();
+    if (initialUserInput) {
+      this.write(`${initialUserInput}\n`, "start");
+    }
+  }
+
+  async sendUserInput(input: string): Promise<void> {
+    const normalized = input.trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (this.closed) {
+      throw new CodexPlanSessionError("input", "A sessao interativa ja foi encerrada.");
+    }
+
+    this.write(`${normalized}\n`, "input");
+  }
+
+  async cancel(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+
+    this.cancelled = true;
+    this.process.stdin.end();
+    this.process.kill("SIGTERM");
+  }
+
+  private handleStdoutChunk(chunk: string): void {
+    if (!chunk) {
+      return;
+    }
+
+    if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
+      this.trustPromptHandled = true;
+      this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
+      this.write("yes\n", "start");
+      this.write(`${PLAN_COMMAND}\n`, "start");
+    }
+
+    const parsed = parsePlanSpecOutputChunk(this.parserState, chunk);
+    this.parserState = parsed.state;
+    for (const event of parsed.events) {
+      this.forwardParserEvent(event);
+    }
+  }
+
+  private handleStderrChunk(chunk: string): void {
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized) {
+      return;
+    }
+
+    this.logger.warn("Sessao interativa do Codex retornou stderr", {
+      stderr: limit(sanitized),
+    });
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: sanitized,
+    });
+  }
+
+  private handleClose(code: number | null): void {
+    this.closed = true;
+    if (this.parserState.pendingChunk.trim().length > 0) {
+      const pending = sanitizePlanSpecRawOutput(this.parserState.pendingChunk);
+      if (pending) {
+        this.emitEvent({
+          type: "raw-sanitized",
+          text: pending,
+        });
+      }
+      this.parserState = createPlanSpecParserState();
+    }
+
+    if (!this.cancelled && code !== 0) {
+      this.notifyFailure(
+        "runtime",
+        `sessao interativa terminou com codigo ${String(code)} sem fallback nao interativo`,
+      );
+    }
+
+    if (this.request.callbacks.onClose) {
+      try {
+        this.request.callbacks.onClose({
+          exitCode: code,
+          cancelled: this.cancelled,
+        });
+      } catch (error) {
+        this.logger.warn("Falha ao executar callback onClose da sessao interativa", {
+          error: errorMessage(error),
+        });
+      }
+    }
+  }
+
+  private forwardParserEvent(event: PlanSpecParserEvent): void {
+    if (event.type === "question") {
+      this.emitEvent({
+        type: "question",
+        question: event.question,
+      });
+      return;
+    }
+
+    if (event.type === "final") {
+      this.emitEvent({
+        type: "final",
+        final: event.final,
+      });
+      return;
+    }
+
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: event.text,
+    });
+  }
+
+  private emitEvent(event: PlanSpecSessionEvent): void {
+    try {
+      this.request.callbacks.onEvent(event);
+    } catch (error) {
+      this.logger.warn("Falha ao entregar evento da sessao interativa", {
+        eventType: event.type,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  private notifyFailure(phase: "start" | "input" | "runtime", details: string): void {
+    if (this.failureNotified) {
+      return;
+    }
+
+    this.failureNotified = true;
+    const error = new CodexPlanSessionError(phase, details);
+    try {
+      this.request.callbacks.onFailure(error);
+    } catch (callbackError) {
+      this.logger.warn("Falha ao executar callback de erro da sessao interativa", {
+        error: errorMessage(callbackError),
+      });
+    }
+  }
+
+  private write(value: string, phase: "start" | "input"): void {
+    try {
+      this.process.stdin.write(value);
+    } catch (error) {
+      this.notifyFailure(phase, errorMessage(error));
+      throw new CodexPlanSessionError(phase, errorMessage(error));
+    }
   }
 }
 
@@ -378,6 +653,43 @@ const runCodexAuthStatusCommand = async (
       );
     });
   });
+};
+
+const spawnCodexInteractiveProcess = (
+  request: CodexInteractiveSessionRequest,
+): InteractiveCodexProcess => {
+  const args = [
+    "--skip-git-repo-check",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--color",
+    "never",
+  ];
+
+  return spawn("codex", args, {
+    cwd: request.cwd,
+    env: request.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+};
+
+const isDirectoryTrustPrompt = (value: string): boolean => {
+  const normalized = sanitizePlanSpecRawOutput(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("trust this directory") ||
+    normalized.includes("do you trust") ||
+    normalized.includes("allow this directory") ||
+    normalized.includes("continue in this directory") ||
+    normalized.includes("confiar neste diretorio") ||
+    normalized.includes("confianca de diretorio")
+  );
 };
 
 const isAuthenticatedStatusOutput = (stdout: string, stderr: string): boolean => {

@@ -5,6 +5,7 @@ import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
 import { TicketFinalFailureSummary, TicketFinalSuccessSummary } from "../types/ticket-final-summary.js";
+import { PlanSpecFinalActionId, PlanSpecFinalBlock, PlanSpecQuestionBlock } from "./plan-spec-parser.js";
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 import { TelegramController } from "./telegram-bot.js";
 
@@ -54,6 +55,15 @@ type ControlCommand =
   | "select_project"
   | "select-project";
 
+type PlanSpecControlOutcome =
+  | {
+      status: "accepted";
+    }
+  | {
+      status: "ignored";
+      message: string;
+    };
+
 interface ControllerOptions {
   allowedChatId?: string;
   runAllStatus?: "started" | "already-running" | "blocked";
@@ -67,6 +77,9 @@ interface ControllerOptions {
   listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
   forceSelectBlocked?: boolean;
+  disablePlanSpecCallbacks?: boolean;
+  planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
+  planSpecFinalCallbackOutcome?: PlanSpecControlOutcome;
 }
 
 const createDefaultProjectSnapshot = (): ProjectSelectionSnapshot => ({
@@ -123,6 +136,8 @@ const createController = (options: ControllerOptions = {}) => {
     validatedSpecsArgs: [] as string[],
     listProjectsCalls: 0,
     selectedProjectNames: [] as string[],
+    planSpecQuestionSelections: [] as string[],
+    planSpecFinalActions: [] as PlanSpecFinalActionId[],
   };
 
   const stateGetter = options.getState ?? (() => createState());
@@ -252,6 +267,18 @@ const createController = (options: ControllerOptions = {}) => {
         changed,
       };
     },
+    onPlanSpecQuestionOptionSelected: options.disablePlanSpecCallbacks
+      ? undefined
+      : (optionValue: string) => {
+        controlState.planSpecQuestionSelections.push(optionValue);
+        return options.planSpecQuestionCallbackOutcome ?? { status: "accepted" as const };
+      },
+    onPlanSpecFinalActionSelected: options.disablePlanSpecCallbacks
+      ? undefined
+      : (action: PlanSpecFinalActionId) => {
+        controlState.planSpecFinalActions.push(action);
+        return options.planSpecFinalCallbackOutcome ?? { status: "accepted" as const };
+      },
   };
 
   const controller = new TelegramController(
@@ -456,6 +483,71 @@ const callHandleProjectsCallbackQuery = async (
   };
 
   await internalController.handleProjectsCallbackQuery(context);
+};
+
+const callHandlePlanSpecCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePlanSpecCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePlanSpecCallbackQuery(context);
+};
+
+const callBuildPlanSpecQuestionReply = (
+  controller: TelegramController,
+  question: PlanSpecQuestionBlock,
+): { text: string; extra: unknown } => {
+  const internalController = controller as unknown as {
+    buildPlanSpecQuestionReply: (value: PlanSpecQuestionBlock) => { text: string; extra: unknown };
+  };
+
+  return internalController.buildPlanSpecQuestionReply(question);
+};
+
+const callBuildPlanSpecFinalReply = (
+  controller: TelegramController,
+  finalBlock: PlanSpecFinalBlock,
+): { text: string; extra: unknown } => {
+  const internalController = controller as unknown as {
+    buildPlanSpecFinalReply: (value: PlanSpecFinalBlock) => { text: string; extra: unknown };
+  };
+
+  return internalController.buildPlanSpecFinalReply(finalBlock);
+};
+
+const callBuildPlanSpecRawOutputReply = (
+  controller: TelegramController,
+  rawOutput: string,
+): string => {
+  const internalController = controller as unknown as {
+    buildPlanSpecRawOutputReply: (value: string) => string;
+  };
+
+  return internalController.buildPlanSpecRawOutputReply(rawOutput);
+};
+
+const callBuildPlanSpecInteractiveFailureReply = (
+  controller: TelegramController,
+  details?: string,
+): string => {
+  const internalController = controller as unknown as {
+    buildPlanSpecInteractiveFailureReply: (value?: string) => string;
+  };
+
+  return internalController.buildPlanSpecInteractiveFailureReply(details);
 };
 
 const mockSendMessage = (controller: TelegramController) => {
@@ -1027,6 +1119,164 @@ test("callback de selecao bloqueia troca quando runner esta executando", async (
   assert.match(answers[0] ?? "", /Não é possível trocar o projeto ativo/u);
 });
 
+test("pergunta parseada gera teclado inline com opcoes clicaveis (CA-07)", () => {
+  const { controller } = createController();
+  const question: PlanSpecQuestionBlock = {
+    prompt: "Qual escopo devemos priorizar?",
+    options: [
+      { value: "api", label: "API pública" },
+      { value: "bot", label: "Bot Telegram" },
+    ],
+  };
+
+  const rendered = callBuildPlanSpecQuestionReply(controller, question);
+
+  assert.match(rendered.text, /Pergunta do planejamento/u);
+  assert.match(rendered.text, /responder por botão ou texto livre/u);
+  const extra = rendered.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ callback_data: string; text: string }>>;
+    };
+  };
+  assert.deepEqual(extra.reply_markup?.inline_keyboard?.[0]?.[0], {
+    text: "API pública",
+    callback_data: "plan-spec:question:api",
+  });
+});
+
+test("bloco final parseado gera botoes Criar spec, Refinar e Cancelar (CA-09)", () => {
+  const { controller } = createController();
+  const finalBlock: PlanSpecFinalBlock = {
+    title: "Bridge interativa do Codex",
+    summary: "Sessao /plan com parser e callbacks no Telegram.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  };
+
+  const rendered = callBuildPlanSpecFinalReply(controller, finalBlock);
+
+  assert.match(rendered.text, /Planejamento concluído/u);
+  assert.match(rendered.text, /Título: Bridge interativa do Codex/u);
+  const extra = rendered.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ callback_data: string; text: string }>>;
+    };
+  };
+  assert.deepEqual(
+    extra.reply_markup?.inline_keyboard?.map((row) => row[0]?.callback_data),
+    [
+      "plan-spec:final:create-spec",
+      "plan-spec:final:refine",
+      "plan-spec:final:cancel",
+    ],
+  );
+});
+
+test("callback de pergunta registra opcao e permite texto livre em paralelo (CA-08)", async () => {
+  const { controller, controlState } = createController();
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:question:api" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecQuestionSelections, ["api"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Resposta registrada.");
+});
+
+test("callback final de Refinar retorna ao ciclo sem criar arquivo (CA-10)", async () => {
+  const { controller, controlState } = createController({
+    planSpecFinalCallbackOutcome: {
+      status: "ignored",
+      message: "Refino solicitado, continue a conversa.",
+    },
+  });
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:final:refine" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecFinalActions, ["refine"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Refino solicitado, continue a conversa.");
+});
+
+test("callback de planejamento invalido recebe mensagem de erro", async () => {
+  const { controller, controlState } = createController();
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:final:desconhecida" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecFinalActions, []);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Ação de planejamento inválida.");
+});
+
+test("callback de planejamento sem sessao ativa retorna mensagem acionavel", async () => {
+  const { controller, controlState } = createController({
+    disablePlanSpecCallbacks: true,
+  });
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:question:api" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecQuestionSelections, []);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Sessão de planejamento inativa.");
+});
+
+test("callback de planejamento nao autorizado e bloqueado", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 99 },
+    callbackQuery: { data: "plan-spec:question:api" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+});
+
 test("/select-project valida uso quando argumento nao e informado", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
@@ -1146,6 +1396,55 @@ test("callback nao autorizado recebe resposta e gera log de auditoria", async ()
     eventType: "callback-query",
     callbackData: "projects:page:0",
   });
+});
+
+test("resposta raw de planejamento e saneada antes de enviar", () => {
+  const { controller } = createController();
+
+  const reply = callBuildPlanSpecRawOutputReply(controller, "\u001b[31mFalha\u001b[0m\r\nDetalhe");
+
+  assert.match(reply, /Saída não parseável do Codex/u);
+  assert.match(reply, /Falha\nDetalhe/u);
+});
+
+test("mensagem de falha interativa orienta retry", () => {
+  const { controller } = createController();
+
+  const reply = callBuildPlanSpecInteractiveFailureReply(
+    controller,
+    "timeout ao aguardar resposta do Codex",
+  );
+
+  assert.match(reply, /Falha na sessão interativa de planejamento/u);
+  assert.match(reply, /timeout ao aguardar resposta do Codex/u);
+  assert.match(reply, /Use \/plan_spec para tentar novamente/u);
+});
+
+test("envia mensagens de pergunta/final/raw/falha do planejamento no Telegram", async () => {
+  const { controller } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendPlanSpecQuestion("42", {
+    prompt: "Qual escopo?",
+    options: [{ value: "api", label: "API" }],
+  });
+  await controller.sendPlanSpecFinalization("42", {
+    title: "Bridge de planejamento",
+    summary: "Resumo final da conversa.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  });
+  await controller.sendPlanSpecRawOutput("42", "\u001b[31mConteudo bruto\u001b[0m");
+  await controller.sendPlanSpecFailure("42", "sessao caiu");
+
+  assert.equal(sentMessages.length, 4);
+  assert.match(sentMessages[0]?.text ?? "", /Pergunta do planejamento/u);
+  assert.match(sentMessages[1]?.text ?? "", /Planejamento concluído/u);
+  assert.match(sentMessages[2]?.text ?? "", /Saída não parseável do Codex/u);
+  assert.match(sentMessages[3]?.text ?? "", /Falha na sessão interativa de planejamento/u);
 });
 
 test("envia resumo final para chat autorizado configurado", async () => {

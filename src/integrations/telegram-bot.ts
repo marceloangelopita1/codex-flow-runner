@@ -11,7 +11,22 @@ import {
   TicketFinalSummary,
   TicketNotificationDelivery,
 } from "../types/ticket-final-summary.js";
+import {
+  PlanSpecFinalActionId,
+  PlanSpecFinalBlock,
+  PlanSpecQuestionBlock,
+  sanitizePlanSpecRawOutput,
+} from "./plan-spec-parser.js";
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
+
+type PlanSpecCallbackOutcome =
+  | {
+      status: "accepted";
+    }
+  | {
+      status: "ignored";
+      message: string;
+    };
 
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
@@ -26,6 +41,12 @@ interface BotControls {
   selectProjectByName: (
     projectName: string,
   ) => Promise<ProjectSelectionControlResult> | ProjectSelectionControlResult;
+  onPlanSpecQuestionOptionSelected?: (
+    optionValue: string,
+  ) => Promise<PlanSpecCallbackOutcome> | PlanSpecCallbackOutcome;
+  onPlanSpecFinalActionSelected?: (
+    action: PlanSpecFinalActionId,
+  ) => Promise<PlanSpecCallbackOutcome> | PlanSpecCallbackOutcome;
 }
 
 type ProjectSelectionControlResult =
@@ -114,6 +135,19 @@ type ParsedProjectsCallbackData =
       status: "invalid";
     };
 
+type ParsedPlanSpecCallbackData =
+  | {
+      status: "question";
+      optionValue: string;
+    }
+  | {
+      status: "final";
+      action: PlanSpecFinalActionId;
+    }
+  | {
+      status: "invalid";
+    };
+
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
@@ -136,6 +170,15 @@ const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
 const PROJECTS_CALLBACK_SELECT_PREFIX = "projects:select:";
+const PLAN_SPEC_CALLBACK_PREFIX = "plan-spec:";
+const PLAN_SPEC_CALLBACK_QUESTION_PREFIX = "plan-spec:question:";
+const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
+const PLAN_SPEC_CALLBACK_INVALID_REPLY = "Ação de planejamento inválida.";
+const PLAN_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão de planejamento inativa.";
+const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
+const PLAN_SPEC_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa de planejamento:";
+const PLAN_SPEC_FLOW_FAILED_RETRY_SUFFIX = "Use /plan_spec para tentar novamente.";
+const PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX = "🧩 Saída não parseável do Codex (saneada):";
 const SELECT_PROJECT_USAGE_REPLY =
   "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
 const SELECT_PROJECT_BLOCKED_RUNNING_REPLY =
@@ -224,6 +267,24 @@ export class TelegramController {
     });
 
     return delivery;
+  }
+
+  async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
+    const rendered = this.buildPlanSpecQuestionReply(question);
+    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+  }
+
+  async sendPlanSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
+    const rendered = this.buildPlanSpecFinalReply(finalBlock);
+    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+  }
+
+  async sendPlanSpecRawOutput(chatId: string, rawOutput: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecRawOutputReply(rawOutput));
+  }
+
+  async sendPlanSpecFailure(chatId: string, details?: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecInteractiveFailureReply(details));
   }
 
   private registerHandlers(): void {
@@ -342,8 +403,24 @@ export class TelegramController {
     });
 
     this.bot.on("callback_query", async (ctx) => {
-      await this.handleProjectsCallbackQuery(ctx as unknown as CallbackContext);
+      await this.handleCallbackQuery(ctx as unknown as CallbackContext);
     });
+  }
+
+  private async handleCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData) {
+      return;
+    }
+
+    if (callbackData.startsWith(PROJECTS_CALLBACK_PREFIX)) {
+      await this.handleProjectsCallbackQuery(ctx);
+      return;
+    }
+
+    if (callbackData.startsWith(PLAN_SPEC_CALLBACK_PREFIX)) {
+      await this.handlePlanSpecCallbackQuery(ctx);
+    }
   }
 
   private async handleRunAllCommand(
@@ -573,6 +650,76 @@ export class TelegramController {
     await this.handleSelectProjectFromCallback(ctx, parsed.projectIndex);
   }
 
+  private async handlePlanSpecCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(PLAN_SPEC_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    this.logger.info("Callback de planejamento de spec recebido via Telegram", {
+      chatId,
+      callbackData,
+    });
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parsePlanSpecCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    if (parsed.status === "question") {
+      if (!this.controls.onPlanSpecQuestionOptionSelected) {
+        await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
+        return;
+      }
+
+      try {
+        const outcome = await this.controls.onPlanSpecQuestionOptionSelected(parsed.optionValue);
+        await this.safeAnswerCallbackQuery(
+          ctx,
+          outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
+        );
+      } catch (error) {
+        this.logger.error("Falha ao processar callback de pergunta do planejamento", {
+          optionValue: parsed.optionValue,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
+      }
+      return;
+    }
+
+    if (!this.controls.onPlanSpecFinalActionSelected) {
+      await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
+      return;
+    }
+
+    try {
+      const outcome = await this.controls.onPlanSpecFinalActionSelected(parsed.action);
+      await this.safeAnswerCallbackQuery(
+        ctx,
+        outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
+      );
+    } catch (error) {
+      this.logger.error("Falha ao processar callback de finalizacao do planejamento", {
+        action: parsed.action,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
+    }
+  }
+
   private async renderProjectsCallbackPage(ctx: CallbackContext, page: number): Promise<void> {
     try {
       const snapshot = await this.controls.listProjects();
@@ -707,6 +854,95 @@ export class TelegramController {
     return lines.join("\n");
   }
 
+  private buildPlanSpecQuestionReply(
+    question: PlanSpecQuestionBlock,
+  ): { text: string; extra: ReplyOptions } {
+    const options = question.options.slice(0, 10);
+    const lines = [
+      "❓ Pergunta do planejamento",
+      question.prompt,
+      "",
+      "Você pode responder por botão ou texto livre.",
+    ];
+
+    const inlineKeyboard: InlineKeyboardButton[][] = options.map((option) => [
+      {
+        text: option.label,
+        callback_data: this.buildPlanSpecQuestionCallbackData(option.value),
+      },
+    ]);
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildPlanSpecFinalReply(finalBlock: PlanSpecFinalBlock): { text: string; extra: ReplyOptions } {
+    const lines = [
+      "✅ Planejamento concluído",
+      `Título: ${finalBlock.title}`,
+      "",
+      "Resumo:",
+      finalBlock.summary,
+      "",
+      "Escolha a próxima ação:",
+    ];
+
+    const actions = finalBlock.actions.length > 0
+      ? finalBlock.actions
+      : [
+          { id: "create-spec" as const, label: "Criar spec" },
+          { id: "refine" as const, label: "Refinar" },
+          { id: "cancel" as const, label: "Cancelar" },
+        ];
+
+    const inlineKeyboard: InlineKeyboardButton[][] = actions.map((action) => [
+      {
+        text: action.label,
+        callback_data: this.buildPlanSpecFinalCallbackData(action.id),
+      },
+    ]);
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildPlanSpecRawOutputReply(rawOutput: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(rawOutput);
+    if (!sanitized) {
+      return PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX;
+    }
+
+    return [PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX, sanitized].join("\n");
+  }
+
+  private buildPlanSpecInteractiveFailureReply(details?: string): string {
+    return [
+      PLAN_SPEC_FLOW_FAILED_REPLY_PREFIX,
+      details?.trim() || "não foi possível interpretar a sessão atual.",
+      PLAN_SPEC_FLOW_FAILED_RETRY_SUFFIX,
+    ].join(" ");
+  }
+
+  private buildPlanSpecQuestionCallbackData(optionValue: string): string {
+    return `${PLAN_SPEC_CALLBACK_QUESTION_PREFIX}${optionValue}`;
+  }
+
+  private buildPlanSpecFinalCallbackData(action: PlanSpecFinalActionId): string {
+    return `${PLAN_SPEC_CALLBACK_FINAL_PREFIX}${action}`;
+  }
+
   private parseProjectsCallbackData(callbackData: string): ParsedProjectsCallbackData {
     if (callbackData.startsWith(PROJECTS_CALLBACK_PAGE_PREFIX)) {
       const rawPage = callbackData.slice(PROJECTS_CALLBACK_PAGE_PREFIX.length);
@@ -726,6 +962,32 @@ export class TelegramController {
       }
 
       return { status: "select", projectIndex };
+    }
+
+    return { status: "invalid" };
+  }
+
+  private parsePlanSpecCallbackData(callbackData: string): ParsedPlanSpecCallbackData {
+    if (callbackData.startsWith(PLAN_SPEC_CALLBACK_QUESTION_PREFIX)) {
+      const optionValue = callbackData.slice(PLAN_SPEC_CALLBACK_QUESTION_PREFIX.length).trim();
+      if (!optionValue) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "question",
+        optionValue,
+      };
+    }
+
+    if (callbackData.startsWith(PLAN_SPEC_CALLBACK_FINAL_PREFIX)) {
+      const rawAction = callbackData.slice(PLAN_SPEC_CALLBACK_FINAL_PREFIX.length).trim();
+      if (rawAction === "create-spec" || rawAction === "refine" || rawAction === "cancel") {
+        return {
+          status: "final",
+          action: rawAction,
+        };
+      }
     }
 
     return { status: "invalid" };

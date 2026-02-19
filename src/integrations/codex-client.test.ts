@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import {
   CodexAuthenticationError,
   CodexCliTicketFlowClient,
+  CodexPlanSessionError,
   CodexStageExecutionError,
 } from "./codex-client.js";
 import { TicketRef } from "./ticket-queue.js";
@@ -24,6 +27,44 @@ const spec = {
   fileName: "2026-02-19-approved-spec-triage-run-specs.md",
   path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
 };
+
+class FakeInteractiveProcess {
+  public readonly stdout = new PassThrough();
+  public readonly stderr = new PassThrough();
+  public readonly stdinWrites: string[] = [];
+  public readonly killedSignals: string[] = [];
+  public stdinEnded = false;
+  private readonly lifecycle = new EventEmitter();
+
+  public readonly stdin = {
+    write: (chunk: string) => {
+      this.stdinWrites.push(chunk);
+      return true;
+    },
+    end: () => {
+      this.stdinEnded = true;
+    },
+  };
+
+  on(event: "close" | "error", listener: (...args: unknown[]) => void): this {
+    this.lifecycle.on(event, listener);
+    return this;
+  }
+
+  emitClose(code: number | null): void {
+    this.lifecycle.emit("close", code);
+  }
+
+  emitError(error: Error): void {
+    this.lifecycle.emit("error", error);
+  }
+
+  kill(signal?: NodeJS.Signals): boolean {
+    this.killedSignals.push(signal ?? "SIGTERM");
+    this.emitClose(null);
+    return true;
+  }
+}
 
 test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
   let capturedPrompt = "";
@@ -219,4 +260,137 @@ test("runStage falhando encapsula erro com stage e ticket", async () => {
       return true;
     },
   );
+});
+
+test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parseada", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const events: Array<{ type: string; payload?: unknown }> = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    initialUserInput: "brief inicial da spec",
+    callbacks: {
+      onEvent: (event) => events.push({ type: event.type, payload: event }),
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  assert.deepEqual(interactiveProcess.stdinWrites.slice(0, 2), ["/plan\n", "brief inicial da spec\n"]);
+
+  interactiveProcess.stdout.write("Do you trust this directory? (yes/no)\n");
+  assert.equal(interactiveProcess.stdinWrites.includes("yes\n"), true);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "/plan\n").length >= 2, true);
+
+  interactiveProcess.stdout.write(
+    [
+      "[[PLAN_SPEC_QUESTION]]",
+      "Pergunta: Qual escopo devemos priorizar?",
+      "Opcoes:",
+      "- [api] API",
+      "- [bot] Bot Telegram",
+      "[[/PLAN_SPEC_QUESTION]]",
+    ].join("\n"),
+  );
+
+  const questionEvent = events.find((event) => event.type === "question");
+  assert.ok(questionEvent);
+  assert.deepEqual(
+    (questionEvent?.payload as { question: { options: Array<{ value: string }> } }).question.options,
+    [{ value: "api", label: "API" }, { value: "bot", label: "Bot Telegram" }],
+  );
+
+  await session.cancel();
+});
+
+test("startPlanSession aceita input livre e repassa stderr como raw saneado", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const rawEvents: string[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: (event) => {
+        if (event.type === "raw-sanitized") {
+          rawEvents.push(event.text);
+        }
+      },
+      onFailure: () => undefined,
+    },
+  });
+
+  await session.sendUserInput("resposta em texto livre");
+  assert.equal(interactiveProcess.stdinWrites.includes("resposta em texto livre\n"), true);
+
+  interactiveProcess.stderr.write("\u001b[31mErro interativo\u001b[0m\n");
+  assert.equal(rawEvents.length, 1);
+  assert.equal(rawEvents[0], "Erro interativo");
+
+  await session.cancel();
+});
+
+test("falha da sessao interativa retorna erro acionavel sem fallback batch", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  let batchCalls = 0;
+  const failures: CodexPlanSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexCommand: async () => {
+      batchCalls += 1;
+      return { stdout: "nao deveria executar", stderr: "" };
+    },
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+
+  interactiveProcess.emitClose(1);
+
+  assert.equal(batchCalls, 0);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /Use \/plan_spec para tentar novamente/u);
+  assert.match(failures[0]?.message ?? "", /sem fallback nao interativo/u);
+});
+
+test("cancelamento de sessao interativa encerra processo e notifica fechamento", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const closes: Array<{ exitCode: number | null; cancelled: boolean }> = [];
+  const failures: CodexPlanSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+      onClose: (result) => closes.push(result),
+    },
+  });
+
+  await session.cancel();
+
+  assert.equal(interactiveProcess.stdinEnded, true);
+  assert.deepEqual(interactiveProcess.killedSignals, ["SIGTERM"]);
+  assert.equal(closes.length, 1);
+  assert.equal(closes[0]?.cancelled, true);
+  assert.equal(failures.length, 0);
 });
