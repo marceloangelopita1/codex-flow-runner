@@ -1,7 +1,7 @@
 # [TICKET] Rodada /run-all nao e fail-fast e push de fechamento nao e obrigatorio
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 11:59Z
@@ -15,6 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-guiadomus-codex-sdk-ticket-execution.md
+  - execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
 
 ## Context
 - Workflow area: `src/core/runner.ts`, `src/integrations/git-client.ts` e `src/config/env.ts`
@@ -73,6 +74,8 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 - 2026-02-19 - Ticket aberto apos revisao de gaps da spec `2026-02-19-guiadomus-codex-sdk-ticket-execution`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-19 12:43Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - Commit: definido no commit de fechamento deste ticket (mesmo commit do move `tickets/open` -> `tickets/closed`)
+  - ExecPlan: execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md

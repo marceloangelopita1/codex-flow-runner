@@ -35,7 +35,9 @@ Pastas esperadas no repositório alvo:
 - `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
 - `REPO_PATH` (opcional, padrão: diretório atual)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
-- `GIT_AUTO_PUSH` (opcional, padrão: `false`)
+
+Observacao operacional:
+- o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
 
 Pré-requisito operacional:
 - `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).

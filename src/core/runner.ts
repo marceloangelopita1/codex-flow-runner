@@ -6,6 +6,7 @@ import {
   CodexTicketFlowClient,
   TicketFlowStage,
 } from "../integrations/codex-client.js";
+import { GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
 export class TicketRunner {
@@ -17,6 +18,7 @@ export class TicketRunner {
     private readonly logger: Logger,
     private readonly queue: TicketQueue,
     private readonly codexClient: CodexTicketFlowClient,
+    private readonly gitVersioning: GitVersioning,
   ) {}
 
   getState = (): RunnerState => ({ ...this.state });
@@ -61,7 +63,8 @@ export class TicketRunner {
     if (!this.state.isRunning) {
       return;
     }
-    this.touch("idle", "Loop principal iniciado");
+    this.touch("idle", "Rodada /run-all iniciada");
+    const processedTickets = new Set<string>();
 
     while (this.state.isRunning) {
       if (this.state.isPaused) {
@@ -73,12 +76,27 @@ export class TicketRunner {
       const ticket = await this.queue.nextOpenTicket();
 
       if (!ticket) {
-        this.touch("idle", "Nenhum ticket aberto encontrado");
-        await sleep(this.env.POLL_INTERVAL_MS);
-        continue;
+        this.state.isRunning = false;
+        this.touch("idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
+        return;
       }
 
-      await this.processTicket(ticket);
+      if (processedTickets.has(ticket.name)) {
+        this.state.isRunning = false;
+        this.touch("error", `Rodada interrompida: ticket ${ticket.name} reapareceu na fila`);
+        this.logger.error("Falha de fechamento detectada no ticket da rodada", {
+          ticket: ticket.name,
+          reason: "ticket reaberto/nao movido apos close-and-version",
+        });
+        return;
+      }
+
+      const succeeded = await this.processTicket(ticket);
+      processedTickets.add(ticket.name);
+      if (!succeeded) {
+        this.state.isRunning = false;
+        return;
+      }
     }
   }
 
@@ -87,7 +105,7 @@ export class TicketRunner {
     this.touch("idle", "Desligamento solicitado");
   }
 
-  private async processTicket(ticket: TicketRef): Promise<void> {
+  private async processTicket(ticket: TicketRef): Promise<boolean> {
     this.state.currentTicket = ticket.name;
 
     try {
@@ -98,8 +116,10 @@ export class TicketRunner {
         ticket,
         `Executando etapa close-and-version para ${ticket.name}`,
       );
+      await this.assertCloseAndVersion(ticket);
 
       this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      return true;
     } catch (error) {
       const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
       this.touch("error", `Falha ao processar ${ticket.name}`);
@@ -108,8 +128,18 @@ export class TicketRunner {
         stage,
         error: error instanceof Error ? error.message : String(error),
       });
+      return false;
     } finally {
       this.state.currentTicket = null;
+    }
+  }
+
+  private async assertCloseAndVersion(ticket: TicketRef): Promise<void> {
+    try {
+      await this.gitVersioning.assertSyncedWithRemote();
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
     }
   }
 

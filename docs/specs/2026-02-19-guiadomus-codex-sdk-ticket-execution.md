@@ -2,18 +2,19 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-guiadomus-codex-sdk-ticket-execution
-- Status: partially_attended
+- Status: attended
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 12:27Z
+- Last reviewed at (UTC): 2026-02-19 12:40Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
-  - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
+  - tickets/closed/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 - Related execplans:
   - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
+  - execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
 - Related commits:
   - A definir
 
@@ -43,14 +44,14 @@
 - Reprocessamento automatico de ticket com retry inteligente na mesma rodada.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Ao enviar `/run-all` com tickets abertos, o runner processa um ticket por vez ate concluir a rodada ou falhar.
-- [ ] CA-02 - Ao concluir ticket com sucesso, ocorre movimentacao `tickets/open -> tickets/closed` no mesmo commit e push automatico.
-- [ ] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
+- [x] CA-01 - Ao enviar `/run-all` com tickets abertos, o runner processa um ticket por vez ate concluir a rodada ou falhar.
+- [x] CA-02 - Ao concluir ticket com sucesso, ocorre movimentacao `tickets/open -> tickets/closed` no mesmo commit e push automatico.
+- [x] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
 - [x] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
 - [x] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: partially_attended
+- Estado geral: attended
 - Itens atendidos:
   - Comando `/run-all` inicia processamento sequencial e evita rodada concorrente.
   - Integracao usa Codex CLI real por etapa (`plan`, `implement`, `close-and-version`) em `src/integrations/codex-client.ts`.
@@ -59,13 +60,17 @@
   - Compatibilidade de diretorio de plano foi implementada para `plans/` e `execplans/` com resolucao automatica em `src/integrations/plan-directory.ts`.
   - Fluxo da fila e etapa `plan` agora resolvem e reportam caminho de ExecPlan conforme convencao ativa do repositorio alvo.
   - Suite de testes cobre matriz de convencao de pasta de plano e comportamento da fila (`plan-directory`, `codex-client` e `ticket-queue`).
+  - Rodada `/run-all` agora encerra automaticamente quando nao ha mais ticket aberto na fila corrente.
+  - Runner interrompe rodada no primeiro erro de ticket (fail-fast), sem executar tickets seguintes na mesma rodada.
+  - Runner valida fechamento/versionamento apos `close-and-version` exigindo repositorio limpo e sem commits locais sem push.
+  - `GitCliVersioning` passou a executar push obrigatorio apos commit de fechamento (sem feature flag opcional).
+  - Suite automatizada cobre rodada finita, fail-fast entre tickets e validacao de push/sincronismo em `git-client`.
 - Pendencias em aberto:
-  - Rodada `/run-all` nao encerra quando a fila termina; o loop permanece em polling continuo.
-  - Em erro de ticket, o runner nao interrompe a rodada no primeiro erro.
-  - Nao ha validacao programatica no runner confirmando commit/push ao final de `close-and-version`; a garantia operacional ainda depende de completar o fluxo de rodada/versao nos tickets restantes.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
+  - execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - src/core/runner.ts
   - src/core/runner.test.ts
   - src/integrations/plan-directory.ts
@@ -73,13 +78,15 @@
   - src/integrations/codex-client.ts
   - src/integrations/codex-client.test.ts
   - src/integrations/git-client.ts
+  - src/integrations/git-client.test.ts
   - src/integrations/ticket-queue.ts
   - src/integrations/ticket-queue.test.ts
   - src/config/env.ts
   - src/main.ts
+  - README.md
   - src/integrations/telegram-bot.test.ts
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
-  - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
+  - tickets/closed/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 
 ## Riscos e impacto
@@ -97,3 +104,5 @@
 - 2026-02-19 11:59Z - Revisao de gaps de implementacao concluida com abertura de tickets de follow-up.
 - 2026-02-19 12:13Z - Integracao real por etapas com Codex CLI e testes de contrato do fluxo principal implementados.
 - 2026-02-19 12:27Z - Compatibilidade `plans/execplans` implementada com testes de contrato e atualizacao de evidencias.
+- 2026-02-19 12:40Z - Rodada finita/fail-fast e push obrigatorio implementados com validacao git pos `close-and-version` e cobertura automatizada.
+- 2026-02-19 12:43Z - Ticket de rodada fail-fast/push obrigatorio encerrado com move para `tickets/closed/` no mesmo commit da solucao.
