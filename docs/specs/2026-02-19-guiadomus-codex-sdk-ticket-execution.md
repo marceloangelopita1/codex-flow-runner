@@ -5,10 +5,12 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 10:53Z
+- Last reviewed at (UTC): 2026-02-19 11:59Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
+  - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -49,13 +51,27 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Escopo da rodada, politica de falha e politica de push aprovados.
+  - Comando `/run-all` inicia processamento sequencial e evita rodada concorrente.
+  - Fechamento de ticket move `tickets/open -> tickets/closed` dentro do mesmo ciclo de commit.
+  - Fluxo atual opera corretamente quando o repositorio alvo usa `execplans/`.
 - Pendencias em aberto:
-  - Implementar cliente Codex SDK real e remover dependencia do fluxo local MVP.
-  - Implementar compatibilidade de diretorio de planos (`plans/` e `execplans/`).
-  - Cobrir fluxo com testes de integracao/contrato.
+  - Integracao ainda usa `LocalCodexTicketFlowClient` (MVP local), sem execucao real dos prompts `plan`, `implement` e `close-and-version`.
+  - Rodada `/run-all` nao encerra quando a fila termina; o loop permanece em polling continuo.
+  - Em erro de ticket, o runner nao interrompe a rodada no primeiro erro.
+  - Push apos commit de fechamento esta condicionado a `GIT_AUTO_PUSH` (default `false`), divergindo do requisito de push automatico por ticket.
+  - Compatibilidade com repositorios baseados em `plans/` ainda nao foi implementada.
+  - Nao ha cobertura de testes de integracao/contrato para o fluxo principal de tickets.
 - Evidencias de validacao:
-  - A definir na implementacao (ticket, execplan, commit).
+  - src/core/runner.ts
+  - src/integrations/codex-client.ts
+  - src/integrations/git-client.ts
+  - src/integrations/ticket-queue.ts
+  - src/config/env.ts
+  - src/main.ts
+  - src/integrations/telegram-bot.test.ts
+  - tickets/open/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
+  - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 
 ## Riscos e impacto
 - Risco funcional: divergencia entre comportamento do Codex SDK real e fluxo local atual.
@@ -69,3 +85,4 @@
 
 ## Historico de atualizacao
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
+- 2026-02-19 11:59Z - Revisao de gaps de implementacao concluida com abertura de tickets de follow-up.
