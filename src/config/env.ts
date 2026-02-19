@@ -6,6 +6,7 @@ const envSchema = z.object({
   TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1).optional(),
   REPO_PATH: z.string().min(1).default(process.cwd()),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  GIT_AUTO_PUSH: z.coerce.boolean().default(false),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

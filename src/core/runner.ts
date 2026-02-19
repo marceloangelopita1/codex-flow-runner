@@ -3,6 +3,7 @@ import { RunnerState, createInitialState } from "../types/state.js";
 import { Logger } from "./logger.js";
 import { CodexTicketFlowClient } from "../integrations/codex-client.js";
 import { TicketQueue } from "../integrations/ticket-queue.js";
+import { GitVersioning } from "../integrations/git-client.js";
 
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
@@ -12,6 +13,7 @@ export class TicketRunner {
     private readonly logger: Logger,
     private readonly queue: TicketQueue,
     private readonly codexClient: CodexTicketFlowClient,
+    private readonly gitVersioning: GitVersioning,
   ) {}
 
   getState = (): RunnerState => ({ ...this.state });
@@ -27,6 +29,7 @@ export class TicketRunner {
   };
 
   async runForever(): Promise<void> {
+    await this.queue.ensureStructure();
     this.state.isRunning = true;
     this.touch("idle", "Loop principal iniciado");
 
@@ -45,16 +48,23 @@ export class TicketRunner {
         continue;
       }
 
-      this.state.currentTicket = ticket;
+      this.state.currentTicket = ticket.name;
 
       try {
-        this.touch("plan", `Executando ciclo Codex para ${ticket}`);
-        await this.codexClient.runTicketFlow(ticket);
-        this.touch("close-and-version", `Ciclo finalizado para ${ticket}`);
+        this.touch("plan", `Gerando ExecPlan para ${ticket.name}`);
+        const execPlanPath = await this.codexClient.runTicketFlow(ticket);
+
+        this.touch("implement", `Implementação validada para ${ticket.name}`);
+
+        this.touch("close-and-version", `Fechando ticket ${ticket.name}`);
+        await this.queue.closeTicket(ticket);
+        await this.gitVersioning.commitTicketClosure(ticket.name, execPlanPath);
+
+        this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
       } catch (error) {
-        this.touch("error", `Falha ao processar ${ticket}`);
+        this.touch("error", `Falha ao processar ${ticket.name}`);
         this.logger.error("Erro no ciclo de ticket", {
-          ticket,
+          ticket: ticket.name,
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
