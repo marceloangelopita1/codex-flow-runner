@@ -8,10 +8,9 @@ Runner de tickets com **Node.js + TypeScript** para executar um fluxo **sequenci
 4. criar commit git no mesmo ciclo;
 5. expor status e controle por Telegram.
 
-## Status atual (MVP funcional)
+## Status atual
 
-O projeto já executa o ciclo completo de fila + fechamento + versionamento.
-A implementação de Codex está em modo local (`LocalCodexTicketFlowClient`), gerando ExecPlan automaticamente com base no ticket.
+O projeto executa o ciclo sequencial por ticket com chamadas reais ao Codex CLI (`plan -> implement -> close-and-version`), mantendo controle operacional por Telegram.
 
 ## Estrutura
 
@@ -31,11 +30,15 @@ Pastas esperadas no repositório alvo:
 
 ## Variáveis de ambiente
 
+- `CODEX_API_KEY` (**obrigatório**)
 - `TELEGRAM_BOT_TOKEN` (**obrigatório**)
 - `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
 - `REPO_PATH` (opcional, padrão: diretório atual)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
 - `GIT_AUTO_PUSH` (opcional, padrão: `false`)
+
+Pré-requisito operacional:
+- `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).
 
 ## Scripts
 

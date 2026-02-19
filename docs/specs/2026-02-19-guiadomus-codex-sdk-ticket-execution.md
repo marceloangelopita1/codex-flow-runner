@@ -2,17 +2,17 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-guiadomus-codex-sdk-ticket-execution
-- Status: approved
+- Status: partially_attended
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 11:59Z
+- Last reviewed at (UTC): 2026-02-19 12:13Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 - Related execplans:
-  - A definir
+  - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
 - Related commits:
   - A definir
 
@@ -49,27 +49,30 @@
 - [ ] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: partially_attended
 - Itens atendidos:
   - Comando `/run-all` inicia processamento sequencial e evita rodada concorrente.
-  - Fechamento de ticket move `tickets/open -> tickets/closed` dentro do mesmo ciclo de commit.
+  - Integracao usa Codex CLI real por etapa (`plan`, `implement`, `close-and-version`) em `src/integrations/codex-client.ts`.
+  - Runner executa as tres etapas operacionais por ticket com rastreabilidade de fase e erro contextual no stage.
+  - Fluxo principal agora possui cobertura de contrato para ordem de etapas e falha por etapa no runner.
   - Fluxo atual opera corretamente quando o repositorio alvo usa `execplans/`.
 - Pendencias em aberto:
-  - Integracao ainda usa `LocalCodexTicketFlowClient` (MVP local), sem execucao real dos prompts `plan`, `implement` e `close-and-version`.
   - Rodada `/run-all` nao encerra quando a fila termina; o loop permanece em polling continuo.
   - Em erro de ticket, o runner nao interrompe a rodada no primeiro erro.
-  - Push apos commit de fechamento esta condicionado a `GIT_AUTO_PUSH` (default `false`), divergindo do requisito de push automatico por ticket.
+  - Nao ha validacao programatica no runner confirmando commit/push ao final de `close-and-version`; a garantia operacional ainda depende de completar o fluxo de rodada/versao nos tickets restantes.
   - Compatibilidade com repositorios baseados em `plans/` ainda nao foi implementada.
-  - Nao ha cobertura de testes de integracao/contrato para o fluxo principal de tickets.
 - Evidencias de validacao:
+  - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - src/core/runner.ts
+  - src/core/runner.test.ts
   - src/integrations/codex-client.ts
+  - src/integrations/codex-client.test.ts
   - src/integrations/git-client.ts
   - src/integrations/ticket-queue.ts
   - src/config/env.ts
   - src/main.ts
   - src/integrations/telegram-bot.test.ts
-  - tickets/open/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 
@@ -86,3 +89,4 @@
 ## Historico de atualizacao
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
 - 2026-02-19 11:59Z - Revisao de gaps de implementacao concluida com abertura de tickets de follow-up.
+- 2026-02-19 12:13Z - Integracao real por etapas com Codex CLI e testes de contrato do fluxo principal implementados.

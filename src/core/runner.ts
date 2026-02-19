@@ -1,9 +1,12 @@
 import { AppEnv } from "../config/env.js";
 import { RunnerState, createInitialState } from "../types/state.js";
 import { Logger } from "./logger.js";
-import { CodexTicketFlowClient } from "../integrations/codex-client.js";
-import { TicketQueue } from "../integrations/ticket-queue.js";
-import { GitVersioning } from "../integrations/git-client.js";
+import {
+  CodexStageExecutionError,
+  CodexTicketFlowClient,
+  TicketFlowStage,
+} from "../integrations/codex-client.js";
+import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
@@ -14,7 +17,6 @@ export class TicketRunner {
     private readonly logger: Logger,
     private readonly queue: TicketQueue,
     private readonly codexClient: CodexTicketFlowClient,
-    private readonly gitVersioning: GitVersioning,
   ) {}
 
   getState = (): RunnerState => ({ ...this.state });
@@ -67,7 +69,7 @@ export class TicketRunner {
         continue;
       }
 
-      this.touch("select-ticket", "Buscando próximo ticket aberto");
+      this.touch("select-ticket", "Buscando proximo ticket aberto");
       const ticket = await this.queue.nextOpenTicket();
 
       if (!ticket) {
@@ -76,34 +78,55 @@ export class TicketRunner {
         continue;
       }
 
-      this.state.currentTicket = ticket.name;
-
-      try {
-        this.touch("plan", `Gerando ExecPlan para ${ticket.name}`);
-        const execPlanPath = await this.codexClient.runTicketFlow(ticket);
-
-        this.touch("implement", `Implementação validada para ${ticket.name}`);
-
-        this.touch("close-and-version", `Fechando ticket ${ticket.name}`);
-        await this.queue.closeTicket(ticket);
-        await this.gitVersioning.commitTicketClosure(ticket.name, execPlanPath);
-
-        this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
-      } catch (error) {
-        this.touch("error", `Falha ao processar ${ticket.name}`);
-        this.logger.error("Erro no ciclo de ticket", {
-          ticket: ticket.name,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        this.state.currentTicket = null;
-      }
+      await this.processTicket(ticket);
     }
   }
 
   shutdown(): void {
     this.state.isRunning = false;
     this.touch("idle", "Desligamento solicitado");
+  }
+
+  private async processTicket(ticket: TicketRef): Promise<void> {
+    this.state.currentTicket = ticket.name;
+
+    try {
+      await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
+      await this.runStage("implement", ticket, `Executando etapa implement para ${ticket.name}`);
+      await this.runStage(
+        "close-and-version",
+        ticket,
+        `Executando etapa close-and-version para ${ticket.name}`,
+      );
+
+      this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+    } catch (error) {
+      const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
+      this.touch("error", `Falha ao processar ${ticket.name}`);
+      this.logger.error("Erro no ciclo de ticket", {
+        ticket: ticket.name,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.state.currentTicket = null;
+    }
+  }
+
+  private async runStage(
+    stage: TicketFlowStage,
+    ticket: TicketRef,
+    message: string,
+  ): Promise<void> {
+    this.touch(stage, message);
+
+    const result = await this.codexClient.runStage(stage, ticket);
+    if (result.execPlanPath) {
+      this.logger.info("ExecPlan reportado pela etapa plan", {
+        ticket: ticket.name,
+        execPlanPath: result.execPlanPath,
+      });
+    }
   }
 
   private touch(phase: RunnerState["phase"], message: string): void {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  CODEX_API_KEY: z.string().min(1).optional(),
+  CODEX_API_KEY: z.string().min(1),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1).optional(),
   REPO_PATH: z.string().min(1).default(process.cwd()),
@@ -18,7 +18,7 @@ export const loadEnv = (): AppEnv => {
     const details = parsed.error.issues
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
       .join("; ");
-    throw new Error(`Configuração inválida de ambiente: ${details}`);
+    throw new Error(`Configuracao invalida de ambiente: ${details}`);
   }
 
   return parsed.data;
