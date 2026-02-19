@@ -20,6 +20,11 @@ const ticket: TicketRef = {
   closedPath: "/tmp/tickets/closed/2026-02-19-example-ticket.md",
 };
 
+const spec = {
+  fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+  path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+};
+
 test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
   let capturedPrompt = "";
   let capturedEnv: NodeJS.ProcessEnv | undefined;
@@ -97,6 +102,51 @@ test("runStage(plan) adapta caminho esperado para repositorio com plans", async 
   assert.equal(result.execPlanPath, "plans/2026-02-19-example-ticket.md");
   assert.match(capturedPrompt, /Salve o plano em `plans\/<yyyy-mm-dd>-<slug>\.md`/u);
   assert.match(capturedPrompt, /ExecPlan esperado: `plans\/2026-02-19-example-ticket\.md`/u);
+});
+
+test("runSpecStage(spec-triage) substitui placeholder <SPEC_PATH>", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "",
+        "SPEC alvo:",
+        "- <SPEC_PATH>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-triage", spec);
+
+  assert.equal(result.stage, "spec-triage");
+  assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.doesNotMatch(capturedPrompt, /<SPEC_PATH>/u);
+});
+
+test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Status attended", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-close-and-version", spec);
+
+  assert.equal(result.stage, "spec-close-and-version");
+  assert.match(
+    capturedPrompt,
+    /chore\(specs\): triage 2026-02-19-approved-spec-triage-run-specs\.md/u,
+  );
+  assert.match(capturedPrompt, /Status: attended/u);
+  assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
 });
 
 test("ensureAuthenticated falha com instrucao de codex login quando sessao esta ausente", async () => {

@@ -6,6 +6,8 @@ import {
   CodexStageExecutionError,
   CodexStageResult,
   CodexTicketFlowClient,
+  SpecFlowStage,
+  SpecRef,
   TicketFlowStage,
 } from "../integrations/codex-client.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
@@ -31,14 +33,25 @@ class SpyLogger extends Logger {
 }
 
 class StubCodexClient implements CodexTicketFlowClient {
-  public readonly calls: Array<{ stage: TicketFlowStage; ticketName: string }> = [];
+  public readonly calls: Array<{
+    stage: TicketFlowStage | SpecFlowStage;
+    ticketName: string;
+    target: "ticket" | "spec";
+  }> = [];
   public authChecks = 0;
 
   constructor(
-    private readonly shouldFail?: (stage: TicketFlowStage, ticket: TicketRef) => boolean,
+    private readonly shouldFail?: (
+      stage: TicketFlowStage | SpecFlowStage,
+      target: { name: string },
+    ) => boolean,
     private readonly includeExecPlanPath = true,
     private readonly failAuthentication = false,
     private readonly authDelayMs = 0,
+    private readonly onStageStart?: (
+      stage: TicketFlowStage | SpecFlowStage,
+      target: { name: string },
+    ) => void,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -52,9 +65,10 @@ class StubCodexClient implements CodexTicketFlowClient {
   }
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
-    this.calls.push({ stage, ticketName: ticket.name });
+    this.calls.push({ stage, ticketName: ticket.name, target: "ticket" });
+    this.onStageStart?.(stage, { name: ticket.name });
 
-    if (this.shouldFail?.(stage, ticket)) {
+    if (this.shouldFail?.(stage, { name: ticket.name })) {
       throw new CodexStageExecutionError(ticket.name, stage, "falha simulada");
     }
 
@@ -64,6 +78,20 @@ class StubCodexClient implements CodexTicketFlowClient {
       ...(stage === "plan" && this.includeExecPlanPath
         ? { execPlanPath: `execplans/${ticket.name.replace(/\.md$/u, "")}.md` }
         : {}),
+    };
+  }
+
+  async runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult> {
+    this.calls.push({ stage, ticketName: spec.fileName, target: "spec" });
+    this.onStageStart?.(stage, { name: spec.fileName });
+
+    if (this.shouldFail?.(stage, { name: spec.fileName })) {
+      throw new CodexStageExecutionError(spec.fileName, stage, "falha simulada");
+    }
+
+    return {
+      stage,
+      output: `ok:${stage}`,
     };
   }
 }
@@ -125,6 +153,8 @@ const ticketB: TicketRef = {
   openPath: "/tmp/repo/tickets/open/2026-02-19-flow-b.md",
   closedPath: "/tmp/repo/tickets/closed/2026-02-19-flow-b.md",
 };
+
+const specFileName = "2026-02-19-approved-spec-triage-run-specs.md";
 
 const createSummaryCollector = (options: { failSend?: boolean } = {}) => {
   const summaries: TicketFinalSummary[] = [];
@@ -717,6 +747,205 @@ test("requestRunAll evita corrida durante preflight de autenticacao", async () =
   await waitForRunnerToStop(runner);
   assert.equal(codex.authChecks, 1);
   assert.equal(resolveCalls, 1);
+});
+
+test("requestRunSpecs evita corrida durante preflight de autenticacao", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, true, false, 20);
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  let resolveCalls = 0;
+  const runner = createRunner(logger, roundDependencies, {
+    resolveRoundDependencies: async () => {
+      resolveCalls += 1;
+      return roundDependencies;
+    },
+  });
+
+  const firstRequest = runner.requestRunSpecs(specFileName);
+  const secondRequest = runner.requestRunSpecs(specFileName);
+
+  const [firstResult, secondResult] = await Promise.all([firstRequest, secondRequest]);
+  assert.deepEqual(firstResult, { status: "started" });
+  assert.deepEqual(secondResult, { status: "already-running" });
+
+  await waitForRunnerToStop(runner);
+  assert.equal(codex.authChecks, 1);
+  assert.equal(resolveCalls, 1);
+});
+
+test("requestRunSpecs bloqueia rodada de tickets quando spec-close-and-version falha", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
+  const gitVersioning = new StubGitVersioning();
+  let ensureStructureCalls = 0;
+  let nextTicketCalls = 0;
+  const queue: TicketQueue = {
+    ensureStructure: async () => {
+      ensureStructureCalls += 1;
+    },
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return ticketA;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies);
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(
+    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+    [
+      `spec:${specFileName}:spec-triage`,
+      `spec:${specFileName}:spec-close-and-version`,
+    ],
+  );
+  assert.equal(ensureStructureCalls, 0);
+  assert.equal(nextTicketCalls, 0);
+  assert.equal(gitVersioning.syncChecks, 0);
+
+  const state = runner.getState();
+  assert.equal(state.isRunning, false);
+  assert.equal(state.phase, "error");
+  assert.equal(state.currentSpec, null);
+  assert.match(state.lastMessage, /rodada \/run-all bloqueada/u);
+  assert.equal(logger.errors.length, 1);
+  assert.equal(logger.errors[0]?.message, "Erro no ciclo de triagem de spec");
+});
+
+test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+
+      if (nextTicketCalls === 2) {
+        return ticketB;
+      }
+
+      return null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(
+    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+    [
+      `spec:${specFileName}:spec-triage`,
+      `spec:${specFileName}:spec-close-and-version`,
+      `ticket:${ticketA.name}:plan`,
+      `ticket:${ticketA.name}:implement`,
+      `ticket:${ticketA.name}:close-and-version`,
+      `ticket:${ticketB.name}:plan`,
+      `ticket:${ticketB.name}:implement`,
+      `ticket:${ticketB.name}:close-and-version`,
+    ],
+  );
+  assert.equal(nextTicketCalls, 3);
+  assert.equal(gitVersioning.syncChecks, 2);
+  assert.equal(summaries.length, 2);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[1]?.ticket, ticketB.name);
+
+  const state = runner.getState();
+  assert.equal(state.isRunning, false);
+  assert.equal(state.phase, "idle");
+  assert.equal(state.currentSpec, null);
+  assert.equal(state.lastMessage, "Rodada /run-all finalizada: nenhum ticket aberto restante");
+});
+
+test("requestRunSpecs expoe fase e currentSpec durante triagem e transita para fase de ticket", async () => {
+  const logger = new SpyLogger();
+  const stageSnapshots: Array<{
+    stage: TicketFlowStage | SpecFlowStage;
+    phase: string;
+    currentSpec: string | null;
+    currentTicket: string | null;
+  }> = [];
+  let runner: TicketRunner | null = null;
+  const codex = new StubCodexClient(
+    undefined,
+    true,
+    false,
+    0,
+    (stage) => {
+      if (!runner) {
+        return;
+      }
+      const state = runner.getState();
+      stageSnapshots.push({
+        stage,
+        phase: state.phase,
+        currentSpec: state.currentSpec,
+        currentTicket: state.currentTicket,
+      });
+    },
+  );
+  let nextTicketCalls = 0;
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  runner = createRunner(logger, roundDependencies);
+
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  const specSnapshot = stageSnapshots.find((value) => value.stage === "spec-triage");
+  const ticketSnapshot = stageSnapshots.find((value) => value.stage === "plan");
+  assert.equal(specSnapshot?.phase, "spec-triage");
+  assert.equal(specSnapshot?.currentSpec, specFileName);
+  assert.equal(specSnapshot?.currentTicket, null);
+  assert.equal(ticketSnapshot?.phase, "plan");
+  assert.equal(ticketSnapshot?.currentSpec, null);
+  assert.equal(ticketSnapshot?.currentTicket, ticketA.name);
 });
 
 test("runner falha quando etapa plan nao retorna execPlanPath obrigatorio", async () => {

@@ -1,7 +1,7 @@
 # [TICKET] Fluxo /run_specs nao executa triagem de spec nem encadeia run_all
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 19:39Z
@@ -15,6 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-approved-spec-triage-run-specs.md
+  - ExecPlan: execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/types/state.ts`, `prompts/`
@@ -77,6 +78,6 @@ Nao obrigatorio. Entrega detalhada deve ser formalizada em ExecPlan.
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec de triagem de specs approved (`/run_specs`).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 19:59Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md (commit deste fechamento; PR N/A)

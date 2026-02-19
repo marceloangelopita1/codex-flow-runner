@@ -4,7 +4,7 @@ import {
   ProjectSelectionSnapshot,
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
-import type { RunAllRequestResult } from "../core/runner.js";
+import type { RunAllRequestResult, RunSpecsRequestResult } from "../core/runner.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
 import {
@@ -14,6 +14,7 @@ import {
 
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
+  runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   pause: () => void;
   resume: () => void;
   listProjects: () => Promise<ProjectSelectionSnapshot> | ProjectSelectionSnapshot;
@@ -111,6 +112,8 @@ type ParsedProjectsCallbackData =
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
+const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
+const RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const UNKNOWN_COMMAND_REPLY = "ℹ️ Comando não reconhecido. Use /start para ver os comandos válidos.";
 const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
@@ -141,6 +144,7 @@ const START_REPLY_LINES = [
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
+  "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
   "/status - mostra o estado atual do runner",
   "/pause - pausa após a etapa corrente",
   "/resume - retoma execução",
@@ -230,6 +234,10 @@ export class TelegramController {
 
     this.bot.hears(RUN_ALL_LEGACY_PATTERN, async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run-all");
+    });
+
+    this.bot.command("run_specs", async (ctx) => {
+      await this.handleRunSpecsCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("status", async (ctx) => {
@@ -340,6 +348,41 @@ export class TelegramController {
     const outcome = await this.buildRunAllReply({
       chatId,
       command,
+    });
+    if (outcome.started) {
+      this.captureNotificationChat(chatId);
+    }
+
+    await ctx.reply(outcome.reply);
+  }
+
+  private async handleRunSpecsCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /run_specs recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "run_specs",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const specFileName = this.parseRunSpecsCommandFileName(ctx.message?.text);
+    if (!specFileName) {
+      await ctx.reply(RUN_SPECS_USAGE_REPLY);
+      return;
+    }
+
+    const outcome = await this.buildRunSpecsReply({
+      chatId,
+      specFileName,
     });
     if (outcome.started) {
       this.captureNotificationChat(chatId);
@@ -517,6 +560,20 @@ export class TelegramController {
     }
 
     const match = commandText.match(/^\/(?:select-project|select_project)(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const value = match?.[1]?.trim();
+    if (!value) {
+      return null;
+    }
+
+    return value;
+  }
+
+  private parseRunSpecsCommandFileName(commandText?: string): string | null {
+    if (!commandText) {
+      return null;
+    }
+
+    const match = commandText.match(/^\/run_specs(?:@[^\s]+)?(?:\s+(.+))?$/u);
     const value = match?.[1]?.trim();
     if (!value) {
       return null;
@@ -716,6 +773,41 @@ export class TelegramController {
     };
   }
 
+  private async buildRunSpecsReply(context: {
+    chatId: string;
+    specFileName: string;
+  }): Promise<{ reply: string; started: boolean }> {
+    const result = await this.controls.runSpecs(context.specFileName);
+    const logContext = {
+      commandStatus: result.status,
+      chatId: context.chatId,
+      specFileName: context.specFileName,
+      ...(result.status === "blocked" ? { reason: result.reason } : {}),
+    };
+
+    if (result.status === "started") {
+      this.logger.info("Comando /run_specs aceito e fluxo iniciado", logContext);
+      return {
+        reply: `▶️ Runner iniciado via /run_specs para ${context.specFileName}.`,
+        started: true,
+      };
+    }
+
+    if (result.status === "already-running") {
+      this.logger.warn("Comando /run_specs ignorado: rodada ja em execucao", logContext);
+      return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false };
+    }
+
+    this.logger.warn("Comando /run_specs bloqueado", {
+      ...logContext,
+      message: result.message,
+    });
+    return {
+      reply: `${RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
+      started: false,
+    };
+  }
+
   private buildStartReply(): string {
     return START_REPLY_LINES.join("\n");
   }
@@ -801,6 +893,7 @@ export class TelegramController {
       `Pausado: ${state.isPaused ? "sim" : "não"}`,
       `Fase: ${state.phase}`,
       `Ticket atual: ${state.currentTicket ?? "nenhum"}`,
+      `Spec atual: ${state.currentSpec ?? "nenhuma"}`,
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Última mensagem: ${state.lastMessage}`,

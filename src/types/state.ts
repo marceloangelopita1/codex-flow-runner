@@ -3,6 +3,9 @@ import { ProjectRef } from "./project.js";
 
 export type RunnerPhase =
   | "idle"
+  | "select-spec"
+  | "spec-triage"
+  | "spec-close-and-version"
   | "select-ticket"
   | "plan"
   | "implement"
@@ -19,6 +22,7 @@ export interface RunnerState {
   isRunning: boolean;
   isPaused: boolean;
   currentTicket: string | null;
+  currentSpec: string | null;
   activeProject: ProjectRef | null;
   phase: RunnerPhase;
   lastMessage: string;
@@ -30,6 +34,7 @@ export const createInitialState = (activeProject: ProjectRef | null = null): Run
   isRunning: false,
   isPaused: false,
   currentTicket: null,
+  currentSpec: null,
   activeProject: activeProject ? { ...activeProject } : null,
   phase: "idle",
   lastMessage: "Runner inicializado",

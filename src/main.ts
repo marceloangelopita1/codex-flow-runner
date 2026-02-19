@@ -85,6 +85,7 @@ const bootstrap = async () => {
     runner.getState,
     {
       runAll: runner.requestRunAll,
+      runSpecs: runner.requestRunSpecs,
       pause: runner.requestPause,
       resume: runner.requestResume,
       listProjects: projectSelection.listProjects.bind(projectSelection),

@@ -6,14 +6,14 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 19:34Z
-- Last reviewed at (UTC): 2026-02-19 19:41Z
+- Last reviewed at (UTC): 2026-02-19 19:57Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
+  - tickets/closed/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
   - tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
   - tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 - Related execplans:
-  - A definir
+  - execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
 - Related commits:
   - A definir
 
@@ -57,17 +57,17 @@
 
 ## Criterios de aceitacao (observaveis)
 - [ ] CA-01 - `/specs` lista apenas arquivos de `docs/specs/` com `Status: approved` e `Spec treatment: pending`.
-- [ ] CA-02 - `/run_specs` sem argumento retorna mensagem de uso e nao inicia execucao.
+- [x] CA-02 - `/run_specs` sem argumento retorna mensagem de uso e nao inicia execucao.
 - [ ] CA-03 - `/run_specs <arquivo>` com spec inexistente ou nao elegivel retorna bloqueio explicito e nao inicia execucao.
-- [ ] CA-04 - Durante rodada ativa, `/run_specs` responde `already-running` e nao inicia novo fluxo.
-- [ ] CA-05 - Na etapa de triagem, o prompt 01 recebe `<SPEC_PATH>` substituido por `docs/specs/<arquivo>`.
-- [ ] CA-06 - A etapa de fechamento da triagem executa commit/push com mensagem `chore(specs): triage <arquivo-da-spec.md>`.
-- [ ] CA-07 - Sem sucesso no commit/push da triagem, `run_all` nao e iniciado.
-- [ ] CA-08 - Com sucesso no commit/push da triagem, `run_all` inicia automaticamente na mesma solicitacao.
-- [ ] CA-09 - A rodada resultante processa tickets ja existentes alem dos criados pela triagem.
-- [ ] CA-10 - `/status` reflete fase e contexto de spec durante triagem e volta para fases de ticket no `run_all`.
+- [x] CA-04 - Durante rodada ativa, `/run_specs` responde `already-running` e nao inicia novo fluxo.
+- [x] CA-05 - Na etapa de triagem, o prompt 01 recebe `<SPEC_PATH>` substituido por `docs/specs/<arquivo>`.
+- [x] CA-06 - A etapa de fechamento da triagem executa commit/push com mensagem `chore(specs): triage <arquivo-da-spec.md>`.
+- [x] CA-07 - Sem sucesso no commit/push da triagem, `run_all` nao e iniciado.
+- [x] CA-08 - Com sucesso no commit/push da triagem, `run_all` inicia automaticamente na mesma solicitacao.
+- [x] CA-09 - A rodada resultante processa tickets ja existentes alem dos criados pela triagem.
+- [x] CA-10 - `/status` reflete fase e contexto de spec durante triagem e volta para fases de ticket no `run_all`.
 - [ ] CA-11 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao executam `/specs` nem `/run_specs`.
-- [ ] CA-12 - Specs sem gaps sao atualizadas para `Status: attended` antes do commit/push da triagem.
+- [x] CA-12 - Specs sem gaps sao atualizadas para `Status: attended` antes do commit/push da triagem.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -76,8 +76,13 @@
   - O projeto ja possui prompt base de avaliacao de spec com placeholder `<SPEC_PATH>` (`prompts/01-avaliar-spec-e-gerar-tickets.md`).
   - O bot Telegram ja aplica controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID`.
   - A fila atual ja processa backlog aberto com prioridade (`P0` -> `P1` -> `P2`) no ciclo de tickets.
+  - Fluxo `/run_specs <arquivo-da-spec.md>` implementado com gate unico de concorrencia (`already-running`) e validacao de uso sem argumento.
+  - Runner ampliado com fases de spec (`select-spec`, `spec-triage`, `spec-close-and-version`) e campo `currentSpec` no estado.
+  - Triagem de spec executa `prompts/01-avaliar-spec-e-gerar-tickets.md` com substituicao de `<SPEC_PATH>`.
+  - Fechamento da triagem integrado com novo prompt `prompts/05-encerrar-tratamento-spec-commit-push.md` e commit padrao `chore(specs): triage <arquivo-da-spec.md>`.
+  - Fail-gate implementado: falha em `spec-close-and-version` bloqueia rodada de tickets; sucesso encadeia `/run_all` automaticamente.
+  - `/status` agora exibe `Spec atual` durante triagem e transicao para fases de ticket apos handoff.
 - Pendencias em aberto:
-  - [P0/S1] Implementar fluxo fim-a-fim de `/run_specs` com etapas `spec-triage`/`spec-close-and-version`, commit message padrao, fail-gate e encadeamento automatico para `/run_all` (`tickets/open/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md`).
   - [P1/S2] Implementar descoberta/listagem de specs elegiveis e validacoes de entrada/elegibilidade para comandos `/specs` e `/run_specs <arquivo>` com bloqueio explicito (`tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md`).
   - [P2/S3] Padronizar metadata `Spec treatment` em todas as specs e no template oficial para eliminar ambiguidade de elegibilidade (`tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md`).
 - Evidencias de validacao:
@@ -94,6 +99,7 @@
   - src/types/state.ts
   - src/main.ts
   - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/05-encerrar-tratamento-spec-commit-push.md
   - prompts/04-encerrar-ticket-commit-push.md
   - SPECS.md
   - docs/specs/templates/spec-template.md
@@ -114,3 +120,4 @@
 ## Historico de atualizacao
 - 2026-02-19 19:34Z - Versao inicial da spec criada com escopo fechado para triagem de specs approved pendentes com execucao automatica de tickets.
 - 2026-02-19 19:41Z - Revisao de gaps concluida com abertura de 3 tickets (orquestracao `/run_specs`, listagem/elegibilidade `/specs` e baseline de metadata `Spec treatment`).
+- 2026-02-19 19:57Z - Fluxo `/run_specs` implementado e validado com fail-gate, handoff para `/run_all`, novo prompt `05` e cobertura de testes para CA-02, CA-04..CA-10 e CA-12.

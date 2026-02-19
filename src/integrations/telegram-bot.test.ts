@@ -28,6 +28,7 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   isRunning: false,
   isPaused: false,
   currentTicket: null,
+  currentSpec: null,
   activeProject: {
     name: "codex-flow-runner",
     path: "/home/mapita/projetos/codex-flow-runner",
@@ -43,6 +44,7 @@ type ControlCommand =
   | "start"
   | "run_all"
   | "run-all"
+  | "run_specs"
   | "status"
   | "pause"
   | "resume"
@@ -54,6 +56,8 @@ interface ControllerOptions {
   allowedChatId?: string;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
+  runSpecsStatus?: "started" | "already-running" | "blocked";
+  runSpecsMessage?: string;
   getState?: () => RunnerState;
   projectSnapshot?: ProjectSelectionSnapshot;
   listProjectsErrorMessage?: string;
@@ -95,6 +99,8 @@ const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
   const controlState = {
     runAllCalls: 0,
+    runSpecsCalls: 0,
+    runSpecsArgs: [] as string[],
     listProjectsCalls: 0,
     selectedProjectNames: [] as string[],
   };
@@ -115,6 +121,25 @@ const createController = (options: ControllerOptions = {}) => {
           reason: "codex-auth-missing" as const,
           message:
             options.runAllMessage ??
+            "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
+        };
+      }
+
+      return { status: "started" as const };
+    },
+    runSpecs: (specFileName: string) => {
+      controlState.runSpecsCalls += 1;
+      controlState.runSpecsArgs.push(specFileName);
+      if (options.runSpecsStatus === "already-running") {
+        return { status: "already-running" as const };
+      }
+
+      if (options.runSpecsStatus === "blocked") {
+        return {
+          status: "blocked" as const,
+          reason: "codex-auth-missing" as const,
+          message:
+            options.runSpecsMessage ??
             "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
         };
       }
@@ -225,6 +250,23 @@ const callBuildRunAllReply = async (
   return internalController.buildRunAllReply();
 };
 
+const callBuildRunSpecsReply = async (
+  controller: TelegramController,
+  specFileName: string,
+): Promise<{ reply: string; started: boolean }> => {
+  const internalController = controller as unknown as {
+    buildRunSpecsReply: (context: {
+      chatId: string;
+      specFileName: string;
+    }) => Promise<{ reply: string; started: boolean }>;
+  };
+
+  return internalController.buildRunSpecsReply({
+    chatId: "42",
+    specFileName,
+  });
+};
+
 const callBuildStartReply = (controller: TelegramController): string => {
   const internalController = controller as unknown as {
     buildStartReply: () => string;
@@ -289,6 +331,25 @@ const callHandleSelectProjectCommand = async (
   };
 
   await internalController.handleSelectProjectCommand(context, command);
+};
+
+const callHandleRunSpecsCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleRunSpecsCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleRunSpecsCommand(context);
 };
 
 const callHandleProjectsCallbackQuery = async (
@@ -456,6 +517,55 @@ test("gera resposta acionavel quando /run-all e bloqueado por autenticacao", asy
   assert.equal(controlState.runAllCalls, 1);
 });
 
+test("gera resposta de inicio ao executar /run_specs", async () => {
+  const { controller, controlState } = createController({ runSpecsStatus: "started" });
+
+  const reply = await callBuildRunSpecsReply(
+    controller,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+
+  assert.equal(
+    reply.reply,
+    "▶️ Runner iniciado via /run_specs para 2026-02-19-approved-spec-triage-run-specs.md.",
+  );
+  assert.equal(reply.started, true);
+  assert.equal(controlState.runSpecsCalls, 1);
+  assert.deepEqual(controlState.runSpecsArgs, ["2026-02-19-approved-spec-triage-run-specs.md"]);
+});
+
+test("gera resposta de ja em execucao quando /run_specs nao inicia novo fluxo", async () => {
+  const { controller, controlState } = createController({ runSpecsStatus: "already-running" });
+
+  const reply = await callBuildRunSpecsReply(
+    controller,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+
+  assert.equal(reply.reply, "ℹ️ Runner já está em execução.");
+  assert.equal(reply.started, false);
+  assert.equal(controlState.runSpecsCalls, 1);
+});
+
+test("gera resposta acionavel quando /run_specs e bloqueado", async () => {
+  const { controller, controlState } = createController({
+    runSpecsStatus: "blocked",
+    runSpecsMessage: "Codex CLI nao autenticado. Execute `codex login` e tente novamente.",
+  });
+
+  const reply = await callBuildRunSpecsReply(
+    controller,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+
+  assert.equal(
+    reply.reply,
+    "❌ Codex CLI nao autenticado. Execute `codex login` e tente novamente.",
+  );
+  assert.equal(reply.started, false);
+  assert.equal(controlState.runSpecsCalls, 1);
+});
+
 test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   const { controller } = createController();
 
@@ -466,12 +576,71 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/start/u);
   assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
+  assert.match(reply, /\/run_specs/u);
   assert.match(reply, /\/status/u);
   assert.match(reply, /\/pause/u);
   assert.match(reply, /\/resume/u);
   assert.match(reply, /\/projects/u);
   assert.match(reply, /\/select_project/u);
   assert.match(reply, /\/select-project/u);
+});
+
+test("/run_specs sem argumento retorna mensagem de uso e nao inicia execucao", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.");
+});
+
+test("/run_specs com argumento inicia fluxo de triagem", async () => {
+  const { controller, controlState } = createController({ runSpecsStatus: "started" });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.runSpecsCalls, 1);
+  assert.deepEqual(controlState.runSpecsArgs, ["2026-02-19-approved-spec-triage-run-specs.md"]);
+  assert.equal(replies.length, 1);
+  assert.equal(
+    replies[0],
+    "▶️ Runner iniciado via /run_specs para 2026-02-19-approved-spec-triage-run-specs.md.",
+  );
+});
+
+test("/run_specs retorna already-running quando runner ja esta ocupado", async () => {
+  const { controller, controlState } = createController({ runSpecsStatus: "already-running" });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.runSpecsCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Runner já está em execução.");
 });
 
 test("/projects responde lista paginada com marcador de projeto ativo", async () => {
@@ -795,6 +964,7 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
 
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: 2026-02-19-flow-a\.md \(success\)/u);
   assert.match(reply, /Projeto notificado: codex-flow-runner/u);
   assert.match(reply, /Caminho notificado: \/home\/mapita\/projetos\/codex-flow-runner/u);
@@ -809,5 +979,23 @@ test("status informa ausencia de evento notificado", () => {
 
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: nenhum/u);
+});
+
+test("status exibe spec atual durante triagem", () => {
+  const { controller } = createController();
+
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      isRunning: true,
+      phase: "spec-triage",
+      currentSpec: "2026-02-19-approved-spec-triage-run-specs.md",
+      currentTicket: null,
+    }),
+  );
+
+  assert.match(reply, /Fase: spec-triage/u);
+  assert.match(reply, /Spec atual: 2026-02-19-approved-spec-triage-run-specs\.md/u);
 });

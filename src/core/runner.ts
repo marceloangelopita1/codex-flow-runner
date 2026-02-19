@@ -12,7 +12,10 @@ import {
   CodexStageResult,
   CodexStageExecutionError,
   CodexTicketFlowClient,
+  SpecFlowStage,
+  SpecRef,
   TicketFlowStage,
+  isTicketFlowStage,
 } from "../integrations/codex-client.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
@@ -33,11 +36,18 @@ export type RunnerRoundDependenciesResolver = () => Promise<RunnerRoundDependenc
 export type RunAllRequestResult =
   | { status: "started" }
   | { status: "already-running" }
-  | {
-      status: "blocked";
-      reason: "codex-auth-missing" | "active-project-unavailable";
-      message: string;
-    };
+  | RunnerRequestBlockedResult;
+
+export type RunSpecsRequestResult =
+  | { status: "started" }
+  | { status: "already-running" }
+  | RunnerRequestBlockedResult;
+
+type RunnerRequestBlockedResult = {
+  status: "blocked";
+  reason: "codex-auth-missing" | "active-project-unavailable";
+  message: string;
+};
 
 export class TicketRunner {
   private readonly state: RunnerState;
@@ -103,6 +113,7 @@ export class TicketRunner {
       activeProjectPath: project.path,
       phase: this.state.phase,
       currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
     });
 
     return { status: "updated" };
@@ -115,14 +126,16 @@ export class TicketRunner {
       isRunning: this.state.isRunning,
       isPaused: this.state.isPaused,
       currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
     });
 
-    if (this.state.isRunning || this.loopPromise || this.isStarting) {
+    if (this.isBusy()) {
       this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
         phase: this.state.phase,
         currentTicket: this.state.currentTicket,
+        currentSpec: this.state.currentSpec,
       });
       return { status: "already-running" };
     }
@@ -133,16 +146,114 @@ export class TicketRunner {
       activeProjectPath: this.state.activeProject?.path,
     });
 
+    const preflightOutcome = await this.prepareRoundStart("run-all");
+    if (preflightOutcome) {
+      this.isStarting = false;
+      return preflightOutcome;
+    }
+
+    this.startLoop(() => this.runForever());
+
+    this.logger.info("Rodada /run-all agendada no loop principal", {
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    return { status: "started" };
+  };
+
+  requestRunSpecs = async (specFileName: string): Promise<RunSpecsRequestResult> => {
+    const normalizedSpecFileName = this.normalizeSpecFileName(specFileName);
+    const spec: SpecRef = {
+      fileName: normalizedSpecFileName,
+      path: this.resolveSpecPath(normalizedSpecFileName),
+    };
+
+    this.logger.info("Solicitacao de triagem de spec recebida", {
+      command: "run-specs",
+      specFileName: spec.fileName,
+      specPath: spec.path,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      isPaused: this.state.isPaused,
+      currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    if (this.isBusy()) {
+      this.logger.warn("Comando /run_specs ignorado: runner ja esta em execucao", {
+        phase: this.state.phase,
+        currentTicket: this.state.currentTicket,
+        currentSpec: this.state.currentSpec,
+      });
+      return { status: "already-running" };
+    }
+
+    this.isStarting = true;
+    this.logger.info("Inicializando fluxo /run_specs", {
+      specFileName: spec.fileName,
+      specPath: spec.path,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    const preflightOutcome = await this.prepareRoundStart("run-specs");
+    if (preflightOutcome) {
+      this.isStarting = false;
+      return preflightOutcome;
+    }
+
+    this.startLoop(() => this.runSpecsAndRunAll(spec));
+
+    this.logger.info("Fluxo /run_specs agendado no loop principal", {
+      specFileName: spec.fileName,
+      specPath: spec.path,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    return { status: "started" };
+  };
+
+  private isBusy(): boolean {
+    return this.state.isRunning || Boolean(this.loopPromise) || this.isStarting;
+  }
+
+  private startLoop(loopFactory: () => Promise<void>): void {
+    this.state.isRunning = true;
+    this.loopPromise = loopFactory()
+      .catch((error) => {
+        this.state.isRunning = false;
+        this.touch("error", "Falha fatal no loop principal");
+        this.logger.error("Erro fatal no loop principal", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.loopPromise = null;
+        this.isStarting = false;
+        this.state.currentSpec = null;
+      });
+    this.isStarting = false;
+  }
+
+  private async prepareRoundStart(
+    source: "run-all" | "run-specs",
+  ): Promise<RunnerRequestBlockedResult | null> {
+    const command = source === "run-all" ? "/run-all" : "/run_specs";
+
     try {
       const roundDependencies = await this.resolveRoundDependencies();
       this.applyRoundDependencies(roundDependencies);
     } catch (error) {
-      const message = this.buildActiveProjectResolutionErrorMessage(error);
+      const message = this.buildActiveProjectResolutionErrorMessage(error, source);
       this.touch("error", message);
       this.logger.error("Falha ao resolver projeto ativo antes da rodada", {
+        command,
         error: error instanceof Error ? error.message : String(error),
       });
-      this.isStarting = false;
       return {
         status: "blocked",
         reason: "active-project-unavailable",
@@ -162,11 +273,11 @@ export class TicketRunner {
             ].join(" ");
       this.touch("error", message);
       this.logger.error("Falha de autenticacao do Codex CLI antes da rodada", {
+        command,
         error: error instanceof Error ? error.message : String(error),
         activeProjectName: this.state.activeProject?.name,
         activeProjectPath: this.state.activeProject?.path,
       });
-      this.isStarting = false;
       return {
         status: "blocked",
         reason: "codex-auth-missing",
@@ -174,32 +285,82 @@ export class TicketRunner {
       };
     }
 
-    this.logger.info("Autenticacao do Codex CLI validada para rodada /run-all", {
+    this.logger.info("Autenticacao do Codex CLI validada para rodada", {
+      command,
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
     });
 
-    this.state.isRunning = true;
-    this.loopPromise = this.runForever()
-      .catch((error) => {
-        this.state.isRunning = false;
-        this.touch("error", "Falha fatal no loop principal");
-        this.logger.error("Erro fatal no loop principal", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      })
-      .finally(() => {
-        this.loopPromise = null;
-        this.isStarting = false;
+    return null;
+  }
+
+  private async runSpecsAndRunAll(spec: SpecRef): Promise<void> {
+    const specStartedAt = Date.now();
+    this.state.currentSpec = spec.fileName;
+    this.touch("select-spec", `Triagem da spec ${spec.fileName} iniciada`);
+
+    try {
+      await this.runSpecStage(
+        "spec-triage",
+        spec,
+        `Executando etapa spec-triage para ${spec.fileName}`,
+      );
+      await this.runSpecStage(
+        "spec-close-and-version",
+        spec,
+        `Executando etapa spec-close-and-version para ${spec.fileName}`,
+      );
+      this.logger.info("Triagem de spec concluida com sucesso", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        durationMs: Date.now() - specStartedAt,
       });
-    this.isStarting = false;
-    this.logger.info("Rodada /run-all agendada no loop principal", {
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
-    });
+      this.state.currentSpec = null;
+      this.touch("idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
+      await this.runForever();
+    } catch (error) {
+      const stage =
+        error instanceof CodexStageExecutionError &&
+        (error.stage === "spec-triage" || error.stage === "spec-close-and-version")
+          ? error.stage
+          : undefined;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failedAtCloseAndVersion = stage === "spec-close-and-version";
+      this.state.isRunning = false;
+      this.touch(
+        "error",
+        failedAtCloseAndVersion
+          ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
+          : `Falha ao executar triagem da spec ${spec.fileName}`,
+      );
+      this.logger.error("Erro no ciclo de triagem de spec", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        stage,
+        error: errorMessage,
+        durationMs: Date.now() - specStartedAt,
+      });
+    } finally {
+      this.state.currentSpec = null;
+    }
+  }
 
-    return { status: "started" };
-  };
+  private normalizeSpecFileName(specFileName: string): string {
+    const trimmed = specFileName.trim();
+    if (trimmed.startsWith("docs/specs/")) {
+      return trimmed.slice("docs/specs/".length);
+    }
+
+    return trimmed;
+  }
+
+  private resolveSpecPath(specFileName: string): string {
+    if (specFileName.startsWith("docs/specs/")) {
+      return specFileName;
+    }
+
+    return `docs/specs/${specFileName}`;
+  }
 
   private async runForever(): Promise<void> {
     const roundStartedAt = Date.now();
@@ -317,7 +478,10 @@ export class TicketRunner {
       finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence, activeProject);
       return true;
     } catch (error) {
-      const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
+      const stage =
+        error instanceof CodexStageExecutionError && isTicketFlowStage(error.stage)
+          ? error.stage
+          : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.touch("error", `Falha ao processar ${ticket.name}`);
       this.logger.error("Erro no ciclo de ticket", {
@@ -469,6 +633,25 @@ export class TicketRunner {
     return result;
   }
 
+  private async runSpecStage(
+    stage: SpecFlowStage,
+    spec: SpecRef,
+    message: string,
+  ): Promise<CodexStageResult> {
+    const stageStartedAt = Date.now();
+    this.touch(stage, message);
+
+    const result = await this.codexClient.runSpecStage(stage, spec);
+    this.logger.info("Etapa de spec concluida no runner", {
+      spec: spec.fileName,
+      specPath: spec.path,
+      stage,
+      durationMs: Date.now() - stageStartedAt,
+    });
+
+    return result;
+  }
+
   private applyRoundDependencies(roundDependencies: RunnerRoundDependencies): void {
     this.queue = roundDependencies.queue;
     this.codexClient = roundDependencies.codexClient;
@@ -482,10 +665,14 @@ export class TicketRunner {
     });
   }
 
-  private buildActiveProjectResolutionErrorMessage(error: unknown): string {
+  private buildActiveProjectResolutionErrorMessage(
+    error: unknown,
+    source: "run-all" | "run-specs",
+  ): string {
     const details = error instanceof Error ? error.message : String(error);
+    const command = source === "run-all" ? "/run-all" : "/run_specs";
     return [
-      "Falha ao resolver projeto ativo para rodada /run-all.",
+      `Falha ao resolver projeto ativo para rodada ${command}.`,
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
       `Detalhes: ${details}`,
     ].join(" ");
@@ -498,6 +685,7 @@ export class TicketRunner {
     this.logger.info(message, {
       phase,
       currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
     });
