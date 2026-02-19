@@ -5,10 +5,11 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 10:53Z
+- Last reviewed at (UTC): 2026-02-19 11:32Z
 - Source: operational-gap
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-19-telegram-run-all-access-control-gap.md
+  - tickets/open/2026-02-19-telegram-access-audit-docs-tests-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -44,12 +45,20 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Escopo funcional e criterios de aceitacao aprovados para implementacao.
+  - `TELEGRAM_ALLOWED_CHAT_ID` ja existe como configuracao opcional de ambiente.
+  - Comandos `/status`, `/pause` e `/resume` ja validam `chat.id` antes da acao.
+  - Tentativas nao autorizadas ja geram warning com `chatId`.
 - Pendencias em aberto:
-  - Implementacao da validacao final para todos os comandos desta fase.
-  - Testes automatizados de acesso autorizado/nao autorizado.
+  - Implementar `/run-all` no bot e garantir validacao de acesso em toda superficie de controle prevista na jornada.
+  - Enriquecer log de tentativa nao autorizada com contexto minimo do evento para auditoria operacional.
+  - Documentar explicitamente modo restrito (`TELEGRAM_ALLOWED_CHAT_ID` definido) e modo sem restricao (`TELEGRAM_ALLOWED_CHAT_ID` ausente).
+  - Criar testes automatizados para cenarios autorizado/nao autorizado.
 - Evidencias de validacao:
-  - A definir na implementacao (ticket, execplan, commit).
+  - src/config/env.ts
+  - src/integrations/telegram-bot.ts
+  - src/main.ts
+  - tickets/open/2026-02-19-telegram-run-all-access-control-gap.md
+  - tickets/open/2026-02-19-telegram-access-audit-docs-tests-gap.md
 
 ## Riscos e impacto
 - Risco funcional: comando indevido por chat nao autorizado em ambiente produtivo.
@@ -62,3 +71,4 @@
 
 ## Historico de atualizacao
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
+- 2026-02-19 11:32Z - Revisao de gaps de implementacao concluida, com abertura de tickets de follow-up.
