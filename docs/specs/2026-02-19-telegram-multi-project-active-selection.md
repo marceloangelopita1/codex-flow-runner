@@ -3,6 +3,7 @@
 ## Metadata
 - Spec ID: 2026-02-19-telegram-multi-project-active-selection
 - Status: approved
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 17:25Z
 - Last reviewed at (UTC): 2026-02-19 18:20Z

@@ -3,6 +3,7 @@
 ## Metadata
 - Spec ID: 2026-02-19-guiadomus-codex-sdk-ticket-execution
 - Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
 - Last reviewed at (UTC): 2026-02-19 16:05Z

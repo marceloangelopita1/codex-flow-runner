@@ -1,7 +1,7 @@
 # [TICKET] Baseline de metadata Spec treatment nao esta padronizada em todas as specs
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S3
 - Created at (UTC): 2026-02-19 19:39Z
@@ -17,6 +17,7 @@
   - docs/specs/2026-02-19-approved-spec-triage-run-specs.md
   - docs/specs/templates/spec-template.md
   - SPECS.md
+  - ExecPlan: execplans/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 
 ## Context
 - Workflow area: `docs/specs/`, `docs/specs/templates/spec-template.md`, governanca de specs.
@@ -72,6 +73,6 @@ Nao obrigatorio. Entrega detalhada deve ser formalizada em ExecPlan.
 - 2026-02-19 - Ticket aberto para padronizar metadata de tratamento de specs no baseline documental.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 20:21Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md (commit deste fechamento; PR N/A)

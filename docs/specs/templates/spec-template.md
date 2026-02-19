@@ -3,6 +3,7 @@
 ## Metadata
 - Spec ID: <yyyy-mm-dd>-<slug>
 - Status: draft
+- Spec treatment: pending
 - Owner:
 - Created at (UTC): YYYY-MM-DD HH:MMZ
 - Last reviewed at (UTC): YYYY-MM-DD HH:MMZ

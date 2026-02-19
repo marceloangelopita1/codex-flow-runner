@@ -25,6 +25,19 @@ Status permitidos no campo `Status` de cada spec:
 - `attended`: criterios de aceitacao atendidos e com evidencia.
 - `superseded`: spec substituida por uma versao mais nova.
 
+## Metadata de tratamento da spec
+Campo obrigatorio em `## Metadata` de toda spec:
+- `Spec treatment: pending | done`
+
+Semantica operacional:
+- `pending`: ainda existe trabalho pendente derivado da spec (ex.: ticket em `tickets/open/`).
+- `done`: nao existe pendencia aberta derivada da spec no momento.
+
+Regras:
+- `Spec treatment` e independente de `Status` e nao substitui o ciclo de vida funcional da spec.
+- Em caso de divergencia documental, usar `tickets/open/` como fonte de verdade para classificar `pending`.
+- Cada spec deve conter exatamente uma linha `Spec treatment`.
+
 ## Regra de documento vivo
 - Toda mudanca de implementacao que altera comportamento descrito em spec deve atualizar a propria spec no mesmo ciclo.
 - Toda spec em `in_progress` ou `partially_attended` deve listar pendencias objetivas.
@@ -55,6 +68,7 @@ Exemplos:
 
 ## Qualidade minima da spec
 Toda spec deve conter:
+- metadata `Spec treatment` com valor `pending` ou `done`;
 - objetivo e contexto;
 - jornada(s) de uso e atores;
 - requisitos funcionais;

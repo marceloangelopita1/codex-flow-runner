@@ -3,6 +3,7 @@
 ## Metadata
 - Spec ID: 2026-02-19-telegram-run-status-notification
 - Status: approved
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
 - Last reviewed at (UTC): 2026-02-19 15:09Z
