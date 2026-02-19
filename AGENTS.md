@@ -21,6 +21,7 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 
 ## Especificações e ciclo de evolução
 - `docs/specs/` deve conter arquivos Markdown com especificações funcionais e jornadas de uso.
+- Cada spec em `docs/specs/` deve ser documento vivo com status explícito de atendimento.
 - As specs são a base para identificar evoluções no projeto.
 - Quando uma evolução for identificada a partir das specs:
   - Criar um ticket em `tickets/open/` quando ainda for necessário detalhar/refinar o trabalho.
@@ -40,3 +41,4 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - `EXTERNAL_PROMPTS.md`: padrão para prompts externos e trilha request/response/decision.
 - `INTERNAL_TICKETS.md`: padrão de tickets internos e ciclo de fechamento.
 - `PLANS.md`: padrão de ExecPlan para criação e execução em `execplans/`.
+- `SPECS.md`: padrão para criação/manutenção de specs e jornada de uso em `docs/specs/`.

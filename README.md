@@ -56,11 +56,12 @@ Há uma unit de exemplo em `docs/systemd/codex-flow-runner.service`.
 
 ## Documentacao operacional
 
-Este repositorio agora possui tres documentos canonicos para evolucao operacional:
+Este repositorio agora possui quatro documentos canonicos para evolucao operacional:
 
 - `EXTERNAL_PROMPTS.md`: padrao para requests/responses/decisions de IA externa.
 - `INTERNAL_TICKETS.md`: ciclo oficial de abertura, triagem e fechamento de tickets internos.
 - `PLANS.md`: padrao de ExecPlan para criacao de planos em `execplans/`.
+- `SPECS.md`: padrao de especificacoes funcionais/jornadas em `docs/specs/`, com status vivo de atendimento.
 
 Estruturas associadas:
 
@@ -69,3 +70,4 @@ Estruturas associadas:
 - `external_prompts/decisions/`
 - `external_prompts/templates/`
 - `tickets/templates/internal-ticket-template.md`
+- `docs/specs/templates/spec-template.md`
