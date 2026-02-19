@@ -1,7 +1,7 @@
 # [TICKET] Comando /run-all ausente e cobertura incompleta de controle no bot Telegram
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 11:32Z
@@ -16,6 +16,7 @@
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-access-and-control-plane.md
   - docs/specs/2026-02-19-guiadomus-codex-sdk-ticket-execution.md
+  - execplans/2026-02-19-telegram-run-all-access-control-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts` e orquestracao em `src/main.ts`
@@ -69,6 +70,8 @@ O bot deve expor `/run-all` como comando de controle e validar `chat.id` antes d
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec de controle de acesso Telegram.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-19 11:55Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - Commit: definido no commit de fechamento deste ticket (mesmo commit do move `tickets/open` -> `tickets/closed`)
+  - ExecPlan: execplans/2026-02-19-telegram-run-all-access-control-gap.md

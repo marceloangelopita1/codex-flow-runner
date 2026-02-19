@@ -3,14 +3,17 @@ import { Logger } from "../core/logger.js";
 import { RunnerState } from "../types/state.js";
 
 interface BotControls {
+  runAll: () => boolean;
   pause: () => void;
   resume: () => void;
 }
 
+type ControlCommand = "run-all" | "status" | "pause" | "resume";
+
 interface AccessAttemptContext {
   chatId: string;
   eventType: "command";
-  command?: string;
+  command: ControlCommand;
 }
 
 export class TelegramController {
@@ -38,6 +41,20 @@ export class TelegramController {
   }
 
   private registerHandlers(): void {
+    this.bot.command("run-all", async (ctx) => {
+      if (
+        !this.isAllowed({
+          chatId: ctx.chat.id.toString(),
+          eventType: "command",
+          command: "run-all",
+        })
+      ) {
+        return;
+      }
+
+      await ctx.reply(this.buildRunAllReply());
+    });
+
     this.bot.command("status", async (ctx) => {
       if (
         !this.isAllowed({
@@ -88,6 +105,14 @@ export class TelegramController {
       this.controls.resume();
       await ctx.reply("▶️ Runner retomado.");
     });
+  }
+
+  private buildRunAllReply(): string {
+    if (this.controls.runAll()) {
+      return "▶️ Runner iniciado via /run-all.";
+    }
+
+    return "ℹ️ Runner já está em execução.";
   }
 
   private isAllowed(context: AccessAttemptContext): boolean {

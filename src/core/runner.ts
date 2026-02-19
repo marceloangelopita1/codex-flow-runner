@@ -7,6 +7,7 @@ import { GitVersioning } from "../integrations/git-client.js";
 
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
+  private loopPromise: Promise<void> | null = null;
 
   constructor(
     private readonly env: AppEnv,
@@ -28,9 +29,36 @@ export class TicketRunner {
     this.touch("idle", "Runner retomado via Telegram");
   };
 
-  async runForever(): Promise<void> {
-    await this.queue.ensureStructure();
+  requestRunAll = (): boolean => {
+    if (this.state.isRunning || this.loopPromise) {
+      this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
+        phase: this.state.phase,
+        currentTicket: this.state.currentTicket,
+      });
+      return false;
+    }
+
     this.state.isRunning = true;
+    this.loopPromise = this.runForever()
+      .catch((error) => {
+        this.state.isRunning = false;
+        this.touch("error", "Falha fatal no loop principal");
+        this.logger.error("Erro fatal no loop principal", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.loopPromise = null;
+      });
+
+    return true;
+  };
+
+  private async runForever(): Promise<void> {
+    await this.queue.ensureStructure();
+    if (!this.state.isRunning) {
+      return;
+    }
     this.touch("idle", "Loop principal iniciado");
 
     while (this.state.isRunning) {

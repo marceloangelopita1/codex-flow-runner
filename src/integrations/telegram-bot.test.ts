@@ -25,9 +25,21 @@ const createState = (): RunnerState => ({
   updatedAt: new Date("2026-02-19T00:00:00.000Z"),
 });
 
-const createController = (allowedChatId?: string) => {
+type ControlCommand = "run-all" | "status" | "pause" | "resume";
+
+interface ControllerOptions {
+  allowedChatId?: string;
+  runAllResult?: boolean;
+}
+
+const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
+  const controlState = { runAllCalls: 0 };
   const controls = {
+    runAll: () => {
+      controlState.runAllCalls += 1;
+      return options.runAllResult ?? true;
+    },
     pause: () => undefined,
     resume: () => undefined,
   };
@@ -37,22 +49,22 @@ const createController = (allowedChatId?: string) => {
     logger,
     createState,
     controls,
-    allowedChatId,
+    options.allowedChatId,
   );
 
-  return { controller, logger };
+  return { controller, logger, controlState };
 };
 
 const callIsAllowed = (
   controller: TelegramController,
   chatId: string,
-  command: "status" | "pause" | "resume",
+  command: ControlCommand,
 ): boolean => {
   const internalController = controller as unknown as {
     isAllowed: (context: {
       chatId: string;
       eventType: "command";
-      command: "status" | "pause" | "resume";
+      command: ControlCommand;
     }) => boolean;
   };
 
@@ -63,8 +75,16 @@ const callIsAllowed = (
   });
 };
 
+const callBuildRunAllReply = (controller: TelegramController): string => {
+  const internalController = controller as unknown as {
+    buildRunAllReply: () => string;
+  };
+
+  return internalController.buildRunAllReply();
+};
+
 test("permite comando quando chat e autorizado no modo restrito", () => {
-  const { controller, logger } = createController("42");
+  const { controller, logger } = createController({ allowedChatId: "42" });
 
   const allowed = callIsAllowed(controller, "42", "status");
 
@@ -73,7 +93,7 @@ test("permite comando quando chat e autorizado no modo restrito", () => {
 });
 
 test("bloqueia comando quando chat nao autorizado e registra contexto", () => {
-  const { controller, logger } = createController("42");
+  const { controller, logger } = createController({ allowedChatId: "42" });
 
   const allowed = callIsAllowed(controller, "99", "pause");
 
@@ -94,4 +114,36 @@ test("permite comando de qualquer chat no modo sem restricao", () => {
 
   assert.equal(allowed, true);
   assert.equal(logger.warnings.length, 0);
+});
+
+test("bloqueia /run-all quando chat nao autorizado", () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+
+  const allowed = callIsAllowed(controller, "99", "run-all");
+
+  assert.equal(allowed, false);
+  assert.equal(logger.warnings.length, 1);
+  assert.deepEqual(logger.warnings[0]?.context, {
+    chatId: "99",
+    eventType: "command",
+    command: "run-all",
+  });
+});
+
+test("gera resposta de inicio ao executar /run-all", () => {
+  const { controller, controlState } = createController({ runAllResult: true });
+
+  const reply = callBuildRunAllReply(controller);
+
+  assert.equal(reply, "▶️ Runner iniciado via /run-all.");
+  assert.equal(controlState.runAllCalls, 1);
+});
+
+test("gera resposta de ja em execucao quando /run-all nao inicia nova rodada", () => {
+  const { controller, controlState } = createController({ runAllResult: false });
+
+  const reply = callBuildRunAllReply(controller);
+
+  assert.equal(reply, "ℹ️ Runner já está em execução.");
+  assert.equal(controlState.runAllCalls, 1);
 });

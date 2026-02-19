@@ -19,11 +19,16 @@ const bootstrap = async () => {
     env.TELEGRAM_BOT_TOKEN,
     logger,
     runner.getState,
-    { pause: runner.requestPause, resume: runner.requestResume },
+    {
+      runAll: runner.requestRunAll,
+      pause: runner.requestPause,
+      resume: runner.requestResume,
+    },
     env.TELEGRAM_ALLOWED_CHAT_ID,
   );
 
   await telegram.start();
+  logger.info("Runner aguardando comando /run-all no Telegram");
 
   const handleShutdown = async (signal: "SIGINT" | "SIGTERM") => {
     logger.warn("Sinal recebido, encerrando...", { signal });
@@ -40,7 +45,6 @@ const bootstrap = async () => {
     void handleShutdown("SIGTERM");
   });
 
-  await runner.runForever();
 };
 
 void bootstrap();

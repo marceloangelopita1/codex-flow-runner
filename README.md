@@ -47,6 +47,7 @@ Pastas esperadas no repositório alvo:
 
 ## Controle por Telegram
 
+- `/run-all` → inicia o loop sequencial de processamento de tickets
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento

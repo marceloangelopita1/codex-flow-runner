@@ -5,13 +5,14 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 11:43Z
+- Last reviewed at (UTC): 2026-02-19 11:56Z
 - Source: operational-gap
 - Related tickets:
-  - tickets/open/2026-02-19-telegram-run-all-access-control-gap.md
-  - tickets/open/2026-02-19-telegram-access-audit-docs-tests-gap.md
+  - tickets/closed/2026-02-19-telegram-run-all-access-control-gap.md
+  - tickets/closed/2026-02-19-telegram-access-audit-docs-tests-gap.md
 - Related execplans:
   - execplans/2026-02-19-telegram-access-audit-docs-tests-gap.md
+  - execplans/2026-02-19-telegram-run-all-access-control-gap.md
 - Related commits:
   - A definir
 
@@ -37,8 +38,8 @@
 - Camadas adicionais de autenticacao fora do Telegram chat ID.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, comando enviado por chat nao autorizado nao altera estado do runner.
-- [ ] CA-02 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, comando enviado por chat autorizado executa comportamento esperado.
+- [x] CA-01 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, comando enviado por chat nao autorizado nao altera estado do runner.
+- [x] CA-02 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, comando enviado por chat autorizado executa comportamento esperado.
 - [x] CA-03 - Tentativa nao autorizada fica registrada em log com `chatId` e contexto minimo do evento.
 - [x] CA-04 - Documentacao operacional descreve claramente o modo restrito e o modo sem restricao.
 
@@ -46,23 +47,26 @@
 - Estado geral: approved
 - Itens atendidos:
   - `TELEGRAM_ALLOWED_CHAT_ID` ja existe como configuracao opcional de ambiente.
-  - Comandos `/status`, `/pause` e `/resume` ja validam `chat.id` antes da acao.
+  - Comandos `/run-all`, `/status`, `/pause` e `/resume` validam `chat.id` antes da acao.
+  - `/run-all` foi implementado no controlador Telegram e aciona o runner de forma explicita, sem iniciar nova rodada concorrente quando ja ativo.
+  - Bootstrap em `src/main.ts` deixou de iniciar o loop automaticamente e passou a aguardar gatilho remoto por `/run-all`.
   - Tentativas nao autorizadas agora geram warning com `chatId`, `eventType` e `command`.
   - README documenta explicitamente modo restrito e modo sem restricao para `TELEGRAM_ALLOWED_CHAT_ID`.
-  - Suite automatizada cobre autorizacao (autorizado, nao autorizado e sem restricao) no controlador Telegram.
+  - Suite automatizada cobre autorizacao (autorizado, nao autorizado e sem restricao) no controlador Telegram, incluindo superficie de `/run-all`.
 - Pendencias em aberto:
-  - Implementar `/run-all` no bot e garantir validacao de acesso em toda superficie de controle prevista na jornada.
-  - Consolidar evidencias de CA-01 e CA-02 para a superficie completa de comandos apos entrega do ticket de `/run-all`.
+  - Nenhuma pendencia tecnica em aberto para a superficie de controle Telegram desta spec.
 - Evidencias de validacao:
   - src/config/env.ts
+  - src/core/runner.ts
   - src/integrations/telegram-bot.ts
   - src/integrations/telegram-bot.test.ts
   - src/main.ts
   - README.md
   - package.json
-  - tickets/open/2026-02-19-telegram-run-all-access-control-gap.md
-  - tickets/open/2026-02-19-telegram-access-audit-docs-tests-gap.md
+  - tickets/closed/2026-02-19-telegram-run-all-access-control-gap.md
+  - tickets/closed/2026-02-19-telegram-access-audit-docs-tests-gap.md
   - execplans/2026-02-19-telegram-access-audit-docs-tests-gap.md
+  - execplans/2026-02-19-telegram-run-all-access-control-gap.md
 
 ## Riscos e impacto
 - Risco funcional: comando indevido por chat nao autorizado em ambiente produtivo.
@@ -77,3 +81,5 @@
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
 - 2026-02-19 11:32Z - Revisao de gaps de implementacao concluida, com abertura de tickets de follow-up.
 - 2026-02-19 11:43Z - Auditoria de acesso, documentacao de modos e cobertura automatizada inicial entregues (CA-03 e CA-04 atendidos).
+- 2026-02-19 11:52Z - `/run-all` entregue com controle de acesso, bootstrap por gatilho remoto e cobertura de testes para CA-01/CA-02.
+- 2026-02-19 11:56Z - Ticket de `/run-all` encerrado e referencias de rastreabilidade atualizadas para `tickets/closed/`.
