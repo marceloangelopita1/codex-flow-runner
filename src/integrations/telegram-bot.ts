@@ -7,6 +7,12 @@ interface BotControls {
   resume: () => void;
 }
 
+interface AccessAttemptContext {
+  chatId: string;
+  eventType: "command";
+  command?: string;
+}
+
 export class TelegramController {
   private readonly bot: Telegraf;
 
@@ -33,7 +39,13 @@ export class TelegramController {
 
   private registerHandlers(): void {
     this.bot.command("status", async (ctx) => {
-      if (!this.isAllowed(ctx.chat.id.toString())) {
+      if (
+        !this.isAllowed({
+          chatId: ctx.chat.id.toString(),
+          eventType: "command",
+          command: "status",
+        })
+      ) {
         return;
       }
       const state = this.getState();
@@ -50,7 +62,13 @@ export class TelegramController {
     });
 
     this.bot.command("pause", async (ctx) => {
-      if (!this.isAllowed(ctx.chat.id.toString())) {
+      if (
+        !this.isAllowed({
+          chatId: ctx.chat.id.toString(),
+          eventType: "command",
+          command: "pause",
+        })
+      ) {
         return;
       }
       this.controls.pause();
@@ -58,7 +76,13 @@ export class TelegramController {
     });
 
     this.bot.command("resume", async (ctx) => {
-      if (!this.isAllowed(ctx.chat.id.toString())) {
+      if (
+        !this.isAllowed({
+          chatId: ctx.chat.id.toString(),
+          eventType: "command",
+          command: "resume",
+        })
+      ) {
         return;
       }
       this.controls.resume();
@@ -66,14 +90,14 @@ export class TelegramController {
     });
   }
 
-  private isAllowed(chatId: string): boolean {
+  private isAllowed(context: AccessAttemptContext): boolean {
     if (!this.allowedChatId) {
       return true;
     }
 
-    const allowed = this.allowedChatId === chatId;
+    const allowed = this.allowedChatId === context.chatId;
     if (!allowed) {
-      this.logger.warn("Tentativa de acesso não autorizado ao bot", { chatId });
+      this.logger.warn("Tentativa de acesso não autorizado ao bot", { ...context });
     }
     return allowed;
   }

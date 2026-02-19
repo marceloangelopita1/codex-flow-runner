@@ -43,12 +43,22 @@ Pastas esperadas no repositório alvo:
 - `npm run build`
 - `npm start`
 - `npm run check`
+- `npm test`
 
 ## Controle por Telegram
 
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento
+
+### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
+
+- Modo restrito (`TELEGRAM_ALLOWED_CHAT_ID` configurado):
+  - Somente o chat com `chat.id` igual ao valor configurado pode executar comandos do bot.
+  - Tentativas de chat nao autorizado sao bloqueadas e registradas em log com `chatId`, `eventType` e `command`.
+- Modo sem restricao (`TELEGRAM_ALLOWED_CHAT_ID` ausente):
+  - O bot aceita comandos de qualquer chat.
+  - Indicado apenas para ambiente de desenvolvimento controlado.
 
 ## Execução com systemd (WSL)
 

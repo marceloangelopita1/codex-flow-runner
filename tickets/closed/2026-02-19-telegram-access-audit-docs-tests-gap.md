@@ -1,7 +1,7 @@
 # [TICKET] Auditoria, documentacao e testes incompletos no controle de acesso Telegram
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 11:32Z
@@ -15,6 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-access-and-control-plane.md
+  - execplans/2026-02-19-telegram-access-audit-docs-tests-gap.md
 
 ## Context
 - Workflow area: autorizacao e observabilidade do bot Telegram
@@ -73,6 +74,8 @@ O controle de acesso atual registra tentativa nao autorizada apenas com `chatId`
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec de controle de acesso Telegram.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-19 11:45Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - Commit: definido no commit de fechamento deste ticket (mesmo commit do move `tickets/open` -> `tickets/closed`)
+  - ExecPlan: execplans/2026-02-19-telegram-access-audit-docs-tests-gap.md
