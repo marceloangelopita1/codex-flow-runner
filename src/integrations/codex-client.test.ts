@@ -40,6 +40,7 @@ test("runStage(plan) substitui placeholder e propaga credenciais para comando", 
         capturedEnv = request.env;
         return { stdout: "ok", stderr: "" };
       },
+      resolvePlanDirectoryName: async () => "execplans",
     },
   );
 
@@ -56,6 +57,39 @@ test("runStage(plan) substitui placeholder e propaga credenciais para comando", 
   assert.equal(capturedEnv?.OPENAI_API_KEY, "codex-key");
 });
 
+test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient(
+    "/tmp/repo",
+    new SpyLogger(),
+    "codex-key",
+    {
+      loadPromptTemplate: async () =>
+        [
+          "# Prompt: Criar ExecPlan para Ticket",
+          "",
+          "Ticket alvo:",
+          "- `<tickets/open/YYYY-MM-DD-slug.md>`",
+          "",
+          "Instrucoes:",
+          "- Salve o plano em `execplans/<yyyy-mm-dd>-<slug>.md` (mesmo slug do ticket).",
+        ].join("\n"),
+      runCodexCommand: async (request) => {
+        capturedPrompt = request.prompt;
+        return { stdout: "ok", stderr: "" };
+      },
+      resolvePlanDirectoryName: async () => "plans",
+    },
+  );
+
+  const result = await client.runStage("plan", ticket);
+
+  assert.equal(result.execPlanPath, "plans/2026-02-19-example-ticket.md");
+  assert.match(capturedPrompt, /Salve o plano em `plans\/<yyyy-mm-dd>-<slug>\.md`/u);
+  assert.match(capturedPrompt, /ExecPlan esperado: `plans\/2026-02-19-example-ticket\.md`/u);
+});
+
 test("runStage falhando encapsula erro com stage e ticket", async () => {
   const client = new CodexCliTicketFlowClient(
     "/tmp/repo",
@@ -66,6 +100,7 @@ test("runStage falhando encapsula erro com stage e ticket", async () => {
       runCodexCommand: async () => {
         throw new Error("codex exec terminou com codigo 1");
       },
+      resolvePlanDirectoryName: async () => "execplans",
     },
   );
 

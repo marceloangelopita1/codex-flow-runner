@@ -3,6 +3,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger } from "../core/logger.js";
+import {
+  PlanDirectoryName,
+  buildExecPlanPath,
+  resolvePlanDirectoryName,
+} from "./plan-directory.js";
 import { TicketRef } from "./ticket-queue.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
@@ -31,6 +36,7 @@ interface CodexCommandResult {
 interface CodexClientDependencies {
   loadPromptTemplate: (filePath: string) => Promise<string>;
   runCodexCommand: (request: CodexCommandRequest) => Promise<CodexCommandResult>;
+  resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
 }
 
 const STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
@@ -64,14 +70,17 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     this.dependencies = {
       loadPromptTemplate: (filePath: string) => fs.readFile(filePath, "utf8"),
       runCodexCommand: runCodexCommand,
+      resolvePlanDirectoryName: resolvePlanDirectoryName,
       ...dependencies,
     };
   }
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
     const promptTemplatePath = path.join(PROMPTS_DIR, STAGE_PROMPT_FILES[stage]);
+    const planDirectory = await this.dependencies.resolvePlanDirectoryName(this.repoPath);
+    const execPlanPath = this.expectedExecPlanPath(ticket, planDirectory);
     const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
-    const prompt = this.buildPrompt(stage, promptTemplate, ticket);
+    const prompt = this.buildPrompt(stage, promptTemplate, ticket, planDirectory, execPlanPath);
 
     this.logger.info("Executando etapa via Codex CLI", {
       ticket: ticket.name,
@@ -107,7 +116,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       return {
         stage,
         output: result.stdout,
-        ...(stage === "plan" ? { execPlanPath: this.expectedExecPlanPath(ticket) } : {}),
+        ...(stage === "plan" ? { execPlanPath } : {}),
       };
     } catch (error) {
       const details = errorMessage(error);
@@ -115,12 +124,18 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
-  private buildPrompt(stage: TicketFlowStage, promptTemplate: string, ticket: TicketRef): string {
+  private buildPrompt(
+    stage: TicketFlowStage,
+    promptTemplate: string,
+    ticket: TicketRef,
+    planDirectory: PlanDirectoryName,
+    execPlanPath: string,
+  ): string {
     const ticketPath = `tickets/open/${ticket.name}`;
 
     const stageTemplate =
       stage === "plan"
-        ? promptTemplate.replace(/<tickets\/open\/YYYY-MM-DD-slug\.md>/gu, ticketPath)
+        ? this.buildPlanStageTemplate(promptTemplate, ticketPath, planDirectory)
         : promptTemplate;
 
     return [
@@ -128,13 +143,26 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "",
       "Contexto adicional do ticket alvo:",
       `- Ticket alvo: \`${ticketPath}\``,
-      `- ExecPlan esperado: \`${this.expectedExecPlanPath(ticket)}\``,
+      `- ExecPlan esperado: \`${execPlanPath}\``,
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
   }
 
-  private expectedExecPlanPath(ticket: TicketRef): string {
-    return `execplans/${ticket.name.replace(/\.md$/u, "")}.md`;
+  private buildPlanStageTemplate(
+    promptTemplate: string,
+    ticketPath: string,
+    planDirectory: PlanDirectoryName,
+  ): string {
+    return promptTemplate
+      .replace(/<tickets\/open\/YYYY-MM-DD-slug\.md>/gu, ticketPath)
+      .replace(
+        /`(?:execplans|plans)\/<yyyy-mm-dd>-<slug>\.md`/giu,
+        `\`${planDirectory}/<yyyy-mm-dd>-<slug>.md\``,
+      );
+  }
+
+  private expectedExecPlanPath(ticket: TicketRef, planDirectory: PlanDirectoryName): string {
+    return buildExecPlanPath(planDirectory, ticket.name);
   }
 }
 

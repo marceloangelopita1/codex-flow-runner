@@ -5,14 +5,15 @@
 - Status: partially_attended
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 12:13Z
+- Last reviewed at (UTC): 2026-02-19 12:27Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
-  - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
+  - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 - Related execplans:
   - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 - Related commits:
   - A definir
 
@@ -45,8 +46,8 @@
 - [ ] CA-01 - Ao enviar `/run-all` com tickets abertos, o runner processa um ticket por vez ate concluir a rodada ou falhar.
 - [ ] CA-02 - Ao concluir ticket com sucesso, ocorre movimentacao `tickets/open -> tickets/closed` no mesmo commit e push automatico.
 - [ ] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
-- [ ] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
-- [ ] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
+- [x] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
+- [x] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: partially_attended
@@ -55,26 +56,31 @@
   - Integracao usa Codex CLI real por etapa (`plan`, `implement`, `close-and-version`) em `src/integrations/codex-client.ts`.
   - Runner executa as tres etapas operacionais por ticket com rastreabilidade de fase e erro contextual no stage.
   - Fluxo principal agora possui cobertura de contrato para ordem de etapas e falha por etapa no runner.
-  - Fluxo atual opera corretamente quando o repositorio alvo usa `execplans/`.
+  - Compatibilidade de diretorio de plano foi implementada para `plans/` e `execplans/` com resolucao automatica em `src/integrations/plan-directory.ts`.
+  - Fluxo da fila e etapa `plan` agora resolvem e reportam caminho de ExecPlan conforme convencao ativa do repositorio alvo.
+  - Suite de testes cobre matriz de convencao de pasta de plano e comportamento da fila (`plan-directory`, `codex-client` e `ticket-queue`).
 - Pendencias em aberto:
   - Rodada `/run-all` nao encerra quando a fila termina; o loop permanece em polling continuo.
   - Em erro de ticket, o runner nao interrompe a rodada no primeiro erro.
   - Nao ha validacao programatica no runner confirmando commit/push ao final de `close-and-version`; a garantia operacional ainda depende de completar o fluxo de rodada/versao nos tickets restantes.
-  - Compatibilidade com repositorios baseados em `plans/` ainda nao foi implementada.
 - Evidencias de validacao:
   - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
+  - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
   - src/core/runner.ts
   - src/core/runner.test.ts
+  - src/integrations/plan-directory.ts
+  - src/integrations/plan-directory.test.ts
   - src/integrations/codex-client.ts
   - src/integrations/codex-client.test.ts
   - src/integrations/git-client.ts
   - src/integrations/ticket-queue.ts
+  - src/integrations/ticket-queue.test.ts
   - src/config/env.ts
   - src/main.ts
   - src/integrations/telegram-bot.test.ts
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/open/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
-  - tickets/open/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
+  - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 
 ## Riscos e impacto
 - Risco funcional: divergencia entre comportamento do Codex SDK real e fluxo local atual.
@@ -90,3 +96,4 @@
 - 2026-02-19 10:53Z - Versao inicial da spec aprovada.
 - 2026-02-19 11:59Z - Revisao de gaps de implementacao concluida com abertura de tickets de follow-up.
 - 2026-02-19 12:13Z - Integracao real por etapas com Codex CLI e testes de contrato do fluxo principal implementados.
+- 2026-02-19 12:27Z - Compatibilidade `plans/execplans` implementada com testes de contrato e atualizacao de evidencias.

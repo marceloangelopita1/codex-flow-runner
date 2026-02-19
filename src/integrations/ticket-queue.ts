@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { resolvePlanDirectoryPath } from "./plan-directory.js";
 
 export interface TicketRef {
   name: string;
@@ -23,10 +24,12 @@ export class FileSystemTicketQueue implements TicketQueue {
   }
 
   async ensureStructure(): Promise<void> {
+    const planDirectoryPath = await resolvePlanDirectoryPath(this.repoPath);
+
     await Promise.all([
       fs.mkdir(this.openDir, { recursive: true }),
       fs.mkdir(this.closedDir, { recursive: true }),
-      fs.mkdir(path.join(this.repoPath, "execplans"), { recursive: true }),
+      fs.mkdir(planDirectoryPath, { recursive: true }),
     ]);
   }
 

@@ -1,7 +1,7 @@
 # [TICKET] Compatibilidade plans/execplans e cobertura de testes do fluxo de tickets
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 11:59Z
@@ -15,6 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-guiadomus-codex-sdk-ticket-execution.md
+  - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
 
 ## Context
 - Workflow area: `src/integrations/ticket-queue.ts`, `src/integrations/codex-client.ts` e estrategia de testes
@@ -68,6 +69,6 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 - 2026-02-19 - Ticket aberto apos revisao de gaps da spec `2026-02-19-guiadomus-codex-sdk-ticket-execution`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 12:30Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
