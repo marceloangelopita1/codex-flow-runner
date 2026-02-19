@@ -54,6 +54,7 @@ Pré-requisito operacional:
 
 ## Controle por Telegram
 
+- `/start` → mostra descrição do bot e comandos disponíveis
 - `/run-all` → inicia o loop sequencial de processamento de tickets
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento

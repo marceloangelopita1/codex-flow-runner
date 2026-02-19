@@ -27,7 +27,7 @@ const createState = (): RunnerState => ({
   lastNotifiedEvent: null,
 });
 
-type ControlCommand = "run-all" | "status" | "pause" | "resume";
+type ControlCommand = "start" | "run-all" | "status" | "pause" | "resume";
 
 interface ControllerOptions {
   allowedChatId?: string;
@@ -102,6 +102,14 @@ const callBuildRunAllReply = async (
   return internalController.buildRunAllReply();
 };
 
+const callBuildStartReply = (controller: TelegramController): string => {
+  const internalController = controller as unknown as {
+    buildStartReply: () => string;
+  };
+
+  return internalController.buildStartReply();
+};
+
 const callCaptureNotificationChat = (controller: TelegramController, chatId: string): void => {
   const internalController = controller as unknown as {
     captureNotificationChat: (value: string) => void;
@@ -164,7 +172,7 @@ const createFailureSummary = (
 test("permite comando quando chat e autorizado no modo restrito", () => {
   const { controller, logger } = createController({ allowedChatId: "42" });
 
-  const allowed = callIsAllowed(controller, "42", "status");
+  const allowed = callIsAllowed(controller, "42", "start");
 
   assert.equal(allowed, true);
   assert.equal(logger.warnings.length, 0);
@@ -242,6 +250,20 @@ test("gera resposta acionavel quando /run-all e bloqueado por autenticacao", asy
   );
   assert.equal(reply.started, false);
   assert.equal(controlState.runAllCalls, 1);
+});
+
+test("mensagem de /start descreve o bot e os comandos aceitos", () => {
+  const { controller } = createController();
+
+  const reply = callBuildStartReply(controller);
+
+  assert.match(reply, /Codex Flow Runner/u);
+  assert.match(reply, /Comandos aceitos:/u);
+  assert.match(reply, /\/start/u);
+  assert.match(reply, /\/run-all/u);
+  assert.match(reply, /\/status/u);
+  assert.match(reply, /\/pause/u);
+  assert.match(reply, /\/resume/u);
 });
 
 test("envia resumo final para chat autorizado configurado", async () => {

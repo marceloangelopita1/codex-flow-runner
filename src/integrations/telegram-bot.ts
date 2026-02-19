@@ -13,7 +13,7 @@ interface BotControls {
   resume: () => void;
 }
 
-type ControlCommand = "run-all" | "status" | "pause" | "resume";
+type ControlCommand = "start" | "run-all" | "status" | "pause" | "resume";
 
 interface AccessAttemptContext {
   chatId: string;
@@ -24,6 +24,17 @@ interface AccessAttemptContext {
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run-all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
+const START_REPLY_LINES = [
+  "🤖 Codex Flow Runner",
+  "Automação sequencial de tickets via Codex CLI com controle por Telegram.",
+  "",
+  "Comandos aceitos:",
+  "/start - mostra esta ajuda",
+  "/run-all - inicia uma rodada sequencial de tickets abertos",
+  "/status - mostra o estado atual do runner",
+  "/pause - pausa após a etapa corrente",
+  "/resume - retoma execução",
+];
 
 export class TelegramController {
   private readonly bot: Telegraf;
@@ -82,6 +93,19 @@ export class TelegramController {
   }
 
   private registerHandlers(): void {
+    this.bot.command("start", async (ctx) => {
+      if (
+        !this.isAllowed({
+          chatId: ctx.chat.id.toString(),
+          eventType: "command",
+          command: "start",
+        })
+      ) {
+        return;
+      }
+      await ctx.reply(this.buildStartReply());
+    });
+
     this.bot.command("run-all", async (ctx) => {
       const chatId = ctx.chat.id.toString();
       if (
@@ -160,6 +184,10 @@ export class TelegramController {
       reply: `${RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
       started: false,
     };
+  }
+
+  private buildStartReply(): string {
+    return START_REPLY_LINES.join("\n");
   }
 
   private isAllowed(context: AccessAttemptContext): boolean {
