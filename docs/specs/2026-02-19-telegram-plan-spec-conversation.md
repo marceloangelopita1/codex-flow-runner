@@ -6,10 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 21:06Z
-- Last reviewed at (UTC): 2026-02-19 21:06Z
+- Last reviewed at (UTC): 2026-02-19 21:18Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
+  - tickets/open/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md
+  - tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md
+  - tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -93,19 +96,18 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - O projeto ja possui controle de acesso Telegram por `TELEGRAM_ALLOWED_CHAT_ID`.
-  - O projeto ja possui controle de projeto ativo global e bloqueios de troca durante execucao.
-  - O runner ja possui fluxo sequencial para `/run_all` e `/run_specs`, com estado observavel em `/status`.
-  - O bot Telegram ja suporta comandos, callbacks inline e mensagens de bloqueio operacionais.
+  - Controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID` ja aplicado nos comandos/callbacks atuais do bot.
+  - Runner ja possui fluxo sequencial de `/run_all` e `/run_specs`, com estado observavel em `/status`.
+  - Troca de projeto ja possui bloqueio durante execucao de rodada em andamento.
+  - Fila sequencial ja prioriza `P0` antes de `P1` e `P1` antes de `P2`.
 - Pendencias em aberto:
-  - Implementar novo orquestrador de sessao `/plan_spec` com fase interativa em `/plan`.
-  - Implementar bridge de PTY para Codex interativo e parser de blocos de pergunta/finalizacao.
-  - Adicionar comandos e callbacks Telegram para planejamento de spec.
-  - Criar prompts dedicados de criacao de spec e commit/push da spec criada.
-  - Persistir trilha em `spec_planning/*`.
-  - Cobrir fluxo com testes automatizados.
+  - [P0/S1] Orquestrar ciclo de vida da sessao `/plan_spec` (comandos, bloqueios de conflito, timeout, status e cancelamento). Ticket: `tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md`. RFs/CAs: RF-01..RF-08, RF-14, RF-22, RF-26, RF-27, RF-28; CA-01..CA-06, CA-17, CA-18.
+  - [P0/S1] Implementar bridge interativa do Codex em `/plan` com parser de perguntas/finalizacao, opcoes clicaveis + texto livre e tratamento de falhas/parsing. Ticket: `tickets/open/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md`. RFs/CAs: RF-09, RF-10, RF-12, RF-13, RF-15, RF-16, RF-23, RF-24, RF-27; CA-07..CA-10, CA-19, CA-20.
+  - [P1/S2] Implementar `Criar spec` fora de `/plan` com naming/metadata, commit `feat(spec): add <arquivo>.md`, escopo restrito e trilha `spec_planning/*`. Ticket: `tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md`. RFs/CAs: RF-11, RF-17..RF-21, RF-25; CA-11..CA-16.
+  - [P2/S3] Adicionar cobertura automatizada completa da jornada `/plan_spec` (happy path e falhas). Ticket: `tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md`. RFs/CAs: validacao transversal de CA-01..CA-20 e regressao de RF-28.
 - Evidencias de validacao:
-  - A definir apos implementacao.
+  - Revisao de gaps concluida em 2026-02-19 21:13Z com evidencia em `src/`, `prompts/` e abertura de tickets em `tickets/open/`.
+  - Validacao final da triagem executada em 2026-02-19 21:18Z, mantendo `Status: approved` e `Spec treatment: pending` devido a gaps rastreados em tickets abertos.
 
 ## Riscos e impacto
 - Risco funcional: parsing instavel da saida interativa do Codex gerar UX inconsistente no Telegram.
@@ -124,3 +126,5 @@
 
 ## Historico de atualizacao
 - 2026-02-19 21:06Z - Versao inicial da spec criada e aprovada para derivacao tecnica.
+- 2026-02-19 21:13Z - Revisao de gaps concluida; 4 tickets abertos em `tickets/open/` para implementacao sequencial da jornada `/plan_spec`.
+- 2026-02-19 21:18Z - Validacao final da triagem concluida; status/metadados confirmados com pendencias rastreadas para tickets abertos.
