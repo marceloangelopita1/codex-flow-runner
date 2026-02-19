@@ -31,7 +31,8 @@ type ControlCommand = "run-all" | "status" | "pause" | "resume";
 
 interface ControllerOptions {
   allowedChatId?: string;
-  runAllResult?: boolean;
+  runAllStatus?: "started" | "already-running" | "blocked";
+  runAllMessage?: string;
 }
 
 const createController = (options: ControllerOptions = {}) => {
@@ -40,7 +41,21 @@ const createController = (options: ControllerOptions = {}) => {
   const controls = {
     runAll: () => {
       controlState.runAllCalls += 1;
-      return options.runAllResult ?? true;
+      if (options.runAllStatus === "already-running") {
+        return { status: "already-running" as const };
+      }
+
+      if (options.runAllStatus === "blocked") {
+        return {
+          status: "blocked" as const,
+          reason: "codex-auth-missing" as const,
+          message:
+            options.runAllMessage ??
+            "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
+        };
+      }
+
+      return { status: "started" as const };
     },
     pause: () => undefined,
     resume: () => undefined,
@@ -77,9 +92,11 @@ const callIsAllowed = (
   });
 };
 
-const callBuildRunAllReply = (controller: TelegramController): string => {
+const callBuildRunAllReply = async (
+  controller: TelegramController,
+): Promise<{ reply: string; started: boolean }> => {
   const internalController = controller as unknown as {
-    buildRunAllReply: () => string;
+    buildRunAllReply: () => Promise<{ reply: string; started: boolean }>;
   };
 
   return internalController.buildRunAllReply();
@@ -191,21 +208,39 @@ test("bloqueia /run-all quando chat nao autorizado", () => {
   });
 });
 
-test("gera resposta de inicio ao executar /run-all", () => {
-  const { controller, controlState } = createController({ runAllResult: true });
+test("gera resposta de inicio ao executar /run-all", async () => {
+  const { controller, controlState } = createController({ runAllStatus: "started" });
 
-  const reply = callBuildRunAllReply(controller);
+  const reply = await callBuildRunAllReply(controller);
 
-  assert.equal(reply, "▶️ Runner iniciado via /run-all.");
+  assert.equal(reply.reply, "▶️ Runner iniciado via /run-all.");
+  assert.equal(reply.started, true);
   assert.equal(controlState.runAllCalls, 1);
 });
 
-test("gera resposta de ja em execucao quando /run-all nao inicia nova rodada", () => {
-  const { controller, controlState } = createController({ runAllResult: false });
+test("gera resposta de ja em execucao quando /run-all nao inicia nova rodada", async () => {
+  const { controller, controlState } = createController({ runAllStatus: "already-running" });
 
-  const reply = callBuildRunAllReply(controller);
+  const reply = await callBuildRunAllReply(controller);
 
-  assert.equal(reply, "ℹ️ Runner já está em execução.");
+  assert.equal(reply.reply, "ℹ️ Runner já está em execução.");
+  assert.equal(reply.started, false);
+  assert.equal(controlState.runAllCalls, 1);
+});
+
+test("gera resposta acionavel quando /run-all e bloqueado por autenticacao", async () => {
+  const { controller, controlState } = createController({
+    runAllStatus: "blocked",
+    runAllMessage: "Codex CLI nao autenticado. Execute `codex login` e tente novamente.",
+  });
+
+  const reply = await callBuildRunAllReply(controller);
+
+  assert.equal(
+    reply.reply,
+    "❌ Codex CLI nao autenticado. Execute `codex login` e tente novamente.",
+  );
+  assert.equal(reply.started, false);
   assert.equal(controlState.runAllCalls, 1);
 });
 

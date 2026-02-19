@@ -11,6 +11,8 @@ RestartSec=5
 User=YOUR_USER
 Environment=NODE_ENV=production
 EnvironmentFile=/workspace/codex-flow-runner/.env
+# Pre-requisito: executar `codex login` no mesmo usuario acima antes de iniciar a unit.
+# A sessao do Codex CLI deve estar disponivel em ~/.codex desse usuario.
 
 [Install]
 WantedBy=multi-user.target

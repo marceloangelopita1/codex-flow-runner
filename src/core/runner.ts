@@ -7,6 +7,7 @@ import {
 } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import {
+  CodexAuthenticationError,
   CodexStageResult,
   CodexStageExecutionError,
   CodexTicketFlowClient,
@@ -19,9 +20,19 @@ type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
 ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
 
+export type RunAllRequestResult =
+  | { status: "started" }
+  | { status: "already-running" }
+  | {
+      status: "blocked";
+      reason: "codex-auth-missing";
+      message: string;
+    };
+
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
   private loopPromise: Promise<void> | null = null;
+  private isStarting = false;
 
   constructor(
     private readonly env: AppEnv,
@@ -54,13 +65,37 @@ export class TicketRunner {
     this.touch("idle", "Runner retomado via Telegram");
   };
 
-  requestRunAll = (): boolean => {
-    if (this.state.isRunning || this.loopPromise) {
+  requestRunAll = async (): Promise<RunAllRequestResult> => {
+    if (this.state.isRunning || this.loopPromise || this.isStarting) {
       this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
         phase: this.state.phase,
         currentTicket: this.state.currentTicket,
       });
-      return false;
+      return { status: "already-running" };
+    }
+
+    this.isStarting = true;
+
+    try {
+      await this.codexClient.ensureAuthenticated();
+    } catch (error) {
+      const message =
+        error instanceof CodexAuthenticationError
+          ? error.message
+          : [
+              "Falha ao validar autenticacao do Codex CLI.",
+              "Execute `codex login` no mesmo usuario que roda o runner e tente novamente.",
+            ].join(" ");
+      this.touch("error", message);
+      this.logger.error("Falha de autenticacao do Codex CLI antes da rodada", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.isStarting = false;
+      return {
+        status: "blocked",
+        reason: "codex-auth-missing",
+        message,
+      };
     }
 
     this.state.isRunning = true;
@@ -74,9 +109,11 @@ export class TicketRunner {
       })
       .finally(() => {
         this.loopPromise = null;
+        this.isStarting = false;
       });
+    this.isStarting = false;
 
-    return true;
+    return { status: "started" };
   };
 
   private async runForever(): Promise<void> {

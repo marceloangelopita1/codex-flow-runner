@@ -19,12 +19,18 @@ export interface CodexStageResult {
 }
 
 export interface CodexTicketFlowClient {
+  ensureAuthenticated(): Promise<void>;
   runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult>;
 }
 
 interface CodexCommandRequest {
   cwd: string;
   prompt: string;
+  env: NodeJS.ProcessEnv;
+}
+
+interface CodexAuthStatusRequest {
+  cwd: string;
   env: NodeJS.ProcessEnv;
 }
 
@@ -36,6 +42,7 @@ interface CodexCommandResult {
 interface CodexClientDependencies {
   loadPromptTemplate: (filePath: string) => Promise<string>;
   runCodexCommand: (request: CodexCommandRequest) => Promise<CodexCommandResult>;
+  runCodexAuthStatusCommand: (request: CodexAuthStatusRequest) => Promise<CodexCommandResult>;
   resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
 }
 
@@ -58,21 +65,57 @@ export class CodexStageExecutionError extends Error {
   }
 }
 
+export class CodexAuthenticationError extends Error {
+  constructor(details: string) {
+    super(
+      [
+        "Codex CLI nao autenticado.",
+        "Execute `codex login` no mesmo usuario que roda o runner e tente novamente.",
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexAuthenticationError";
+  }
+}
+
 export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private readonly dependencies: CodexClientDependencies;
 
   constructor(
     private readonly repoPath: string,
     private readonly logger: Logger,
-    private readonly apiKey: string,
     dependencies: Partial<CodexClientDependencies> = {},
   ) {
     this.dependencies = {
       loadPromptTemplate: (filePath: string) => fs.readFile(filePath, "utf8"),
       runCodexCommand: runCodexCommand,
+      runCodexAuthStatusCommand: runCodexAuthStatusCommand,
       resolvePlanDirectoryName: resolvePlanDirectoryName,
       ...dependencies,
     };
+  }
+
+  async ensureAuthenticated(): Promise<void> {
+    try {
+      const result = await this.dependencies.runCodexAuthStatusCommand({
+        cwd: this.repoPath,
+        env: {
+          ...process.env,
+        },
+      });
+
+      if (!isAuthenticatedStatusOutput(result.stdout, result.stderr)) {
+        const details = limit((result.stdout || result.stderr).trim() || "sessao ausente");
+        throw new CodexAuthenticationError(details);
+      }
+    } catch (error) {
+      if (error instanceof CodexAuthenticationError) {
+        throw error;
+      }
+
+      const details = errorMessage(error);
+      throw new CodexAuthenticationError(limit(details));
+    }
   }
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
@@ -94,8 +137,6 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         prompt,
         env: {
           ...process.env,
-          CODEX_API_KEY: this.apiKey,
-          OPENAI_API_KEY: this.apiKey,
         },
       });
 
@@ -210,6 +251,62 @@ const runCodexCommand = async (request: CodexCommandRequest): Promise<CodexComma
     child.stdin.write(request.prompt);
     child.stdin.end();
   });
+};
+
+const runCodexAuthStatusCommand = async (
+  request: CodexAuthStatusRequest,
+): Promise<CodexCommandResult> => {
+  const args = ["login", "status"];
+
+  return new Promise<CodexCommandResult>((resolve, reject) => {
+    const child = spawn("codex", args, {
+      cwd: request.cwd,
+      env: request.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+
+      reject(
+        new Error(
+          `codex login status terminou com codigo ${String(code)}: ${limit(stderr || stdout)}`,
+        ),
+      );
+    });
+  });
+};
+
+const isAuthenticatedStatusOutput = (stdout: string, stderr: string): boolean => {
+  const normalized = `${stdout}\n${stderr}`.toLowerCase();
+
+  if (normalized.includes("not logged in") || normalized.includes("logged out")) {
+    return false;
+  }
+
+  if (normalized.includes("logged in")) {
+    return true;
+  }
+
+  return true;
 };
 
 const errorMessage = (error: unknown): string => {

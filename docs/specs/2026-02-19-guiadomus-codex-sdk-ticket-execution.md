@@ -5,16 +5,18 @@
 - Status: attended
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 12:40Z
+- Last reviewed at (UTC): 2026-02-19 16:05Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/closed/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
+  - tickets/closed/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
 - Related execplans:
   - execplans/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
   - execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
+  - execplans/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
 - Related commits:
   - A definir
 
@@ -65,6 +67,8 @@
   - Runner valida fechamento/versionamento apos `close-and-version` exigindo repositorio limpo e sem commits locais sem push.
   - `GitCliVersioning` passou a executar push obrigatorio apos commit de fechamento (sem feature flag opcional).
   - Suite automatizada cobre rodada finita, fail-fast entre tickets e validacao de push/sincronismo em `git-client`.
+  - `/run-all` agora executa preflight de autenticacao do Codex CLI e bloqueia inicio da rodada com mensagem acionavel quando a sessao nao existe.
+  - Integracao com Codex CLI deixou de injetar `CODEX_API_KEY`/`OPENAI_API_KEY`; autenticacao passa a depender da sessao do usuario (`codex login`).
 - Pendencias em aberto:
   - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
@@ -77,6 +81,7 @@
   - src/integrations/plan-directory.test.ts
   - src/integrations/codex-client.ts
   - src/integrations/codex-client.test.ts
+  - src/integrations/telegram-bot.ts
   - src/integrations/git-client.ts
   - src/integrations/git-client.test.ts
   - src/integrations/ticket-queue.ts
@@ -84,7 +89,10 @@
   - src/config/env.ts
   - src/main.ts
   - README.md
+  - docs/systemd/codex-flow-runner.service
   - src/integrations/telegram-bot.test.ts
+  - execplans/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
+  - tickets/closed/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
   - tickets/closed/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - tickets/closed/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
@@ -106,3 +114,4 @@
 - 2026-02-19 12:27Z - Compatibilidade `plans/execplans` implementada com testes de contrato e atualizacao de evidencias.
 - 2026-02-19 12:40Z - Rodada finita/fail-fast e push obrigatorio implementados com validacao git pos `close-and-version` e cobertura automatizada.
 - 2026-02-19 12:43Z - Ticket de rodada fail-fast/push obrigatorio encerrado com move para `tickets/closed/` no mesmo commit da solucao.
+- 2026-02-19 16:05Z - Fluxo migrado para autenticacao login-only do Codex CLI, com preflight de `/run-all`, remocao de injecao de API key e testes/documentacao atualizados.

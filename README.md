@@ -30,7 +30,6 @@ Pastas esperadas no repositório alvo:
 
 ## Variáveis de ambiente
 
-- `CODEX_API_KEY` (**obrigatório**)
 - `TELEGRAM_BOT_TOKEN` (**obrigatório**)
 - `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
 - `REPO_PATH` (opcional, padrão: diretório atual)
@@ -41,6 +40,8 @@ Observacao operacional:
 
 Pré-requisito operacional:
 - `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).
+- `codex` autenticado no mesmo usuário do processo (executar `codex login` antes de subir o runner).
+- Sem sessão válida no `codex` CLI, `/run-all` falha cedo com instrução para autenticação.
 
 ## Scripts
 

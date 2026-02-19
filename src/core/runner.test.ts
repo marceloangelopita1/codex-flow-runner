@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { AppEnv } from "../config/env.js";
 import {
+  CodexAuthenticationError,
   CodexStageExecutionError,
   CodexStageResult,
   CodexTicketFlowClient,
@@ -30,11 +31,24 @@ class SpyLogger extends Logger {
 
 class StubCodexClient implements CodexTicketFlowClient {
   public readonly calls: Array<{ stage: TicketFlowStage; ticketName: string }> = [];
+  public authChecks = 0;
 
   constructor(
     private readonly shouldFail?: (stage: TicketFlowStage, ticket: TicketRef) => boolean,
     private readonly includeExecPlanPath = true,
+    private readonly failAuthentication = false,
+    private readonly authDelayMs = 0,
   ) {}
+
+  async ensureAuthenticated(): Promise<void> {
+    if (this.authDelayMs > 0) {
+      await sleep(this.authDelayMs);
+    }
+    this.authChecks += 1;
+    if (this.failAuthentication) {
+      throw new CodexAuthenticationError("sessao ausente");
+    }
+  }
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
     this.calls.push({ stage, ticketName: ticket.name });
@@ -78,7 +92,6 @@ class StubGitVersioning implements GitVersioning {
 }
 
 const env: AppEnv = {
-  CODEX_API_KEY: "test-key",
   TELEGRAM_BOT_TOKEN: "test-token",
   REPO_PATH: "/tmp/repo",
   POLL_INTERVAL_MS: 1,
@@ -285,7 +298,8 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   };
 
   const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
-  assert.equal(runner.requestRunAll(), true);
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
 
   await waitForRunnerToStop(runner);
 
@@ -334,7 +348,8 @@ test("requestRunAll emite resumo final para cada ticket concluido na rodada", as
   };
 
   const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
-  assert.equal(runner.requestRunAll(), true);
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
 
   await waitForRunnerToStop(runner);
 
@@ -377,7 +392,8 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   };
 
   const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
-  assert.equal(runner.requestRunAll(), true);
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
 
   await waitForRunnerToStop(runner);
 
@@ -401,6 +417,50 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   assert.equal(summaries[0]?.ticket, ticketA.name);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "implement");
+});
+
+test("requestRunAll bloqueia rodada quando Codex CLI nao esta autenticado", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, true, true);
+  let ensureStructureCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => {
+      ensureStructureCalls += 1;
+    },
+    nextOpenTicket: async () => ticketA,
+    closeTicket: async () => undefined,
+  };
+
+  const runner = new TicketRunner(env, logger, queue, codex, new StubGitVersioning());
+  const request = await runner.requestRunAll();
+
+  assert.equal(request.status, "blocked");
+  assert.equal(request.reason, "codex-auth-missing");
+  assert.match(request.message, /codex login/u);
+  assert.equal(codex.authChecks, 1);
+  assert.equal(ensureStructureCalls, 0);
+  assert.equal(codex.calls.length, 0);
+  assert.equal(runner.getState().isRunning, false);
+  assert.equal(runner.getState().phase, "error");
+  assert.match(runner.getState().lastMessage, /codex login/u);
+  assert.equal(logger.errors[0]?.message, "Falha de autenticacao do Codex CLI antes da rodada");
+});
+
+test("requestRunAll evita corrida durante preflight de autenticacao", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, true, false, 20);
+  const runner = new TicketRunner(env, logger, defaultQueue, codex, new StubGitVersioning());
+
+  const firstRequest = runner.requestRunAll();
+  const secondRequest = runner.requestRunAll();
+
+  const [firstResult, secondResult] = await Promise.all([firstRequest, secondRequest]);
+  assert.deepEqual(firstResult, { status: "started" });
+  assert.deepEqual(secondResult, { status: "already-running" });
+
+  await waitForRunnerToStop(runner);
+  assert.equal(codex.authChecks, 1);
 });
 
 test("runner falha quando etapa plan nao retorna execPlanPath obrigatorio", async () => {

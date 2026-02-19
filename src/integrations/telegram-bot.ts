@@ -1,5 +1,6 @@
 import { Telegraf } from "telegraf";
 import { Logger } from "../core/logger.js";
+import type { RunAllRequestResult } from "../core/runner.js";
 import { RunnerState } from "../types/state.js";
 import {
   TicketFinalSummary,
@@ -7,7 +8,7 @@ import {
 } from "../types/ticket-final-summary.js";
 
 interface BotControls {
-  runAll: () => boolean;
+  runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   pause: () => void;
   resume: () => void;
 }
@@ -22,6 +23,7 @@ interface AccessAttemptContext {
 
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run-all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
+const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 
 export class TelegramController {
   private readonly bot: Telegraf;
@@ -92,12 +94,12 @@ export class TelegramController {
         return;
       }
 
-      const reply = this.buildRunAllReply();
-      if (reply === RUN_ALL_STARTED_REPLY) {
+      const outcome = await this.buildRunAllReply();
+      if (outcome.started) {
         this.captureNotificationChat(chatId);
       }
 
-      await ctx.reply(reply);
+      await ctx.reply(outcome.reply);
     });
 
     this.bot.command("status", async (ctx) => {
@@ -143,12 +145,21 @@ export class TelegramController {
     });
   }
 
-  private buildRunAllReply(): string {
-    if (this.controls.runAll()) {
-      return RUN_ALL_STARTED_REPLY;
+  private async buildRunAllReply(): Promise<{ reply: string; started: boolean }> {
+    const result = await this.controls.runAll();
+
+    if (result.status === "started") {
+      return { reply: RUN_ALL_STARTED_REPLY, started: true };
     }
 
-    return RUN_ALL_ALREADY_RUNNING_REPLY;
+    if (result.status === "already-running") {
+      return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false };
+    }
+
+    return {
+      reply: `${RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
+      started: false,
+    };
   }
 
   private isAllowed(context: AccessAttemptContext): boolean {

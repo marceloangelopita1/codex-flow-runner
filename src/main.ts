@@ -15,7 +15,7 @@ const bootstrap = async () => {
   const logger = new Logger();
 
   const queue = new FileSystemTicketQueue(env.REPO_PATH);
-  const codex = new CodexCliTicketFlowClient(env.REPO_PATH, logger, env.CODEX_API_KEY);
+  const codex = new CodexCliTicketFlowClient(env.REPO_PATH, logger);
   const gitVersioning = new GitCliVersioning(env.REPO_PATH);
   let telegram: TelegramController | null = null;
 

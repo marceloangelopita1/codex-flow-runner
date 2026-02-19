@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import {
+  CodexAuthenticationError,
   CodexCliTicketFlowClient,
   CodexStageExecutionError,
 } from "./codex-client.js";
@@ -19,15 +20,16 @@ const ticket: TicketRef = {
   closedPath: "/tmp/tickets/closed/2026-02-19-example-ticket.md",
 };
 
-test("runStage(plan) substitui placeholder e propaga credenciais para comando", async () => {
+test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
   let capturedPrompt = "";
   let capturedEnv: NodeJS.ProcessEnv | undefined;
+  const originalCodexApiKey = process.env.CODEX_API_KEY;
+  const originalOpenaiApiKey = process.env.OPENAI_API_KEY;
+  process.env.CODEX_API_KEY = "ambient-codex";
+  process.env.OPENAI_API_KEY = "ambient-openai";
 
-  const client = new CodexCliTicketFlowClient(
-    "/tmp/repo",
-    new SpyLogger(),
-    "codex-key",
-    {
+  try {
+    const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
       loadPromptTemplate: async () =>
         [
           "# Prompt: Criar ExecPlan para Ticket",
@@ -41,30 +43,38 @@ test("runStage(plan) substitui placeholder e propaga credenciais para comando", 
         return { stdout: "ok", stderr: "" };
       },
       resolvePlanDirectoryName: async () => "execplans",
-    },
-  );
+    });
 
-  const result = await client.runStage("plan", ticket);
+    const result = await client.runStage("plan", ticket);
 
-  assert.equal(result.stage, "plan");
-  assert.equal(result.execPlanPath, "execplans/2026-02-19-example-ticket.md");
+    assert.equal(result.stage, "plan");
+    assert.equal(result.execPlanPath, "execplans/2026-02-19-example-ticket.md");
 
-  assert.match(capturedPrompt, /tickets\/open\/2026-02-19-example-ticket\.md/u);
-  assert.doesNotMatch(capturedPrompt, /YYYY-MM-DD-slug/u);
-  assert.match(capturedPrompt, /ExecPlan esperado: `execplans\/2026-02-19-example-ticket\.md`/u);
+    assert.match(capturedPrompt, /tickets\/open\/2026-02-19-example-ticket\.md/u);
+    assert.doesNotMatch(capturedPrompt, /YYYY-MM-DD-slug/u);
+    assert.match(capturedPrompt, /ExecPlan esperado: `execplans\/2026-02-19-example-ticket\.md`/u);
 
-  assert.equal(capturedEnv?.CODEX_API_KEY, "codex-key");
-  assert.equal(capturedEnv?.OPENAI_API_KEY, "codex-key");
+    assert.equal(capturedEnv?.CODEX_API_KEY, process.env.CODEX_API_KEY);
+    assert.equal(capturedEnv?.OPENAI_API_KEY, process.env.OPENAI_API_KEY);
+  } finally {
+    if (originalCodexApiKey === undefined) {
+      delete process.env.CODEX_API_KEY;
+    } else {
+      process.env.CODEX_API_KEY = originalCodexApiKey;
+    }
+
+    if (originalOpenaiApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenaiApiKey;
+    }
+  }
 });
 
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
   let capturedPrompt = "";
 
-  const client = new CodexCliTicketFlowClient(
-    "/tmp/repo",
-    new SpyLogger(),
-    "codex-key",
-    {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
       loadPromptTemplate: async () =>
         [
           "# Prompt: Criar ExecPlan para Ticket",
@@ -80,8 +90,7 @@ test("runStage(plan) adapta caminho esperado para repositorio com plans", async 
         return { stdout: "ok", stderr: "" };
       },
       resolvePlanDirectoryName: async () => "plans",
-    },
-  );
+    });
 
   const result = await client.runStage("plan", ticket);
 
@@ -90,19 +99,65 @@ test("runStage(plan) adapta caminho esperado para repositorio com plans", async 
   assert.match(capturedPrompt, /ExecPlan esperado: `plans\/2026-02-19-example-ticket\.md`/u);
 });
 
+test("ensureAuthenticated falha com instrucao de codex login quando sessao esta ausente", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexAuthStatusCommand: async () => ({
+      stdout: "Not logged in",
+      stderr: "",
+    }),
+  });
+
+  await assert.rejects(
+    () => client.ensureAuthenticated(),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexAuthenticationError);
+      assert.match(error.message, /codex login/u);
+      return true;
+    },
+  );
+});
+
+test("ensureAuthenticated aceita sessao valida do Codex CLI", async () => {
+  let checks = 0;
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexAuthStatusCommand: async () => {
+      checks += 1;
+      return {
+        stdout: "Logged in using ChatGPT",
+        stderr: "",
+      };
+    },
+  });
+
+  await client.ensureAuthenticated();
+  assert.equal(checks, 1);
+});
+
+test("ensureAuthenticated propaga falha do comando com erro contextualizado", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexAuthStatusCommand: async () => {
+      throw new Error("codex login status terminou com codigo 1: unauthorized");
+    },
+  });
+
+  await assert.rejects(
+    () => client.ensureAuthenticated(),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexAuthenticationError);
+      assert.match(error.message, /codex login status terminou com codigo 1/u);
+      return true;
+    },
+  );
+});
+
 test("runStage falhando encapsula erro com stage e ticket", async () => {
-  const client = new CodexCliTicketFlowClient(
-    "/tmp/repo",
-    new SpyLogger(),
-    "codex-key",
-    {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
       loadPromptTemplate: async () => "# prompt",
       runCodexCommand: async () => {
         throw new Error("codex exec terminou com codigo 1");
       },
       resolvePlanDirectoryName: async () => "execplans",
-    },
-  );
+    });
 
   await assert.rejects(
     () => client.runStage("implement", ticket),
