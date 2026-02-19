@@ -1,7 +1,7 @@
 # [TICKET] Materializacao da spec planejada e versionamento dedicado inexistentes
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 21:13Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-plan-spec-conversation.md
-  - ExecPlan: a definir
+  - ExecPlan: execplans/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md
 
 ## Context
 - Workflow area: `prompts/`, `src/integrations/codex-client.ts`, `docs/specs/templates/spec-template.md`
@@ -76,8 +76,9 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 
 ## Decision log
 - 2026-02-19 - Ticket aberto apos avaliacao de gaps da spec `telegram-plan-spec-conversation`.
+- 2026-02-19 - Implementacao validada com `npx tsx --test src/integrations/codex-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 22:18Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md (commit deste fechamento; PR N/A)

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { AppEnv } from "../config/env.js";
 import {
@@ -48,6 +51,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     stage: TicketFlowStage | SpecFlowStage;
     ticketName: string;
     target: "ticket" | "spec";
+    spec?: SpecRef;
   }> = [];
   public authChecks = 0;
   public planSessionStartCalls = 0;
@@ -66,6 +70,7 @@ class StubCodexClient implements CodexTicketFlowClient {
       target: { name: string },
     ) => void,
     private readonly failPlanSessionStart = false,
+    private readonly onSpecStageRun?: (stage: SpecFlowStage, spec: SpecRef) => Promise<void> | void,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -96,12 +101,19 @@ class StubCodexClient implements CodexTicketFlowClient {
   }
 
   async runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult> {
-    this.calls.push({ stage, ticketName: spec.fileName, target: "spec" });
+    this.calls.push({
+      stage,
+      ticketName: spec.fileName,
+      target: "spec",
+      spec: cloneSpecRef(spec),
+    });
     this.onStageStart?.(stage, { name: spec.fileName });
 
     if (this.shouldFail?.(stage, { name: spec.fileName })) {
       throw new CodexStageExecutionError(spec.fileName, stage, "falha simulada");
     }
+
+    await this.onSpecStageRun?.(stage, spec);
 
     return {
       stage,
@@ -233,6 +245,23 @@ const ticketB: TicketRef = {
 
 const specFileName = "2026-02-19-approved-spec-triage-run-specs.md";
 
+const cloneSpecRef = (spec: SpecRef): SpecRef => ({
+  fileName: spec.fileName,
+  path: spec.path,
+  ...(spec.plannedTitle ? { plannedTitle: spec.plannedTitle } : {}),
+  ...(spec.plannedSummary ? { plannedSummary: spec.plannedSummary } : {}),
+  ...(spec.commitMessage ? { commitMessage: spec.commitMessage } : {}),
+  ...(spec.tracePaths
+    ? {
+        tracePaths: {
+          requestPath: spec.tracePaths.requestPath,
+          responsePath: spec.tracePaths.responsePath,
+          decisionPath: spec.tracePaths.decisionPath,
+        },
+      }
+    : {}),
+});
+
 const createSummaryCollector = (options: { failSend?: boolean } = {}) => {
   const summaries: TicketFinalSummary[] = [];
   const deliveries: TicketNotificationDelivery[] = [];
@@ -320,6 +349,33 @@ const waitForPlanSpecSessionToClose = async (
 
   assert.fail("sessao /plan_spec nao encerrou dentro do timeout esperado");
 };
+
+const createTempProjectRoot = async (): Promise<string> =>
+  fs.mkdtemp(path.join(os.tmpdir(), "ticket-runner-plan-spec-"));
+
+const cleanupTempProjectRoot = async (rootPath: string): Promise<void> => {
+  await fs.rm(rootPath, { recursive: true, force: true });
+};
+
+const createSpecFileContent = (title: string, summary: string): string =>
+  [
+    `# [SPEC] ${title}`,
+    "",
+    "## Metadata",
+    "- Spec ID: 2026-02-19-bridge-interativa-do-codex",
+    "- Status: approved",
+    "- Spec treatment: pending",
+    "- Owner: mapita",
+    "- Created at (UTC): 2026-02-19 22:04Z",
+    "- Last reviewed at (UTC): 2026-02-19 22:04Z",
+    "- Source: product-need",
+    "- Related tickets:",
+    "  - tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md",
+    "",
+    "## Objetivo e contexto",
+    `- Problema que esta spec resolve: ${summary}`,
+    "",
+  ].join("\n");
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1212,6 +1268,282 @@ test("cancelPlanSpecSession encerra sessao ativa e limpa estado associado", asyn
   assert.equal(codex.lastPlanSession?.cancelCalls, 1);
   assert.equal(runner.getState().planSpecSession, null);
   assert.equal(runner.getState().phase, "idle");
+});
+
+test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec (CA-11)", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  await runner.startPlanSpecSession("42");
+  codex.lastPlanSession?.emitFinal({
+    title: "Bridge interativa do Codex",
+    summary: "Sessao /plan com parser e callbacks no Telegram.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  });
+  await sleep(0);
+
+  const outcome = await runner.handlePlanSpecFinalActionSelection("42", "cancel");
+
+  assert.deepEqual(outcome, { status: "accepted" });
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "idle");
+  assert.equal(codex.lastPlanSession?.cancelCalls, 1);
+  assert.equal(
+    codex.calls.some(
+      (value) =>
+        value.stage === "plan-spec-materialize" || value.stage === "plan-spec-version-and-push",
+    ),
+    false,
+  );
+});
+
+test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e executa versionamento dedicado (CA-12..CA-16)", async () => {
+  const projectRoot = await createTempProjectRoot();
+
+  try {
+    const logger = new SpyLogger();
+    const activeProject: ProjectRef = {
+      name: "plan-spec-project",
+      path: projectRoot,
+    };
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, spec) => {
+        if (stage !== "plan-spec-materialize") {
+          return;
+        }
+
+        const absoluteSpecPath = path.join(projectRoot, ...spec.path.split("/"));
+        await fs.mkdir(path.dirname(absoluteSpecPath), { recursive: true });
+        await fs.writeFile(
+          absoluteSpecPath,
+          createSpecFileContent(spec.plannedTitle ?? "", spec.plannedSummary ?? ""),
+          "utf8",
+        );
+      },
+    );
+    const roundDependencies = createRoundDependencies({
+      activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const lifecycleMessages: string[] = [];
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        now: () => new Date("2026-02-19T22:04:00.000Z"),
+        planSpecEventHandlers: {
+          onQuestion: () => undefined,
+          onFinal: () => undefined,
+          onRawOutput: () => undefined,
+          onFailure: () => undefined,
+          onLifecycleMessage: (_chatId, message) => {
+            lifecycleMessages.push(message);
+          },
+        },
+      },
+    });
+
+    await runner.startPlanSpecSession("42");
+    codex.lastPlanSession?.emitFinal({
+      title: "Bridge interativa do Codex",
+      summary: "Sessao /plan com parser e callbacks no Telegram.",
+      actions: [
+        { id: "create-spec", label: "Criar spec" },
+        { id: "refine", label: "Refinar" },
+        { id: "cancel", label: "Cancelar" },
+      ],
+    });
+    await sleep(0);
+
+    const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
+    assert.deepEqual(outcome, { status: "accepted" });
+
+    const expectedFileName = "2026-02-19-bridge-interativa-do-codex.md";
+    const expectedSpecPath = path.join(projectRoot, "docs", "specs", expectedFileName);
+    const specContent = await fs.readFile(expectedSpecPath, "utf8");
+    assert.match(specContent, /^\s*-\s*Status\s*:\s*approved\s*$/imu);
+    assert.match(specContent, /^\s*-\s*Spec treatment\s*:\s*pending\s*$/imu);
+
+    const materializeCall = codex.calls.find((value) => value.stage === "plan-spec-materialize");
+    const versionCall = codex.calls.find((value) => value.stage === "plan-spec-version-and-push");
+    assert.ok(materializeCall);
+    assert.ok(versionCall);
+    assert.equal(materializeCall?.spec?.path, `docs/specs/${expectedFileName}`);
+    assert.equal(versionCall?.spec?.commitMessage, `feat(spec): add ${expectedFileName}`);
+    assert.match(versionCall?.spec?.tracePaths?.requestPath ?? "", /^spec_planning\/requests\//u);
+    assert.match(versionCall?.spec?.tracePaths?.responsePath ?? "", /^spec_planning\/responses\//u);
+    assert.match(versionCall?.spec?.tracePaths?.decisionPath ?? "", /^spec_planning\/decisions\//u);
+
+    const requestPath = path.join(projectRoot, versionCall?.spec?.tracePaths?.requestPath ?? "");
+    const responsePath = path.join(projectRoot, versionCall?.spec?.tracePaths?.responsePath ?? "");
+    const decisionPath = path.join(projectRoot, versionCall?.spec?.tracePaths?.decisionPath ?? "");
+    await fs.access(requestPath);
+    await fs.access(responsePath);
+    await fs.access(decisionPath);
+
+    const responseFiles = await fs.readdir(path.join(projectRoot, "spec_planning", "responses"));
+    assert.equal(responseFiles.length >= 2, true);
+    assert.equal(runner.getState().planSpecSession, null);
+    assert.equal(runner.getState().phase, "idle");
+    assert.equal(codex.lastPlanSession?.cancelCalls, 1);
+    assert.equal(lifecycleMessages.some((value) => /Spec criada e versionada com sucesso/u.test(value)), true);
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
+});
+
+test("acao Criar spec bloqueia colisao de arquivo e mantem sessao ativa para refino", async () => {
+  const projectRoot = await createTempProjectRoot();
+
+  try {
+    const expectedFileName = "2026-02-19-bridge-interativa-do-codex.md";
+    const existingSpecPath = path.join(projectRoot, "docs", "specs", expectedFileName);
+    await fs.mkdir(path.dirname(existingSpecPath), { recursive: true });
+    await fs.writeFile(existingSpecPath, "# spec existente\n", "utf8");
+
+    const logger = new SpyLogger();
+    const activeProject: ProjectRef = {
+      name: "plan-spec-project",
+      path: projectRoot,
+    };
+    const codex = new StubCodexClient();
+    const roundDependencies = createRoundDependencies({
+      activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        now: () => new Date("2026-02-19T22:04:00.000Z"),
+      },
+    });
+
+    await runner.startPlanSpecSession("42");
+    codex.lastPlanSession?.emitFinal({
+      title: "Bridge interativa do Codex",
+      summary: "Sessao /plan com parser e callbacks no Telegram.",
+      actions: [
+        { id: "create-spec", label: "Criar spec" },
+        { id: "refine", label: "Refinar" },
+        { id: "cancel", label: "Cancelar" },
+      ],
+    });
+    await sleep(0);
+
+    const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
+    assert.equal(outcome.status, "ignored");
+    if (outcome.status === "ignored") {
+      assert.match(outcome.message, /Ja existe docs\/specs\/2026-02-19-bridge-interativa-do-codex\.md/u);
+      assert.match(outcome.message, /Refinar/u);
+    }
+
+    assert.equal(runner.getState().planSpecSession?.phase, "awaiting-final-action");
+    assert.equal(codex.lastPlanSession?.cancelCalls, 0);
+    assert.equal(
+      codex.calls.some((value) => value.stage === "plan-spec-materialize"),
+      false,
+    );
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
+});
+
+test("falha em etapa de Criar spec encerra sessao com erro acionavel sem corromper estado", async () => {
+  const projectRoot = await createTempProjectRoot();
+
+  try {
+    const logger = new SpyLogger();
+    const failures: string[] = [];
+    const activeProject: ProjectRef = {
+      name: "plan-spec-project",
+      path: projectRoot,
+    };
+    const codex = new StubCodexClient(
+      (stage) => stage === "plan-spec-version-and-push",
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, spec) => {
+        if (stage !== "plan-spec-materialize") {
+          return;
+        }
+
+        const absoluteSpecPath = path.join(projectRoot, ...spec.path.split("/"));
+        await fs.mkdir(path.dirname(absoluteSpecPath), { recursive: true });
+        await fs.writeFile(
+          absoluteSpecPath,
+          createSpecFileContent(spec.plannedTitle ?? "", spec.plannedSummary ?? ""),
+          "utf8",
+        );
+      },
+    );
+    const roundDependencies = createRoundDependencies({
+      activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        now: () => new Date("2026-02-19T22:04:00.000Z"),
+        planSpecEventHandlers: {
+          onQuestion: () => undefined,
+          onFinal: () => undefined,
+          onRawOutput: () => undefined,
+          onFailure: (_chatId, details) => {
+            failures.push(details);
+          },
+        },
+      },
+    });
+
+    await runner.startPlanSpecSession("42");
+    codex.lastPlanSession?.emitFinal({
+      title: "Bridge interativa do Codex",
+      summary: "Sessao /plan com parser e callbacks no Telegram.",
+      actions: [
+        { id: "create-spec", label: "Criar spec" },
+        { id: "refine", label: "Refinar" },
+        { id: "cancel", label: "Cancelar" },
+      ],
+    });
+    await sleep(0);
+
+    const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
+    assert.equal(outcome.status, "ignored");
+    if (outcome.status === "ignored") {
+      assert.match(outcome.message, /Falha ao criar spec planejada/u);
+      assert.match(outcome.message, /falha simulada/u);
+    }
+
+    assert.equal(runner.getState().planSpecSession, null);
+    assert.equal(runner.getState().phase, "error");
+    assert.equal(runner.getState().currentSpec, null);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0] ?? "", /Falha ao criar spec planejada/u);
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
 });
 
 test("sessao /plan_spec expira por timeout de inatividade e notifica operador", async () => {

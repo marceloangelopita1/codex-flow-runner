@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
 import {
@@ -25,8 +27,13 @@ import {
   TicketFlowStage,
   isTicketFlowStage,
 } from "../integrations/codex-client.js";
+import {
+  FileSystemSpecPlanningTraceStore,
+  SpecPlanningTraceSession,
+  SpecPlanningTraceStore,
+} from "../integrations/spec-planning-trace-store.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
-import { PlanSpecFinalActionId } from "../integrations/plan-spec-parser.js";
+import { PlanSpecFinalActionId, PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
 type TicketFinalSummaryHandler = (
@@ -49,6 +56,7 @@ export interface TicketRunnerOptions {
   now?: () => Date;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
+  specPlanningTraceStoreFactory?: (projectPath: string) => SpecPlanningTraceStore;
   planSpecEventHandlers?: PlanSpecEventHandlers;
 }
 
@@ -57,6 +65,7 @@ interface ActivePlanSpecSession {
   chatId: string;
   session: PlanSpecSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  latestFinalBlock: PlanSpecFinalBlock | null;
 }
 
 type PlanSpecSessionChatRejectedResult =
@@ -147,6 +156,7 @@ export class TicketRunner {
   private readonly setTimer: typeof setTimeout;
   private readonly clearTimer: typeof clearTimeout;
   private readonly planSpecSessionTimeoutMs: number;
+  private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private nextPlanSpecSessionId = 1;
@@ -168,6 +178,9 @@ export class TicketRunner {
     this.clearTimer = options.clearTimer ?? clearTimeout;
     this.planSpecSessionTimeoutMs =
       options.planSpecSessionTimeoutMs ?? PLAN_SPEC_SESSION_TIMEOUT_MS;
+    this.specPlanningTraceStoreFactory =
+      options.specPlanningTraceStoreFactory ??
+      ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.state.updatedAt = this.now();
   }
@@ -354,6 +367,7 @@ export class TicketRunner {
         chatId,
         session,
         timeoutHandle: null,
+        latestFinalBlock: null,
       };
 
       this.refreshPlanSpecTimeout(sessionId);
@@ -461,24 +475,25 @@ export class TicketRunner {
     chatId: string,
     action: PlanSpecFinalActionId,
   ): Promise<PlanSpecCallbackResult> => {
-    if (action === "cancel") {
-      const result = await this.cancelPlanSpecSession(chatId);
-      if (result.status === "cancelled") {
-        return { status: "accepted" };
-      }
-
+    const session = this.resolvePlanSpecSessionForChat(chatId);
+    if ("status" in session) {
       return {
         status: "ignored",
-        message: result.message,
+        message: session.message,
       };
     }
 
+    if (action === "cancel") {
+      await this.finalizePlanSpecSession(session.id, {
+        mode: "cancel",
+        phase: "idle",
+        message: PLAN_SPEC_CANCELLED_MESSAGE,
+      });
+      return { status: "accepted" };
+    }
+
     if (action === "create-spec") {
-      return {
-        status: "ignored",
-        message:
-          "Acao `Criar spec` ainda nao esta habilitada nesta etapa. Use `Refinar` ou /plan_spec_cancel.",
-      };
+      return this.handlePlanSpecCreateSpecSelection(session);
     }
 
     const result = await this.submitPlanSpecInput(
@@ -494,6 +509,153 @@ export class TicketRunner {
       message: result.message,
     };
   };
+
+  private async handlePlanSpecCreateSpecSelection(
+    session: ActivePlanSpecSession,
+  ): Promise<PlanSpecCallbackResult> {
+    const planSpecSession = this.state.planSpecSession;
+    if (!planSpecSession) {
+      return {
+        status: "ignored",
+        message: PLAN_SPEC_INACTIVE_MESSAGE,
+      };
+    }
+
+    if (planSpecSession.phase !== "awaiting-final-action") {
+      return {
+        status: "ignored",
+        message:
+          "Acao `Criar spec` so pode ser executada apos o bloco final do planejamento. Use `Refinar` para continuar.",
+      };
+    }
+
+    const finalBlock = session.latestFinalBlock;
+    if (!finalBlock) {
+      return {
+        status: "ignored",
+        message:
+          "Bloco final do planejamento indisponivel para `Criar spec`. Solicite `Refinar` e conclua novamente.",
+      };
+    }
+
+    const createdAt = this.now();
+    const spec = this.buildPlannedSpecRef(finalBlock.title, createdAt);
+    const commitMessage = `feat(spec): add ${spec.fileName}`;
+    const activeProject = planSpecSession.activeProjectSnapshot;
+
+    try {
+      await this.assertSpecPathAvailable(activeProject.path, spec.path);
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      return {
+        status: "ignored",
+        message: details,
+      };
+    }
+
+    let traceSession: SpecPlanningTraceSession;
+    const traceStore = this.specPlanningTraceStoreFactory(activeProject.path);
+    try {
+      traceSession = await traceStore.startSession({
+        sessionId: session.id,
+        chatId: session.chatId,
+        specPath: spec.path,
+        specFileName: spec.fileName,
+        specTitle: finalBlock.title,
+        specSummary: finalBlock.summary,
+        commitMessage,
+        createdAt,
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.logger.error("Falha ao persistir trilha spec_planning antes da acao create-spec", {
+        sessionId: session.id,
+        chatId: session.chatId,
+        specPath: spec.path,
+        error: details,
+      });
+      return {
+        status: "ignored",
+        message: `Falha ao persistir trilha spec_planning: ${details}`,
+      };
+    }
+
+    this.isStarting = true;
+    this.state.currentSpec = spec.fileName;
+    try {
+      await this.finalizePlanSpecSession(session.id, {
+        mode: "cancel",
+        phase: "plan-spec-waiting-codex",
+        message: `Sessao /plan_spec encerrada para executar Criar spec: ${spec.fileName}`,
+        notifyMessage: `Executando Criar spec para ${spec.path}.`,
+      });
+
+      this.touch(
+        "plan-spec-waiting-codex",
+        `Executando etapa plan-spec-materialize para ${spec.fileName}`,
+      );
+      const materializeResult = await this.codexClient.runSpecStage("plan-spec-materialize", {
+        fileName: spec.fileName,
+        path: spec.path,
+        plannedTitle: finalBlock.title,
+        plannedSummary: finalBlock.summary,
+      });
+      await traceStore.writeStageResponse(traceSession.materializeResponsePath, {
+        stage: "plan-spec-materialize",
+        output: materializeResult.output,
+        recordedAt: this.now(),
+      });
+      await this.assertPlannedSpecMetadata(activeProject.path, spec.path);
+
+      this.touch(
+        "plan-spec-waiting-codex",
+        `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
+      );
+      const versionResult = await this.codexClient.runSpecStage("plan-spec-version-and-push", {
+        fileName: spec.fileName,
+        path: spec.path,
+        commitMessage,
+        tracePaths: {
+          requestPath: traceSession.requestPath,
+          responsePath: traceSession.materializeResponsePath,
+          decisionPath: traceSession.decisionPath,
+        },
+      });
+      await traceStore.writeStageResponse(traceSession.versionAndPushResponsePath, {
+        stage: "plan-spec-version-and-push",
+        output: versionResult.output,
+        recordedAt: this.now(),
+      });
+
+      this.touch("idle", `Spec criada e versionada com sucesso: ${spec.path}`);
+      await this.emitPlanSpecLifecycleMessage(
+        session.chatId,
+        `Spec criada e versionada com sucesso: ${spec.path}`,
+      );
+      return { status: "accepted" };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.touch(
+        "error",
+        `Falha ao executar acao Criar spec para ${spec.fileName}: ${details}`,
+      );
+      this.logger.error("Falha na acao final create-spec da sessao /plan_spec", {
+        sessionId: session.id,
+        chatId: session.chatId,
+        specFileName: spec.fileName,
+        specPath: spec.path,
+        error: details,
+      });
+      await this.emitPlanSpecFailure(session.chatId, `Falha ao criar spec planejada: ${details}`);
+      return {
+        status: "ignored",
+        message: `Falha ao criar spec planejada: ${details}`,
+      };
+    } finally {
+      this.state.currentSpec = null;
+      this.isStarting = false;
+    }
+  }
 
   requestRunAll = async (): Promise<RunAllRequestResult> => {
     this.logger.info("Solicitacao de rodada recebida", {
@@ -712,6 +874,7 @@ export class TicketRunner {
     this.refreshPlanSpecTimeout(sessionId);
 
     if (event.type === "question") {
+      activeSession.latestFinalBlock = null;
       this.setPlanSpecPhase(
         "waiting-user",
         "plan-spec-waiting-user",
@@ -722,6 +885,11 @@ export class TicketRunner {
     }
 
     if (event.type === "final") {
+      activeSession.latestFinalBlock = {
+        title: event.final.title,
+        summary: event.final.summary,
+        actions: event.final.actions.map((action) => ({ ...action })),
+      };
       this.setPlanSpecPhase(
         "awaiting-final-action",
         "plan-spec-awaiting-final-action",
@@ -795,7 +963,7 @@ export class TicketRunner {
     sessionId: number,
     options: {
       mode: "cancel" | "closed";
-      phase: "idle" | "error";
+      phase: RunnerState["phase"];
       message: string;
       notifyMessage?: string;
     },
@@ -1051,6 +1219,84 @@ export class TicketRunner {
     }
 
     return `docs/specs/${specFileName}`;
+  }
+
+  private buildPlannedSpecRef(title: string, createdAt: Date): SpecRef {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      throw new Error(
+        "Titulo final vazio no bloco de planejamento. Use `Refinar` para informar um titulo valido.",
+      );
+    }
+
+    const slug = normalizedTitle
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036F]/gu, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^-+|-+$/gu, "")
+      .replace(/-{2,}/gu, "-");
+
+    if (!slug) {
+      throw new Error(
+        "Nao foi possivel derivar slug do titulo final. Use `Refinar` com titulo contendo letras ou numeros.",
+      );
+    }
+
+    const datePrefix = createdAt.toISOString().slice(0, 10);
+    const fileName = `${datePrefix}-${slug}.md`;
+    return {
+      fileName,
+      path: this.resolveSpecPath(fileName),
+    };
+  }
+
+  private async assertSpecPathAvailable(projectPath: string, relativeSpecPath: string): Promise<void> {
+    const absoluteSpecPath = this.resolveProjectRelativePath(projectPath, relativeSpecPath);
+    try {
+      await fs.access(absoluteSpecPath);
+      throw new Error(
+        `Ja existe ${relativeSpecPath}. Use \`Refinar\` e ajuste o titulo final para gerar novo slug.`,
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+
+      if (error instanceof Error && /Ja existe/u.test(error.message)) {
+        throw error;
+      }
+
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(`Falha ao validar colisao de arquivo da spec: ${details}`);
+    }
+  }
+
+  private async assertPlannedSpecMetadata(projectPath: string, relativeSpecPath: string): Promise<void> {
+    const absoluteSpecPath = this.resolveProjectRelativePath(projectPath, relativeSpecPath);
+    let content = "";
+    try {
+      content = await fs.readFile(absoluteSpecPath, "utf8");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(`Falha ao ler spec criada ${relativeSpecPath}: ${details}`);
+    }
+
+    if (!/^\s*-\s*Status\s*:\s*approved\s*$/imu.test(content)) {
+      throw new Error(
+        `Spec criada sem metadata obrigatoria \`Status: approved\` em ${relativeSpecPath}.`,
+      );
+    }
+
+    if (!/^\s*-\s*Spec treatment\s*:\s*pending\s*$/imu.test(content)) {
+      throw new Error(
+        `Spec criada sem metadata obrigatoria \`Spec treatment: pending\` em ${relativeSpecPath}.`,
+      );
+    }
+  }
+
+  private resolveProjectRelativePath(projectPath: string, relativePath: string): string {
+    return path.join(projectPath, ...relativePath.split("/"));
   }
 
   private async runForever(): Promise<void> {
@@ -1338,7 +1584,11 @@ export class TicketRunner {
     message: string,
   ): Promise<CodexStageResult> {
     const stageStartedAt = Date.now();
-    this.touch(stage, message);
+    const phase: RunnerState["phase"] =
+      stage === "spec-triage" || stage === "spec-close-and-version"
+        ? stage
+        : "plan-spec-waiting-codex";
+    this.touch(phase, message);
 
     const result = await this.codexClient.runSpecStage(stage, spec);
     this.logger.info("Etapa de spec concluida no runner", {

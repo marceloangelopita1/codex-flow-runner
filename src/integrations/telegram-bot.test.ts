@@ -1574,6 +1574,53 @@ test("callback final de Refinar retorna ao ciclo sem criar arquivo (CA-10)", asy
   assert.equal(answers[0], "Refino solicitado, continue a conversa.");
 });
 
+test("callback final de Criar spec confirma selecao quando runner aceita acao", async () => {
+  const { controller, controlState } = createController({
+    planSpecFinalCallbackOutcome: {
+      status: "accepted",
+    },
+  });
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:final:create-spec" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Resposta registrada.");
+});
+
+test("callback final de Criar spec devolve erro acionavel quando runner rejeita acao", async () => {
+  const { controller, controlState } = createController({
+    planSpecFinalCallbackOutcome: {
+      status: "ignored",
+      message: "Falha ao criar spec planejada: conflito de slug.",
+    },
+  });
+  const answers: string[] = [];
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "plan-spec:final:create-spec" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Falha ao criar spec planejada: conflito de slug.");
+});
+
 test("callback de planejamento invalido recebe mensagem de erro", async () => {
   const { controller, controlState } = createController();
   const answers: string[] = [];

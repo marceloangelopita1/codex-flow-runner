@@ -20,12 +20,26 @@ import {
 import { TicketRef } from "./ticket-queue.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
-export type SpecFlowStage = "spec-triage" | "spec-close-and-version";
+export type SpecFlowStage =
+  | "spec-triage"
+  | "spec-close-and-version"
+  | "plan-spec-materialize"
+  | "plan-spec-version-and-push";
 export type CodexFlowStage = TicketFlowStage | SpecFlowStage;
+
+export interface SpecPlanningTracePaths {
+  requestPath: string;
+  responsePath: string;
+  decisionPath: string;
+}
 
 export interface SpecRef {
   fileName: string;
   path: string;
+  plannedTitle?: string;
+  plannedSummary?: string;
+  commitMessage?: string;
+  tracePaths?: SpecPlanningTracePaths;
 }
 
 export interface CodexStageResult {
@@ -116,6 +130,8 @@ const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
 const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
   "spec-triage": "01-avaliar-spec-e-gerar-tickets.md",
   "spec-close-and-version": "05-encerrar-tratamento-spec-commit-push.md",
+  "plan-spec-materialize": "06-materializar-spec-planejada.md",
+  "plan-spec-version-and-push": "07-versionar-spec-planejada-commit-push.md",
 };
 
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
@@ -252,8 +268,6 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
   async runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult> {
     const promptTemplatePath = path.join(PROMPTS_DIR, SPEC_STAGE_PROMPT_FILES[stage]);
-    const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
-    const prompt = this.buildSpecPrompt(stage, promptTemplate, spec);
 
     this.logger.info("Executando etapa de spec via Codex CLI", {
       spec: spec.fileName,
@@ -263,6 +277,8 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     });
 
     try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      const prompt = this.buildSpecPrompt(stage, promptTemplate, spec);
       const result = await this.dependencies.runCodexCommand({
         cwd: this.repoPath,
         prompt,
@@ -340,11 +356,37 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   }
 
   private buildSpecPrompt(stage: SpecFlowStage, promptTemplate: string, spec: SpecRef): string {
-    const commitMessage = this.buildSpecCommitMessage(spec.fileName);
+    const commitMessage = spec.commitMessage ?? this.buildSpecCommitMessage(stage, spec.fileName);
+    const plannedTitle = spec.plannedTitle?.trim() ?? "";
+    const plannedSummary = spec.plannedSummary?.trim() ?? "";
+    const traceRequestPath = spec.tracePaths?.requestPath ?? "";
+    const traceResponsePath = spec.tracePaths?.responsePath ?? "";
+    const traceDecisionPath = spec.tracePaths?.decisionPath ?? "";
+
+    if (stage === "plan-spec-materialize" && (!plannedTitle || !plannedSummary)) {
+      throw new Error(
+        "Etapa plan-spec-materialize exige titulo e resumo finais aprovados da sessao /plan_spec.",
+      );
+    }
+
+    if (
+      stage === "plan-spec-version-and-push" &&
+      (!traceRequestPath || !traceResponsePath || !traceDecisionPath)
+    ) {
+      throw new Error(
+        "Etapa plan-spec-version-and-push exige trilha spec_planning completa (request/response/decision).",
+      );
+    }
+
     const stageTemplate = promptTemplate
       .replace(/<SPEC_PATH>/gu, spec.path)
       .replace(/<SPEC_FILE_NAME>/gu, spec.fileName)
-      .replace(/<COMMIT_MESSAGE>/gu, commitMessage);
+      .replace(/<COMMIT_MESSAGE>/gu, commitMessage)
+      .replace(/<SPEC_TITLE>/gu, plannedTitle)
+      .replace(/<SPEC_SUMMARY>/gu, plannedSummary)
+      .replace(/<TRACE_REQUEST_PATH>/gu, traceRequestPath)
+      .replace(/<TRACE_RESPONSE_PATH>/gu, traceResponsePath)
+      .replace(/<TRACE_DECISION_PATH>/gu, traceDecisionPath);
 
     return [
       stageTemplate.trimEnd(),
@@ -352,8 +394,21 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "Contexto adicional da spec alvo:",
       `- Spec alvo: \`${spec.path}\``,
       `- Arquivo da spec: \`${spec.fileName}\``,
-      ...(stage === "spec-close-and-version"
+      ...(stage === "spec-close-and-version" || stage === "plan-spec-version-and-push"
         ? [`- Commit esperado: \`${commitMessage}\``]
+        : []),
+      ...(stage === "plan-spec-materialize"
+        ? [
+            `- Titulo final aprovado: \`${plannedTitle}\``,
+            `- Resumo final aprovado: \`${plannedSummary}\``,
+          ]
+        : []),
+      ...(stage === "plan-spec-version-and-push"
+        ? [
+            `- Trilha request: \`${traceRequestPath}\``,
+            `- Trilha response: \`${traceResponsePath}\``,
+            `- Trilha decision: \`${traceDecisionPath}\``,
+          ]
         : []),
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
@@ -376,7 +431,11 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     return buildExecPlanPath(planDirectory, ticket.name);
   }
 
-  private buildSpecCommitMessage(specFileName: string): string {
+  private buildSpecCommitMessage(stage: SpecFlowStage, specFileName: string): string {
+    if (stage === "plan-spec-version-and-push") {
+      return `feat(spec): add ${specFileName}`;
+    }
+
     return `chore(specs): triage ${specFileName}`;
   }
 }

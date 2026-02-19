@@ -28,6 +28,18 @@ const spec = {
   path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
 };
 
+const plannedSpec = {
+  fileName: "2026-02-19-bridge-interativa-do-codex.md",
+  path: "docs/specs/2026-02-19-bridge-interativa-do-codex.md",
+  plannedTitle: "Bridge interativa do Codex",
+  plannedSummary: "Sessao /plan com parser e callbacks no Telegram.",
+  tracePaths: {
+    requestPath: "spec_planning/requests/20260219t220400z-s1-request.md",
+    responsePath: "spec_planning/responses/20260219t220400z-s1-materialize.md",
+    decisionPath: "spec_planning/decisions/20260219t220400z-s1-decision.json",
+  },
+};
+
 class FakeInteractiveProcess {
   public readonly stdout = new PassThrough();
   public readonly stderr = new PassThrough();
@@ -188,6 +200,83 @@ test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Statu
   );
   assert.match(capturedPrompt, /Status: attended/u);
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+});
+
+test("runSpecStage(plan-spec-materialize) injeta titulo/resumo finais e caminho da spec planejada", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "",
+        "Spec alvo: <SPEC_PATH>",
+        "Arquivo: <SPEC_FILE_NAME>",
+        "Titulo: <SPEC_TITLE>",
+        "Resumo: <SPEC_SUMMARY>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("plan-spec-materialize", plannedSpec);
+
+  assert.equal(result.stage, "plan-spec-materialize");
+  assert.match(capturedPrompt, /docs\/specs\/2026-02-19-bridge-interativa-do-codex\.md/u);
+  assert.match(capturedPrompt, /Titulo: Bridge interativa do Codex/u);
+  assert.match(capturedPrompt, /Resumo: Sessao \/plan com parser e callbacks no Telegram\./u);
+  assert.doesNotMatch(capturedPrompt, /<SPEC_TITLE>|<SPEC_SUMMARY>/u);
+});
+
+test("runSpecStage(plan-spec-version-and-push) injeta commit dedicado feat(spec) e trilha spec_planning", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "",
+        "Commit: <COMMIT_MESSAGE>",
+        "Request: <TRACE_REQUEST_PATH>",
+        "Response: <TRACE_RESPONSE_PATH>",
+        "Decision: <TRACE_DECISION_PATH>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("plan-spec-version-and-push", plannedSpec);
+
+  assert.equal(result.stage, "plan-spec-version-and-push");
+  assert.match(capturedPrompt, /feat\(spec\): add 2026-02-19-bridge-interativa-do-codex\.md/u);
+  assert.match(capturedPrompt, /spec_planning\/requests\/20260219t220400z-s1-request\.md/u);
+  assert.match(capturedPrompt, /spec_planning\/responses\/20260219t220400z-s1-materialize\.md/u);
+  assert.match(capturedPrompt, /spec_planning\/decisions\/20260219t220400z-s1-decision\.json/u);
+  assert.doesNotMatch(capturedPrompt, /<TRACE_REQUEST_PATH>|<TRACE_RESPONSE_PATH>|<TRACE_DECISION_PATH>/u);
+});
+
+test("runSpecStage(plan-spec-version-and-push) falha quando trilha spec_planning nao e informada", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# Prompt sem placeholders",
+    runCodexCommand: async () => ({ stdout: "ok", stderr: "" }),
+  });
+
+  await assert.rejects(
+    () =>
+      client.runSpecStage("plan-spec-version-and-push", {
+        fileName: plannedSpec.fileName,
+        path: plannedSpec.path,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexStageExecutionError);
+      assert.match(error.message, /trilha spec_planning completa/u);
+      return true;
+    },
+  );
 });
 
 test("ensureAuthenticated falha com instrucao de codex login quando sessao esta ausente", async () => {
