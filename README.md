@@ -2,7 +2,7 @@
 
 Runner de tickets com **Node.js + TypeScript** para executar um fluxo **sequencial**:
 
-1. detectar próximo ticket em `tickets/open/`;
+1. detectar proximo ticket em `tickets/open/` por `Priority` (`P0 -> P1 -> P2`; empate com fallback por nome de arquivo);
 2. gerar/atualizar ExecPlan em `execplans/`;
 3. fechar ticket movendo para `tickets/closed/`;
 4. criar commit git no mesmo ciclo;

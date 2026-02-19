@@ -10,6 +10,7 @@ Regras do repositório (obrigatórias):
 - Tickets novos devem ser criados em `tickets/open/` com nome `YYYY-MM-DD-<slug>.md`.
 - Não incluir segredos/dados sensíveis.
 - Fluxo é sequencial.
+- Priorizar gaps considerando consumo real da fila: `/run-all` processa `P0` antes de `P1` e `P1` antes de `P2` (empate sem ordem funcional obrigatória).
 
 Tarefa:
 1. Ler a spec alvo e extrair RFs e critérios de aceitação (CAs).

@@ -46,6 +46,9 @@ Closure/commit rule:
   - `P0`: blocks release or has high operational risk.
   - `P1`: important, should be addressed in the next planned cycle.
   - `P2`: useful improvement, can wait without immediate risk.
+- Queue consumption rule (`/run-all`):
+  - Open tickets are consumed by priority order: `P0` before `P1`, and `P1` before `P2`.
+  - For ties in the same priority, order is not a functional requirement; deterministic fallback by file name is acceptable.
 - Severity (`S1`, `S2`, `S3`):
   - `S1`: high impact.
   - `S2`: medium impact.

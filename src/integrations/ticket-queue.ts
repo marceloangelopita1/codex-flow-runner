@@ -2,6 +2,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { resolvePlanDirectoryPath } from "./plan-directory.js";
 
+const PRIORITY_RANK: Readonly<Record<string, number>> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+};
+
+const FALLBACK_PRIORITY_RANK = 3;
+const PRIORITY_METADATA_PATTERN = /^\s*(?:-\s*)?Priority\s*:\s*(P[0-2])\b/imu;
+
 export interface TicketRef {
   name: string;
   openPath: string;
@@ -12,6 +21,11 @@ export interface TicketQueue {
   nextOpenTicket(): Promise<TicketRef | null>;
   ensureStructure(): Promise<void>;
   closeTicket(ticket: TicketRef): Promise<void>;
+}
+
+interface TicketCandidate {
+  name: string;
+  priorityRank: number;
 }
 
 export class FileSystemTicketQueue implements TicketQueue {
@@ -41,11 +55,23 @@ export class FileSystemTicketQueue implements TicketQueue {
       return null;
     }
 
-    const candidates = files
-      .filter((file) => file.endsWith(".md"))
-      .sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const candidates = files.filter((file) => file.endsWith(".md"));
+    const prioritizedCandidates = await Promise.all(
+      candidates.map(async (name): Promise<TicketCandidate> => ({
+        name,
+        priorityRank: await this.readPriorityRank(name),
+      })),
+    );
 
-    const name = candidates[0];
+    const name = prioritizedCandidates
+      .sort((a, b) => {
+        const byPriority = a.priorityRank - b.priorityRank;
+        if (byPriority !== 0) {
+          return byPriority;
+        }
+        return a.name.localeCompare(b.name, "pt-BR");
+      })
+      .at(0)?.name;
     if (!name) {
       return null;
     }
@@ -60,5 +86,24 @@ export class FileSystemTicketQueue implements TicketQueue {
   async closeTicket(ticket: TicketRef): Promise<void> {
     await fs.mkdir(path.dirname(ticket.closedPath), { recursive: true });
     await fs.rename(ticket.openPath, ticket.closedPath);
+  }
+
+  private async readPriorityRank(ticketName: string): Promise<number> {
+    const ticketPath = path.join(this.openDir, ticketName);
+    try {
+      const ticketContent = await fs.readFile(ticketPath, "utf8");
+      return this.extractPriorityRank(ticketContent);
+    } catch {
+      return FALLBACK_PRIORITY_RANK;
+    }
+  }
+
+  private extractPriorityRank(ticketContent: string): number {
+    const priorityMatch = ticketContent.match(PRIORITY_METADATA_PATTERN);
+    const priority = priorityMatch?.[1]?.toUpperCase();
+    if (!priority) {
+      return FALLBACK_PRIORITY_RANK;
+    }
+    return PRIORITY_RANK[priority] ?? FALLBACK_PRIORITY_RANK;
   }
 }

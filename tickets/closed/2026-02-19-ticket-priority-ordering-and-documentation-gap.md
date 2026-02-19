@@ -1,7 +1,7 @@
 # [TICKET] Fila de /run-all ignora prioridade do ticket e documentacao nao define ordenacao por prioridade
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 18:33Z
@@ -17,6 +17,7 @@
   - INTERNAL_TICKETS.md
   - README.md
   - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - ExecPlan: execplans/2026-02-19-ticket-priority-ordering-and-documentation-gap.md
 
 ## Context
 - Workflow area: `src/integrations/ticket-queue.ts` e documentacao operacional de tickets
@@ -72,6 +73,6 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 - 2026-02-19 - Ticket aberto para formalizar melhoria de priorizacao de execucao por `Priority` e alinhamento de documentacao.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 19:08Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-ticket-priority-ordering-and-documentation-gap.md (commit deste fechamento; PR N/A)
