@@ -1,5 +1,6 @@
 import { AppEnv } from "../config/env.js";
 import { RunnerState, createInitialState } from "../types/state.js";
+import { TicketFinalStage, TicketFinalSummary } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import {
   CodexStageExecutionError,
@@ -8,6 +9,8 @@ import {
 } from "../integrations/codex-client.js";
 import { GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
+
+type TicketFinalSummaryHandler = (summary: TicketFinalSummary) => Promise<void> | void;
 
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
@@ -19,6 +22,7 @@ export class TicketRunner {
     private readonly queue: TicketQueue,
     private readonly codexClient: CodexTicketFlowClient,
     private readonly gitVersioning: GitVersioning,
+    private readonly onTicketFinalized?: TicketFinalSummaryHandler,
   ) {}
 
   getState = (): RunnerState => ({ ...this.state });
@@ -107,6 +111,7 @@ export class TicketRunner {
 
   private async processTicket(ticket: TicketRef): Promise<boolean> {
     this.state.currentTicket = ticket.name;
+    let finalSummary: TicketFinalSummary | null = null;
 
     try {
       await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
@@ -119,18 +124,76 @@ export class TicketRunner {
       await this.assertCloseAndVersion(ticket);
 
       this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      finalSummary = this.buildTicketFinalSummary(ticket.name, "success", "close-and-version");
       return true;
     } catch (error) {
       const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.touch("error", `Falha ao processar ${ticket.name}`);
       this.logger.error("Erro no ciclo de ticket", {
         ticket: ticket.name,
         stage,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
+      finalSummary = this.buildTicketFinalSummary(
+        ticket.name,
+        "failure",
+        this.resolveFailureStage(stage),
+        errorMessage,
+      );
       return false;
     } finally {
+      if (finalSummary) {
+        await this.publishTicketFinalSummary(finalSummary);
+      }
       this.state.currentTicket = null;
+    }
+  }
+
+  private buildTicketFinalSummary(
+    ticket: string,
+    status: TicketFinalSummary["status"],
+    finalStage: TicketFinalStage,
+    errorMessage?: string,
+  ): TicketFinalSummary {
+    return {
+      ticket,
+      status,
+      finalStage,
+      timestampUtc: new Date().toISOString(),
+      ...(errorMessage ? { errorMessage } : {}),
+    };
+  }
+
+  private resolveFailureStage(stage?: TicketFlowStage): TicketFinalStage {
+    if (stage) {
+      return stage;
+    }
+
+    if (
+      this.state.phase === "plan" ||
+      this.state.phase === "implement" ||
+      this.state.phase === "close-and-version"
+    ) {
+      return this.state.phase;
+    }
+
+    return "close-and-version";
+  }
+
+  private async publishTicketFinalSummary(summary: TicketFinalSummary): Promise<void> {
+    if (!this.onTicketFinalized) {
+      return;
+    }
+
+    try {
+      await this.onTicketFinalized(summary);
+    } catch (error) {
+      this.logger.error("Falha ao emitir resumo final de ticket", {
+        ticket: summary.ticket,
+        status: summary.status,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

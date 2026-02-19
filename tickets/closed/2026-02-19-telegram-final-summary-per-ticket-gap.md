@@ -1,7 +1,7 @@
 # [TICKET] Notificacao final por ticket no Telegram nao e emitida no fim do ciclo
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 14:42Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-run-status-notification.md
-  - ExecPlan: a definir
+  - ExecPlan: execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
 
 ## Context
 - Workflow area: observabilidade operacional no Telegram durante rodada `/run-all`
@@ -69,8 +69,11 @@ Cada ticket processado na rodada deve gerar exatamente uma mensagem final no cha
 
 ## Decision log
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec de notificacao de status por ticket no Telegram.
+- 2026-02-19 - Ticket encerrado com implementacao de emissao final unica por ticket no Telegram (sucesso/falha) e cobertura automatizada.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-19 14:56Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - Commit: definido no commit de fechamento deste ticket (mesmo commit do move `tickets/open` -> `tickets/closed`)
+  - ExecPlan: execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md

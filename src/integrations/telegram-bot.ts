@@ -1,6 +1,7 @@
 import { Telegraf } from "telegraf";
 import { Logger } from "../core/logger.js";
 import { RunnerState } from "../types/state.js";
+import { TicketFinalSummary } from "../types/ticket-final-summary.js";
 
 interface BotControls {
   runAll: () => boolean;
@@ -16,8 +17,12 @@ interface AccessAttemptContext {
   command: ControlCommand;
 }
 
+const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run-all.";
+const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
+
 export class TelegramController {
   private readonly bot: Telegraf;
+  private notificationChatId: string | null;
 
   constructor(
     token: string,
@@ -27,6 +32,7 @@ export class TelegramController {
     private readonly allowedChatId?: string,
   ) {
     this.bot = new Telegraf(token);
+    this.notificationChatId = allowedChatId ?? null;
     this.registerHandlers();
   }
 
@@ -40,11 +46,33 @@ export class TelegramController {
     this.logger.info("Telegram bot finalizado", { signal });
   }
 
+  async sendTicketFinalSummary(summary: TicketFinalSummary): Promise<void> {
+    if (!this.notificationChatId) {
+      this.logger.warn("Resumo final de ticket nao enviado: chat de notificacao indefinido", {
+        ticket: summary.ticket,
+        status: summary.status,
+      });
+      return;
+    }
+
+    await this.bot.telegram.sendMessage(
+      this.notificationChatId,
+      this.buildTicketFinalSummaryMessage(summary),
+    );
+
+    this.logger.info("Resumo final de ticket enviado no Telegram", {
+      ticket: summary.ticket,
+      status: summary.status,
+      chatId: this.notificationChatId,
+    });
+  }
+
   private registerHandlers(): void {
     this.bot.command("run-all", async (ctx) => {
+      const chatId = ctx.chat.id.toString();
       if (
         !this.isAllowed({
-          chatId: ctx.chat.id.toString(),
+          chatId,
           eventType: "command",
           command: "run-all",
         })
@@ -52,7 +80,12 @@ export class TelegramController {
         return;
       }
 
-      await ctx.reply(this.buildRunAllReply());
+      const reply = this.buildRunAllReply();
+      if (reply === RUN_ALL_STARTED_REPLY) {
+        this.captureNotificationChat(chatId);
+      }
+
+      await ctx.reply(reply);
     });
 
     this.bot.command("status", async (ctx) => {
@@ -109,10 +142,10 @@ export class TelegramController {
 
   private buildRunAllReply(): string {
     if (this.controls.runAll()) {
-      return "▶️ Runner iniciado via /run-all.";
+      return RUN_ALL_STARTED_REPLY;
     }
 
-    return "ℹ️ Runner já está em execução.";
+    return RUN_ALL_ALREADY_RUNNING_REPLY;
   }
 
   private isAllowed(context: AccessAttemptContext): boolean {
@@ -125,5 +158,31 @@ export class TelegramController {
       this.logger.warn("Tentativa de acesso não autorizado ao bot", { ...context });
     }
     return allowed;
+  }
+
+  private captureNotificationChat(chatId: string): void {
+    if (this.allowedChatId) {
+      this.notificationChatId = this.allowedChatId;
+      return;
+    }
+
+    this.notificationChatId = chatId;
+  }
+
+  private buildTicketFinalSummaryMessage(summary: TicketFinalSummary): string {
+    const status = summary.status === "success" ? "sucesso" : "falha";
+    const lines = [
+      "📣 Resumo final por ticket",
+      `Ticket: ${summary.ticket}`,
+      `Resultado: ${status}`,
+      `Fase final: ${summary.finalStage}`,
+      `Timestamp UTC: ${summary.timestampUtc}`,
+    ];
+
+    if (summary.status === "failure") {
+      lines.push(`Erro: ${summary.errorMessage ?? "nao informado"}`);
+    }
+
+    return lines.join("\n");
   }
 }

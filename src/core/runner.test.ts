@@ -9,6 +9,7 @@ import {
 } from "../integrations/codex-client.js";
 import { GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
+import { TicketFinalSummary } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import { TicketRunner } from "./runner.js";
 
@@ -88,6 +89,15 @@ const ticketB: TicketRef = {
   closedPath: "/tmp/repo/tickets/closed/2026-02-19-flow-b.md",
 };
 
+const createSummaryCollector = () => {
+  const summaries: TicketFinalSummary[] = [];
+  const onTicketFinalized = (summary: TicketFinalSummary): void => {
+    summaries.push(summary);
+  };
+
+  return { summaries, onTicketFinalized };
+};
+
 const callProcessTicket = async (runner: TicketRunner, value: TicketRef): Promise<boolean> => {
   const internalRunner = runner as unknown as {
     processTicket: (ticketRef: TicketRef) => Promise<boolean>;
@@ -115,7 +125,15 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning();
-  const runner = new TicketRunner(env, logger, defaultQueue, codex, gitVersioning);
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const runner = new TicketRunner(
+    env,
+    logger,
+    defaultQueue,
+    codex,
+    gitVersioning,
+    onTicketFinalized,
+  );
 
   const succeeded = await callProcessTicket(runner, ticketA);
 
@@ -130,13 +148,27 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
   assert.equal(state.currentTicket, null);
   assert.equal(state.phase, "idle");
   assert.equal(logger.errors.length, 0);
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[0]?.status, "success");
+  assert.equal(summaries[0]?.finalStage, "close-and-version");
+  assert.match(summaries[0]?.timestampUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(summaries[0]?.errorMessage, undefined);
 });
 
 test("runner para no stage com falha e registra contexto", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient((stage) => stage === "implement");
   const gitVersioning = new StubGitVersioning();
-  const runner = new TicketRunner(env, logger, defaultQueue, codex, gitVersioning);
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const runner = new TicketRunner(
+    env,
+    logger,
+    defaultQueue,
+    codex,
+    gitVersioning,
+    onTicketFinalized,
+  );
 
   const succeeded = await callProcessTicket(runner, ticketA);
 
@@ -155,13 +187,26 @@ test("runner para no stage com falha e registra contexto", async () => {
   assert.equal(logger.errors[0]?.message, "Erro no ciclo de ticket");
   assert.equal(logger.errors[0]?.context?.ticket, ticketA.name);
   assert.equal(logger.errors[0]?.context?.stage, "implement");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[0]?.status, "failure");
+  assert.equal(summaries[0]?.finalStage, "implement");
+  assert.match(summaries[0]?.errorMessage ?? "", /falha simulada/u);
 });
 
 test("runner marca erro de close-and-version quando validacao de push falha", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning(true);
-  const runner = new TicketRunner(env, logger, defaultQueue, codex, gitVersioning);
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const runner = new TicketRunner(
+    env,
+    logger,
+    defaultQueue,
+    codex,
+    gitVersioning,
+    onTicketFinalized,
+  );
 
   const succeeded = await callProcessTicket(runner, ticketA);
 
@@ -172,12 +217,17 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
   );
   assert.equal(gitVersioning.syncChecks, 1);
   assert.equal(logger.errors[0]?.context?.stage, "close-and-version");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.status, "failure");
+  assert.equal(summaries[0]?.finalStage, "close-and-version");
+  assert.match(summaries[0]?.errorMessage ?? "", /push obrigatorio nao concluido/u);
 });
 
 test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
   let nextTicketCalls = 0;
 
   const queue: TicketQueue = {
@@ -189,7 +239,7 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
     closeTicket: async () => undefined,
   };
 
-  const runner = new TicketRunner(env, logger, queue, codex, gitVersioning);
+  const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
   assert.equal(runner.requestRunAll(), true);
 
   await waitForRunnerToStop(runner);
@@ -209,14 +259,16 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   assert.equal(state.isRunning, false);
   assert.equal(state.phase, "idle");
   assert.equal(state.lastMessage, "Rodada /run-all finalizada: nenhum ticket aberto restante");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[0]?.status, "success");
 });
 
-test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async () => {
+test("requestRunAll emite resumo final para cada ticket concluido na rodada", async () => {
   const logger = new SpyLogger();
-  const codex = new StubCodexClient(
-    (stage, ticket) => ticket.name === ticketA.name && stage === "implement",
-  );
+  const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
   let nextTicketCalls = 0;
 
   const queue: TicketQueue = {
@@ -236,7 +288,50 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
     closeTicket: async () => undefined,
   };
 
-  const runner = new TicketRunner(env, logger, queue, codex, gitVersioning);
+  const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
+  assert.equal(runner.requestRunAll(), true);
+
+  await waitForRunnerToStop(runner);
+
+  assert.equal(summaries.length, 2);
+  assert.deepEqual(
+    summaries.map((value) => ({ ticket: value.ticket, status: value.status })),
+    [
+      { ticket: ticketA.name, status: "success" },
+      { ticket: ticketB.name, status: "success" },
+    ],
+  );
+  assert.equal(summaries[0]?.finalStage, "close-and-version");
+  assert.equal(summaries[1]?.finalStage, "close-and-version");
+});
+
+test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(
+    (stage, ticket) => ticket.name === ticketA.name && stage === "implement",
+  );
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+
+      if (nextTicketCalls === 2) {
+        return ticketB;
+      }
+
+      return null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const runner = new TicketRunner(env, logger, queue, codex, gitVersioning, onTicketFinalized);
   assert.equal(runner.requestRunAll(), true);
 
   await waitForRunnerToStop(runner);
@@ -257,4 +352,8 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   assert.equal(logger.errors[0]?.message, "Erro no ciclo de ticket");
   assert.equal(logger.errors[0]?.context?.ticket, ticketA.name);
   assert.equal(logger.errors[0]?.context?.stage, "implement");
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[0]?.status, "failure");
+  assert.equal(summaries[0]?.finalStage, "implement");
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import { RunnerState } from "../types/state.js";
+import { TicketFinalSummary } from "../types/ticket-final-summary.js";
 import { TelegramController } from "./telegram-bot.js";
 
 class SpyLogger extends Logger {
@@ -83,6 +84,40 @@ const callBuildRunAllReply = (controller: TelegramController): string => {
   return internalController.buildRunAllReply();
 };
 
+const callCaptureNotificationChat = (controller: TelegramController, chatId: string): void => {
+  const internalController = controller as unknown as {
+    captureNotificationChat: (value: string) => void;
+  };
+
+  internalController.captureNotificationChat(chatId);
+};
+
+const mockSendMessage = (controller: TelegramController) => {
+  const messages: Array<{ chatId: string; text: string }> = [];
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: (chatId: string, text: string) => Promise<unknown>;
+      };
+    };
+  };
+
+  internalController.bot.telegram.sendMessage = async (chatId: string, text: string) => {
+    messages.push({ chatId, text });
+    return Promise.resolve();
+  };
+
+  return messages;
+};
+
+const createSummary = (value: Partial<TicketFinalSummary> = {}): TicketFinalSummary => ({
+  ticket: "2026-02-19-flow-a.md",
+  status: "success",
+  finalStage: "close-and-version",
+  timestampUtc: "2026-02-19T15:00:00.000Z",
+  ...value,
+});
+
 test("permite comando quando chat e autorizado no modo restrito", () => {
   const { controller, logger } = createController({ allowedChatId: "42" });
 
@@ -146,4 +181,57 @@ test("gera resposta de ja em execucao quando /run-all nao inicia nova rodada", (
 
   assert.equal(reply, "ℹ️ Runner já está em execução.");
   assert.equal(controlState.runAllCalls, 1);
+});
+
+test("envia resumo final para chat autorizado configurado", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendTicketFinalSummary(createSummary());
+
+  assert.equal(logger.warnings.length, 0);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.match(sentMessages[0]?.text ?? "", /Ticket: 2026-02-19-flow-a\.md/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: close-and-version/u);
+  assert.match(sentMessages[0]?.text ?? "", /Timestamp UTC: 2026-02-19T15:00:00.000Z/u);
+});
+
+test("nao envia resumo final quando modo sem restricao nao tem chat de notificacao", async () => {
+  const { controller, logger } = createController();
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendTicketFinalSummary(createSummary());
+
+  assert.equal(sentMessages.length, 0);
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(
+    logger.warnings[0]?.message,
+    "Resumo final de ticket nao enviado: chat de notificacao indefinido",
+  );
+  assert.deepEqual(logger.warnings[0]?.context, {
+    ticket: "2026-02-19-flow-a.md",
+    status: "success",
+  });
+});
+
+test("envia resumo final de falha para chat que iniciou /run-all no modo sem restricao", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendTicketFinalSummary(
+    createSummary({
+      status: "failure",
+      finalStage: "implement",
+      errorMessage: "falha simulada",
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "99");
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: falha/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: implement/u);
+  assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
 });
