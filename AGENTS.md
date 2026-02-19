@@ -19,6 +19,14 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
   - `execplans/` para planos de execução.
 - Ao fechar ticket, mover arquivo de `tickets/open/` para `tickets/closed/` no mesmo commit que resolve o ticket.
 
+## Especificações e ciclo de evolução
+- `docs/specs/` deve conter arquivos Markdown com especificações funcionais e jornadas de uso.
+- As specs são a base para identificar evoluções no projeto.
+- Quando uma evolução for identificada a partir das specs:
+  - Criar um ticket em `tickets/open/` quando ainda for necessário detalhar/refinar o trabalho.
+  - Criar um execplan direto em `execplans/` quando o escopo já estiver claro e pronto para execução.
+- O ciclo esperado é: revisar specs → criar ticket ou execplan → implementar em fluxo sequencial → fechar ticket (quando existir) e manter rastreabilidade com a spec de origem.
+
 ## Observabilidade
 - Logs devem ser simples e legíveis (JSON opcional em evoluções futuras).
 - Toda etapa importante do loop deve gerar log e ser refletida no status do bot.
