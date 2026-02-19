@@ -28,20 +28,11 @@ type ProjectSelectionControlResult =
       status: "blocked-running";
     };
 
-type ControlCommand =
-  | "start"
-  | "run-all"
-  | "status"
-  | "pause"
-  | "resume"
-  | "projects"
-  | "select-project";
-
 type AccessAttemptContext =
   | {
       chatId: string;
       eventType: "command";
-      command: ControlCommand;
+      command: string;
     }
   | {
       chatId: string;
@@ -66,6 +57,11 @@ interface CommandContext {
   };
   message?: {
     text?: string;
+    entities?: Array<{
+      type: string;
+      offset: number;
+      length: number;
+    }>;
   };
   reply: (text: string, extra?: ReplyOptions) => Promise<unknown>;
 }
@@ -81,6 +77,24 @@ interface CallbackContext {
   editMessageText: (text: string, extra?: ReplyOptions) => Promise<unknown>;
 }
 
+interface IncomingUpdateContext {
+  updateType?: string;
+  chat?: {
+    id: number | string;
+  };
+  message?: {
+    text?: string;
+    entities?: Array<{
+      type: string;
+      offset: number;
+      length: number;
+    }>;
+  };
+  callbackQuery?: {
+    data?: string;
+  };
+}
+
 type ParsedProjectsCallbackData =
   | {
       status: "page";
@@ -94,15 +108,16 @@ type ParsedProjectsCallbackData =
       status: "invalid";
     };
 
-const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run-all.";
+const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
+const UNKNOWN_COMMAND_REPLY = "ℹ️ Comando não reconhecido. Use /start para ver os comandos válidos.";
 const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
 const PROJECTS_CALLBACK_SELECT_PREFIX = "projects:select:";
 const SELECT_PROJECT_USAGE_REPLY =
-  "ℹ️ Uso: /select-project <nome-do-projeto>. Use /projects para listar os projetos elegíveis.";
+  "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
 const SELECT_PROJECT_BLOCKED_RUNNING_REPLY =
   "❌ Não é possível trocar o projeto ativo enquanto o runner está em execução.";
 const LIST_PROJECTS_FAILED_REPLY =
@@ -113,6 +128,11 @@ const PROJECTS_CALLBACK_INVALID_REPLY = "Ação de projeto inválida.";
 const PROJECTS_CALLBACK_STALE_REPLY =
   "A lista de projetos mudou. Atualize com /projects e tente novamente.";
 const PROJECTS_CALLBACK_UNAUTHORIZED_REPLY = "Acesso não autorizado.";
+const RUN_ALL_LEGACY_PATTERN = /^\/run-all(?:@[^\s]+)?(?:\s+.*)?$/u;
+const SELECT_PROJECT_LEGACY_PATTERN = /^\/select-project(?:@[^\s]+)?(?:\s+.*)?$/u;
+const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
+const BOT_COMMAND_ENTITY_TYPE = "bot_command";
+const MAX_TEXT_PREVIEW_LENGTH = 160;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -120,12 +140,12 @@ const START_REPLY_LINES = [
   "",
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
-  "/run-all - inicia uma rodada sequencial de tickets abertos",
+  "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/status - mostra o estado atual do runner",
   "/pause - pausa após a etapa corrente",
   "/resume - retoma execução",
   "/projects - lista projetos elegíveis com paginação",
-  "/select-project <nome> - seleciona projeto ativo por nome",
+  "/select_project <nome> - seleciona projeto ativo por nome (alias legado: /select-project)",
 ];
 
 export class TelegramController {
@@ -185,6 +205,11 @@ export class TelegramController {
   }
 
   private registerHandlers(): void {
+    this.bot.use(async (ctx, next) => {
+      this.logIncomingUpdate(ctx as unknown as IncomingUpdateContext);
+      await next();
+    });
+
     this.bot.command("start", async (ctx) => {
       if (
         !this.isAllowed({
@@ -193,29 +218,18 @@ export class TelegramController {
           command: "start",
         })
       ) {
+        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
         return;
       }
       await ctx.reply(this.buildStartReply());
     });
 
-    this.bot.command("run-all", async (ctx) => {
-      const chatId = ctx.chat.id.toString();
-      if (
-        !this.isAllowed({
-          chatId,
-          eventType: "command",
-          command: "run-all",
-        })
-      ) {
-        return;
-      }
+    this.bot.command("run_all", async (ctx) => {
+      await this.handleRunAllCommand(ctx as unknown as CommandContext, "run_all");
+    });
 
-      const outcome = await this.buildRunAllReply();
-      if (outcome.started) {
-        this.captureNotificationChat(chatId);
-      }
-
-      await ctx.reply(outcome.reply);
+    this.bot.hears(RUN_ALL_LEGACY_PATTERN, async (ctx) => {
+      await this.handleRunAllCommand(ctx as unknown as CommandContext, "run-all");
     });
 
     this.bot.command("status", async (ctx) => {
@@ -226,6 +240,7 @@ export class TelegramController {
           command: "status",
         })
       ) {
+        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
         return;
       }
       const state = this.getState();
@@ -240,6 +255,7 @@ export class TelegramController {
           command: "pause",
         })
       ) {
+        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
         return;
       }
       this.controls.pause();
@@ -254,6 +270,7 @@ export class TelegramController {
           command: "resume",
         })
       ) {
+        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
         return;
       }
       this.controls.resume();
@@ -264,8 +281,34 @@ export class TelegramController {
       await this.handleProjectsCommand(ctx as unknown as CommandContext);
     });
 
-    this.bot.command("select-project", async (ctx) => {
-      await this.handleSelectProjectCommand(ctx as unknown as CommandContext);
+    this.bot.command("select_project", async (ctx) => {
+      await this.handleSelectProjectCommand(ctx as unknown as CommandContext, "select_project");
+    });
+
+    this.bot.hears(SELECT_PROJECT_LEGACY_PATTERN, async (ctx) => {
+      await this.handleSelectProjectCommand(ctx as unknown as CommandContext, "select-project");
+    });
+
+    this.bot.hears(UNKNOWN_COMMAND_PATTERN, async (ctx) => {
+      const chatId = ctx.chat.id.toString();
+      if (
+        !this.isAllowed({
+          chatId,
+          eventType: "command",
+          command: "unknown",
+        })
+      ) {
+        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+        return;
+      }
+
+      const commandText = (ctx.message?.text ?? "").trim();
+      this.logger.warn("Comando nao reconhecido via Telegram", {
+        chatId,
+        commandText: this.limit(commandText),
+      });
+
+      await ctx.reply(UNKNOWN_COMMAND_REPLY);
     });
 
     this.bot.on("callback_query", async (ctx) => {
@@ -273,8 +316,41 @@ export class TelegramController {
     });
   }
 
+  private async handleRunAllCommand(
+    ctx: CommandContext,
+    command: "run_all" | "run-all",
+  ): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /run-all recebido via Telegram", {
+      chatId,
+      command,
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command,
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const outcome = await this.buildRunAllReply({
+      chatId,
+      command,
+    });
+    if (outcome.started) {
+      this.captureNotificationChat(chatId);
+    }
+
+    await ctx.reply(outcome.reply);
+  }
+
   private async handleProjectsCommand(ctx: CommandContext): Promise<void> {
     const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /projects recebido via Telegram", { chatId });
     if (
       !this.isAllowed({
         chatId,
@@ -282,6 +358,7 @@ export class TelegramController {
         command: "projects",
       })
     ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
       return;
     }
 
@@ -298,15 +375,25 @@ export class TelegramController {
     }
   }
 
-  private async handleSelectProjectCommand(ctx: CommandContext): Promise<void> {
+  private async handleSelectProjectCommand(
+    ctx: CommandContext,
+    command: "select_project" | "select-project",
+  ): Promise<void> {
     const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando de selecao de projeto recebido via Telegram", {
+      chatId,
+      command,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
     if (
       !this.isAllowed({
         chatId,
         eventType: "command",
-        command: "select-project",
+        command,
       })
     ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
       return;
     }
 
@@ -341,6 +428,10 @@ export class TelegramController {
     }
 
     const chatId = this.resolveContextChatId(ctx.chat);
+    this.logger.info("Callback de projetos recebido via Telegram", {
+      chatId,
+      callbackData,
+    });
     if (
       !this.isAllowed({
         chatId,
@@ -425,7 +516,7 @@ export class TelegramController {
       return null;
     }
 
-    const match = commandText.match(/^\/select-project(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const match = commandText.match(/^\/(?:select-project|select_project)(?:@[^\s]+)?(?:\s+(.+))?$/u);
     const value = match?.[1]?.trim();
     if (!value) {
       return null;
@@ -594,17 +685,31 @@ export class TelegramController {
     }
   }
 
-  private async buildRunAllReply(): Promise<{ reply: string; started: boolean }> {
+  private async buildRunAllReply(context?: {
+    chatId: string;
+    command: "run_all" | "run-all";
+  }): Promise<{ reply: string; started: boolean }> {
     const result = await this.controls.runAll();
+    const logContext = {
+      commandStatus: result.status,
+      ...(context ? { chatId: context.chatId, command: context.command } : {}),
+      ...(result.status === "blocked" ? { reason: result.reason } : {}),
+    };
 
     if (result.status === "started") {
+      this.logger.info("Comando /run-all aceito e rodada iniciada", logContext);
       return { reply: RUN_ALL_STARTED_REPLY, started: true };
     }
 
     if (result.status === "already-running") {
+      this.logger.warn("Comando /run-all ignorado: rodada ja em execucao", logContext);
       return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false };
     }
 
+    this.logger.warn("Comando /run-all bloqueado", {
+      ...logContext,
+      message: result.message,
+    });
     return {
       reply: `${RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
       started: false,
@@ -634,6 +739,33 @@ export class TelegramController {
     }
 
     this.notificationChatId = chatId;
+  }
+
+  private logIncomingUpdate(ctx: IncomingUpdateContext): void {
+    const chatId = this.resolveContextChatId(ctx.chat);
+    const messageText = ctx.message?.text;
+    const commandEntity = ctx.message?.entities?.find(
+      (entity) => entity.type === BOT_COMMAND_ENTITY_TYPE && entity.offset === 0,
+    );
+    const command = commandEntity && messageText
+      ? messageText.slice(0, commandEntity.length)
+      : undefined;
+
+    this.logger.info("Update recebido do Telegram", {
+      updateType: ctx.updateType ?? "unknown",
+      chatId,
+      ...(command ? { command } : {}),
+      ...(messageText ? { messageText: this.limit(messageText.trim()) } : {}),
+      ...(ctx.callbackQuery?.data ? { callbackData: ctx.callbackQuery.data } : {}),
+    });
+  }
+
+  private limit(value: string): string {
+    if (value.length <= MAX_TEXT_PREVIEW_LENGTH) {
+      return value;
+    }
+
+    return `${value.slice(0, MAX_TEXT_PREVIEW_LENGTH)}...`;
   }
 
   private buildTicketFinalSummaryMessage(summary: TicketFinalSummary): string {

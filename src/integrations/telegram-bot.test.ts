@@ -41,11 +41,13 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
 
 type ControlCommand =
   | "start"
+  | "run_all"
   | "run-all"
   | "status"
   | "pause"
   | "resume"
   | "projects"
+  | "select_project"
   | "select-project";
 
 interface ControllerOptions {
@@ -214,7 +216,10 @@ const callBuildRunAllReply = async (
   controller: TelegramController,
 ): Promise<{ reply: string; started: boolean }> => {
   const internalController = controller as unknown as {
-    buildRunAllReply: () => Promise<{ reply: string; started: boolean }>;
+    buildRunAllReply: (context?: {
+      chatId: string;
+      command: "run_all" | "run-all";
+    }) => Promise<{ reply: string; started: boolean }>;
   };
 
   return internalController.buildRunAllReply();
@@ -270,16 +275,20 @@ const callHandleSelectProjectCommand = async (
     message?: { text?: string };
     reply: (text: string, extra?: unknown) => Promise<unknown>;
   },
+  command: "select_project" | "select-project" = "select-project",
 ): Promise<void> => {
   const internalController = controller as unknown as {
-    handleSelectProjectCommand: (value: {
-      chat: { id: number };
-      message?: { text?: string };
-      reply: (text: string, extra?: unknown) => Promise<unknown>;
-    }) => Promise<void>;
+    handleSelectProjectCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+      sourceCommand: "select_project" | "select-project",
+    ) => Promise<void>;
   };
 
-  await internalController.handleSelectProjectCommand(context);
+  await internalController.handleSelectProjectCommand(context, command);
 };
 
 const callHandleProjectsCallbackQuery = async (
@@ -416,7 +425,7 @@ test("gera resposta de inicio ao executar /run-all", async () => {
 
   const reply = await callBuildRunAllReply(controller);
 
-  assert.equal(reply.reply, "▶️ Runner iniciado via /run-all.");
+  assert.equal(reply.reply, "▶️ Runner iniciado via /run_all.");
   assert.equal(reply.started, true);
   assert.equal(controlState.runAllCalls, 1);
 });
@@ -455,11 +464,13 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /Codex Flow Runner/u);
   assert.match(reply, /Comandos aceitos:/u);
   assert.match(reply, /\/start/u);
+  assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/status/u);
   assert.match(reply, /\/pause/u);
   assert.match(reply, /\/resume/u);
   assert.match(reply, /\/projects/u);
+  assert.match(reply, /\/select_project/u);
   assert.match(reply, /\/select-project/u);
 });
 
@@ -598,7 +609,30 @@ test("/select-project valida uso quando argumento nao e informado", async () => 
 
   assert.equal(controlState.selectedProjectNames.length, 0);
   assert.equal(replies.length, 1);
-  assert.match(replies[0] ?? "", /Uso: \/select-project/u);
+  assert.match(replies[0] ?? "", /Uso: \/select_project/u);
+});
+
+test("/select_project com underscore seleciona projeto corretamente", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(
+    controller,
+    {
+      chat: { id: 42 },
+      message: { text: "/select_project beta-project" },
+      reply: async (text) => {
+        replies.push(text);
+        return Promise.resolve();
+      },
+    },
+    "select_project",
+  );
+
+  assert.equal(controlState.selectedProjectNames.length, 1);
+  assert.equal(controlState.selectedProjectNames[0], "beta-project");
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
 test("/select-project bloqueia troca quando runner esta em execucao", async () => {

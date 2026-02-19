@@ -109,6 +109,16 @@ export class TicketRunner {
   };
 
   requestRunAll = async (): Promise<RunAllRequestResult> => {
+    this.logger.info("Solicitacao de rodada recebida", {
+      command: "run-all",
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      isPaused: this.state.isPaused,
+      currentTicket: this.state.currentTicket,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
     if (this.state.isRunning || this.loopPromise || this.isStarting) {
       this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
         phase: this.state.phase,
@@ -118,6 +128,10 @@ export class TicketRunner {
     }
 
     this.isStarting = true;
+    this.logger.info("Inicializando rodada /run-all", {
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
 
     try {
       const roundDependencies = await this.resolveRoundDependencies();
@@ -160,6 +174,11 @@ export class TicketRunner {
       };
     }
 
+    this.logger.info("Autenticacao do Codex CLI validada para rodada /run-all", {
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
     this.state.isRunning = true;
     this.loopPromise = this.runForever()
       .catch((error) => {
@@ -174,17 +193,35 @@ export class TicketRunner {
         this.isStarting = false;
       });
     this.isStarting = false;
+    this.logger.info("Rodada /run-all agendada no loop principal", {
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
 
     return { status: "started" };
   };
 
   private async runForever(): Promise<void> {
+    const roundStartedAt = Date.now();
+    this.logger.info("Preparando estrutura da rodada /run-all", {
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
     await this.queue.ensureStructure();
     if (!this.state.isRunning) {
+      this.logger.warn("Rodada /run-all encerrada antes de iniciar processamento", {
+        activeProjectName: this.state.activeProject?.name,
+        activeProjectPath: this.state.activeProject?.path,
+      });
       return;
     }
     this.touch("idle", "Rodada /run-all iniciada");
     const processedTickets = new Set<string>();
+    this.logger.info("Loop da rodada /run-all iniciado", {
+      pollIntervalMs: this.env.POLL_INTERVAL_MS,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
 
     while (this.state.isRunning) {
       if (this.state.isPaused) {
@@ -198,6 +235,12 @@ export class TicketRunner {
       if (!ticket) {
         this.state.isRunning = false;
         this.touch("idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
+        this.logger.info("Rodada /run-all finalizada sem tickets pendentes", {
+          processedTicketsCount: processedTickets.size,
+          durationMs: Date.now() - roundStartedAt,
+          activeProjectName: this.state.activeProject?.name,
+          activeProjectPath: this.state.activeProject?.path,
+        });
         return;
       }
 
@@ -215,6 +258,13 @@ export class TicketRunner {
       processedTickets.add(ticket.name);
       if (!succeeded) {
         this.state.isRunning = false;
+        this.logger.warn("Rodada /run-all interrompida por falha de ticket", {
+          ticket: ticket.name,
+          processedTicketsCount: processedTickets.size,
+          durationMs: Date.now() - roundStartedAt,
+          activeProjectName: this.state.activeProject?.name,
+          activeProjectPath: this.state.activeProject?.path,
+        });
         return;
       }
     }
@@ -226,9 +276,17 @@ export class TicketRunner {
   }
 
   private async processTicket(ticket: TicketRef): Promise<boolean> {
+    const ticketStartedAt = Date.now();
     this.state.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
     const activeProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+    this.logger.info("Processando ticket da rodada atual", {
+      ticket: ticket.name,
+      openPath: ticket.openPath,
+      closedPath: ticket.closedPath,
+      activeProjectName: activeProject?.name,
+      activeProjectPath: activeProject?.path,
+    });
 
     try {
       if (!activeProject) {
@@ -250,6 +308,12 @@ export class TicketRunner {
       const syncEvidence = await this.assertCloseAndVersion(ticket);
 
       this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      this.logger.info("Ticket finalizado com sucesso na rodada atual", {
+        ticket: ticket.name,
+        durationMs: Date.now() - ticketStartedAt,
+        commitHash: syncEvidence.commitHash,
+        pushUpstream: syncEvidence.upstream,
+      });
       finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence, activeProject);
       return true;
     } catch (error) {
@@ -260,6 +324,7 @@ export class TicketRunner {
         ticket: ticket.name,
         stage,
         error: errorMessage,
+        durationMs: Date.now() - ticketStartedAt,
       });
 
       const fallbackProject = activeProject ?? {
@@ -385,6 +450,7 @@ export class TicketRunner {
     ticket: TicketRef,
     message: string,
   ): Promise<CodexStageResult> {
+    const stageStartedAt = Date.now();
     this.touch(stage, message);
 
     const result = await this.codexClient.runStage(stage, ticket);
@@ -394,6 +460,11 @@ export class TicketRunner {
         execPlanPath: result.execPlanPath,
       });
     }
+    this.logger.info("Etapa concluida no runner", {
+      ticket: ticket.name,
+      stage,
+      durationMs: Date.now() - stageStartedAt,
+    });
 
     return result;
   }

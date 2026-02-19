@@ -49,7 +49,7 @@ Observacao operacional:
 Pré-requisito operacional:
 - `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).
 - `codex` autenticado no mesmo usuário do processo (executar `codex login` antes de subir o runner).
-- Sem sessão válida no `codex` CLI, `/run-all` falha cedo com instrução para autenticação.
+- Sem sessão válida no `codex` CLI, `/run_all` falha cedo com instrução para autenticação.
 
 ## Scripts
 
@@ -62,12 +62,14 @@ Pré-requisito operacional:
 ## Controle por Telegram
 
 - `/start` → mostra descrição do bot e comandos disponíveis
-- `/run-all` → inicia o loop sequencial de processamento de tickets
+- `/run_all` → inicia o loop sequencial de processamento de tickets
+- `/run-all` → alias legado compatível para `/run_all`
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento
 - `/projects` → lista projetos elegíveis com paginação e marca o projeto ativo
-- `/select-project <nome>` → seleciona projeto ativo por nome (fallback textual)
+- `/select_project <nome>` → seleciona projeto ativo por nome (fallback textual)
+- `/select-project <nome>` → alias legado compatível para `/select_project`
 
 ### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
 
