@@ -1,7 +1,7 @@
 # [TICKET] Jornada /plan_spec sem sessao dedicada e guardrails operacionais
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 21:13Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-plan-spec-conversation.md
-  - ExecPlan: a definir
+  - ExecPlan: execplans/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/types/state.ts`, `src/main.ts`
@@ -83,8 +83,9 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 
 ## Decision log
 - 2026-02-19 - Ticket aberto apos avaliacao de gaps da spec `telegram-plan-spec-conversation`.
+- 2026-02-19 - Implementacao validada com `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 22:00Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md (commit deste fechamento; PR N/A)

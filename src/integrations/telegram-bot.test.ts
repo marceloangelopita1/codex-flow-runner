@@ -35,10 +35,22 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
     name: "codex-flow-runner",
     path: "/home/mapita/projetos/codex-flow-runner",
   },
+  planSpecSession: null,
   phase: "idle",
   lastMessage: "estado de teste",
   updatedAt: new Date("2026-02-19T00:00:00.000Z"),
   lastNotifiedEvent: null,
+  ...value,
+});
+
+const createPlanSpecSession = (
+  value: Partial<NonNullable<RunnerState["planSpecSession"]>> = {},
+): NonNullable<RunnerState["planSpecSession"]> => ({
+  chatId: "42",
+  phase: "awaiting-brief",
+  startedAt: new Date("2026-02-19T12:00:00.000Z"),
+  lastActivityAt: new Date("2026-02-19T12:05:00.000Z"),
+  activeProjectSnapshot: cloneProject(defaultActiveProject),
   ...value,
 });
 
@@ -48,6 +60,9 @@ type ControlCommand =
   | "run-all"
   | "specs"
   | "run_specs"
+  | "plan_spec"
+  | "plan_spec_status"
+  | "plan_spec_cancel"
   | "status"
   | "pause"
   | "resume"
@@ -70,6 +85,18 @@ interface ControllerOptions {
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
   runSpecsMessage?: string;
+  planSpecStartResult?: {
+    status: "started" | "already-active" | "blocked-running" | "blocked" | "failed";
+    message: string;
+  };
+  planSpecInputResult?: {
+    status: "accepted" | "ignored-empty" | "inactive" | "ignored-chat";
+    message: string;
+  };
+  planSpecCancelResult?: {
+    status: "cancelled" | "inactive" | "ignored-chat";
+    message: string;
+  };
   runSpecsValidationResult?: SpecEligibilityResult;
   getState?: () => RunnerState;
   projectSnapshot?: ProjectSelectionSnapshot;
@@ -77,6 +104,7 @@ interface ControllerOptions {
   listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
   forceSelectBlocked?: boolean;
+  forceSelectBlockedPlanSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
   planSpecFinalCallbackOutcome?: PlanSpecControlOutcome;
@@ -131,6 +159,12 @@ const createController = (options: ControllerOptions = {}) => {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    planSpecStartCalls: 0,
+    planSpecStartChatIds: [] as string[],
+    planSpecInputCalls: 0,
+    planSpecInputCallsByChat: [] as { chatId: string; input: string }[],
+    planSpecCancelCalls: 0,
+    planSpecCancelChatIds: [] as string[],
     listEligibleSpecsCalls: 0,
     validateRunSpecsTargetCalls: 0,
     validatedSpecsArgs: [] as string[],
@@ -163,6 +197,60 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       return { status: "started" as const };
+    },
+    startPlanSpecSession: (chatId: string) => {
+      controlState.planSpecStartCalls += 1;
+      controlState.planSpecStartChatIds.push(chatId);
+      if (options.planSpecStartResult) {
+        if (options.planSpecStartResult.status === "blocked") {
+          return {
+            status: "blocked" as const,
+            reason: "codex-auth-missing" as const,
+            message: options.planSpecStartResult.message,
+          };
+        }
+
+        if (options.planSpecStartResult.status === "failed") {
+          return {
+            status: "failed" as const,
+            message: options.planSpecStartResult.message,
+          };
+        }
+
+        return {
+          status: options.planSpecStartResult.status,
+          message: options.planSpecStartResult.message,
+        } as const;
+      }
+
+      return {
+        status: "started" as const,
+        message: "Sessao /plan_spec iniciada. Envie a proxima mensagem com o brief inicial.",
+      };
+    },
+    submitPlanSpecInput: (chatId: string, input: string) => {
+      controlState.planSpecInputCalls += 1;
+      controlState.planSpecInputCallsByChat.push({ chatId, input });
+      if (options.planSpecInputResult) {
+        return options.planSpecInputResult;
+      }
+
+      return {
+        status: "accepted" as const,
+        message: "Mensagem encaminhada para a sessao /plan_spec.",
+      };
+    },
+    cancelPlanSpecSession: (chatId: string) => {
+      controlState.planSpecCancelCalls += 1;
+      controlState.planSpecCancelChatIds.push(chatId);
+      if (options.planSpecCancelResult) {
+        return options.planSpecCancelResult;
+      }
+
+      return {
+        status: "cancelled" as const,
+        message: "Sessao /plan_spec cancelada.",
+      };
     },
     runSpecs: (specFileName: string) => {
       controlState.runSpecsCalls += 1;
@@ -245,6 +333,9 @@ const createController = (options: ControllerOptions = {}) => {
       if (options.forceSelectBlocked) {
         return { status: "blocked-running" as const };
       }
+      if (options.forceSelectBlockedPlanSpec) {
+        return { status: "blocked-plan-spec" as const };
+      }
 
       const selected = mutableSnapshot.projects.find((project) => project.name === projectName);
       if (!selected) {
@@ -269,13 +360,21 @@ const createController = (options: ControllerOptions = {}) => {
     },
     onPlanSpecQuestionOptionSelected: options.disablePlanSpecCallbacks
       ? undefined
-      : (optionValue: string) => {
+      : (chatId: string, optionValue: string) => {
+        controlState.planSpecInputCallsByChat.push({
+          chatId,
+          input: `callback:${optionValue}`,
+        });
         controlState.planSpecQuestionSelections.push(optionValue);
         return options.planSpecQuestionCallbackOutcome ?? { status: "accepted" as const };
       },
     onPlanSpecFinalActionSelected: options.disablePlanSpecCallbacks
       ? undefined
-      : (action: PlanSpecFinalActionId) => {
+      : (chatId: string, action: PlanSpecFinalActionId) => {
+        controlState.planSpecInputCallsByChat.push({
+          chatId,
+          input: `final:${action}`,
+        });
         controlState.planSpecFinalActions.push(action);
         return options.planSpecFinalCallbackOutcome ?? { status: "accepted" as const };
       },
@@ -445,6 +544,84 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandlePlanSpecCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePlanSpecCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePlanSpecCommand(context);
+};
+
+const callHandlePlanSpecStatusCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePlanSpecStatusCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePlanSpecStatusCommand(context);
+};
+
+const callHandlePlanSpecCancelCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePlanSpecCancelCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePlanSpecCancelCommand(context);
+};
+
+const callHandlePlanSpecTextMessage = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: {
+      text?: string;
+      entities?: Array<{ type: string; offset: number; length: number }>;
+    };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePlanSpecTextMessage: (value: {
+      chat: { id: number };
+      message?: {
+        text?: string;
+        entities?: Array<{ type: string; offset: number; length: number }>;
+      };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePlanSpecTextMessage(context);
 };
 
 const callHandleSpecsCommand = async (
@@ -755,6 +932,9 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/specs/u);
   assert.match(reply, /\/run_specs/u);
+  assert.match(reply, /\/plan_spec/u);
+  assert.match(reply, /\/plan_spec_status/u);
+  assert.match(reply, /\/plan_spec_cancel/u);
   assert.match(reply, /\/status/u);
   assert.match(reply, /\/pause/u);
   assert.match(reply, /\/resume/u);
@@ -825,6 +1005,182 @@ test("/run_specs retorna already-running quando runner ja esta ocupado", async (
   assert.equal(controlState.runSpecsCalls, 1);
   assert.equal(replies.length, 1);
   assert.equal(replies[0], "ℹ️ Runner já está em execução.");
+});
+
+test("/plan_spec inicia sessao e solicita brief inicial (CA-01)", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/plan_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecStartCalls, 1);
+  assert.deepEqual(controlState.planSpecStartChatIds, ["42"]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessao \/plan_spec iniciada/u);
+  assert.match(replies[0] ?? "", /brief inicial/u);
+});
+
+test("primeira mensagem livre apos /plan_spec e roteada como brief inicial (CA-02)", async () => {
+  const state = createState({
+    phase: "plan-spec-awaiting-brief",
+    planSpecSession: createPlanSpecSession({
+      phase: "awaiting-brief",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecTextMessage(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "Precisamos planejar a sessão /plan_spec com timeout e guardrails.",
+      entities: [],
+    },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecInputCalls, 1);
+  assert.deepEqual(controlState.planSpecInputCallsByChat, [
+    {
+      chatId: "42",
+      input: "Precisamos planejar a sessão /plan_spec com timeout e guardrails.",
+    },
+  ]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Brief inicial recebido/u);
+});
+
+test("/plan_spec_status exibe fase, projeto e ultima atividade da sessao (CA-05)", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      phase: "waiting-user",
+      startedAt: new Date("2026-02-19T12:00:00.000Z"),
+      lastActivityAt: new Date("2026-02-19T12:15:00.000Z"),
+    }),
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessão \/plan_spec ativa/u);
+  assert.match(replies[0] ?? "", /Fase: waiting-user/u);
+  assert.match(replies[0] ?? "", /Projeto da sessão: codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Última atividade: 2026-02-19T12:15:00.000Z/u);
+});
+
+test("/plan_spec_cancel encerra sessao ativa (CA-06)", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecCancelCalls, 1);
+  assert.deepEqual(controlState.planSpecCancelChatIds, ["42"]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessao \/plan_spec cancelada/u);
+});
+
+test("durante sessao /plan_spec ativa, troca de projeto por comando e callback fica bloqueada (CA-04)", async () => {
+  const state = createState({
+    planSpecSession: createPlanSpecSession({
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const commandReplies: string[] = [];
+  const callbackReplies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      commandReplies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:page:1" },
+    answerCbQuery: async (text) => {
+      callbackReplies.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.equal(commandReplies.length, 1);
+  assert.match(commandReplies[0] ?? "", /sessão \/plan_spec ativa/u);
+  assert.equal(callbackReplies.length, 1);
+  assert.match(callbackReplies[0] ?? "", /sessão \/plan_spec ativa/u);
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao usa /plan_spec* (CA-18)", async () => {
+  const { controller, controlState } = createController({ allowedChatId: "42" });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCommand(controller, {
+    chat: { id: 99 },
+    message: { text: "/plan_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+  await callHandlePlanSpecStatusCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+  await callHandlePlanSpecCancelCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecStartCalls, 0);
+  assert.equal(controlState.planSpecCancelCalls, 0);
+  assert.deepEqual(replies, [
+    "Acesso não autorizado.",
+    "Acesso não autorizado.",
+    "Acesso não autorizado.",
+  ]);
 });
 
 test("/specs lista somente specs elegiveis (CA-01)", async () => {

@@ -79,6 +79,57 @@ const bootstrap = async () => {
     initialRoundDependencies,
     () => resolveRunnerRoundDependencies("run-all"),
     notifyTicketFinalSummary,
+    {
+      planSpecEventHandlers: {
+        onQuestion: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Pergunta de /plan_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendPlanSpecQuestion(chatId, event.question);
+        },
+        onFinal: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Finalizacao de /plan_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendPlanSpecFinalization(chatId, event.final);
+        },
+        onRawOutput: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Saida raw de /plan_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendPlanSpecRawOutput(chatId, event.text);
+        },
+        onFailure: async (chatId, details) => {
+          if (!telegram) {
+            logger.warn("Falha de /plan_spec nao enviada: Telegram indisponivel", {
+              chatId,
+              details,
+            });
+            return;
+          }
+          await telegram.sendPlanSpecFailure(chatId, details);
+        },
+        onLifecycleMessage: async (chatId, message) => {
+          if (!telegram) {
+            logger.warn("Mensagem de lifecycle de /plan_spec nao enviada: Telegram indisponivel", {
+              chatId,
+              message,
+            });
+            return;
+          }
+          await telegram.sendPlanSpecMessage(chatId, message);
+        },
+      },
+    },
   );
 
   const resolveActiveProjectPathForSpecs = (): string => {
@@ -97,12 +148,17 @@ const bootstrap = async () => {
     {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
+      startPlanSpecSession: runner.startPlanSpecSession,
+      submitPlanSpecInput: runner.submitPlanSpecInput,
+      cancelPlanSpecSession: runner.cancelPlanSpecSession,
       listEligibleSpecs: () =>
         specDiscovery.listEligibleSpecs(resolveActiveProjectPathForSpecs()),
       validateRunSpecsTarget: (specInput) =>
         specDiscovery.validateSpecEligibility(resolveActiveProjectPathForSpecs(), specInput),
       pause: runner.requestPause,
       resume: runner.requestResume,
+      onPlanSpecQuestionOptionSelected: runner.handlePlanSpecQuestionOptionSelection,
+      onPlanSpecFinalActionSelected: runner.handlePlanSpecFinalActionSelection,
       listProjects: projectSelection.listProjects.bind(projectSelection),
       selectProjectByName: async (projectName) => {
         const previousActiveProject = runner.getState().activeProject;
@@ -112,7 +168,7 @@ const bootstrap = async () => {
         }
 
         const sync = runner.syncActiveProject(selection.activeProject);
-        if (sync.status === "blocked-running") {
+        if (sync.status === "blocked-running" || sync.status === "blocked-plan-spec") {
           if (selection.changed && previousActiveProject) {
             try {
               await activeProjectStore.save(previousActiveProject);
@@ -126,7 +182,7 @@ const bootstrap = async () => {
           }
 
           return {
-            status: "blocked-running" as const,
+            status: sync.status,
           };
         }
 

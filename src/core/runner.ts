@@ -1,6 +1,10 @@
 import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
-import { RunnerState, createInitialState } from "../types/state.js";
+import {
+  PlanSpecSessionPhase,
+  RunnerState,
+  createInitialState,
+} from "../types/state.js";
 import {
   TicketFinalStage,
   TicketFinalSummary,
@@ -9,20 +13,75 @@ import {
 import { Logger } from "./logger.js";
 import {
   CodexAuthenticationError,
+  CodexPlanSessionError,
   CodexStageResult,
   CodexStageExecutionError,
   CodexTicketFlowClient,
+  PlanSpecSession,
+  PlanSpecSessionCloseResult,
+  PlanSpecSessionEvent,
   SpecFlowStage,
   SpecRef,
   TicketFlowStage,
   isTicketFlowStage,
 } from "../integrations/codex-client.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
+import { PlanSpecFinalActionId } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
 ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
+
+export interface PlanSpecEventHandlers {
+  onQuestion: (chatId: string, event: Extract<PlanSpecSessionEvent, { type: "question" }>) => Promise<void> | void;
+  onFinal: (chatId: string, event: Extract<PlanSpecSessionEvent, { type: "final" }>) => Promise<void> | void;
+  onRawOutput: (
+    chatId: string,
+    event: Extract<PlanSpecSessionEvent, { type: "raw-sanitized" }>,
+  ) => Promise<void> | void;
+  onFailure: (chatId: string, details: string) => Promise<void> | void;
+  onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
+}
+
+export interface TicketRunnerOptions {
+  planSpecSessionTimeoutMs?: number;
+  now?: () => Date;
+  setTimer?: typeof setTimeout;
+  clearTimer?: typeof clearTimeout;
+  planSpecEventHandlers?: PlanSpecEventHandlers;
+}
+
+interface ActivePlanSpecSession {
+  id: number;
+  chatId: string;
+  session: PlanSpecSession;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
+}
+
+type PlanSpecSessionChatRejectedResult =
+  | {
+      status: "inactive";
+      message: string;
+    }
+  | {
+      status: "ignored-chat";
+      message: string;
+    };
+
+const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const PLAN_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /plan_spec ativa no momento.";
+const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
+  "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
+const PLAN_SPEC_BLOCKED_RUNNING_MESSAGE =
+  "Nao e possivel iniciar /plan_spec enquanto o runner esta em execucao.";
+const PLAN_SPEC_BLOCKED_RUN_ALL_MESSAGE =
+  "Sessao /plan_spec ativa. Finalize com /plan_spec_cancel antes de iniciar /run_all.";
+const PLAN_SPEC_BLOCKED_RUN_SPECS_MESSAGE =
+  "Sessao /plan_spec ativa. Finalize com /plan_spec_cancel antes de iniciar /run_specs.";
+const PLAN_SPEC_TIMEOUT_MESSAGE =
+  "Sessao /plan_spec encerrada por inatividade de 30 minutos.";
+const PLAN_SPEC_CANCELLED_MESSAGE = "Sessao /plan_spec cancelada.";
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -45,9 +104,37 @@ export type RunSpecsRequestResult =
 
 type RunnerRequestBlockedResult = {
   status: "blocked";
-  reason: "codex-auth-missing" | "active-project-unavailable";
+  reason: "codex-auth-missing" | "active-project-unavailable" | "plan-spec-active";
   message: string;
 };
+
+export type SyncActiveProjectResult =
+  | { status: "updated" }
+  | { status: "blocked-running" }
+  | { status: "blocked-plan-spec" };
+
+export type PlanSpecSessionStartResult =
+  | { status: "started"; message: string }
+  | { status: "already-active"; message: string }
+  | { status: "blocked-running"; message: string }
+  | { status: "blocked"; reason: "active-project-unavailable" | "codex-auth-missing"; message: string }
+  | { status: "failed"; message: string };
+
+export type PlanSpecSessionInputResult =
+  | { status: "accepted"; message: string }
+  | { status: "ignored-empty"; message: string }
+  | PlanSpecSessionChatRejectedResult;
+
+export type PlanSpecSessionCancelResult =
+  | { status: "cancelled"; message: string }
+  | PlanSpecSessionChatRejectedResult;
+
+export type PlanSpecCallbackResult =
+  | { status: "accepted" }
+  | {
+      status: "ignored";
+      message: string;
+    };
 
 export class TicketRunner {
   private readonly state: RunnerState;
@@ -56,6 +143,13 @@ export class TicketRunner {
   private queue: TicketQueue;
   private codexClient: CodexTicketFlowClient;
   private gitVersioning: GitVersioning;
+  private readonly now: () => Date;
+  private readonly setTimer: typeof setTimeout;
+  private readonly clearTimer: typeof clearTimeout;
+  private readonly planSpecSessionTimeoutMs: number;
+  private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
+  private activePlanSpecSession: ActivePlanSpecSession | null = null;
+  private nextPlanSpecSessionId = 1;
 
   constructor(
     private readonly env: AppEnv,
@@ -63,11 +157,19 @@ export class TicketRunner {
     initialRoundDependencies: RunnerRoundDependencies,
     private readonly resolveRoundDependencies: RunnerRoundDependenciesResolver,
     private readonly onTicketFinalized?: TicketFinalSummaryHandler,
+    options: TicketRunnerOptions = {},
   ) {
     this.queue = initialRoundDependencies.queue;
     this.codexClient = initialRoundDependencies.codexClient;
     this.gitVersioning = initialRoundDependencies.gitVersioning;
     this.state = createInitialState(initialRoundDependencies.activeProject);
+    this.now = options.now ?? (() => new Date());
+    this.setTimer = options.setTimer ?? setTimeout;
+    this.clearTimer = options.clearTimer ?? clearTimeout;
+    this.planSpecSessionTimeoutMs =
+      options.planSpecSessionTimeoutMs ?? PLAN_SPEC_SESSION_TIMEOUT_MS;
+    this.planSpecEventHandlers = options.planSpecEventHandlers;
+    this.state.updatedAt = this.now();
   }
 
   getState = (): RunnerState => ({
@@ -75,6 +177,16 @@ export class TicketRunner {
     ...(this.state.activeProject
       ? {
           activeProject: { ...this.state.activeProject },
+        }
+      : {}),
+    ...(this.state.planSpecSession
+      ? {
+          planSpecSession: {
+            ...this.state.planSpecSession,
+            activeProjectSnapshot: { ...this.state.planSpecSession.activeProjectSnapshot },
+            startedAt: new Date(this.state.planSpecSession.startedAt),
+            lastActivityAt: new Date(this.state.planSpecSession.lastActivityAt),
+          },
         }
       : {}),
     ...(this.state.lastNotifiedEvent
@@ -89,24 +201,40 @@ export class TicketRunner {
 
   requestPause = (): void => {
     this.state.isPaused = true;
+    if (this.isPlanSpecSessionActive()) {
+      this.logger.info("Pausa solicitada durante sessao /plan_spec ativa", {
+        phase: this.state.phase,
+        planSpecPhase: this.state.planSpecSession?.phase,
+      });
+      return;
+    }
     this.touch("paused", "Pausa solicitada via Telegram");
   };
 
   requestResume = (): void => {
     this.state.isPaused = false;
+    if (this.isPlanSpecSessionActive()) {
+      this.logger.info("Resume solicitado durante sessao /plan_spec ativa", {
+        phase: this.state.phase,
+        planSpecPhase: this.state.planSpecSession?.phase,
+      });
+      return;
+    }
     this.touch("idle", "Runner retomado via Telegram");
   };
 
-  syncActiveProject = (
-    project: ProjectRef,
-  ): { status: "updated" } | { status: "blocked-running" } => {
+  syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
     if (this.state.isRunning || this.loopPromise || this.isStarting) {
       return { status: "blocked-running" };
     }
 
+    if (this.isPlanSpecSessionActive()) {
+      return { status: "blocked-plan-spec" };
+    }
+
     this.state.activeProject = { ...project };
     this.state.lastMessage = `Projeto ativo atualizado para ${project.name} via Telegram`;
-    this.state.updatedAt = new Date();
+    this.state.updatedAt = this.now();
 
     this.logger.info("Projeto ativo sincronizado manualmente no estado do runner", {
       activeProjectName: project.name,
@@ -117,6 +245,254 @@ export class TicketRunner {
     });
 
     return { status: "updated" };
+  };
+
+  startPlanSpecSession = async (chatId: string): Promise<PlanSpecSessionStartResult> => {
+    this.logger.info("Solicitacao de inicio de sessao /plan_spec recebida", {
+      chatId,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    if (this.isBusy()) {
+      return {
+        status: "blocked-running",
+        message: PLAN_SPEC_BLOCKED_RUNNING_MESSAGE,
+      };
+    }
+
+    if (this.isPlanSpecSessionActive()) {
+      return {
+        status: "already-active",
+        message: "Ja existe uma sessao /plan_spec em andamento nesta instancia.",
+      };
+    }
+
+    try {
+      const roundDependencies = await this.resolveRoundDependencies();
+      this.applyRoundDependencies(roundDependencies);
+    } catch (error) {
+      const message = this.buildActiveProjectResolutionErrorMessage(error, "plan-spec");
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver projeto ativo para iniciar /plan_spec", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message,
+      };
+    }
+
+    try {
+      await this.codexClient.ensureAuthenticated();
+    } catch (error) {
+      const message =
+        error instanceof CodexAuthenticationError
+          ? error.message
+          : [
+              "Falha ao validar autenticacao do Codex CLI.",
+              "Execute `codex login` no mesmo usuario que roda o runner e tente novamente.",
+            ].join(" ");
+      this.touch("error", message);
+      this.logger.error("Falha de autenticacao do Codex CLI ao iniciar /plan_spec", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: this.state.activeProject?.name,
+        activeProjectPath: this.state.activeProject?.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-auth-missing",
+        message,
+      };
+    }
+
+    const activeProject = this.state.activeProject;
+    if (!activeProject) {
+      const message =
+        "Falha ao iniciar /plan_spec: projeto ativo indisponivel no estado do runner.";
+      this.touch("error", message);
+      this.logger.error("Projeto ativo indisponivel ao iniciar /plan_spec");
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message,
+      };
+    }
+
+    const sessionId = this.nextPlanSpecSessionId;
+    this.nextPlanSpecSessionId += 1;
+
+    try {
+      const session = await this.codexClient.startPlanSession({
+        callbacks: {
+          onEvent: (event) => {
+            void this.handlePlanSpecSessionEvent(sessionId, event);
+          },
+          onFailure: (error) => {
+            void this.handlePlanSpecSessionFailure(sessionId, error);
+          },
+          onClose: (result) => {
+            void this.handlePlanSpecSessionClose(sessionId, result);
+          },
+        },
+      });
+
+      const now = this.now();
+      this.state.planSpecSession = {
+        chatId,
+        phase: "awaiting-brief",
+        startedAt: now,
+        lastActivityAt: now,
+        activeProjectSnapshot: { ...activeProject },
+      };
+      this.activePlanSpecSession = {
+        id: sessionId,
+        chatId,
+        session,
+        timeoutHandle: null,
+      };
+
+      this.refreshPlanSpecTimeout(sessionId);
+      this.touch("plan-spec-awaiting-brief", "Sessao /plan_spec iniciada e aguardando brief inicial");
+
+      return {
+        status: "started",
+        message: "Sessao /plan_spec iniciada. Envie a proxima mensagem com o brief inicial.",
+      };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof CodexPlanSessionError
+          ? error.message
+          : `Falha ao iniciar sessao /plan_spec: ${details}`;
+      this.touch("error", message);
+      this.logger.error("Falha ao iniciar sessao interativa /plan_spec", {
+        error: details,
+      });
+      await this.emitPlanSpecFailure(chatId, message);
+      return {
+        status: "failed",
+        message,
+      };
+    }
+  };
+
+  submitPlanSpecInput = async (
+    chatId: string,
+    input: string,
+  ): Promise<PlanSpecSessionInputResult> => {
+    const session = this.resolvePlanSpecSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    const normalizedInput = input.trim();
+    if (!normalizedInput) {
+      return {
+        status: "ignored-empty",
+        message: "Mensagem vazia ignorada na sessao /plan_spec.",
+      };
+    }
+
+    const isInitialBrief = this.state.planSpecSession?.phase === "awaiting-brief";
+    try {
+      await session.session.sendUserInput(normalizedInput);
+      this.setPlanSpecPhase(
+        "waiting-codex",
+        "plan-spec-waiting-codex",
+        isInitialBrief
+          ? "Brief inicial enviado ao Codex na sessao /plan_spec"
+          : "Mensagem enviada ao Codex na sessao /plan_spec",
+      );
+      return {
+        status: "accepted",
+        message: isInitialBrief
+          ? "Brief inicial enviado para o Codex."
+          : "Mensagem encaminhada para a sessao /plan_spec.",
+      };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      await this.handlePlanSpecSessionFailure(session.id, error);
+      return {
+        status: "inactive",
+        message: `Falha ao encaminhar mensagem para a sessao /plan_spec: ${details}`,
+      };
+    }
+  };
+
+  cancelPlanSpecSession = async (chatId: string): Promise<PlanSpecSessionCancelResult> => {
+    const session = this.resolvePlanSpecSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    await this.finalizePlanSpecSession(session.id, {
+      mode: "cancel",
+      phase: "idle",
+      message: PLAN_SPEC_CANCELLED_MESSAGE,
+    });
+
+    return {
+      status: "cancelled",
+      message: PLAN_SPEC_CANCELLED_MESSAGE,
+    };
+  };
+
+  handlePlanSpecQuestionOptionSelection = async (
+    chatId: string,
+    optionValue: string,
+  ): Promise<PlanSpecCallbackResult> => {
+    const result = await this.submitPlanSpecInput(chatId, optionValue);
+    if (result.status === "accepted") {
+      return { status: "accepted" };
+    }
+
+    return {
+      status: "ignored",
+      message: result.message,
+    };
+  };
+
+  handlePlanSpecFinalActionSelection = async (
+    chatId: string,
+    action: PlanSpecFinalActionId,
+  ): Promise<PlanSpecCallbackResult> => {
+    if (action === "cancel") {
+      const result = await this.cancelPlanSpecSession(chatId);
+      if (result.status === "cancelled") {
+        return { status: "accepted" };
+      }
+
+      return {
+        status: "ignored",
+        message: result.message,
+      };
+    }
+
+    if (action === "create-spec") {
+      return {
+        status: "ignored",
+        message:
+          "Acao `Criar spec` ainda nao esta habilitada nesta etapa. Use `Refinar` ou /plan_spec_cancel.",
+      };
+    }
+
+    const result = await this.submitPlanSpecInput(
+      chatId,
+      "Refinar. Continue o planejamento e faca as perguntas necessarias.",
+    );
+    if (result.status === "accepted") {
+      return { status: "accepted" };
+    }
+
+    return {
+      status: "ignored",
+      message: result.message,
+    };
   };
 
   requestRunAll = async (): Promise<RunAllRequestResult> => {
@@ -130,6 +506,19 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
     });
+
+    if (this.isPlanSpecSessionActive()) {
+      this.logger.warn("Comando /run-all bloqueado por sessao /plan_spec ativa", {
+        phase: this.state.phase,
+        planSpecPhase: this.state.planSpecSession?.phase,
+        activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+      });
+      return {
+        status: "blocked",
+        reason: "plan-spec-active",
+        message: PLAN_SPEC_BLOCKED_RUN_ALL_MESSAGE,
+      };
+    }
 
     if (this.isBusy()) {
       this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
@@ -182,6 +571,20 @@ export class TicketRunner {
       activeProjectPath: this.state.activeProject?.path,
     });
 
+    if (this.isPlanSpecSessionActive()) {
+      this.logger.warn("Comando /run_specs bloqueado por sessao /plan_spec ativa", {
+        specFileName: spec.fileName,
+        phase: this.state.phase,
+        planSpecPhase: this.state.planSpecSession?.phase,
+        activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+      });
+      return {
+        status: "blocked",
+        reason: "plan-spec-active",
+        message: PLAN_SPEC_BLOCKED_RUN_SPECS_MESSAGE,
+      };
+    }
+
     if (this.isBusy()) {
       this.logger.warn("Comando /run_specs ignorado: runner ja esta em execucao", {
         phase: this.state.phase,
@@ -216,6 +619,294 @@ export class TicketRunner {
 
     return { status: "started" };
   };
+
+  private isPlanSpecSessionActive(): boolean {
+    return Boolean(this.activePlanSpecSession && this.state.planSpecSession);
+  }
+
+  private resolvePlanSpecSessionForChat(
+    chatId: string,
+  ): ActivePlanSpecSession | PlanSpecSessionChatRejectedResult {
+    if (!this.activePlanSpecSession || !this.state.planSpecSession) {
+      return {
+        status: "inactive",
+        message: PLAN_SPEC_INACTIVE_MESSAGE,
+      };
+    }
+
+    if (this.activePlanSpecSession.chatId !== chatId) {
+      return {
+        status: "ignored-chat",
+        message: PLAN_SPEC_CHAT_MISMATCH_MESSAGE,
+      };
+    }
+
+    return this.activePlanSpecSession;
+  }
+
+  private setPlanSpecPhase(
+    phase: PlanSpecSessionPhase,
+    runnerPhase: RunnerState["phase"],
+    message: string,
+  ): void {
+    const planSpecSession = this.state.planSpecSession;
+    const activeSession = this.activePlanSpecSession;
+    if (!planSpecSession || !activeSession) {
+      return;
+    }
+
+    planSpecSession.phase = phase;
+    planSpecSession.lastActivityAt = this.now();
+    this.refreshPlanSpecTimeout(activeSession.id);
+    this.touch(runnerPhase, message);
+  }
+
+  private refreshPlanSpecTimeout(sessionId: number): void {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+
+    activeSession.timeoutHandle = this.setTimer(() => {
+      void this.handlePlanSpecSessionTimeout(sessionId);
+    }, this.planSpecSessionTimeoutMs);
+    activeSession.timeoutHandle.unref?.();
+  }
+
+  private async handlePlanSpecSessionTimeout(sessionId: number): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    this.logger.warn("Sessao /plan_spec expirada por inatividade", {
+      chatId: activeSession.chatId,
+      timeoutMs: this.planSpecSessionTimeoutMs,
+      activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.planSpecSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizePlanSpecSession(sessionId, {
+      mode: "cancel",
+      phase: "idle",
+      message: PLAN_SPEC_TIMEOUT_MESSAGE,
+      notifyMessage: PLAN_SPEC_TIMEOUT_MESSAGE,
+    });
+  }
+
+  private async handlePlanSpecSessionEvent(
+    sessionId: number,
+    event: PlanSpecSessionEvent,
+  ): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    const planSpecSession = this.state.planSpecSession;
+    if (!activeSession || !planSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    planSpecSession.lastActivityAt = this.now();
+    this.refreshPlanSpecTimeout(sessionId);
+
+    if (event.type === "question") {
+      this.setPlanSpecPhase(
+        "waiting-user",
+        "plan-spec-waiting-user",
+        "Sessao /plan_spec aguardando resposta do operador",
+      );
+      await this.emitPlanSpecQuestion(activeSession.chatId, event);
+      return;
+    }
+
+    if (event.type === "final") {
+      this.setPlanSpecPhase(
+        "awaiting-final-action",
+        "plan-spec-awaiting-final-action",
+        "Sessao /plan_spec aguardando acao final do operador",
+      );
+      await this.emitPlanSpecFinal(activeSession.chatId, event);
+      return;
+    }
+
+    this.touch(this.state.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
+    await this.emitPlanSpecRawOutput(activeSession.chatId, event);
+  }
+
+  private async handlePlanSpecSessionFailure(sessionId: number, error: unknown): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    const details = error instanceof Error ? error.message : String(error);
+    this.logger.error("Falha na sessao /plan_spec", {
+      chatId: activeSession.chatId,
+      error: details,
+      phase: this.state.planSpecSession?.phase,
+      activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.planSpecSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizePlanSpecSession(sessionId, {
+      mode: "cancel",
+      phase: "error",
+      message: "Falha na sessao /plan_spec",
+    });
+    await this.emitPlanSpecFailure(activeSession.chatId, details);
+  }
+
+  private async handlePlanSpecSessionClose(
+    sessionId: number,
+    result: PlanSpecSessionCloseResult,
+  ): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (result.cancelled) {
+      await this.finalizePlanSpecSession(sessionId, {
+        mode: "closed",
+        phase: "idle",
+        message: PLAN_SPEC_CANCELLED_MESSAGE,
+      });
+      return;
+    }
+
+    const message = `Sessao /plan_spec encerrada inesperadamente (exit code: ${String(result.exitCode)}).`;
+    this.logger.warn("Sessao /plan_spec encerrada sem cancelamento explicito", {
+      chatId: activeSession.chatId,
+      exitCode: result.exitCode,
+      activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.planSpecSession?.activeProjectSnapshot.path,
+    });
+    await this.finalizePlanSpecSession(sessionId, {
+      mode: "closed",
+      phase: "error",
+      message,
+    });
+    await this.emitPlanSpecFailure(activeSession.chatId, message);
+  }
+
+  private async finalizePlanSpecSession(
+    sessionId: number,
+    options: {
+      mode: "cancel" | "closed";
+      phase: "idle" | "error";
+      message: string;
+      notifyMessage?: string;
+    },
+  ): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+
+    this.activePlanSpecSession = null;
+    this.state.planSpecSession = null;
+
+    if (options.mode === "cancel") {
+      try {
+        await activeSession.session.cancel();
+      } catch (error) {
+        this.logger.warn("Falha ao cancelar processo da sessao /plan_spec", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    this.touch(options.phase, options.message);
+
+    if (options.notifyMessage) {
+      await this.emitPlanSpecLifecycleMessage(activeSession.chatId, options.notifyMessage);
+    }
+  }
+
+  private async emitPlanSpecQuestion(
+    chatId: string,
+    event: Extract<PlanSpecSessionEvent, { type: "question" }>,
+  ): Promise<void> {
+    if (!this.planSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.planSpecEventHandlers.onQuestion(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar pergunta de /plan_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitPlanSpecFinal(
+    chatId: string,
+    event: Extract<PlanSpecSessionEvent, { type: "final" }>,
+  ): Promise<void> {
+    if (!this.planSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.planSpecEventHandlers.onFinal(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar finalizacao de /plan_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitPlanSpecRawOutput(
+    chatId: string,
+    event: Extract<PlanSpecSessionEvent, { type: "raw-sanitized" }>,
+  ): Promise<void> {
+    if (!this.planSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.planSpecEventHandlers.onRawOutput(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar saida bruta de /plan_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitPlanSpecFailure(chatId: string, details: string): Promise<void> {
+    if (!this.planSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.planSpecEventHandlers.onFailure(chatId, details);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar erro de /plan_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitPlanSpecLifecycleMessage(chatId: string, message: string): Promise<void> {
+    if (!this.planSpecEventHandlers?.onLifecycleMessage) {
+      return;
+    }
+
+    try {
+      await this.planSpecEventHandlers.onLifecycleMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar mensagem de lifecycle de /plan_spec", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   private isBusy(): boolean {
     return this.state.isRunning || Boolean(this.loopPromise) || this.isStarting;
@@ -433,6 +1124,14 @@ export class TicketRunner {
 
   shutdown(): void {
     this.state.isRunning = false;
+    if (this.activePlanSpecSession) {
+      void this.finalizePlanSpecSession(this.activePlanSpecSession.id, {
+        mode: "cancel",
+        phase: "idle",
+        message: "Desligamento solicitado",
+      });
+      return;
+    }
     this.touch("idle", "Desligamento solicitado");
   }
 
@@ -657,7 +1356,7 @@ export class TicketRunner {
     this.codexClient = roundDependencies.codexClient;
     this.gitVersioning = roundDependencies.gitVersioning;
     this.state.activeProject = { ...roundDependencies.activeProject };
-    this.state.updatedAt = new Date();
+    this.state.updatedAt = this.now();
 
     this.logger.info("Projeto ativo aplicado para rodada /run-all", {
       activeProjectName: roundDependencies.activeProject.name,
@@ -667,10 +1366,11 @@ export class TicketRunner {
 
   private buildActiveProjectResolutionErrorMessage(
     error: unknown,
-    source: "run-all" | "run-specs",
+    source: "run-all" | "run-specs" | "plan-spec",
   ): string {
     const details = error instanceof Error ? error.message : String(error);
-    const command = source === "run-all" ? "/run-all" : "/run_specs";
+    const command =
+      source === "run-all" ? "/run-all" : source === "run-specs" ? "/run_specs" : "/plan_spec";
     return [
       `Falha ao resolver projeto ativo para rodada ${command}.`,
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
@@ -681,7 +1381,7 @@ export class TicketRunner {
   private touch(phase: RunnerState["phase"], message: string): void {
     this.state.phase = phase;
     this.state.lastMessage = message;
-    this.state.updatedAt = new Date();
+    this.state.updatedAt = this.now();
     this.logger.info(message, {
       phase,
       currentTicket: this.state.currentTicket,

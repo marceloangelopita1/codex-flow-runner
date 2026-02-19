@@ -4,7 +4,14 @@ import {
   ProjectSelectionSnapshot,
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
-import type { RunAllRequestResult, RunSpecsRequestResult } from "../core/runner.js";
+import type {
+  PlanSpecCallbackResult,
+  PlanSpecSessionCancelResult,
+  PlanSpecSessionInputResult,
+  PlanSpecSessionStartResult,
+  RunAllRequestResult,
+  RunSpecsRequestResult,
+} from "../core/runner.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
 import {
@@ -19,18 +26,19 @@ import {
 } from "./plan-spec-parser.js";
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 
-type PlanSpecCallbackOutcome =
-  | {
-      status: "accepted";
-    }
-  | {
-      status: "ignored";
-      message: string;
-    };
-
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
+  startPlanSpecSession: (
+    chatId: string,
+  ) => Promise<PlanSpecSessionStartResult> | PlanSpecSessionStartResult;
+  submitPlanSpecInput: (
+    chatId: string,
+    input: string,
+  ) => Promise<PlanSpecSessionInputResult> | PlanSpecSessionInputResult;
+  cancelPlanSpecSession: (
+    chatId: string,
+  ) => Promise<PlanSpecSessionCancelResult> | PlanSpecSessionCancelResult;
   listEligibleSpecs: () => Promise<EligibleSpecRef[]> | EligibleSpecRef[];
   validateRunSpecsTarget: (
     specInput: string,
@@ -42,17 +50,22 @@ interface BotControls {
     projectName: string,
   ) => Promise<ProjectSelectionControlResult> | ProjectSelectionControlResult;
   onPlanSpecQuestionOptionSelected?: (
+    chatId: string,
     optionValue: string,
-  ) => Promise<PlanSpecCallbackOutcome> | PlanSpecCallbackOutcome;
+  ) => Promise<PlanSpecCallbackResult> | PlanSpecCallbackResult;
   onPlanSpecFinalActionSelected?: (
+    chatId: string,
     action: PlanSpecFinalActionId,
-  ) => Promise<PlanSpecCallbackOutcome> | PlanSpecCallbackOutcome;
+  ) => Promise<PlanSpecCallbackResult> | PlanSpecCallbackResult;
 }
 
 type ProjectSelectionControlResult =
   | ProjectSelectionResult
   | {
       status: "blocked-running";
+    }
+  | {
+      status: "blocked-plan-spec";
     };
 
 type AccessAttemptContext =
@@ -179,10 +192,15 @@ const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
 const PLAN_SPEC_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa de planejamento:";
 const PLAN_SPEC_FLOW_FAILED_RETRY_SUFFIX = "Use /plan_spec para tentar novamente.";
 const PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX = "🧩 Saída não parseável do Codex (saneada):";
+const PLAN_SPEC_STATUS_INACTIVE_REPLY = "ℹ️ Nenhuma sessão /plan_spec ativa no momento.";
+const PLAN_SPEC_INPUT_BRIEF_ACCEPTED_REPLY = "✅ Brief inicial recebido. Aguarde a resposta do Codex.";
+const PLAN_SPEC_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /plan_spec.";
 const SELECT_PROJECT_USAGE_REPLY =
   "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
 const SELECT_PROJECT_BLOCKED_RUNNING_REPLY =
   "❌ Não é possível trocar o projeto ativo enquanto o runner está em execução.";
+const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
+  "❌ Não é possível trocar o projeto ativo durante uma sessão /plan_spec ativa.";
 const LIST_PROJECTS_FAILED_REPLY =
   "❌ Falha ao listar projetos elegíveis. Verifique logs do runner e tente novamente.";
 const SELECT_PROJECT_FAILED_REPLY =
@@ -206,6 +224,9 @@ const START_REPLY_LINES = [
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
+  "/plan_spec - inicia sessão interativa de planejamento de spec",
+  "/plan_spec_status - mostra status detalhado da sessão /plan_spec",
+  "/plan_spec_cancel - cancela a sessão /plan_spec ativa",
   "/status - mostra o estado atual do runner",
   "/pause - pausa após a etapa corrente",
   "/resume - retoma execução",
@@ -287,6 +308,10 @@ export class TelegramController {
     await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecInteractiveFailureReply(details));
   }
 
+  async sendPlanSpecMessage(chatId: string, message: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, message);
+  }
+
   private registerHandlers(): void {
     this.bot.use(async (ctx, next) => {
       this.logIncomingUpdate(ctx as unknown as IncomingUpdateContext);
@@ -321,6 +346,18 @@ export class TelegramController {
 
     this.bot.command("run_specs", async (ctx) => {
       await this.handleRunSpecsCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("plan_spec", async (ctx) => {
+      await this.handlePlanSpecCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("plan_spec_status", async (ctx) => {
+      await this.handlePlanSpecStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("plan_spec_cancel", async (ctx) => {
+      await this.handlePlanSpecCancelCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("status", async (ctx) => {
@@ -378,6 +415,10 @@ export class TelegramController {
 
     this.bot.hears(SELECT_PROJECT_LEGACY_PATTERN, async (ctx) => {
       await this.handleSelectProjectCommand(ctx as unknown as CommandContext, "select-project");
+    });
+
+    this.bot.on("text", async (ctx) => {
+      await this.handlePlanSpecTextMessage(ctx as unknown as CommandContext);
     });
 
     this.bot.hears(UNKNOWN_COMMAND_PATTERN, async (ctx) => {
@@ -508,6 +549,107 @@ export class TelegramController {
     await ctx.reply(outcome.reply);
   }
 
+  private async handlePlanSpecCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /plan_spec recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "plan_spec",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.startPlanSpecSession(chatId);
+    this.captureNotificationChat(chatId);
+    await ctx.reply(this.buildPlanSpecStartReply(result));
+  }
+
+  private async handlePlanSpecStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /plan_spec_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "plan_spec_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const state = this.getState();
+    await ctx.reply(this.buildPlanSpecStatusReply(state));
+  }
+
+  private async handlePlanSpecCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /plan_spec_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "plan_spec_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelPlanSpecSession(chatId);
+    await ctx.reply(this.buildPlanSpecCancelReply(result));
+  }
+
+  private async handlePlanSpecTextMessage(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    const stateBeforeInput = this.getState();
+    if (!stateBeforeInput.planSpecSession) {
+      return;
+    }
+
+    const messageText = (ctx.message?.text ?? "").trim();
+    if (!messageText || this.isCommandMessage(ctx.message)) {
+      return;
+    }
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "plan_spec",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.submitPlanSpecInput(chatId, messageText);
+    if (result.status === "accepted") {
+      const acceptedReply =
+        stateBeforeInput.planSpecSession.phase === "awaiting-brief"
+          ? PLAN_SPEC_INPUT_BRIEF_ACCEPTED_REPLY
+          : PLAN_SPEC_INPUT_ACCEPTED_REPLY;
+      await ctx.reply(acceptedReply);
+      return;
+    }
+
+    if (result.status === "ignored-empty") {
+      return;
+    }
+
+    await ctx.reply(result.message);
+  }
+
   private async handleSpecsCommand(ctx: CommandContext): Promise<void> {
     const chatId = ctx.chat.id.toString();
     this.logger.info("Comando /specs recebido via Telegram", { chatId });
@@ -590,7 +732,13 @@ export class TelegramController {
       return;
     }
 
-    if (this.getState().isRunning) {
+    const state = this.getState();
+    if (state.planSpecSession) {
+      await ctx.reply(SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
+      return;
+    }
+
+    if (state.isRunning) {
       await ctx.reply(SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
       return;
     }
@@ -636,13 +784,19 @@ export class TelegramController {
       return;
     }
 
+    const state = this.getState();
+    if (state.planSpecSession) {
+      await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
+      return;
+    }
+
     if (parsed.status === "page") {
       await this.renderProjectsCallbackPage(ctx, parsed.page);
       await this.safeAnswerCallbackQuery(ctx);
       return;
     }
 
-    if (this.getState().isRunning) {
+    if (state.isRunning) {
       await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
       return;
     }
@@ -685,7 +839,10 @@ export class TelegramController {
       }
 
       try {
-        const outcome = await this.controls.onPlanSpecQuestionOptionSelected(parsed.optionValue);
+        const outcome = await this.controls.onPlanSpecQuestionOptionSelected(
+          chatId,
+          parsed.optionValue,
+        );
         await this.safeAnswerCallbackQuery(
           ctx,
           outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
@@ -706,7 +863,7 @@ export class TelegramController {
     }
 
     try {
-      const outcome = await this.controls.onPlanSpecFinalActionSelected(parsed.action);
+      const outcome = await this.controls.onPlanSpecFinalActionSelected(chatId, parsed.action);
       await this.safeAnswerCallbackQuery(
         ctx,
         outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
@@ -751,6 +908,10 @@ export class TelegramController {
       const selectionResult = await this.controls.selectProjectByName(targetProject.name);
       if (selectionResult.status === "blocked-running") {
         await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
+        return;
+      }
+      if (selectionResult.status === "blocked-plan-spec") {
+        await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
         return;
       }
 
@@ -799,6 +960,10 @@ export class TelegramController {
   private buildSelectProjectReply(result: ProjectSelectionControlResult): string {
     if (result.status === "blocked-running") {
       return SELECT_PROJECT_BLOCKED_RUNNING_REPLY;
+    }
+
+    if (result.status === "blocked-plan-spec") {
+      return SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY;
     }
 
     if (result.status === "selected") {
@@ -1180,8 +1345,74 @@ export class TelegramController {
     ].join(" ");
   }
 
+  private buildPlanSpecStartReply(result: PlanSpecSessionStartResult): string {
+    if (result.status === "started") {
+      return `🧭 ${result.message}`;
+    }
+
+    if (result.status === "already-active") {
+      return `ℹ️ ${result.message}`;
+    }
+
+    if (result.status === "blocked-running") {
+      return `❌ ${result.message}`;
+    }
+
+    if (result.status === "blocked") {
+      return `❌ ${result.message}`;
+    }
+
+    return this.buildPlanSpecInteractiveFailureReply(result.message);
+  }
+
+  private buildPlanSpecCancelReply(result: PlanSpecSessionCancelResult): string {
+    if (result.status === "cancelled") {
+      return `✅ ${result.message}`;
+    }
+
+    if (result.status === "inactive") {
+      return PLAN_SPEC_STATUS_INACTIVE_REPLY;
+    }
+
+    return `ℹ️ ${result.message}`;
+  }
+
+  private buildPlanSpecStatusReply(state: RunnerState): string {
+    const session = state.planSpecSession;
+    if (!session) {
+      return PLAN_SPEC_STATUS_INACTIVE_REPLY;
+    }
+
+    return [
+      "🧭 Sessão /plan_spec ativa",
+      `Fase: ${session.phase}`,
+      `Projeto da sessão: ${session.activeProjectSnapshot.name}`,
+      `Caminho do projeto da sessão: ${session.activeProjectSnapshot.path}`,
+      `Chat da sessão: ${session.chatId}`,
+      `Iniciada em: ${session.startedAt.toISOString()}`,
+      `Última atividade: ${session.lastActivityAt.toISOString()}`,
+    ].join("\n");
+  }
+
   private buildStartReply(): string {
     return START_REPLY_LINES.join("\n");
+  }
+
+  private isCommandMessage(
+    message?: {
+      text?: string;
+      entities?: Array<{
+        type: string;
+        offset: number;
+        length: number;
+      }>;
+    },
+  ): boolean {
+    const commandEntity = message?.entities?.find(
+      (entity) => entity.type === BOT_COMMAND_ENTITY_TYPE && entity.offset === 0,
+    );
+
+    return Boolean(commandEntity);
   }
 
   private renderMetadataValue(value: string | null): string {
@@ -1276,9 +1507,19 @@ export class TelegramController {
       `Spec atual: ${state.currentSpec ?? "nenhuma"}`,
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
+      `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Última mensagem: ${state.lastMessage}`,
       `Atualizado em: ${state.updatedAt.toISOString()}`,
     ];
+
+    if (state.planSpecSession) {
+      lines.push(
+        `Fase /plan_spec: ${state.planSpecSession.phase}`,
+        `Projeto da sessão /plan_spec: ${state.planSpecSession.activeProjectSnapshot.name}`,
+        `Início da sessão /plan_spec: ${state.planSpecSession.startedAt.toISOString()}`,
+        `Última atividade /plan_spec: ${state.planSpecSession.lastActivityAt.toISOString()}`,
+      );
+    }
 
     if (!state.lastNotifiedEvent) {
       lines.push("Último evento notificado: nenhum");

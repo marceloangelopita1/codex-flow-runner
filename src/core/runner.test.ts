@@ -3,9 +3,12 @@ import test from "node:test";
 import { AppEnv } from "../config/env.js";
 import {
   CodexAuthenticationError,
+  CodexPlanSessionError,
   CodexStageExecutionError,
   CodexStageResult,
   PlanSpecSession,
+  PlanSpecSessionCloseResult,
+  PlanSpecSessionEvent,
   PlanSpecSessionStartRequest,
   CodexTicketFlowClient,
   SpecFlowStage,
@@ -13,6 +16,7 @@ import {
   TicketFlowStage,
 } from "../integrations/codex-client.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
+import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import { ProjectRef } from "../types/project.js";
 import {
@@ -20,7 +24,12 @@ import {
   TicketNotificationDelivery,
 } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
-import { RunnerRoundDependencies, TicketRunner } from "./runner.js";
+import {
+  PlanSpecEventHandlers,
+  RunnerRoundDependencies,
+  TicketRunner,
+  TicketRunnerOptions,
+} from "./runner.js";
 
 class SpyLogger extends Logger {
   public readonly errors: Array<{ message: string; context?: Record<string, unknown> }> = [];
@@ -41,6 +50,8 @@ class StubCodexClient implements CodexTicketFlowClient {
     target: "ticket" | "spec";
   }> = [];
   public authChecks = 0;
+  public planSessionStartCalls = 0;
+  public lastPlanSession: StubPlanSession | null = null;
 
   constructor(
     private readonly shouldFail?: (
@@ -54,6 +65,7 @@ class StubCodexClient implements CodexTicketFlowClient {
       stage: TicketFlowStage | SpecFlowStage,
       target: { name: string },
     ) => void,
+    private readonly failPlanSessionStart = false,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -97,11 +109,67 @@ class StubCodexClient implements CodexTicketFlowClient {
     };
   }
 
-  async startPlanSession(_request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
-    return {
-      sendUserInput: async () => undefined,
-      cancel: async () => undefined,
-    };
+  async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
+    this.planSessionStartCalls += 1;
+    if (this.failPlanSessionStart) {
+      throw new CodexPlanSessionError("start", "falha simulada");
+    }
+
+    const session = new StubPlanSession(request);
+    this.lastPlanSession = session;
+    return session;
+  }
+}
+
+class StubPlanSession implements PlanSpecSession {
+  public readonly sentInputs: string[] = [];
+  public cancelCalls = 0;
+
+  constructor(private readonly request: PlanSpecSessionStartRequest) {}
+
+  async sendUserInput(input: string): Promise<void> {
+    this.sentInputs.push(input);
+  }
+
+  async cancel(): Promise<void> {
+    this.cancelCalls += 1;
+    this.request.callbacks.onClose?.({
+      exitCode: null,
+      cancelled: true,
+    });
+  }
+
+  emitEvent(event: PlanSpecSessionEvent): void {
+    this.request.callbacks.onEvent(event);
+  }
+
+  emitQuestion(question: PlanSpecQuestionBlock): void {
+    this.emitEvent({
+      type: "question",
+      question,
+    });
+  }
+
+  emitFinal(finalBlock: PlanSpecFinalBlock): void {
+    this.emitEvent({
+      type: "final",
+      final: finalBlock,
+    });
+  }
+
+  emitRawOutput(text: string): void {
+    this.emitEvent({
+      type: "raw-sanitized",
+      text,
+    });
+  }
+
+  fail(details: string): void {
+    this.request.callbacks.onFailure(new CodexPlanSessionError("runtime", details));
+  }
+
+  close(result: PlanSpecSessionCloseResult): void {
+    this.request.callbacks.onClose?.(result);
   }
 }
 
@@ -203,6 +271,7 @@ const createRunner = (
       summary: TicketFinalSummary,
     ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
     resolveRoundDependencies?: () => Promise<RunnerRoundDependencies>;
+    runnerOptions?: TicketRunnerOptions;
   } = {},
 ): TicketRunner => {
   return new TicketRunner(
@@ -211,6 +280,7 @@ const createRunner = (
     initialRoundDependencies,
     options.resolveRoundDependencies ?? (async () => initialRoundDependencies),
     options.onTicketFinalized,
+    options.runnerOptions,
   );
 };
 
@@ -233,6 +303,22 @@ const waitForRunnerToStop = async (runner: TicketRunner, timeoutMs = 2000): Prom
   }
 
   assert.fail("runner nao encerrou dentro do timeout esperado");
+};
+
+const waitForPlanSpecSessionToClose = async (
+  runner: TicketRunner,
+  timeoutMs = 2000,
+): Promise<void> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!runner.getState().planSpecSession) {
+      return;
+    }
+
+    await sleep(5);
+  }
+
+  assert.fail("sessao /plan_spec nao encerrou dentro do timeout esperado");
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1008,4 +1094,159 @@ test("runner nao atualiza ultimo evento notificado quando envio do resumo falha"
   assert.equal(runner.getState().lastNotifiedEvent, null);
   assert.equal(logger.errors.length, 1);
   assert.equal(logger.errors[0]?.message, "Falha ao emitir resumo final de ticket");
+});
+
+test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const firstStart = await runner.startPlanSpecSession("42");
+  const secondStart = await runner.startPlanSpecSession("42");
+
+  assert.equal(firstStart.status, "started");
+  assert.equal(secondStart.status, "already-active");
+  assert.equal(codex.planSessionStartCalls, 1);
+  assert.equal(codex.authChecks, 1);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "plan-spec-awaiting-brief");
+  assert.equal(state.planSpecSession?.chatId, "42");
+  assert.equal(state.planSpecSession?.phase, "awaiting-brief");
+  assert.equal(state.planSpecSession?.activeProjectSnapshot.name, activeProjectA.name);
+  assert.equal(state.planSpecSession?.activeProjectSnapshot.path, activeProjectA.path);
+});
+
+test("submitPlanSpecInput encaminha brief inicial e transita para espera do Codex", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const inputResult = await runner.submitPlanSpecInput("42", "Brief inicial da spec");
+  codex.lastPlanSession?.emitQuestion({
+    prompt: "Qual modulo?",
+    options: [{ value: "api", label: "API" }],
+  });
+  await sleep(0);
+
+  assert.equal(inputResult.status, "accepted");
+  assert.deepEqual(codex.lastPlanSession?.sentInputs, ["Brief inicial da spec"]);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "plan-spec-waiting-user");
+  assert.equal(state.planSpecSession?.phase, "waiting-user");
+});
+
+test("requestRunAll e requestRunSpecs ficam bloqueados durante sessao /plan_spec ativa", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const runAllResult = await runner.requestRunAll();
+  const runSpecsResult = await runner.requestRunSpecs(specFileName);
+
+  assert.equal(runAllResult.status, "blocked");
+  assert.equal(runAllResult.reason, "plan-spec-active");
+  assert.match(runAllResult.message, /plan_spec_cancel/u);
+  assert.equal(runSpecsResult.status, "blocked");
+  assert.equal(runSpecsResult.reason, "plan-spec-active");
+  assert.match(runSpecsResult.message, /plan_spec_cancel/u);
+  assert.equal(codex.calls.length, 0);
+});
+
+test("syncActiveProject bloqueia troca de projeto enquanto sessao /plan_spec estiver ativa", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const syncResult = runner.syncActiveProject(activeProjectB);
+
+  assert.deepEqual(syncResult, { status: "blocked-plan-spec" });
+  assert.equal(runner.getState().activeProject?.name, activeProjectA.name);
+});
+
+test("cancelPlanSpecSession encerra sessao ativa e limpa estado associado", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const cancelResult = await runner.cancelPlanSpecSession("42");
+  const secondCancelResult = await runner.cancelPlanSpecSession("42");
+
+  assert.equal(cancelResult.status, "cancelled");
+  assert.equal(secondCancelResult.status, "inactive");
+  assert.equal(codex.lastPlanSession?.cancelCalls, 1);
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "idle");
+});
+
+test("sessao /plan_spec expira por timeout de inatividade e notifica operador", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      planSpecSessionTimeoutMs: 20,
+      planSpecEventHandlers: {
+        onQuestion: async () => undefined,
+        onFinal: async () => undefined,
+        onRawOutput: async () => undefined,
+        onFailure: async () => undefined,
+        onLifecycleMessage: async (chatId, message) => {
+          lifecycleMessages.push({ chatId, message });
+        },
+      } satisfies PlanSpecEventHandlers,
+    },
+  });
+
+  const startResult = await runner.startPlanSpecSession("42");
+  assert.equal(startResult.status, "started");
+  await waitForPlanSpecSessionToClose(runner, 1000);
+
+  assert.equal(codex.lastPlanSession?.cancelCalls, 1);
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "idle");
+  assert.equal(lifecycleMessages.length, 1);
+  assert.equal(lifecycleMessages[0]?.chatId, "42");
+  assert.match(lifecycleMessages[0]?.message ?? "", /inatividade de 30 minutos/u);
 });
