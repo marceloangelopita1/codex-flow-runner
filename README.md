@@ -34,6 +34,7 @@ Pastas esperadas no repositório alvo:
 - `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
 - `REPO_PATH` (opcional, padrão: diretório atual)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
+- O app carrega automaticamente o arquivo `.env` na raiz do projeto ao iniciar (sem necessidade de `source .env` manual para `npm run dev`/`npm start`).
 
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
@@ -69,7 +70,37 @@ Pré-requisito operacional:
 
 ## Execução com systemd (WSL)
 
-Há uma unit de exemplo em `docs/systemd/codex-flow-runner.service`.
+Este projeto foi preparado para ficar ligado continuamente no WSL via `systemd`.
+
+Pré-requisito do WSL:
+
+```ini
+# /etc/wsl.conf
+[boot]
+systemd=true
+```
+
+Depois aplique com `wsl --shutdown` (no Windows) e reabra a distro.
+
+Passo a passo da service:
+
+1. Copie e ajuste a unit de exemplo `docs/systemd/codex-flow-runner.service`:
+   - `User=...`
+   - `WorkingDirectory=...`
+   - `EnvironmentFile=...`
+   - `Environment=PATH=...` (deve incluir os diretórios de `node`, `npm` e `codex`)
+2. Instale a unit:
+   - `sudo cp docs/systemd/codex-flow-runner.service /etc/systemd/system/codex-flow-runner.service`
+3. Recarregue e habilite no boot:
+   - `sudo systemctl daemon-reload`
+   - `sudo systemctl enable --now codex-flow-runner`
+4. Verifique:
+   - `systemctl status codex-flow-runner`
+   - `journalctl -u codex-flow-runner -f`
+
+Notas operacionais:
+- Execute `codex login` no mesmo usuário configurado na unit antes de subir o serviço.
+- Se o `codex` estiver fora do PATH padrão do `systemd`, adicione explicitamente o diretório na linha `Environment=PATH=...`.
 
 ## Documentacao operacional
 

@@ -4,15 +4,19 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/workspace/codex-flow-runner
-ExecStart=/usr/bin/npm start
+WorkingDirectory=/home/YOUR_USER/projetos/codex-flow-runner
+ExecStart=/usr/bin/env npm start
 Restart=always
 RestartSec=5
 User=YOUR_USER
+Environment=HOME=/home/YOUR_USER
+Environment=PATH=/home/YOUR_USER/.nvm/versions/node/<NODE_VERSION>/bin:/home/YOUR_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=NODE_ENV=production
-EnvironmentFile=/workspace/codex-flow-runner/.env
+EnvironmentFile=/home/YOUR_USER/projetos/codex-flow-runner/.env
 # Pre-requisito: executar `codex login` no mesmo usuario acima antes de iniciar a unit.
 # A sessao do Codex CLI deve estar disponivel em ~/.codex desse usuario.
+# Ajuste <NODE_VERSION> para a versao instalada no host (ex.: v20.20.0).
+# Se `codex` estiver em outro diretorio, inclua no PATH acima.
 
 [Install]
 WantedBy=multi-user.target

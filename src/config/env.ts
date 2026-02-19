@@ -9,7 +9,21 @@ const envSchema = z.object({
 
 export type AppEnv = z.infer<typeof envSchema>;
 
+const loadDotEnvFromCwd = (): void => {
+  try {
+    process.loadEnvFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(`Falha ao carregar .env: ${details}`);
+  }
+};
+
 export const loadEnv = (): AppEnv => {
+  loadDotEnvFromCwd();
   const parsed = envSchema.safeParse(process.env);
 
   if (!parsed.success) {
