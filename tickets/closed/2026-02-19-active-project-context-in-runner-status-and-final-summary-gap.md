@@ -1,7 +1,7 @@
 # [TICKET] Projeto ativo nao propaga para execucao, /status e resumo final
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S1
 - Created at (UTC): 2026-02-19 17:28Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-multi-project-active-selection.md
-  - ExecPlan: A definir
+  - ExecPlan: execplans/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
 
 ## Context
 - Workflow area: `src/main.ts`, `src/core/runner.ts`, `src/types/state.ts`, `src/types/ticket-final-summary.ts`, `src/integrations/telegram-bot.ts`
@@ -78,6 +78,6 @@ Mesmo com comandos de controle ja existentes, o runner nao carrega/propaga ident
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec `telegram-multi-project-active-selection`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 18:06Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md (commit deste fechamento)

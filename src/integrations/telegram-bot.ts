@@ -216,6 +216,8 @@ export class TelegramController {
     const lines = [
       "📣 Resumo final por ticket",
       `Ticket: ${summary.ticket}`,
+      `Projeto ativo: ${summary.activeProjectName}`,
+      `Caminho do projeto: ${summary.activeProjectPath}`,
       `Resultado: ${status}`,
       `Fase final: ${summary.finalStage}`,
       `Timestamp UTC: ${summary.timestampUtc}`,
@@ -242,6 +244,8 @@ export class TelegramController {
       `Pausado: ${state.isPaused ? "sim" : "não"}`,
       `Fase: ${state.phase}`,
       `Ticket atual: ${state.currentTicket ?? "nenhum"}`,
+      `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
+      `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Última mensagem: ${state.lastMessage}`,
       `Atualizado em: ${state.updatedAt.toISOString()}`,
     ];
@@ -254,6 +258,8 @@ export class TelegramController {
     const { summary, delivery } = state.lastNotifiedEvent;
     lines.push(
       `Último evento notificado: ${summary.ticket} (${summary.status})`,
+      `Projeto notificado: ${summary.activeProjectName}`,
+      `Caminho notificado: ${summary.activeProjectPath}`,
       `Fase notificada: ${summary.finalStage}`,
       `Notificado em: ${delivery.deliveredAtUtc}`,
       `Chat de notificação: ${delivery.destinationChatId}`,

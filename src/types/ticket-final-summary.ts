@@ -6,6 +6,8 @@ interface TicketFinalSummaryBase {
   ticket: string;
   finalStage: TicketFinalStage;
   timestampUtc: string;
+  activeProjectName: string;
+  activeProjectPath: string;
 }
 
 export interface TicketFinalSuccessSummary extends TicketFinalSummaryBase {

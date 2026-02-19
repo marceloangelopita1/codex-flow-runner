@@ -21,6 +21,10 @@ const createState = (): RunnerState => ({
   isRunning: false,
   isPaused: false,
   currentTicket: null,
+  activeProject: {
+    name: "codex-flow-runner",
+    path: "/home/mapita/projetos/codex-flow-runner",
+  },
   phase: "idle",
   lastMessage: "estado de teste",
   updatedAt: new Date("2026-02-19T00:00:00.000Z"),
@@ -148,6 +152,8 @@ const createSuccessSummary = (
   value: Partial<TicketFinalSuccessSummary> = {},
 ): TicketFinalSuccessSummary => ({
   ticket: "2026-02-19-flow-a.md",
+  activeProjectName: "codex-flow-runner",
+  activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
   status: "success",
   finalStage: "close-and-version",
   timestampUtc: "2026-02-19T15:00:00.000Z",
@@ -162,6 +168,8 @@ const createFailureSummary = (
   value: Partial<TicketFinalFailureSummary> = {},
 ): TicketFinalFailureSummary => ({
   ticket: "2026-02-19-flow-a.md",
+  activeProjectName: "codex-flow-runner",
+  activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
   status: "failure",
   finalStage: "implement",
   timestampUtc: "2026-02-19T15:00:00.000Z",
@@ -276,6 +284,11 @@ test("envia resumo final para chat autorizado configurado", async () => {
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]?.chatId, "42");
   assert.match(sentMessages[0]?.text ?? "", /Ticket: 2026-02-19-flow-a\.md/u);
+  assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Caminho do projeto: \/home\/mapita\/projetos\/codex-flow-runner/u,
+  );
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Timestamp UTC: 2026-02-19T15:00:00.000Z/u);
@@ -316,6 +329,7 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   assert.equal(sentMessages[0]?.chatId, "99");
   assert.match(sentMessages[0]?.text ?? "", /Resultado: falha/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: implement/u);
+  assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
   assert.equal(delivery?.destinationChatId, "99");
 });
@@ -338,7 +352,11 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
 
   const reply = callBuildStatusReply(controller, state);
 
+  assert.match(reply, /Projeto ativo: codex-flow-runner/u);
+  assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /Último evento notificado: 2026-02-19-flow-a\.md \(success\)/u);
+  assert.match(reply, /Projeto notificado: codex-flow-runner/u);
+  assert.match(reply, /Caminho notificado: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /ExecPlan notificado: execplans\/2026-02-19-flow-a\.md/u);
   assert.match(reply, /Commit\/Push notificado: abc123@origin\/main/u);
 });
@@ -348,5 +366,7 @@ test("status informa ausencia de evento notificado", () => {
 
   const reply = callBuildStatusReply(controller, createState());
 
+  assert.match(reply, /Projeto ativo: codex-flow-runner/u);
+  assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /Último evento notificado: nenhum/u);
 });

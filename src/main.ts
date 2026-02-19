@@ -1,7 +1,7 @@
 import { loadEnv } from "./config/env.js";
 import { resolveActiveProject } from "./core/active-project-resolver.js";
 import { Logger } from "./core/logger.js";
-import { TicketRunner } from "./core/runner.js";
+import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
 import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
 import { GitCliVersioning } from "./integrations/git-client.js";
@@ -13,30 +13,43 @@ import {
   TicketNotificationDelivery,
 } from "./types/ticket-final-summary.js";
 
+type DependencyResolutionSource = "bootstrap" | "run-all";
+
 const bootstrap = async () => {
   const env = loadEnv();
   const logger = new Logger();
 
   const projectDiscovery = new FileSystemProjectDiscovery();
   const activeProjectStore = new FileSystemActiveProjectStore(env.PROJECTS_ROOT_PATH);
-  const activeProjectResolution = await resolveActiveProject(env.PROJECTS_ROOT_PATH, {
-    discovery: projectDiscovery,
-    store: activeProjectStore,
-  });
 
-  const activeProjectPath = activeProjectResolution.activeProject.path;
-  logger.info("Projeto ativo global resolvido no bootstrap", {
-    projectsRootPath: env.PROJECTS_ROOT_PATH,
-    activeProjectName: activeProjectResolution.activeProject.name,
-    activeProjectPath,
-    selectionReason: activeProjectResolution.selectionReason,
-    eligibleProjectsCount: activeProjectResolution.eligibleProjects.length,
-    stateFilePath: activeProjectStore.stateFilePath,
-  });
+  const resolveRunnerRoundDependencies = async (
+    source: DependencyResolutionSource,
+  ): Promise<RunnerRoundDependencies> => {
+    const activeProjectResolution = await resolveActiveProject(env.PROJECTS_ROOT_PATH, {
+      discovery: projectDiscovery,
+      store: activeProjectStore,
+    });
 
-  const queue = new FileSystemTicketQueue(activeProjectPath);
-  const codex = new CodexCliTicketFlowClient(activeProjectPath, logger);
-  const gitVersioning = new GitCliVersioning(activeProjectPath);
+    const activeProjectPath = activeProjectResolution.activeProject.path;
+    logger.info("Projeto ativo global resolvido", {
+      source,
+      projectsRootPath: env.PROJECTS_ROOT_PATH,
+      activeProjectName: activeProjectResolution.activeProject.name,
+      activeProjectPath,
+      selectionReason: activeProjectResolution.selectionReason,
+      eligibleProjectsCount: activeProjectResolution.eligibleProjects.length,
+      stateFilePath: activeProjectStore.stateFilePath,
+    });
+
+    return {
+      activeProject: activeProjectResolution.activeProject,
+      queue: new FileSystemTicketQueue(activeProjectPath),
+      codexClient: new CodexCliTicketFlowClient(activeProjectPath, logger),
+      gitVersioning: new GitCliVersioning(activeProjectPath),
+    };
+  };
+
+  const initialRoundDependencies = await resolveRunnerRoundDependencies("bootstrap");
   let telegram: TelegramController | null = null;
 
   const notifyTicketFinalSummary = async (
@@ -56,9 +69,8 @@ const bootstrap = async () => {
   const runner = new TicketRunner(
     env,
     logger,
-    queue,
-    codex,
-    gitVersioning,
+    initialRoundDependencies,
+    () => resolveRunnerRoundDependencies("run-all"),
     notifyTicketFinalSummary,
   );
 
@@ -76,8 +88,8 @@ const bootstrap = async () => {
 
   await telegram.start();
   logger.info("Runner aguardando comando /run-all no Telegram", {
-    activeProjectName: activeProjectResolution.activeProject.name,
-    activeProjectPath,
+    activeProjectName: initialRoundDependencies.activeProject.name,
+    activeProjectPath: initialRoundDependencies.activeProject.path,
   });
 
   const handleShutdown = async (signal: "SIGINT" | "SIGTERM") => {

@@ -1,4 +1,5 @@
 import { AppEnv } from "../config/env.js";
+import { ProjectRef } from "../types/project.js";
 import { RunnerState, createInitialState } from "../types/state.js";
 import {
   TicketFinalStage,
@@ -20,31 +21,52 @@ type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
 ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
 
+export interface RunnerRoundDependencies {
+  activeProject: ProjectRef;
+  queue: TicketQueue;
+  codexClient: CodexTicketFlowClient;
+  gitVersioning: GitVersioning;
+}
+
+export type RunnerRoundDependenciesResolver = () => Promise<RunnerRoundDependencies>;
+
 export type RunAllRequestResult =
   | { status: "started" }
   | { status: "already-running" }
   | {
       status: "blocked";
-      reason: "codex-auth-missing";
+      reason: "codex-auth-missing" | "active-project-unavailable";
       message: string;
     };
 
 export class TicketRunner {
-  private readonly state: RunnerState = createInitialState();
+  private readonly state: RunnerState;
   private loopPromise: Promise<void> | null = null;
   private isStarting = false;
+  private queue: TicketQueue;
+  private codexClient: CodexTicketFlowClient;
+  private gitVersioning: GitVersioning;
 
   constructor(
     private readonly env: AppEnv,
     private readonly logger: Logger,
-    private readonly queue: TicketQueue,
-    private readonly codexClient: CodexTicketFlowClient,
-    private readonly gitVersioning: GitVersioning,
+    initialRoundDependencies: RunnerRoundDependencies,
+    private readonly resolveRoundDependencies: RunnerRoundDependenciesResolver,
     private readonly onTicketFinalized?: TicketFinalSummaryHandler,
-  ) {}
+  ) {
+    this.queue = initialRoundDependencies.queue;
+    this.codexClient = initialRoundDependencies.codexClient;
+    this.gitVersioning = initialRoundDependencies.gitVersioning;
+    this.state = createInitialState(initialRoundDependencies.activeProject);
+  }
 
   getState = (): RunnerState => ({
     ...this.state,
+    ...(this.state.activeProject
+      ? {
+          activeProject: { ...this.state.activeProject },
+        }
+      : {}),
     ...(this.state.lastNotifiedEvent
       ? {
           lastNotifiedEvent: {
@@ -77,6 +99,23 @@ export class TicketRunner {
     this.isStarting = true;
 
     try {
+      const roundDependencies = await this.resolveRoundDependencies();
+      this.applyRoundDependencies(roundDependencies);
+    } catch (error) {
+      const message = this.buildActiveProjectResolutionErrorMessage(error);
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver projeto ativo antes da rodada", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.isStarting = false;
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message,
+      };
+    }
+
+    try {
       await this.codexClient.ensureAuthenticated();
     } catch (error) {
       const message =
@@ -89,6 +128,8 @@ export class TicketRunner {
       this.touch("error", message);
       this.logger.error("Falha de autenticacao do Codex CLI antes da rodada", {
         error: error instanceof Error ? error.message : String(error),
+        activeProjectName: this.state.activeProject?.name,
+        activeProjectPath: this.state.activeProject?.path,
       });
       this.isStarting = false;
       return {
@@ -166,8 +207,17 @@ export class TicketRunner {
   private async processTicket(ticket: TicketRef): Promise<boolean> {
     this.state.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
+    const activeProject = this.state.activeProject ? { ...this.state.activeProject } : null;
 
     try {
+      if (!activeProject) {
+        throw new CodexStageExecutionError(
+          ticket.name,
+          "plan",
+          "Projeto ativo ausente no estado do runner para a rodada atual.",
+        );
+      }
+
       const planResult = await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
       const execPlanPath = this.resolveExecPlanPath(ticket, planResult.execPlanPath);
       await this.runStage("implement", ticket, `Executando etapa implement para ${ticket.name}`);
@@ -179,7 +229,7 @@ export class TicketRunner {
       const syncEvidence = await this.assertCloseAndVersion(ticket);
 
       this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
-      finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence);
+      finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence, activeProject);
       return true;
     } catch (error) {
       const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
@@ -190,10 +240,16 @@ export class TicketRunner {
         stage,
         error: errorMessage,
       });
+
+      const fallbackProject = activeProject ?? {
+        name: "projeto-ativo-indefinido",
+        path: "(indefinido)",
+      };
       finalSummary = this.buildFailureSummary(
         ticket.name,
         this.resolveFailureStage(stage),
         errorMessage,
+        fallbackProject,
       );
       return false;
     } finally {
@@ -220,12 +276,15 @@ export class TicketRunner {
     ticket: string,
     execPlanPath: string,
     syncEvidence: GitSyncEvidence,
+    activeProject: ProjectRef,
   ): TicketFinalSummary {
     return {
       ticket,
       status: "success",
       finalStage: "close-and-version",
       timestampUtc: new Date().toISOString(),
+      activeProjectName: activeProject.name,
+      activeProjectPath: activeProject.path,
       execPlanPath,
       commitPushId: syncEvidence.commitPushId,
       commitHash: syncEvidence.commitHash,
@@ -237,12 +296,15 @@ export class TicketRunner {
     ticket: string,
     finalStage: TicketFinalStage,
     errorMessage: string,
+    activeProject: ProjectRef,
   ): TicketFinalSummary {
     return {
       ticket,
       status: "failure",
       finalStage,
       timestampUtc: new Date().toISOString(),
+      activeProjectName: activeProject.name,
+      activeProjectPath: activeProject.path,
       errorMessage,
     };
   }
@@ -315,11 +377,38 @@ export class TicketRunner {
     return result;
   }
 
+  private applyRoundDependencies(roundDependencies: RunnerRoundDependencies): void {
+    this.queue = roundDependencies.queue;
+    this.codexClient = roundDependencies.codexClient;
+    this.gitVersioning = roundDependencies.gitVersioning;
+    this.state.activeProject = { ...roundDependencies.activeProject };
+    this.state.updatedAt = new Date();
+
+    this.logger.info("Projeto ativo aplicado para rodada /run-all", {
+      activeProjectName: roundDependencies.activeProject.name,
+      activeProjectPath: roundDependencies.activeProject.path,
+    });
+  }
+
+  private buildActiveProjectResolutionErrorMessage(error: unknown): string {
+    const details = error instanceof Error ? error.message : String(error);
+    return [
+      "Falha ao resolver projeto ativo para rodada /run-all.",
+      "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
+      `Detalhes: ${details}`,
+    ].join(" ");
+  }
+
   private touch(phase: RunnerState["phase"], message: string): void {
     this.state.phase = phase;
     this.state.lastMessage = message;
     this.state.updatedAt = new Date();
-    this.logger.info(message, { phase, currentTicket: this.state.currentTicket });
+    this.logger.info(message, {
+      phase,
+      currentTicket: this.state.currentTicket,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
   }
 }
 
