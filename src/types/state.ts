@@ -1,3 +1,5 @@
+import { TicketFinalSummary, TicketNotificationDelivery } from "./ticket-final-summary.js";
+
 export type RunnerPhase =
   | "idle"
   | "select-ticket"
@@ -7,6 +9,11 @@ export type RunnerPhase =
   | "paused"
   | "error";
 
+export interface RunnerLastNotifiedEvent {
+  summary: TicketFinalSummary;
+  delivery: TicketNotificationDelivery;
+}
+
 export interface RunnerState {
   isRunning: boolean;
   isPaused: boolean;
@@ -14,6 +21,7 @@ export interface RunnerState {
   phase: RunnerPhase;
   lastMessage: string;
   updatedAt: Date;
+  lastNotifiedEvent: RunnerLastNotifiedEvent | null;
 }
 
 export const createInitialState = (): RunnerState => ({
@@ -23,4 +31,5 @@ export const createInitialState = (): RunnerState => ({
   phase: "idle",
   lastMessage: "Runner inicializado",
   updatedAt: new Date(),
+  lastNotifiedEvent: null,
 });

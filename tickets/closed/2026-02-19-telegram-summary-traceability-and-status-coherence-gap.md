@@ -1,7 +1,7 @@
 # [TICKET] Rastreabilidade incompleta no resumo final e incoerencia potencial de /status
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 14:42Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-run-status-notification.md
-  - ExecPlan: a definir
+  - ExecPlan: execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 
 ## Context
 - Workflow area: rastreabilidade de fechamento por ticket e leitura operacional por `/status`
@@ -71,8 +71,11 @@ Mesmo apos implementar notificacao final por ticket, o estado atual nao tem cont
 
 ## Decision log
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec de notificacao de status por ticket no Telegram.
+- 2026-02-19 - Ticket encerrado apos implementar rastreabilidade avancada no resumo final e coerencia de `/status` com o ultimo evento notificado, com cobertura automatizada.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-19 15:10Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - Commit: definido no commit de fechamento deste ticket (mesmo commit do move `tickets/open` -> `tickets/closed`)
+  - ExecPlan: execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md

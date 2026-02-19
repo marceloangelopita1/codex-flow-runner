@@ -7,9 +7,12 @@ import {
   CodexTicketFlowClient,
   TicketFlowStage,
 } from "../integrations/codex-client.js";
-import { GitVersioning } from "../integrations/git-client.js";
+import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
-import { TicketFinalSummary } from "../types/ticket-final-summary.js";
+import {
+  TicketFinalSummary,
+  TicketNotificationDelivery,
+} from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import { TicketRunner } from "./runner.js";
 
@@ -30,6 +33,7 @@ class StubCodexClient implements CodexTicketFlowClient {
 
   constructor(
     private readonly shouldFail?: (stage: TicketFlowStage, ticket: TicketRef) => boolean,
+    private readonly includeExecPlanPath = true,
   ) {}
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
@@ -42,7 +46,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     return {
       stage,
       output: `ok:${stage}`,
-      ...(stage === "plan"
+      ...(stage === "plan" && this.includeExecPlanPath
         ? { execPlanPath: `execplans/${ticket.name.replace(/\.md$/u, "")}.md` }
         : {}),
     };
@@ -52,15 +56,24 @@ class StubCodexClient implements CodexTicketFlowClient {
 class StubGitVersioning implements GitVersioning {
   public syncChecks = 0;
 
-  constructor(private readonly failSyncCheck = false) {}
+  constructor(
+    private readonly failSyncCheck = false,
+    private readonly evidence: GitSyncEvidence = {
+      commitHash: "abc123",
+      upstream: "origin/main",
+      commitPushId: "abc123@origin/main",
+    },
+  ) {}
 
   async commitTicketClosure(): Promise<void> {}
 
-  async assertSyncedWithRemote(): Promise<void> {
+  async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     this.syncChecks += 1;
     if (this.failSyncCheck) {
       throw new Error("push obrigatorio nao concluido");
     }
+
+    return this.evidence;
   }
 }
 
@@ -89,13 +102,25 @@ const ticketB: TicketRef = {
   closedPath: "/tmp/repo/tickets/closed/2026-02-19-flow-b.md",
 };
 
-const createSummaryCollector = () => {
+const createSummaryCollector = (options: { failSend?: boolean } = {}) => {
   const summaries: TicketFinalSummary[] = [];
-  const onTicketFinalized = (summary: TicketFinalSummary): void => {
+  const deliveries: TicketNotificationDelivery[] = [];
+  const onTicketFinalized = (summary: TicketFinalSummary): TicketNotificationDelivery => {
     summaries.push(summary);
+    if (options.failSend) {
+      throw new Error("falha ao enviar resumo");
+    }
+
+    const delivery: TicketNotificationDelivery = {
+      channel: "telegram",
+      destinationChatId: "42",
+      deliveredAtUtc: "2026-02-19T15:05:00.000Z",
+    };
+    deliveries.push(delivery);
+    return delivery;
   };
 
-  return { summaries, onTicketFinalized };
+  return { summaries, deliveries, onTicketFinalized };
 };
 
 const callProcessTicket = async (runner: TicketRunner, value: TicketRef): Promise<boolean> => {
@@ -125,7 +150,7 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning();
-  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const { summaries, deliveries, onTicketFinalized } = createSummaryCollector();
   const runner = new TicketRunner(
     env,
     logger,
@@ -153,7 +178,18 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
   assert.equal(summaries[0]?.status, "success");
   assert.equal(summaries[0]?.finalStage, "close-and-version");
   assert.match(summaries[0]?.timestampUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
-  assert.equal(summaries[0]?.errorMessage, undefined);
+  if (summaries[0]?.status === "success") {
+    assert.equal(summaries[0].execPlanPath, "execplans/2026-02-19-flow-a.md");
+    assert.equal(summaries[0].commitPushId, "abc123@origin/main");
+    assert.equal(summaries[0].commitHash, "abc123");
+    assert.equal(summaries[0].pushUpstream, "origin/main");
+  } else {
+    assert.fail("resumo deveria ser sucesso");
+  }
+  assert.equal(deliveries.length, 1);
+  assert.equal(state.lastNotifiedEvent?.summary.ticket, ticketA.name);
+  assert.equal(state.lastNotifiedEvent?.summary.status, "success");
+  assert.equal(state.lastNotifiedEvent?.delivery.destinationChatId, "42");
 });
 
 test("runner para no stage com falha e registra contexto", async () => {
@@ -191,7 +227,12 @@ test("runner para no stage com falha e registra contexto", async () => {
   assert.equal(summaries[0]?.ticket, ticketA.name);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "implement");
-  assert.match(summaries[0]?.errorMessage ?? "", /falha simulada/u);
+  if (summaries[0]?.status === "failure") {
+    assert.match(summaries[0].errorMessage, /falha simulada/u);
+  } else {
+    assert.fail("resumo deveria ser falha");
+  }
+  assert.equal(state.lastNotifiedEvent?.summary.status, "failure");
 });
 
 test("runner marca erro de close-and-version quando validacao de push falha", async () => {
@@ -220,7 +261,11 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "close-and-version");
-  assert.match(summaries[0]?.errorMessage ?? "", /push obrigatorio nao concluido/u);
+  if (summaries[0]?.status === "failure") {
+    assert.match(summaries[0].errorMessage, /push obrigatorio nao concluido/u);
+  } else {
+    assert.fail("resumo deveria ser falha");
+  }
 });
 
 test("requestRunAll encerra rodada quando fila fica vazia", async () => {
@@ -356,4 +401,57 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   assert.equal(summaries[0]?.ticket, ticketA.name);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "implement");
+});
+
+test("runner falha quando etapa plan nao retorna execPlanPath obrigatorio", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, false);
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const runner = new TicketRunner(
+    env,
+    logger,
+    defaultQueue,
+    codex,
+    gitVersioning,
+    onTicketFinalized,
+  );
+
+  const succeeded = await callProcessTicket(runner, ticketA);
+
+  assert.equal(succeeded, false);
+  assert.deepEqual(
+    codex.calls.map((value) => value.stage),
+    ["plan"],
+  );
+  assert.equal(gitVersioning.syncChecks, 0);
+  assert.equal(summaries[0]?.status, "failure");
+  if (summaries[0]?.status === "failure") {
+    assert.match(summaries[0].errorMessage, /nao retornou caminho de ExecPlan/u);
+  } else {
+    assert.fail("resumo deveria ser falha");
+  }
+});
+
+test("runner nao atualiza ultimo evento notificado quando envio do resumo falha", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector({ failSend: true });
+  const runner = new TicketRunner(
+    env,
+    logger,
+    defaultQueue,
+    codex,
+    gitVersioning,
+    onTicketFinalized,
+  );
+
+  const succeeded = await callProcessTicket(runner, ticketA);
+
+  assert.equal(succeeded, true);
+  assert.equal(summaries.length, 1);
+  assert.equal(runner.getState().lastNotifiedEvent, null);
+  assert.equal(logger.errors.length, 1);
+  assert.equal(logger.errors[0]?.message, "Falha ao emitir resumo final de ticket");
 });

@@ -5,7 +5,10 @@ import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
 import { GitCliVersioning } from "./integrations/git-client.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
-import { TicketFinalSummary } from "./types/ticket-final-summary.js";
+import {
+  TicketFinalSummary,
+  TicketNotificationDelivery,
+} from "./types/ticket-final-summary.js";
 
 const bootstrap = async () => {
   const env = loadEnv();
@@ -16,16 +19,18 @@ const bootstrap = async () => {
   const gitVersioning = new GitCliVersioning(env.REPO_PATH);
   let telegram: TelegramController | null = null;
 
-  const notifyTicketFinalSummary = async (summary: TicketFinalSummary): Promise<void> => {
+  const notifyTicketFinalSummary = async (
+    summary: TicketFinalSummary,
+  ): Promise<TicketNotificationDelivery | null> => {
     if (!telegram) {
       logger.warn("Resumo final de ticket nao enviado: Telegram indisponivel no bootstrap", {
         ticket: summary.ticket,
         status: summary.status,
       });
-      return;
+      return null;
     }
 
-    await telegram.sendTicketFinalSummary(summary);
+    return telegram.sendTicketFinalSummary(summary);
   };
 
   const runner = new TicketRunner(

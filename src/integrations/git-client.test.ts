@@ -87,7 +87,7 @@ test("assertSyncedWithRemote valida repositorio limpo e sem commits pendentes", 
         return { stdout: "", stderr: "" };
       }
 
-      if (args[0] === "rev-parse") {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
         return { stdout: "origin/main\n", stderr: "" };
       }
 
@@ -95,17 +95,27 @@ test("assertSyncedWithRemote valida repositorio limpo e sem commits pendentes", 
         return { stdout: "0\n", stderr: "" };
       }
 
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        return { stdout: "abc123\n", stderr: "" };
+      }
+
       return { stdout: "", stderr: "" };
     },
   });
 
-  await client.assertSyncedWithRemote();
+  const evidence = await client.assertSyncedWithRemote();
 
   assert.deepEqual(calls, [
     ["status", "--porcelain"],
     ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
     ["rev-list", "--count", "origin/main..HEAD"],
+    ["rev-parse", "HEAD"],
   ]);
+  assert.deepEqual(evidence, {
+    commitHash: "abc123",
+    upstream: "origin/main",
+    commitPushId: "abc123@origin/main",
+  });
 });
 
 test("assertSyncedWithRemote falha quando ha alteracoes locais", async () => {

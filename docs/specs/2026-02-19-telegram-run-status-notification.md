@@ -5,13 +5,14 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 14:53Z
+- Last reviewed at (UTC): 2026-02-19 15:09Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md
-  - tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 - Related execplans:
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
+  - execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 - Related commits:
   - A definir
 
@@ -43,21 +44,22 @@
 - [x] CA-02 - Ao falhar um ticket, exatamente uma mensagem de resumo final de falha e enviada para o chat autorizado.
 - [x] CA-03 - Mensagens de resumo incluem campos minimos de rastreabilidade (ticket, status, fase final, timestamp UTC).
 - [x] CA-04 - Em rodada com multiplos tickets, cada ticket concluido gera seu proprio resumo final.
-- [ ] CA-05 - `/status` apresenta informacao coerente com o ultimo evento notificado.
+- [x] CA-05 - `/status` apresenta informacao coerente com o ultimo evento notificado.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
   - O runner executa as fases `plan -> implement -> close-and-version` de forma sequencial por ticket.
-  - O runner registra estado interno por fase, sucesso e erro (`phase`, `currentTicket`, `lastMessage`, `updatedAt`) e esse snapshot ja e exposto por `/status`.
+  - O runner registra estado interno por fase, sucesso e erro (`phase`, `currentTicket`, `lastMessage`, `updatedAt`) e esse snapshot e exposto por `/status`.
   - O runner passou a publicar resumo final por ticket em sucesso e falha, com emissao unica ao fim de `processTicket`.
   - A integracao Telegram passou a enviar notificacao proativa por ticket com campos minimos (`ticket`, `resultado`, `fase final`, `timestamp UTC`) e erro objetivo em falha.
   - Em modo sem `TELEGRAM_ALLOWED_CHAT_ID`, o chat que dispara `/run-all` vira destino da notificacao final da rodada; em modo restrito, o destino continua o chat autorizado.
   - A suite automatizada cobre emissao final em sucesso, falha e rodada com multiplos tickets.
+  - O resumo final de sucesso agora inclui `execPlanPath` e identificador de commit/push (`commitPushId`, com detalhes de `commitHash` e `pushUpstream`).
+  - O estado do runner passou a persistir `lastNotifiedEvent` somente apos entrega confirmada no Telegram, e `/status` agora reflete esse evento como fonte canonica.
+  - A suite automatizada cobre explicitamente os contratos de rastreabilidade avancada em sucesso e coerencia de `/status` com o ultimo evento notificado.
 - Pendencias em aberto:
-  - Incluir no resumo de sucesso referencia de artefato de plano e identificador de commit/push.
-  - Garantir que `/status` reflita de forma coerente o ultimo evento efetivamente notificado no chat autorizado.
-  - Evoluir testes de contrato para cobrir explicitamente rastreabilidade avancada de sucesso (artefato plano + commit/push) e coerencia de `/status`.
+  - Nenhuma pendencia funcional em aberto para esta spec.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/types/ticket-final-summary.ts
@@ -68,8 +70,9 @@
   - src/integrations/telegram-bot.test.ts
   - src/main.ts
   - tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md
-  - tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
+  - execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
 
 ## Riscos e impacto
 - Risco funcional: duplicidade de mensagens ou falta de notificacao em falhas.
@@ -85,3 +88,5 @@
 - 2026-02-19 14:42Z - Revisao de gaps concluida, com abertura de tickets para notificacao final por ticket e rastreabilidade/coerencia de status.
 - 2026-02-19 14:53Z - Entrega da emissao unica de resumo final por ticket (sucesso/falha) com cobertura automatizada; pendencias de rastreabilidade avancada e coerencia de `/status` mantidas no ticket irmao.
 - 2026-02-19 14:56Z - Ticket de emissao final por ticket movido para `tickets/closed/` apos validacao completa de testes e build.
+- 2026-02-19 15:09Z - Rastreabilidade avancada de sucesso e coerencia de `/status` com ultimo evento notificado implementadas e validadas por testes.
+- 2026-02-19 15:10Z - Ticket de rastreabilidade/coerencia movido para `tickets/closed/` apos validacao completa de testes, check e build.

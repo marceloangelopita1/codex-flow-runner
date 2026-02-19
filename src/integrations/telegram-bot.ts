@@ -1,7 +1,10 @@
 import { Telegraf } from "telegraf";
 import { Logger } from "../core/logger.js";
 import { RunnerState } from "../types/state.js";
-import { TicketFinalSummary } from "../types/ticket-final-summary.js";
+import {
+  TicketFinalSummary,
+  TicketNotificationDelivery,
+} from "../types/ticket-final-summary.js";
 
 interface BotControls {
   runAll: () => boolean;
@@ -46,25 +49,34 @@ export class TelegramController {
     this.logger.info("Telegram bot finalizado", { signal });
   }
 
-  async sendTicketFinalSummary(summary: TicketFinalSummary): Promise<void> {
+  async sendTicketFinalSummary(summary: TicketFinalSummary): Promise<TicketNotificationDelivery | null> {
     if (!this.notificationChatId) {
       this.logger.warn("Resumo final de ticket nao enviado: chat de notificacao indefinido", {
         ticket: summary.ticket,
         status: summary.status,
       });
-      return;
+      return null;
     }
 
+    const destinationChatId = this.notificationChatId;
     await this.bot.telegram.sendMessage(
-      this.notificationChatId,
+      destinationChatId,
       this.buildTicketFinalSummaryMessage(summary),
     );
+
+    const delivery: TicketNotificationDelivery = {
+      channel: "telegram",
+      destinationChatId,
+      deliveredAtUtc: new Date().toISOString(),
+    };
 
     this.logger.info("Resumo final de ticket enviado no Telegram", {
       ticket: summary.ticket,
       status: summary.status,
-      chatId: this.notificationChatId,
+      chatId: destinationChatId,
     });
+
+    return delivery;
   }
 
   private registerHandlers(): void {
@@ -99,16 +111,7 @@ export class TelegramController {
         return;
       }
       const state = this.getState();
-      await ctx.reply(
-        [
-          `Runner: ${state.isRunning ? "ativo" : "inativo"}`,
-          `Pausado: ${state.isPaused ? "sim" : "não"}`,
-          `Fase: ${state.phase}`,
-          `Ticket atual: ${state.currentTicket ?? "nenhum"}`,
-          `Última mensagem: ${state.lastMessage}`,
-          `Atualizado em: ${state.updatedAt.toISOString()}`,
-        ].join("\n"),
-      );
+      await ctx.reply(this.buildStatusReply(state));
     });
 
     this.bot.command("pause", async (ctx) => {
@@ -179,8 +182,51 @@ export class TelegramController {
       `Timestamp UTC: ${summary.timestampUtc}`,
     ];
 
+    if (summary.status === "success") {
+      lines.push(`ExecPlan: ${summary.execPlanPath}`);
+      lines.push(`Commit/Push: ${summary.commitPushId}`);
+      lines.push(`Commit: ${summary.commitHash}`);
+      lines.push(`Upstream: ${summary.pushUpstream}`);
+      return lines.join("\n");
+    }
+
     if (summary.status === "failure") {
-      lines.push(`Erro: ${summary.errorMessage ?? "nao informado"}`);
+      lines.push(`Erro: ${summary.errorMessage}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private buildStatusReply(state: RunnerState): string {
+    const lines = [
+      `Runner: ${state.isRunning ? "ativo" : "inativo"}`,
+      `Pausado: ${state.isPaused ? "sim" : "não"}`,
+      `Fase: ${state.phase}`,
+      `Ticket atual: ${state.currentTicket ?? "nenhum"}`,
+      `Última mensagem: ${state.lastMessage}`,
+      `Atualizado em: ${state.updatedAt.toISOString()}`,
+    ];
+
+    if (!state.lastNotifiedEvent) {
+      lines.push("Último evento notificado: nenhum");
+      return lines.join("\n");
+    }
+
+    const { summary, delivery } = state.lastNotifiedEvent;
+    lines.push(
+      `Último evento notificado: ${summary.ticket} (${summary.status})`,
+      `Fase notificada: ${summary.finalStage}`,
+      `Notificado em: ${delivery.deliveredAtUtc}`,
+      `Chat de notificação: ${delivery.destinationChatId}`,
+    );
+
+    if (summary.status === "success") {
+      lines.push(
+        `ExecPlan notificado: ${summary.execPlanPath}`,
+        `Commit/Push notificado: ${summary.commitPushId}`,
+      );
+    } else {
+      lines.push(`Erro notificado: ${summary.errorMessage}`);
     }
 
     return lines.join("\n");

@@ -3,9 +3,15 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+export interface GitSyncEvidence {
+  commitHash: string;
+  upstream: string;
+  commitPushId: string;
+}
+
 export interface GitVersioning {
   commitTicketClosure(ticketName: string, execPlanPath: string): Promise<void>;
-  assertSyncedWithRemote(): Promise<void>;
+  assertSyncedWithRemote(): Promise<GitSyncEvidence>;
 }
 
 interface GitCommandResult {
@@ -52,7 +58,7 @@ export class GitCliVersioning implements GitVersioning {
     await this.runGit(["push"]);
   }
 
-  async assertSyncedWithRemote(): Promise<void> {
+  async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     const workingTreeStatus = (await this.runGit(["status", "--porcelain"])).stdout.trim();
     if (workingTreeStatus.length > 0) {
       throw new Error("Repositorio com alteracoes locais apos close-and-version.");
@@ -80,6 +86,17 @@ export class GitCliVersioning implements GitVersioning {
     if (ahead > 0) {
       throw new Error(`Push obrigatorio nao concluido: ${ahead} commit(s) sem push.`);
     }
+
+    const commitHash = (await this.runGit(["rev-parse", "HEAD"])).stdout.trim();
+    if (!commitHash) {
+      throw new Error("Nao foi possivel identificar hash HEAD apos validar push obrigatorio.");
+    }
+
+    return {
+      commitHash,
+      upstream,
+      commitPushId: `${commitHash}@${upstream}`,
+    };
   }
 
   private async hasStagedChanges(): Promise<boolean> {

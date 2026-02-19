@@ -10,7 +10,7 @@
   - Cobrir cenarios de sucesso, falha e multiplos tickets com testes automatizados.
   - Atualizar spec de notificacao com evidencias e status dos CAs atendidos por este ticket.
 - Fora de escopo:
-  - Incluir metadados avancados de rastreabilidade (ex.: commit/push id e contrato completo de artefatos) que pertencem ao ticket `tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md`.
+  - Incluir metadados avancados de rastreabilidade (ex.: commit/push id e contrato completo de artefatos) que pertencem ao ticket `tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md`.
   - Redesenhar `/status` para espelhar explicitamente o ultimo evento notificado (mesmo ticket irmao acima).
   - Paralelizacao de tickets ou mudanca de politica fail-fast da rodada.
 
@@ -122,7 +122,7 @@
 
 ## Artifacts and Notes
 - Ticket de origem: `tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md`.
-- Ticket relacionado (fora de escopo deste plano): `tickets/open/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md`.
+- Ticket relacionado (fora de escopo deste plano): `tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md`.
 - Spec de referencia: `docs/specs/2026-02-19-telegram-run-status-notification.md`.
 - PR/Diff alvo: `git diff -- src/types/ticket-final-summary.ts src/core/runner.ts src/core/runner.test.ts src/integrations/telegram-bot.ts src/integrations/telegram-bot.test.ts src/main.ts docs/specs/2026-02-19-telegram-run-status-notification.md`.
 - Logs relevantes: saida de `npm test`, `npm run check`, `npm run build` e logs de execucao de rodada via `/run-all`.

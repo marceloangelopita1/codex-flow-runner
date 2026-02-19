@@ -1,16 +1,23 @@
 import { AppEnv } from "../config/env.js";
 import { RunnerState, createInitialState } from "../types/state.js";
-import { TicketFinalStage, TicketFinalSummary } from "../types/ticket-final-summary.js";
+import {
+  TicketFinalStage,
+  TicketFinalSummary,
+  TicketNotificationDelivery,
+} from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import {
+  CodexStageResult,
   CodexStageExecutionError,
   CodexTicketFlowClient,
   TicketFlowStage,
 } from "../integrations/codex-client.js";
-import { GitVersioning } from "../integrations/git-client.js";
+import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
-type TicketFinalSummaryHandler = (summary: TicketFinalSummary) => Promise<void> | void;
+type TicketFinalSummaryHandler = (
+  summary: TicketFinalSummary,
+) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
 
 export class TicketRunner {
   private readonly state: RunnerState = createInitialState();
@@ -25,7 +32,17 @@ export class TicketRunner {
     private readonly onTicketFinalized?: TicketFinalSummaryHandler,
   ) {}
 
-  getState = (): RunnerState => ({ ...this.state });
+  getState = (): RunnerState => ({
+    ...this.state,
+    ...(this.state.lastNotifiedEvent
+      ? {
+          lastNotifiedEvent: {
+            summary: { ...this.state.lastNotifiedEvent.summary },
+            delivery: { ...this.state.lastNotifiedEvent.delivery },
+          },
+        }
+      : {}),
+  });
 
   requestPause = (): void => {
     this.state.isPaused = true;
@@ -114,17 +131,18 @@ export class TicketRunner {
     let finalSummary: TicketFinalSummary | null = null;
 
     try {
-      await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
+      const planResult = await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
+      const execPlanPath = this.resolveExecPlanPath(ticket, planResult.execPlanPath);
       await this.runStage("implement", ticket, `Executando etapa implement para ${ticket.name}`);
       await this.runStage(
         "close-and-version",
         ticket,
         `Executando etapa close-and-version para ${ticket.name}`,
       );
-      await this.assertCloseAndVersion(ticket);
+      const syncEvidence = await this.assertCloseAndVersion(ticket);
 
       this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
-      finalSummary = this.buildTicketFinalSummary(ticket.name, "success", "close-and-version");
+      finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence);
       return true;
     } catch (error) {
       const stage = error instanceof CodexStageExecutionError ? error.stage : undefined;
@@ -135,9 +153,8 @@ export class TicketRunner {
         stage,
         error: errorMessage,
       });
-      finalSummary = this.buildTicketFinalSummary(
+      finalSummary = this.buildFailureSummary(
         ticket.name,
-        "failure",
         this.resolveFailureStage(stage),
         errorMessage,
       );
@@ -150,18 +167,46 @@ export class TicketRunner {
     }
   }
 
-  private buildTicketFinalSummary(
+  private resolveExecPlanPath(ticket: TicketRef, execPlanPath?: string): string {
+    if (execPlanPath) {
+      return execPlanPath;
+    }
+
+    throw new CodexStageExecutionError(
+      ticket.name,
+      "plan",
+      "Etapa plan nao retornou caminho de ExecPlan para rastreabilidade obrigatoria.",
+    );
+  }
+
+  private buildSuccessSummary(
     ticket: string,
-    status: TicketFinalSummary["status"],
-    finalStage: TicketFinalStage,
-    errorMessage?: string,
+    execPlanPath: string,
+    syncEvidence: GitSyncEvidence,
   ): TicketFinalSummary {
     return {
       ticket,
-      status,
+      status: "success",
+      finalStage: "close-and-version",
+      timestampUtc: new Date().toISOString(),
+      execPlanPath,
+      commitPushId: syncEvidence.commitPushId,
+      commitHash: syncEvidence.commitHash,
+      pushUpstream: syncEvidence.upstream,
+    };
+  }
+
+  private buildFailureSummary(
+    ticket: string,
+    finalStage: TicketFinalStage,
+    errorMessage: string,
+  ): TicketFinalSummary {
+    return {
+      ticket,
+      status: "failure",
       finalStage,
       timestampUtc: new Date().toISOString(),
-      ...(errorMessage ? { errorMessage } : {}),
+      errorMessage,
     };
   }
 
@@ -187,7 +232,16 @@ export class TicketRunner {
     }
 
     try {
-      await this.onTicketFinalized(summary);
+      const delivery = await this.onTicketFinalized(summary);
+      if (!delivery) {
+        return;
+      }
+
+      this.state.lastNotifiedEvent = {
+        summary: { ...summary },
+        delivery: { ...delivery },
+      };
+      this.state.updatedAt = new Date(delivery.deliveredAtUtc);
     } catch (error) {
       this.logger.error("Falha ao emitir resumo final de ticket", {
         ticket: summary.ticket,
@@ -197,9 +251,9 @@ export class TicketRunner {
     }
   }
 
-  private async assertCloseAndVersion(ticket: TicketRef): Promise<void> {
+  private async assertCloseAndVersion(ticket: TicketRef): Promise<GitSyncEvidence> {
     try {
-      await this.gitVersioning.assertSyncedWithRemote();
+      return await this.gitVersioning.assertSyncedWithRemote();
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
@@ -210,7 +264,7 @@ export class TicketRunner {
     stage: TicketFlowStage,
     ticket: TicketRef,
     message: string,
-  ): Promise<void> {
+  ): Promise<CodexStageResult> {
     this.touch(stage, message);
 
     const result = await this.codexClient.runStage(stage, ticket);
@@ -220,6 +274,8 @@ export class TicketRunner {
         execPlanPath: result.execPlanPath,
       });
     }
+
+    return result;
   }
 
   private touch(phase: RunnerState["phase"], message: string): void {
