@@ -7,6 +7,7 @@ import { FileSystemActiveProjectStore } from "./integrations/active-project-stor
 import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
 import { GitCliVersioning } from "./integrations/git-client.js";
 import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js";
+import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
 import {
@@ -21,6 +22,7 @@ const bootstrap = async () => {
   const logger = new Logger();
 
   const projectDiscovery = new FileSystemProjectDiscovery();
+  const specDiscovery = new FileSystemSpecDiscovery();
   const activeProjectStore = new FileSystemActiveProjectStore(env.PROJECTS_ROOT_PATH);
   const projectSelection = new ActiveProjectSelectionService(env.PROJECTS_ROOT_PATH, {
     discovery: projectDiscovery,
@@ -79,6 +81,15 @@ const bootstrap = async () => {
     notifyTicketFinalSummary,
   );
 
+  const resolveActiveProjectPathForSpecs = (): string => {
+    const activeProject = runner.getState().activeProject;
+    if (!activeProject) {
+      throw new Error("Projeto ativo indisponivel para operacoes de specs.");
+    }
+
+    return activeProject.path;
+  };
+
   telegram = new TelegramController(
     env.TELEGRAM_BOT_TOKEN,
     logger,
@@ -86,6 +97,10 @@ const bootstrap = async () => {
     {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
+      listEligibleSpecs: () =>
+        specDiscovery.listEligibleSpecs(resolveActiveProjectPathForSpecs()),
+      validateRunSpecsTarget: (specInput) =>
+        specDiscovery.validateSpecEligibility(resolveActiveProjectPathForSpecs(), specInput),
       pause: runner.requestPause,
       resume: runner.requestResume,
       listProjects: projectSelection.listProjects.bind(projectSelection),

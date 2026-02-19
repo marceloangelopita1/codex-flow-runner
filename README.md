@@ -65,6 +65,8 @@ Pré-requisito operacional:
 - `/start` → mostra descrição do bot e comandos disponíveis
 - `/run_all` → inicia o loop sequencial de processamento de tickets
 - `/run-all` → alias legado compatível para `/run_all`
+- `/specs` → lista specs elegíveis (`Status: approved` + `Spec treatment: pending`) do projeto ativo
+- `/run_specs <arquivo>` → executa triagem da spec informada (aceita `<arquivo>.md` ou `docs/specs/<arquivo>.md`)
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento

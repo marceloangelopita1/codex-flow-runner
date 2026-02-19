@@ -11,10 +11,15 @@ import {
   TicketFinalSummary,
   TicketNotificationDelivery,
 } from "../types/ticket-final-summary.js";
+import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
+  listEligibleSpecs: () => Promise<EligibleSpecRef[]> | EligibleSpecRef[];
+  validateRunSpecsTarget: (
+    specInput: string,
+  ) => Promise<SpecEligibilityResult> | SpecEligibilityResult;
   pause: () => void;
   resume: () => void;
   listProjects: () => Promise<ProjectSelectionSnapshot> | ProjectSelectionSnapshot;
@@ -113,8 +118,20 @@ const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
+const RUN_SPECS_INVALID_SPEC_REPLY_PREFIX = "❌ Argumento inválido para /run_specs:";
+const RUN_SPECS_NOT_FOUND_REPLY_PREFIX = "❌ Spec não encontrada para /run_specs:";
+const RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX = "❌ Spec não elegível para /run_specs:";
+const RUN_SPECS_VALIDATION_CRITERIA_REPLY =
+  "Critério de elegibilidade: Status: approved e Spec treatment: pending.";
+const RUN_SPECS_VALIDATION_FAILED_REPLY =
+  "❌ Falha ao validar spec para /run_specs. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const UNKNOWN_COMMAND_REPLY = "ℹ️ Comando não reconhecido. Use /start para ver os comandos válidos.";
+const SPECS_EMPTY_REPLY =
+  "ℹ️ Nenhuma spec elegível encontrada no projeto ativo. " +
+  "Critério: Status: approved e Spec treatment: pending.";
+const SPECS_LIST_FAILED_REPLY =
+  "❌ Falha ao listar specs elegíveis. Verifique logs do runner e tente novamente.";
 const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
@@ -144,6 +161,7 @@ const START_REPLY_LINES = [
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
+  "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
   "/status - mostra o estado atual do runner",
   "/pause - pausa após a etapa corrente",
@@ -234,6 +252,10 @@ export class TelegramController {
 
     this.bot.hears(RUN_ALL_LEGACY_PATTERN, async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run-all");
+    });
+
+    this.bot.command("specs", async (ctx) => {
+      await this.handleSpecsCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("run_specs", async (ctx) => {
@@ -380,15 +402,60 @@ export class TelegramController {
       return;
     }
 
+    let validation: SpecEligibilityResult;
+    try {
+      validation = await this.controls.validateRunSpecsTarget(specFileName);
+    } catch (error) {
+      this.logger.error("Falha ao validar spec para comando /run_specs", {
+        chatId,
+        specInput: specFileName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(RUN_SPECS_VALIDATION_FAILED_REPLY);
+      return;
+    }
+
+    if (validation.status !== "eligible") {
+      await ctx.reply(this.buildRunSpecsValidationReply(validation));
+      return;
+    }
+
     const outcome = await this.buildRunSpecsReply({
       chatId,
-      specFileName,
+      specFileName: validation.spec.fileName,
     });
     if (outcome.started) {
       this.captureNotificationChat(chatId);
     }
 
     await ctx.reply(outcome.reply);
+  }
+
+  private async handleSpecsCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /specs recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "specs",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      const specs = await this.controls.listEligibleSpecs();
+      await ctx.reply(this.buildSpecsReply(specs));
+    } catch (error) {
+      this.logger.error("Falha ao listar specs elegiveis via comando /specs", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(SPECS_LIST_FAILED_REPLY);
+    }
   }
 
   private async handleProjectsCommand(ctx: CommandContext): Promise<void> {
@@ -619,6 +686,27 @@ export class TelegramController {
     return PROJECTS_CALLBACK_STALE_REPLY;
   }
 
+  private buildSpecsReply(specs: EligibleSpecRef[]): string {
+    if (specs.length === 0) {
+      return SPECS_EMPTY_REPLY;
+    }
+
+    const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
+    const lines = [
+      "📚 Specs elegíveis para /run_specs",
+      `Projeto ativo: ${activeProjectName}`,
+      RUN_SPECS_VALIDATION_CRITERIA_REPLY,
+      "",
+    ];
+
+    for (const [index, spec] of specs.entries()) {
+      lines.push(`${index + 1}. ${spec.fileName}`);
+    }
+
+    lines.push("", "Use /run_specs <arquivo-da-spec.md> para iniciar a triagem.");
+    return lines.join("\n");
+  }
+
   private parseProjectsCallbackData(callbackData: string): ParsedProjectsCallbackData {
     if (callbackData.startsWith(PROJECTS_CALLBACK_PAGE_PREFIX)) {
       const rawPage = callbackData.slice(PROJECTS_CALLBACK_PAGE_PREFIX.length);
@@ -808,8 +896,38 @@ export class TelegramController {
     };
   }
 
+  private buildRunSpecsValidationReply(validation: Exclude<SpecEligibilityResult, {
+    status: "eligible";
+  }>): string {
+    if (validation.status === "invalid-path") {
+      return `${RUN_SPECS_INVALID_SPEC_REPLY_PREFIX} ${validation.message}`;
+    }
+
+    if (validation.status === "not-found") {
+      return [
+        `${RUN_SPECS_NOT_FOUND_REPLY_PREFIX} ${validation.spec.fileName}.`,
+        "Verifique se o arquivo existe em docs/specs/.",
+      ].join(" ");
+    }
+
+    return [
+      `${RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX} ${validation.spec.fileName}.`,
+      RUN_SPECS_VALIDATION_CRITERIA_REPLY,
+      `Metadata atual: Status: ${this.renderMetadataValue(validation.metadata.status)};`,
+      `Spec treatment: ${this.renderMetadataValue(validation.metadata.specTreatment)}.`,
+    ].join(" ");
+  }
+
   private buildStartReply(): string {
     return START_REPLY_LINES.join("\n");
+  }
+
+  private renderMetadataValue(value: string | null): string {
+    if (!value) {
+      return "(ausente)";
+    }
+
+    return value;
   }
 
   private isAllowed(context: AccessAttemptContext): boolean {

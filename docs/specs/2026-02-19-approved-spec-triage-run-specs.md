@@ -6,11 +6,11 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 19:34Z
-- Last reviewed at (UTC): 2026-02-19 19:57Z
+- Last reviewed at (UTC): 2026-02-19 20:11Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
-  - tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
+  - tickets/closed/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
   - tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 - Related execplans:
   - execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
@@ -56,9 +56,9 @@
 - Regras de elegibilidade baseadas apenas em heuristica textual sem metadata explicita.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `/specs` lista apenas arquivos de `docs/specs/` com `Status: approved` e `Spec treatment: pending`.
+- [x] CA-01 - `/specs` lista apenas arquivos de `docs/specs/` com `Status: approved` e `Spec treatment: pending`.
 - [x] CA-02 - `/run_specs` sem argumento retorna mensagem de uso e nao inicia execucao.
-- [ ] CA-03 - `/run_specs <arquivo>` com spec inexistente ou nao elegivel retorna bloqueio explicito e nao inicia execucao.
+- [x] CA-03 - `/run_specs <arquivo>` com spec inexistente ou nao elegivel retorna bloqueio explicito e nao inicia execucao.
 - [x] CA-04 - Durante rodada ativa, `/run_specs` responde `already-running` e nao inicia novo fluxo.
 - [x] CA-05 - Na etapa de triagem, o prompt 01 recebe `<SPEC_PATH>` substituido por `docs/specs/<arquivo>`.
 - [x] CA-06 - A etapa de fechamento da triagem executa commit/push com mensagem `chore(specs): triage <arquivo-da-spec.md>`.
@@ -66,7 +66,7 @@
 - [x] CA-08 - Com sucesso no commit/push da triagem, `run_all` inicia automaticamente na mesma solicitacao.
 - [x] CA-09 - A rodada resultante processa tickets ja existentes alem dos criados pela triagem.
 - [x] CA-10 - `/status` reflete fase e contexto de spec durante triagem e volta para fases de ticket no `run_all`.
-- [ ] CA-11 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao executam `/specs` nem `/run_specs`.
+- [x] CA-11 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao executam `/specs` nem `/run_specs`.
 - [x] CA-12 - Specs sem gaps sao atualizadas para `Status: attended` antes do commit/push da triagem.
 
 ## Status de atendimento (documento vivo)
@@ -82,8 +82,10 @@
   - Fechamento da triagem integrado com novo prompt `prompts/05-encerrar-tratamento-spec-commit-push.md` e commit padrao `chore(specs): triage <arquivo-da-spec.md>`.
   - Fail-gate implementado: falha em `spec-close-and-version` bloqueia rodada de tickets; sucesso encadeia `/run_all` automaticamente.
   - `/status` agora exibe `Spec atual` durante triagem e transicao para fases de ticket apos handoff.
+  - `FileSystemSpecDiscovery` implementado para listar specs elegiveis e validar `Status: approved` + `Spec treatment: pending` no projeto ativo.
+  - Comando `/specs` implementado com listagem deterministica de specs elegiveis e gate de acesso por `TELEGRAM_ALLOWED_CHAT_ID`.
+  - `/run_specs <arquivo>` agora valida existencia/elegibilidade antes de iniciar triagem, bloqueando entradas invalidas, specs inexistentes e nao elegiveis com mensagem explicita.
 - Pendencias em aberto:
-  - [P1/S2] Implementar descoberta/listagem de specs elegiveis e validacoes de entrada/elegibilidade para comandos `/specs` e `/run_specs <arquivo>` com bloqueio explicito (`tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md`).
   - [P2/S3] Padronizar metadata `Spec treatment` em todas as specs e no template oficial para eliminar ambiguidade de elegibilidade (`tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md`).
 - Evidencias de validacao:
   - src/core/runner.ts
@@ -94,6 +96,8 @@
   - src/integrations/codex-client.test.ts
   - src/integrations/telegram-bot.ts
   - src/integrations/telegram-bot.test.ts
+  - src/integrations/spec-discovery.ts
+  - src/integrations/spec-discovery.test.ts
   - src/integrations/git-client.ts
   - src/integrations/git-client.test.ts
   - src/types/state.ts
@@ -121,3 +125,4 @@
 - 2026-02-19 19:34Z - Versao inicial da spec criada com escopo fechado para triagem de specs approved pendentes com execucao automatica de tickets.
 - 2026-02-19 19:41Z - Revisao de gaps concluida com abertura de 3 tickets (orquestracao `/run_specs`, listagem/elegibilidade `/specs` e baseline de metadata `Spec treatment`).
 - 2026-02-19 19:57Z - Fluxo `/run_specs` implementado e validado com fail-gate, handoff para `/run_all`, novo prompt `05` e cobertura de testes para CA-02, CA-04..CA-10 e CA-12.
+- 2026-02-19 20:11Z - `/specs` e validacao de elegibilidade/existencia em `/run_specs` implementados com cobertura automatizada para CA-01, CA-03 e CA-11.

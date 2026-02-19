@@ -1,7 +1,7 @@
 # [TICKET] Comando /specs e validacao de elegibilidade de spec ainda nao existem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 19:39Z
@@ -15,6 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-approved-spec-triage-run-specs.md
+  - ExecPlan: execplans/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts`, `src/main.ts`, `src/core/active-project-resolver.ts`, `docs/specs/`
@@ -73,6 +74,6 @@ Nao obrigatorio. Entrega detalhada deve ser formalizada em ExecPlan.
 - 2026-02-19 - Ticket aberto apos avaliacao de gap para descoberta/elegibilidade de specs no bot.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 20:13Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-specs-command-eligibility-listing-and-access-gap.md (commit deste fechamento; PR N/A)

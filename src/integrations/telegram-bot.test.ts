@@ -5,6 +5,7 @@ import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
 import { TicketFinalFailureSummary, TicketFinalSuccessSummary } from "../types/ticket-final-summary.js";
+import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 import { TelegramController } from "./telegram-bot.js";
 
 class SpyLogger extends Logger {
@@ -44,6 +45,7 @@ type ControlCommand =
   | "start"
   | "run_all"
   | "run-all"
+  | "specs"
   | "run_specs"
   | "status"
   | "pause"
@@ -58,8 +60,11 @@ interface ControllerOptions {
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
   runSpecsMessage?: string;
+  runSpecsValidationResult?: SpecEligibilityResult;
   getState?: () => RunnerState;
   projectSnapshot?: ProjectSelectionSnapshot;
+  eligibleSpecs?: EligibleSpecRef[];
+  listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
   forceSelectBlocked?: boolean;
 }
@@ -95,18 +100,35 @@ const cloneSnapshot = (snapshot: ProjectSelectionSnapshot): ProjectSelectionSnap
   activeProject: cloneProject(snapshot.activeProject),
 });
 
+const cloneEligibleSpec = (spec: EligibleSpecRef): EligibleSpecRef => ({
+  fileName: spec.fileName,
+  specPath: spec.specPath,
+});
+
+const createDefaultEligibleSpecs = (): EligibleSpecRef[] => [
+  {
+    fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+    specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+  },
+];
+
 const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
   const controlState = {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    listEligibleSpecsCalls: 0,
+    validateRunSpecsTargetCalls: 0,
+    validatedSpecsArgs: [] as string[],
     listProjectsCalls: 0,
     selectedProjectNames: [] as string[],
   };
 
   const stateGetter = options.getState ?? (() => createState());
   const mutableSnapshot = cloneSnapshot(options.projectSnapshot ?? createDefaultProjectSnapshot());
+  const mutableEligibleSpecs = (options.eligibleSpecs ?? createDefaultEligibleSpecs())
+    .map(cloneEligibleSpec);
 
   const controls = {
     runAll: () => {
@@ -145,6 +167,52 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       return { status: "started" as const };
+    },
+    listEligibleSpecs: () => {
+      controlState.listEligibleSpecsCalls += 1;
+      if (options.listEligibleSpecsErrorMessage) {
+        throw new Error(options.listEligibleSpecsErrorMessage);
+      }
+
+      return mutableEligibleSpecs.map(cloneEligibleSpec);
+    },
+    validateRunSpecsTarget: (specInput: string) => {
+      controlState.validateRunSpecsTargetCalls += 1;
+      controlState.validatedSpecsArgs.push(specInput);
+
+      if (options.runSpecsValidationResult) {
+        return options.runSpecsValidationResult;
+      }
+
+      const normalized = specInput.startsWith("docs/specs/")
+        ? specInput.slice("docs/specs/".length)
+        : specInput;
+
+      if (
+        !normalized.endsWith(".md") ||
+        normalized.includes("/") ||
+        normalized.includes("\\") ||
+        normalized.includes("..")
+      ) {
+        return {
+          status: "invalid-path" as const,
+          input: specInput,
+          message:
+            "Formato invalido para spec. Use apenas <arquivo-da-spec.md> ou docs/specs/<arquivo-da-spec.md>.",
+        };
+      }
+
+      return {
+        status: "eligible" as const,
+        spec: {
+          fileName: normalized,
+          specPath: `docs/specs/${normalized}`,
+        },
+        metadata: {
+          status: "approved",
+          specTreatment: "pending",
+        },
+      };
     },
     pause: () => undefined,
     resume: () => undefined,
@@ -350,6 +418,23 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandleSpecsCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleSpecsCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleSpecsCommand(context);
 };
 
 const callHandleProjectsCallbackQuery = async (
@@ -576,6 +661,7 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/start/u);
   assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
+  assert.match(reply, /\/specs/u);
   assert.match(reply, /\/run_specs/u);
   assert.match(reply, /\/status/u);
   assert.match(reply, /\/pause/u);
@@ -599,6 +685,7 @@ test("/run_specs sem argumento retorna mensagem de uso e nao inicia execucao", a
   });
 
   assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(controlState.validateRunSpecsTargetCalls, 0);
   assert.equal(replies.length, 1);
   assert.equal(replies[0], "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.");
 });
@@ -616,6 +703,10 @@ test("/run_specs com argumento inicia fluxo de triagem", async () => {
     },
   });
 
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.deepEqual(controlState.validatedSpecsArgs, [
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  ]);
   assert.equal(controlState.runSpecsCalls, 1);
   assert.deepEqual(controlState.runSpecsArgs, ["2026-02-19-approved-spec-triage-run-specs.md"]);
   assert.equal(replies.length, 1);
@@ -638,9 +729,182 @@ test("/run_specs retorna already-running quando runner ja esta ocupado", async (
     },
   });
 
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
   assert.equal(controlState.runSpecsCalls, 1);
   assert.equal(replies.length, 1);
   assert.equal(replies[0], "ℹ️ Runner já está em execução.");
+});
+
+test("/specs lista somente specs elegiveis (CA-01)", async () => {
+  const { controller, controlState } = createController({
+    eligibleSpecs: [
+      {
+        fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+        specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+      },
+      {
+        fileName: "2026-02-20-outra-spec-pending.md",
+        specPath: "docs/specs/2026-02-20-outra-spec-pending.md",
+      },
+    ],
+  });
+  const replies: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listEligibleSpecsCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Specs elegíveis para \/run_specs/u);
+  assert.match(replies[0] ?? "", /2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(replies[0] ?? "", /2026-02-20-outra-spec-pending\.md/u);
+});
+
+test("/specs responde mensagem clara quando nao ha specs elegiveis", async () => {
+  const { controller } = createController({
+    eligibleSpecs: [],
+  });
+  const replies: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Nenhuma spec elegível/u);
+});
+
+test("/run_specs bloqueia spec inexistente sem iniciar runner (CA-03)", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "not-found",
+      spec: {
+        fileName: "spec-inexistente.md",
+        specPath: "docs/specs/spec-inexistente.md",
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs spec-inexistente.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Spec não encontrada/u);
+  assert.match(replies[0] ?? "", /docs\/specs/u);
+});
+
+test("/run_specs bloqueia spec nao elegivel sem iniciar runner (CA-03)", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "not-eligible",
+      spec: {
+        fileName: "2026-02-19-telegram-access-and-control-plane.md",
+        specPath: "docs/specs/2026-02-19-telegram-access-and-control-plane.md",
+      },
+      metadata: {
+        status: "approved",
+        specTreatment: null,
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs 2026-02-19-telegram-access-and-control-plane.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Spec não elegível/u);
+  assert.match(replies[0] ?? "", /Spec treatment: \(ausente\)/u);
+});
+
+test("/run_specs bloqueia argumento invalido sem iniciar runner", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "invalid-path",
+      input: "../../etc/passwd",
+      message:
+        "Formato invalido para spec. Use apenas <arquivo-da-spec.md> ou docs/specs/<arquivo-da-spec.md>.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs ../../etc/passwd" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Argumento inválido/u);
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /specs (CA-11)", async () => {
+  const { controller, controlState, logger } = createController({ allowedChatId: "42" });
+  const replies: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listEligibleSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /run_specs (CA-11)", async () => {
+  const { controller, controlState, logger } = createController({ allowedChatId: "42" });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 99 },
+    message: { text: "/run_specs 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 0);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
 });
 
 test("/projects responde lista paginada com marcador de projeto ativo", async () => {
