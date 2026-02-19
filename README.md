@@ -32,9 +32,16 @@ Pastas esperadas no repositório alvo:
 
 - `TELEGRAM_BOT_TOKEN` (**obrigatório**)
 - `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
-- `REPO_PATH` (opcional, padrão: diretório atual)
+- `PROJECTS_ROOT_PATH` (**obrigatório**, ex.: `/home/mapita/projetos`)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
 - O app carrega automaticamente o arquivo `.env` na raiz do projeto ao iniciar (sem necessidade de `source .env` manual para `npm run dev`/`npm start`).
+
+Regras de bootstrap multi-projeto:
+- o runner descobre projetos elegíveis no primeiro nível de `PROJECTS_ROOT_PATH`.
+- projeto elegível = diretório que possui `.git` e `tickets/open/`.
+- o projeto ativo global é restaurado de `PROJECTS_ROOT_PATH/.codex-flow-runner/active-project.json` quando válido.
+- se o estado persistido estiver ausente/inválido/desatualizado, o bootstrap usa fallback para o primeiro projeto elegível em ordem alfabética e persiste a nova seleção.
+- não existe fallback de compatibilidade para `REPO_PATH`.
 
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).

@@ -1,7 +1,7 @@
 # [TICKET] Fundacao de multi-projeto: PROJECTS_ROOT_PATH, descoberta e projeto ativo persistido
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-19 17:28Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-multi-project-active-selection.md
-  - ExecPlan: A definir
+  - ExecPlan: execplans/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
 
 ## Context
 - Workflow area: `src/config/env.ts`, `src/main.ts`, bootstrap de integracoes e descoberta de repositorios
@@ -74,6 +74,6 @@ O bootstrap deve exigir `PROJECTS_ROOT_PATH`, descobrir projetos validos no prim
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec `telegram-multi-project-active-selection`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 17:42Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md (commit deste fechamento)

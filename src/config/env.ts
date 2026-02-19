@@ -3,7 +3,7 @@ import { z } from "zod";
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1).optional(),
-  REPO_PATH: z.string().min(1).default(process.cwd()),
+  PROJECTS_ROOT_PATH: z.string().min(1),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
 });
 
@@ -22,9 +22,8 @@ const loadDotEnvFromCwd = (): void => {
   }
 };
 
-export const loadEnv = (): AppEnv => {
-  loadDotEnvFromCwd();
-  const parsed = envSchema.safeParse(process.env);
+export const parseEnv = (source: NodeJS.ProcessEnv): AppEnv => {
+  const parsed = envSchema.safeParse(source);
 
   if (!parsed.success) {
     const details = parsed.error.issues
@@ -34,4 +33,9 @@ export const loadEnv = (): AppEnv => {
   }
 
   return parsed.data;
+};
+
+export const loadEnv = (): AppEnv => {
+  loadDotEnvFromCwd();
+  return parseEnv(process.env);
 };

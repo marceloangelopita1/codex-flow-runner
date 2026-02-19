@@ -1,8 +1,11 @@
 import { loadEnv } from "./config/env.js";
+import { resolveActiveProject } from "./core/active-project-resolver.js";
 import { Logger } from "./core/logger.js";
 import { TicketRunner } from "./core/runner.js";
+import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
 import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
 import { GitCliVersioning } from "./integrations/git-client.js";
+import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
 import {
@@ -14,9 +17,26 @@ const bootstrap = async () => {
   const env = loadEnv();
   const logger = new Logger();
 
-  const queue = new FileSystemTicketQueue(env.REPO_PATH);
-  const codex = new CodexCliTicketFlowClient(env.REPO_PATH, logger);
-  const gitVersioning = new GitCliVersioning(env.REPO_PATH);
+  const projectDiscovery = new FileSystemProjectDiscovery();
+  const activeProjectStore = new FileSystemActiveProjectStore(env.PROJECTS_ROOT_PATH);
+  const activeProjectResolution = await resolveActiveProject(env.PROJECTS_ROOT_PATH, {
+    discovery: projectDiscovery,
+    store: activeProjectStore,
+  });
+
+  const activeProjectPath = activeProjectResolution.activeProject.path;
+  logger.info("Projeto ativo global resolvido no bootstrap", {
+    projectsRootPath: env.PROJECTS_ROOT_PATH,
+    activeProjectName: activeProjectResolution.activeProject.name,
+    activeProjectPath,
+    selectionReason: activeProjectResolution.selectionReason,
+    eligibleProjectsCount: activeProjectResolution.eligibleProjects.length,
+    stateFilePath: activeProjectStore.stateFilePath,
+  });
+
+  const queue = new FileSystemTicketQueue(activeProjectPath);
+  const codex = new CodexCliTicketFlowClient(activeProjectPath, logger);
+  const gitVersioning = new GitCliVersioning(activeProjectPath);
   let telegram: TelegramController | null = null;
 
   const notifyTicketFinalSummary = async (
@@ -55,7 +75,10 @@ const bootstrap = async () => {
   );
 
   await telegram.start();
-  logger.info("Runner aguardando comando /run-all no Telegram");
+  logger.info("Runner aguardando comando /run-all no Telegram", {
+    activeProjectName: activeProjectResolution.activeProject.name,
+    activeProjectPath,
+  });
 
   const handleShutdown = async (signal: "SIGINT" | "SIGTERM") => {
     logger.warn("Sinal recebido, encerrando...", { signal });

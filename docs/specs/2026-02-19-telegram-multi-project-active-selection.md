@@ -50,12 +50,12 @@
 - Fallback de compatibilidade para `REPO_PATH` (migracao sera quebra direta).
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Sem `PROJECTS_ROOT_PATH`, o bootstrap falha com erro claro de configuracao obrigatoria.
+- [x] CA-01 - Sem `PROJECTS_ROOT_PATH`, o bootstrap falha com erro claro de configuracao obrigatoria.
 - [ ] CA-02 - `/projects` lista apenas projetos validos em ordem alfabetica e indica o projeto ativo.
 - [ ] CA-03 - Selecionar projeto por botao inline altera o projeto ativo e persiste o estado.
 - [ ] CA-04 - Selecionar projeto por `/select-project <nome>` altera o projeto ativo e persiste o estado.
 - [ ] CA-05 - Durante execucao em andamento, tentativa de troca responde bloqueio e nao altera o projeto ativo.
-- [ ] CA-06 - Apos restart, runner restaura projeto ativo anterior; se invalido, aplica fallback para o primeiro valido.
+- [x] CA-06 - Apos restart, runner restaura projeto ativo anterior; se invalido, aplica fallback para o primeiro valido.
 - [ ] CA-07 - `/run-all` processa tickets apenas do projeto ativo, sem misturar estado de outro projeto.
 - [ ] CA-08 - `/status` e resumo final por ticket exibem identificacao do projeto (nome e caminho base).
 - [ ] CA-09 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao conseguem usar comandos de projeto e geram log de auditoria.
@@ -67,14 +67,25 @@
   - Fluxo sequencial por ticket (`plan -> implement -> close-and-version`) ja esta implementado no runner.
   - Comandos `/run-all`, `/pause`, `/resume` e `/status` ja existem no bot com controle por `TELEGRAM_ALLOWED_CHAT_ID`.
   - Notificacao final por ticket e `/status` ja existem, mas ainda sem contexto explicito de projeto ativo.
+  - RF-01 atendido: `PROJECTS_ROOT_PATH` obrigatorio em `src/config/env.ts`, sem fallback para `REPO_PATH`.
+  - RF-02 e RF-03 atendidos: descoberta de projetos validos no primeiro nivel via `src/integrations/project-discovery.ts` com criterio `.git` + `tickets/open`.
+  - RF-04, RF-05 e RF-06 atendidos: resolucao de projeto ativo global com persistencia/restauracao e fallback alfabetico em `src/core/active-project-resolver.ts` e `src/integrations/active-project-store.ts`.
+  - RF-13 atendido: `codex-flow-runner` entra na descoberta quando cumprir criterio de elegibilidade, coberto em `src/integrations/project-discovery.test.ts`.
+  - CA-01 e CA-06 validados por testes automatizados (`src/config/env.test.ts`, `src/core/active-project-resolver.test.ts`, `src/integrations/active-project-store.test.ts`).
 - Pendencias em aberto:
-  - RF-01, RF-02, RF-03, RF-04, RF-05, RF-06 e RF-13: migrar para `PROJECTS_ROOT_PATH` obrigatorio e implementar descoberta/elegibilidade/persistencia/restauracao do projeto ativo.
   - RF-07, RF-08, RF-09 e RF-12: implementar `/projects` com paginacao + selecao inline, `/select-project <nome>` e bloqueio de troca durante `isRunning=true`, com auditoria de acesso.
   - RF-10 e RF-11: rotear comandos operacionais para o projeto ativo e incluir identificacao do projeto em `/status` e no resumo final por ticket.
-  - CA-01 a CA-10: nenhum criterio de aceitacao desta spec esta atendido integralmente no estado atual.
+  - CA-02, CA-03, CA-04, CA-05, CA-07, CA-08, CA-09 e CA-10 ainda nao atendidos integralmente no estado atual.
 - Evidencias de validacao:
   - src/config/env.ts
+  - src/config/env.test.ts
   - src/main.ts
+  - src/core/active-project-resolver.ts
+  - src/core/active-project-resolver.test.ts
+  - src/integrations/project-discovery.ts
+  - src/integrations/project-discovery.test.ts
+  - src/integrations/active-project-store.ts
+  - src/integrations/active-project-store.test.ts
   - src/core/runner.ts
   - src/integrations/telegram-bot.ts
   - src/types/state.ts
@@ -99,3 +110,4 @@
 ## Historico de atualizacao
 - 2026-02-19 17:25Z - Versao inicial da spec criada e aprovada para derivacao.
 - 2026-02-19 17:30Z - Revisao de gaps concluida com abertura de tres tickets para fundacao multi-projeto, comandos Telegram de selecao/paginacao e propagacao de contexto do projeto ativo.
+- 2026-02-19 17:40Z - Fundacao multi-projeto implementada (RF-01..RF-06/RF-13) com validacao de CA-01 e CA-06.

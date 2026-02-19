@@ -93,7 +93,7 @@ class StubGitVersioning implements GitVersioning {
 
 const env: AppEnv = {
   TELEGRAM_BOT_TOKEN: "test-token",
-  REPO_PATH: "/tmp/repo",
+  PROJECTS_ROOT_PATH: "/tmp/projects",
   POLL_INTERVAL_MS: 1,
 };
 
