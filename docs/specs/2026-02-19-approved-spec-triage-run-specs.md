@@ -6,10 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 19:34Z
-- Last reviewed at (UTC): 2026-02-19 19:34Z
+- Last reviewed at (UTC): 2026-02-19 19:41Z
 - Source: technical-evolution
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
+  - tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
+  - tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -70,21 +72,19 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - O runner ja possui ciclo sequencial de tickets e fail-fast via `/run_all`.
-  - O projeto ja possui prompt de triagem de spec (`prompts/01-avaliar-spec-e-gerar-tickets.md`) com placeholder `<SPEC_PATH>`.
-  - A infraestrutura atual ja suporta preflight de autenticacao do Codex CLI e controle de acesso no Telegram.
-  - O fluxo atual ja exige commit/push no fechamento de ticket.
+  - O runner ja possui ciclo sequencial por ticket via `/run_all`, com fail-fast e validacao de sincronismo git.
+  - O projeto ja possui prompt base de avaliacao de spec com placeholder `<SPEC_PATH>` (`prompts/01-avaliar-spec-e-gerar-tickets.md`).
+  - O bot Telegram ja aplica controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID`.
+  - A fila atual ja processa backlog aberto com prioridade (`P0` -> `P1` -> `P2`) no ciclo de tickets.
 - Pendencias em aberto:
-  - Implementar descoberta e listagem de specs elegiveis no projeto ativo.
-  - Implementar comando `/specs` no Telegram.
-  - Implementar comando `/run_specs <arquivo-da-spec.md>`.
-  - Implementar etapas de execucao de spec (`spec-triage` e `spec-close-and-version`) no runner/Codex client.
-  - Criar prompt de commit/push para fechamento da triagem da spec.
-  - Migrar specs existentes para metadata `Spec treatment`.
-  - Adicionar observabilidade de fase/spec no estado do runner e no `/status`.
+  - [P0/S1] Implementar fluxo fim-a-fim de `/run_specs` com etapas `spec-triage`/`spec-close-and-version`, commit message padrao, fail-gate e encadeamento automatico para `/run_all` (`tickets/open/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md`).
+  - [P1/S2] Implementar descoberta/listagem de specs elegiveis e validacoes de entrada/elegibilidade para comandos `/specs` e `/run_specs <arquivo>` com bloqueio explicito (`tickets/open/2026-02-19-specs-command-eligibility-listing-and-access-gap.md`).
+  - [P2/S3] Padronizar metadata `Spec treatment` em todas as specs e no template oficial para eliminar ambiguidade de elegibilidade (`tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md`).
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/core/runner.test.ts
+  - src/integrations/ticket-queue.ts
+  - src/integrations/ticket-queue.test.ts
   - src/integrations/codex-client.ts
   - src/integrations/codex-client.test.ts
   - src/integrations/telegram-bot.ts
@@ -92,8 +92,9 @@
   - src/integrations/git-client.ts
   - src/integrations/git-client.test.ts
   - src/types/state.ts
+  - src/main.ts
   - prompts/01-avaliar-spec-e-gerar-tickets.md
-  - prompts/05-encerrar-tratamento-spec-commit-push.md
+  - prompts/04-encerrar-ticket-commit-push.md
   - SPECS.md
   - docs/specs/templates/spec-template.md
   - README.md
@@ -112,3 +113,4 @@
 
 ## Historico de atualizacao
 - 2026-02-19 19:34Z - Versao inicial da spec criada com escopo fechado para triagem de specs approved pendentes com execucao automatica de tickets.
+- 2026-02-19 19:41Z - Revisao de gaps concluida com abertura de 3 tickets (orquestracao `/run_specs`, listagem/elegibilidade `/specs` e baseline de metadata `Spec treatment`).
