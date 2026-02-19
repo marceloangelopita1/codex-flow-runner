@@ -427,7 +427,34 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   await session.cancel();
 });
 
-test("falha da sessao interativa retorna erro acionavel sem fallback batch", async () => {
+test("sendUserInput apos encerramento da sessao retorna erro de input", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: () => undefined,
+    },
+  });
+  interactiveProcess.emitClose(0);
+
+  await assert.rejects(
+    () => session.sendUserInput("nova mensagem"),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexPlanSessionError);
+      assert.equal(error.phase, "input");
+      assert.match(error.message, /sessao interativa ja foi encerrada/u);
+      return true;
+    },
+  );
+});
+
+test("falha da sessao interativa retorna erro acionavel sem fallback batch (CA-19)", async () => {
   const interactiveProcess = new FakeInteractiveProcess();
   let batchCalls = 0;
   const failures: CodexPlanSessionError[] = [];

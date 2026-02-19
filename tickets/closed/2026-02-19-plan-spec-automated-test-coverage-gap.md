@@ -1,7 +1,7 @@
 # [TICKET] Cobertura automatizada do fluxo /plan_spec inexistente
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S3
 - Created at (UTC): 2026-02-19 21:13Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-plan-spec-conversation.md
-  - ExecPlan: a definir
+  - ExecPlan: execplans/2026-02-19-plan-spec-automated-test-coverage-gap.md
 
 ## Context
 - Workflow area: `src/integrations/*.test.ts`, `src/core/*.test.ts`
@@ -69,6 +69,6 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 - 2026-02-19 - Ticket aberto apos avaliacao de gaps da spec `telegram-plan-spec-conversation`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 22:30Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-plan-spec-automated-test-coverage-gap.md (commit deste fechamento; PR N/A)

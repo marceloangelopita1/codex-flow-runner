@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 21:06Z
-- Last reviewed at (UTC): 2026-02-19 23:42Z
+- Last reviewed at (UTC): 2026-02-19 22:28Z
 - Source: product-need
 - Related tickets:
   - tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
@@ -108,7 +108,7 @@
   - Acao final `Criar spec` implementada no runner fora de `/plan`, com derivacao de naming `docs/specs/YYYY-MM-DD-<slug>.md`, validacao de colisao, materializacao + versionamento dedicados e commit `feat(spec): add <arquivo>.md` (`src/core/runner.ts`, `src/integrations/codex-client.ts`, `prompts/06-materializar-spec-planejada.md`, `prompts/07-versionar-spec-planejada-commit-push.md`).
   - Persistencia da trilha `spec_planning/requests|responses|decisions` implementada por integracao filesystem dedicada (`src/integrations/spec-planning-trace-store.ts`).
 - Pendencias em aberto:
-  - [P2/S3] Expandir cobertura automatizada da jornada `/plan_spec` para cenarios complementares de UX/operacao alem dos CAs principais ja cobertos. Ticket: `tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md`. RFs/CAs: validacao transversal de CA-01..CA-20 e regressao de RF-28.
+  - Nenhuma pendencia funcional de cobertura para CA-01..CA-20; fechamento operacional do ticket `tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md` permanece para etapa dedicada de encerramento/versionamento.
 - Evidencias de validacao:
   - Revisao de gaps concluida em 2026-02-19 21:13Z com evidencia em `src/`, `prompts/` e abertura de tickets em `tickets/open/`.
   - Validacao final da triagem executada em 2026-02-19 21:18Z, mantendo `Status: approved` e `Spec treatment: pending` devido a gaps rastreados em tickets abertos.
@@ -116,6 +116,7 @@
   - Implementacao do ticket de lifecycle e guardrails executada em 2026-02-19 21:57Z com cobertura dedicada em `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts` e regressao verde em `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`.
   - Implementacao de materializacao/versionamento da spec planejada executada em 2026-02-19 23:42Z com cobertura dedicada em `src/core/runner.test.ts`, `src/integrations/codex-client.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/spec-planning-trace-store.test.ts`.
   - Validacao verde em `npx tsx --test src/integrations/codex-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/spec-planning-trace-store.test.ts`, `npm test`, `npm run check` e `npm run build`.
+  - ExecPlan `execplans/2026-02-19-plan-spec-automated-test-coverage-gap.md` executado em 2026-02-19 22:28Z com cobertura complementar de lifecycle/guardrails (`src/core/runner.test.ts`), respostas/status/cancel/callbacks (`src/integrations/telegram-bot.test.ts`), lifecycle interativo Codex (`src/integrations/codex-client.test.ts`) e robustez de parser (`src/integrations/plan-spec-parser.test.ts`), incluindo rastreabilidade textual completa de `CA-01`..`CA-20`.
 
 ## Riscos e impacto
 - Risco funcional: parsing instavel da saida interativa do Codex gerar UX inconsistente no Telegram.
@@ -139,3 +140,4 @@
 - 2026-02-19 21:33Z - Ticket de bridge interativa/parser concluido com CAs CA-07..CA-10, CA-19 e CA-20 marcados como atendidos.
 - 2026-02-19 21:57Z - Ticket de lifecycle/guardrails concluido com CAs CA-01..CA-06, CA-17 e CA-18 marcados como atendidos.
 - 2026-02-19 23:42Z - Ticket de materializacao/versionamento da spec planejada implementado no codigo com CAs CA-11..CA-16 atendidos; fechamento operacional do ticket permanece para etapa dedicada.
+- 2026-02-19 22:28Z - ExecPlan de cobertura automatizada complementar executado com testes adicionais em `runner`, `telegram-bot`, `codex-client` e `plan-spec-parser`, fechando rastreabilidade CA-01..CA-20; encerramento operacional do ticket segue para etapa de fechamento/versionamento.

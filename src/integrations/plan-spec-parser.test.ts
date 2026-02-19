@@ -95,7 +95,7 @@ test("mantem bloco parcial em buffer e parseia quando fechamento chega", () => {
   assert.equal(secondPass.state.pendingChunk, "");
 });
 
-test("quando bloco estruturado e invalido, retorna fallback raw saneado", () => {
+test("quando bloco estruturado e invalido, retorna fallback raw saneado (CA-20)", () => {
   const output = [
     "[[PLAN_SPEC_QUESTION]]",
     "Pergunta: Sem opcoes parseaveis",
@@ -114,4 +114,12 @@ test("saneia saida raw removendo ANSI, controles e excesso de espacos", () => {
   const sanitized = sanitizePlanSpecRawOutput(value);
 
   assert.equal(sanitized, "Falha\n\nDetalhe tecnico");
+});
+
+test("saneia saida raw longa aplicando truncamento deterministico", () => {
+  const longValue = `prefixo-${"x".repeat(5000)}`;
+  const sanitized = sanitizePlanSpecRawOutput(longValue);
+
+  assert.equal(sanitized.endsWith("..."), true);
+  assert.equal(sanitized.length <= 3503, true);
 });

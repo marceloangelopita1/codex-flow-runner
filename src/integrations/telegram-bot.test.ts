@@ -1027,6 +1027,80 @@ test("/plan_spec inicia sessao e solicita brief inicial (CA-01)", async () => {
   assert.match(replies[0] ?? "", /brief inicial/u);
 });
 
+test("/plan_spec responde sessao ja ativa quando runner reporta already-active", async () => {
+  const { controller, controlState } = createController({
+    planSpecStartResult: {
+      status: "already-active",
+      message: "Ja existe uma sessao /plan_spec em andamento nesta instancia.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/plan_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecStartCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Ja existe uma sessao /plan_spec em andamento nesta instancia.");
+});
+
+test("/plan_spec retorna bloqueio explicito quando runner esta ocupado", async () => {
+  const { controller, controlState } = createController({
+    planSpecStartResult: {
+      status: "blocked-running",
+      message: "Nao e possivel iniciar /plan_spec enquanto o runner esta em execucao.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/plan_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecStartCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(
+    replies[0],
+    "❌ Nao e possivel iniciar /plan_spec enquanto o runner esta em execucao.",
+  );
+});
+
+test("/plan_spec retorna erro acionavel quando sessao interativa falha no start", async () => {
+  const { controller, controlState } = createController({
+    planSpecStartResult: {
+      status: "failed",
+      message: "Falha ao iniciar sessao /plan_spec: timeout no codex.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/plan_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecStartCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Falha na sessão interativa de planejamento/u);
+  assert.match(replies[0] ?? "", /Falha ao iniciar sessao \/plan_spec: timeout no codex/u);
+  assert.match(replies[0] ?? "", /Use \/plan_spec para tentar novamente/u);
+});
+
 test("primeira mensagem livre apos /plan_spec e roteada como brief inicial (CA-02)", async () => {
   const state = createState({
     phase: "plan-spec-awaiting-brief",
@@ -1060,6 +1134,38 @@ test("primeira mensagem livre apos /plan_spec e roteada como brief inicial (CA-0
   ]);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Brief inicial recebido/u);
+});
+
+test("mensagem livre de /plan_spec ignora input vazio sem responder no chat", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+    planSpecInputResult: {
+      status: "ignored-empty",
+      message: "Mensagem vazia ignorada na sessao /plan_spec.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecTextMessage(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "   ",
+      entities: [],
+    },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecInputCalls, 0);
+  assert.equal(replies.length, 0);
 });
 
 test("/plan_spec_status exibe fase, projeto e ultima atividade da sessao (CA-05)", async () => {
@@ -1107,6 +1213,53 @@ test("/plan_spec_cancel encerra sessao ativa (CA-06)", async () => {
   assert.deepEqual(controlState.planSpecCancelChatIds, ["42"]);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Sessao \/plan_spec cancelada/u);
+});
+
+test("/plan_spec_cancel informa ausencia de sessao ativa", async () => {
+  const { controller, controlState } = createController({
+    planSpecCancelResult: {
+      status: "inactive",
+      message: "Nenhuma sessão /plan_spec ativa no momento.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecCancelCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Nenhuma sessão /plan_spec ativa no momento.");
+});
+
+test("/plan_spec_cancel preserva mensagem quando cancelamento ocorre em outro chat", async () => {
+  const { controller, controlState } = createController({
+    planSpecCancelResult: {
+      status: "ignored-chat",
+      message: "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecCancelCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecCancelCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(
+    replies[0],
+    "ℹ️ Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.",
+  );
 });
 
 test("durante sessao /plan_spec ativa, troca de projeto por comando e callback fica bloqueada (CA-04)", async () => {
@@ -1801,7 +1954,7 @@ test("callback nao autorizado recebe resposta e gera log de auditoria", async ()
   });
 });
 
-test("resposta raw de planejamento e saneada antes de enviar", () => {
+test("resposta raw de planejamento e saneada antes de enviar (CA-20)", () => {
   const { controller } = createController();
 
   const reply = callBuildPlanSpecRawOutputReply(controller, "\u001b[31mFalha\u001b[0m\r\nDetalhe");
@@ -1810,7 +1963,7 @@ test("resposta raw de planejamento e saneada antes de enviar", () => {
   assert.match(reply, /Falha\nDetalhe/u);
 });
 
-test("mensagem de falha interativa orienta retry", () => {
+test("mensagem de falha interativa orienta retry (CA-19)", () => {
   const { controller } = createController();
 
   const reply = callBuildPlanSpecInteractiveFailureReply(

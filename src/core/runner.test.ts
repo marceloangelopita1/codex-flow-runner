@@ -1179,6 +1179,61 @@ test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", 
   assert.equal(state.planSpecSession?.activeProjectSnapshot.path, activeProjectA.path);
 });
 
+test("startPlanSpecSession bloqueia inicio durante rodada em andamento", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, true, false, 20);
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const runAllPromise = runner.requestRunAll();
+  const startResult = await runner.startPlanSpecSession("42");
+  const runAllResult = await runAllPromise;
+  await waitForRunnerToStop(runner);
+
+  assert.equal(startResult.status, "blocked-running");
+  assert.match(startResult.message, /nao e possivel iniciar \/plan_spec/ui);
+  assert.deepEqual(runAllResult, { status: "started" });
+  assert.equal(codex.planSessionStartCalls, 0);
+});
+
+test("startPlanSpecSession retorna falha acionavel quando sessao interativa nao inicia", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(undefined, true, false, 0, undefined, true);
+  const failures: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      planSpecEventHandlers: {
+        onQuestion: () => undefined,
+        onFinal: () => undefined,
+        onRawOutput: () => undefined,
+        onFailure: (_chatId, details) => {
+          failures.push(details);
+        },
+      },
+    },
+  });
+
+  const result = await runner.startPlanSpecSession("42");
+
+  assert.equal(result.status, "failed");
+  assert.match(result.message, /falha simulada/u);
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "error");
+  assert.equal(failures.length, 1);
+  assert.match(failures[0] ?? "", /falha simulada/u);
+});
+
 test("submitPlanSpecInput encaminha brief inicial e transita para espera do Codex", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
@@ -1204,6 +1259,69 @@ test("submitPlanSpecInput encaminha brief inicial e transita para espera do Code
   const state = runner.getState();
   assert.equal(state.phase, "plan-spec-waiting-user");
   assert.equal(state.planSpecSession?.phase, "waiting-user");
+});
+
+test("submitPlanSpecInput diferencia chat incorreto e sessao inativa", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const wrongChatResult = await runner.submitPlanSpecInput("99", "mensagem fora do chat da sessao");
+  const cancelResult = await runner.cancelPlanSpecSession("42");
+  const inactiveResult = await runner.submitPlanSpecInput("42", "mensagem apos cancelamento");
+
+  assert.equal(wrongChatResult.status, "ignored-chat");
+  assert.match(wrongChatResult.message, /outro chat/u);
+  assert.equal(cancelResult.status, "cancelled");
+  assert.equal(inactiveResult.status, "inactive");
+  assert.match(inactiveResult.message, /Nenhuma sessão \/plan_spec ativa/u);
+});
+
+test("submitPlanSpecInput encerra sessao com erro quando envio para o Codex falha", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const failures: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      planSpecEventHandlers: {
+        onQuestion: () => undefined,
+        onFinal: () => undefined,
+        onRawOutput: () => undefined,
+        onFailure: (_chatId, details) => {
+          failures.push(details);
+        },
+      },
+    },
+  });
+  await runner.startPlanSpecSession("42");
+  const failingSession = codex.lastPlanSession as unknown as {
+    sendUserInput: (input: string) => Promise<void>;
+  };
+  failingSession.sendUserInput = async () => {
+    throw new Error("falha de escrita interativa");
+  };
+
+  const inputResult = await runner.submitPlanSpecInput("42", "brief inicial");
+
+  assert.equal(inputResult.status, "inactive");
+  assert.match(inputResult.message, /falha de escrita interativa/u);
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "error");
+  assert.equal(failures.length, 1);
+  assert.match(failures[0] ?? "", /falha de escrita interativa/u);
 });
 
 test("requestRunAll e requestRunSpecs ficam bloqueados durante sessao /plan_spec ativa", async () => {
@@ -1308,7 +1426,44 @@ test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec
   );
 });
 
-test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e executa versionamento dedicado (CA-12..CA-16)", async () => {
+test("encerramento inesperado da sessao /plan_spec move estado para erro e orienta retry", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const failures: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      planSpecEventHandlers: {
+        onQuestion: () => undefined,
+        onFinal: () => undefined,
+        onRawOutput: () => undefined,
+        onFailure: (_chatId, details) => {
+          failures.push(details);
+        },
+      },
+    },
+  });
+  await runner.startPlanSpecSession("42");
+
+  codex.lastPlanSession?.close({
+    exitCode: 5,
+    cancelled: false,
+  });
+  await sleep(0);
+
+  assert.equal(runner.getState().planSpecSession, null);
+  assert.equal(runner.getState().phase, "error");
+  assert.equal(failures.length, 1);
+  assert.match(failures[0] ?? "", /encerrada inesperadamente/u);
+  assert.match(failures[0] ?? "", /exit code: 5/u);
+});
+
+test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e executa versionamento dedicado (CA-12, CA-13, CA-14, CA-15, CA-16)", async () => {
   const projectRoot = await createTempProjectRoot();
 
   try {
@@ -1546,7 +1701,7 @@ test("falha em etapa de Criar spec encerra sessao com erro acionavel sem corromp
   }
 });
 
-test("sessao /plan_spec expira por timeout de inatividade e notifica operador", async () => {
+test("sessao /plan_spec expira por timeout de inatividade e notifica operador (CA-17)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
