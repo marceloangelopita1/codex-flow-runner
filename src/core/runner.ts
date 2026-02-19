@@ -87,6 +87,27 @@ export class TicketRunner {
     this.touch("idle", "Runner retomado via Telegram");
   };
 
+  syncActiveProject = (
+    project: ProjectRef,
+  ): { status: "updated" } | { status: "blocked-running" } => {
+    if (this.state.isRunning || this.loopPromise || this.isStarting) {
+      return { status: "blocked-running" };
+    }
+
+    this.state.activeProject = { ...project };
+    this.state.lastMessage = `Projeto ativo atualizado para ${project.name} via Telegram`;
+    this.state.updatedAt = new Date();
+
+    this.logger.info("Projeto ativo sincronizado manualmente no estado do runner", {
+      activeProjectName: project.name,
+      activeProjectPath: project.path,
+      phase: this.state.phase,
+      currentTicket: this.state.currentTicket,
+    });
+
+    return { status: "updated" };
+  };
+
   requestRunAll = async (): Promise<RunAllRequestResult> => {
     if (this.state.isRunning || this.loopPromise || this.isStarting) {
       this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {

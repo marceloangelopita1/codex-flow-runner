@@ -1,7 +1,7 @@
 # [TICKET] Comandos Telegram de selecao de projeto e paginacao ausentes
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-19 17:28Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-multi-project-active-selection.md
-  - ExecPlan: A definir
+  - ExecPlan: execplans/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts` e cobertura em `src/integrations/telegram-bot.test.ts`
@@ -76,6 +76,6 @@ O bot deve expor `/projects` com listagem paginada e marcacao visual do projeto 
 - 2026-02-19 - Ticket aberto apos avaliacao de gap da spec `telegram-multi-project-active-selection`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-19 18:22Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md (commit deste fechamento)

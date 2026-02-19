@@ -5,7 +5,7 @@
 - Status: approved
 - Owner: mapita
 - Created at (UTC): 2026-02-19 17:25Z
-- Last reviewed at (UTC): 2026-02-19 18:03Z
+- Last reviewed at (UTC): 2026-02-19 18:20Z
 - Source: product-need
 - Related tickets:
   - tickets/open/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
@@ -13,6 +13,7 @@
   - tickets/open/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
 - Related execplans:
   - execplans/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
+  - execplans/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
 - Related commits:
   - A definir
 
@@ -51,15 +52,15 @@
 
 ## Criterios de aceitacao (observaveis)
 - [x] CA-01 - Sem `PROJECTS_ROOT_PATH`, o bootstrap falha com erro claro de configuracao obrigatoria.
-- [ ] CA-02 - `/projects` lista apenas projetos validos em ordem alfabetica e indica o projeto ativo.
-- [ ] CA-03 - Selecionar projeto por botao inline altera o projeto ativo e persiste o estado.
-- [ ] CA-04 - Selecionar projeto por `/select-project <nome>` altera o projeto ativo e persiste o estado.
-- [ ] CA-05 - Durante execucao em andamento, tentativa de troca responde bloqueio e nao altera o projeto ativo.
+- [x] CA-02 - `/projects` lista apenas projetos validos em ordem alfabetica e indica o projeto ativo.
+- [x] CA-03 - Selecionar projeto por botao inline altera o projeto ativo e persiste o estado.
+- [x] CA-04 - Selecionar projeto por `/select-project <nome>` altera o projeto ativo e persiste o estado.
+- [x] CA-05 - Durante execucao em andamento, tentativa de troca responde bloqueio e nao altera o projeto ativo.
 - [x] CA-06 - Apos restart, runner restaura projeto ativo anterior; se invalido, aplica fallback para o primeiro valido.
 - [x] CA-07 - `/run-all` processa tickets apenas do projeto ativo, sem misturar estado de outro projeto.
 - [x] CA-08 - `/status` e resumo final por ticket exibem identificacao do projeto (nome e caminho base).
-- [ ] CA-09 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao conseguem usar comandos de projeto e geram log de auditoria.
-- [ ] CA-10 - Quando a quantidade de projetos exceder uma pagina, `/projects` permite navegar por paginas sem perder contexto de selecao.
+- [x] CA-09 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao conseguem usar comandos de projeto e geram log de auditoria.
+- [x] CA-10 - Quando a quantidade de projetos exceder uma pagina, `/projects` permite navegar por paginas sem perder contexto de selecao.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -72,16 +73,22 @@
   - RF-04, RF-05 e RF-06 atendidos: resolucao de projeto ativo global com persistencia/restauracao e fallback alfabetico em `src/core/active-project-resolver.ts` e `src/integrations/active-project-store.ts`.
   - RF-10 atendido: `TicketRunner` resolve/aplica dependencias por projeto ativo no inicio de cada rodada, mantendo `/run-all`, `/pause`, `/resume` e `/status` coerentes com o projeto corrente.
   - RF-11 atendido: `RunnerState` e `TicketFinalSummary` carregam contexto de projeto ativo, refletido em `/status` e no resumo final enviado no Telegram.
+  - RF-07 atendido: `TelegramController` expoe `/projects` com listagem paginada, callback inline e marcacao visual do projeto ativo.
+  - RF-08 atendido: `TelegramController` expoe `/select-project <nome>` como fallback textual para selecao.
+  - RF-09 atendido: troca de projeto por comando textual/callback e bloqueada durante `isRunning=true`.
+  - RF-12 atendido: gate de `TELEGRAM_ALLOWED_CHAT_ID` cobre comandos de projeto e callbacks inline com auditoria de metadados.
   - RF-13 atendido: `codex-flow-runner` entra na descoberta quando cumprir criterio de elegibilidade, coberto em `src/integrations/project-discovery.test.ts`.
   - CA-01 e CA-06 validados por testes automatizados (`src/config/env.test.ts`, `src/core/active-project-resolver.test.ts`, `src/integrations/active-project-store.test.ts`).
   - CA-07 e CA-08 validados por testes automatizados (`src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`).
+  - CA-02, CA-03, CA-04, CA-05, CA-09 e CA-10 validados por testes automatizados (`src/integrations/telegram-bot.test.ts`, `src/core/project-selection.test.ts`, `src/core/runner.test.ts`).
 - Pendencias em aberto:
-  - RF-07, RF-08, RF-09 e RF-12: implementar `/projects` com paginacao + selecao inline, `/select-project <nome>` e bloqueio de troca durante `isRunning=true`, com auditoria de acesso.
-  - CA-02, CA-03, CA-04, CA-05, CA-09 e CA-10 ainda nao atendidos integralmente no estado atual.
+  - Nenhuma pendencia tecnica aberta nesta spec; permanece pendente apenas o fechamento operacional dos tickets relacionados.
 - Evidencias de validacao:
   - src/config/env.ts
   - src/config/env.test.ts
   - src/main.ts
+  - src/core/project-selection.ts
+  - src/core/project-selection.test.ts
   - src/core/active-project-resolver.ts
   - src/core/active-project-resolver.test.ts
   - src/integrations/project-discovery.ts
@@ -116,3 +123,4 @@
 - 2026-02-19 17:30Z - Revisao de gaps concluida com abertura de tres tickets para fundacao multi-projeto, comandos Telegram de selecao/paginacao e propagacao de contexto do projeto ativo.
 - 2026-02-19 17:40Z - Fundacao multi-projeto implementada (RF-01..RF-06/RF-13) com validacao de CA-01 e CA-06.
 - 2026-02-19 18:03Z - RF-10/RF-11 implementados com resolucao de projeto por rodada no runner e contexto de projeto ativo em `/status` e resumo final; CA-07/CA-08 validados por testes.
+- 2026-02-19 18:20Z - RF-07/RF-08/RF-09/RF-12 implementados com `/projects` paginado, selecao via callback e `/select-project`, bloqueio durante execucao e auditoria de acesso; CA-02/CA-03/CA-04/CA-05/CA-09/CA-10 validados por testes.

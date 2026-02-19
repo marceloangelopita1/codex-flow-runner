@@ -1,6 +1,7 @@
 import { loadEnv } from "./config/env.js";
 import { resolveActiveProject } from "./core/active-project-resolver.js";
 import { Logger } from "./core/logger.js";
+import { ActiveProjectSelectionService } from "./core/project-selection.js";
 import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
 import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
@@ -21,6 +22,10 @@ const bootstrap = async () => {
 
   const projectDiscovery = new FileSystemProjectDiscovery();
   const activeProjectStore = new FileSystemActiveProjectStore(env.PROJECTS_ROOT_PATH);
+  const projectSelection = new ActiveProjectSelectionService(env.PROJECTS_ROOT_PATH, {
+    discovery: projectDiscovery,
+    store: activeProjectStore,
+  });
 
   const resolveRunnerRoundDependencies = async (
     source: DependencyResolutionSource,
@@ -82,6 +87,35 @@ const bootstrap = async () => {
       runAll: runner.requestRunAll,
       pause: runner.requestPause,
       resume: runner.requestResume,
+      listProjects: projectSelection.listProjects.bind(projectSelection),
+      selectProjectByName: async (projectName) => {
+        const previousActiveProject = runner.getState().activeProject;
+        const selection = await projectSelection.selectProjectByName(projectName);
+        if (selection.status !== "selected") {
+          return selection;
+        }
+
+        const sync = runner.syncActiveProject(selection.activeProject);
+        if (sync.status === "blocked-running") {
+          if (selection.changed && previousActiveProject) {
+            try {
+              await activeProjectStore.save(previousActiveProject);
+            } catch (error) {
+              logger.error("Falha ao restaurar projeto ativo persistido apos bloqueio de troca", {
+                projectName: previousActiveProject.name,
+                projectPath: previousActiveProject.path,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
+          return {
+            status: "blocked-running" as const,
+          };
+        }
+
+        return selection;
+      },
     },
     env.TELEGRAM_ALLOWED_CHAT_ID,
   );

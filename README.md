@@ -66,6 +66,8 @@ Pré-requisito operacional:
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento
+- `/projects` → lista projetos elegíveis com paginação e marca o projeto ativo
+- `/select-project <nome>` → seleciona projeto ativo por nome (fallback textual)
 
 ### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ProjectSelectionSnapshot } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
+import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
 import { TicketFinalFailureSummary, TicketFinalSuccessSummary } from "../types/ticket-final-summary.js";
 import { TelegramController } from "./telegram-bot.js";
@@ -17,7 +19,12 @@ class SpyLogger extends Logger {
   override error(): void {}
 }
 
-const createState = (): RunnerState => ({
+const defaultActiveProject: ProjectRef = {
+  name: "codex-flow-runner",
+  path: "/home/mapita/projetos/codex-flow-runner",
+};
+
+const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   isRunning: false,
   isPaused: false,
   currentTicket: null,
@@ -29,19 +36,70 @@ const createState = (): RunnerState => ({
   lastMessage: "estado de teste",
   updatedAt: new Date("2026-02-19T00:00:00.000Z"),
   lastNotifiedEvent: null,
+  ...value,
 });
 
-type ControlCommand = "start" | "run-all" | "status" | "pause" | "resume";
+type ControlCommand =
+  | "start"
+  | "run-all"
+  | "status"
+  | "pause"
+  | "resume"
+  | "projects"
+  | "select-project";
 
 interface ControllerOptions {
   allowedChatId?: string;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
+  getState?: () => RunnerState;
+  projectSnapshot?: ProjectSelectionSnapshot;
+  listProjectsErrorMessage?: string;
+  forceSelectBlocked?: boolean;
 }
+
+const createDefaultProjectSnapshot = (): ProjectSelectionSnapshot => ({
+  projects: [
+    {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    {
+      name: "beta-project",
+      path: "/home/mapita/projetos/beta-project",
+    },
+    {
+      name: "codex-flow-runner",
+      path: "/home/mapita/projetos/codex-flow-runner",
+    },
+  ],
+  activeProject: {
+    name: "codex-flow-runner",
+    path: "/home/mapita/projetos/codex-flow-runner",
+  },
+});
+
+const cloneProject = (project: ProjectRef): ProjectRef => ({
+  name: project.name,
+  path: project.path,
+});
+
+const cloneSnapshot = (snapshot: ProjectSelectionSnapshot): ProjectSelectionSnapshot => ({
+  projects: snapshot.projects.map(cloneProject),
+  activeProject: cloneProject(snapshot.activeProject),
+});
 
 const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
-  const controlState = { runAllCalls: 0 };
+  const controlState = {
+    runAllCalls: 0,
+    listProjectsCalls: 0,
+    selectedProjectNames: [] as string[],
+  };
+
+  const stateGetter = options.getState ?? (() => createState());
+  const mutableSnapshot = cloneSnapshot(options.projectSnapshot ?? createDefaultProjectSnapshot());
+
   const controls = {
     runAll: () => {
       controlState.runAllCalls += 1;
@@ -63,12 +121,48 @@ const createController = (options: ControllerOptions = {}) => {
     },
     pause: () => undefined,
     resume: () => undefined,
+    listProjects: () => {
+      controlState.listProjectsCalls += 1;
+      if (options.listProjectsErrorMessage) {
+        throw new Error(options.listProjectsErrorMessage);
+      }
+
+      return cloneSnapshot(mutableSnapshot);
+    },
+    selectProjectByName: (projectName: string) => {
+      controlState.selectedProjectNames.push(projectName);
+
+      if (options.forceSelectBlocked) {
+        return { status: "blocked-running" as const };
+      }
+
+      const selected = mutableSnapshot.projects.find((project) => project.name === projectName);
+      if (!selected) {
+        return {
+          status: "not-found" as const,
+          projectName,
+          availableProjects: mutableSnapshot.projects.map(cloneProject),
+          activeProject: cloneProject(mutableSnapshot.activeProject),
+        };
+      }
+
+      const changed =
+        selected.name !== mutableSnapshot.activeProject.name ||
+        selected.path !== mutableSnapshot.activeProject.path;
+      mutableSnapshot.activeProject = cloneProject(selected);
+
+      return {
+        status: "selected" as const,
+        activeProject: cloneProject(selected),
+        changed,
+      };
+    },
   };
 
   const controller = new TelegramController(
     "123456:TEST_TOKEN",
     logger,
-    createState,
+    stateGetter,
     controls,
     options.allowedChatId,
   );
@@ -93,6 +187,26 @@ const callIsAllowed = (
     chatId,
     eventType: "command",
     command,
+  });
+};
+
+const callIsAllowedCallback = (
+  controller: TelegramController,
+  chatId: string,
+  callbackData: string,
+): boolean => {
+  const internalController = controller as unknown as {
+    isAllowed: (context: {
+      chatId: string;
+      eventType: "callback-query";
+      callbackData: string;
+    }) => boolean;
+  };
+
+  return internalController.isAllowed({
+    chatId,
+    eventType: "callback-query",
+    callbackData,
   });
 };
 
@@ -128,6 +242,65 @@ const callBuildStatusReply = (controller: TelegramController, state: RunnerState
   };
 
   return internalController.buildStatusReply(state);
+};
+
+const callHandleProjectsCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleProjectsCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleProjectsCommand(context);
+};
+
+const callHandleSelectProjectCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleSelectProjectCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleSelectProjectCommand(context);
+};
+
+const callHandleProjectsCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleProjectsCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleProjectsCallbackQuery(context);
 };
 
 const mockSendMessage = (controller: TelegramController) => {
@@ -198,6 +371,20 @@ test("bloqueia comando quando chat nao autorizado e registra contexto", () => {
     chatId: "99",
     eventType: "command",
     command: "pause",
+  });
+});
+
+test("bloqueia callback quando chat nao autorizado e registra contexto", () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+
+  const allowed = callIsAllowedCallback(controller, "99", "projects:page:0");
+
+  assert.equal(allowed, false);
+  assert.equal(logger.warnings.length, 1);
+  assert.deepEqual(logger.warnings[0]?.context, {
+    chatId: "99",
+    eventType: "callback-query",
+    callbackData: "projects:page:0",
   });
 });
 
@@ -272,6 +459,226 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/status/u);
   assert.match(reply, /\/pause/u);
   assert.match(reply, /\/resume/u);
+  assert.match(reply, /\/projects/u);
+  assert.match(reply, /\/select-project/u);
+});
+
+test("/projects responde lista paginada com marcador de projeto ativo", async () => {
+  const { controller, controlState } = createController();
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleProjectsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listProjectsCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /Projetos elegíveis/u);
+  assert.match(replies[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
+  assert.match(replies[0]?.text ?? "", /✅ codex-flow-runner/u);
+});
+
+test("/projects lida com erro de listagem de projetos", async () => {
+  const { controller } = createController({ listProjectsErrorMessage: "falha de io" });
+  const replies: string[] = [];
+
+  await callHandleProjectsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Falha ao listar projetos elegíveis/u);
+});
+
+test("callback de paginacao atualiza mensagem para pagina solicitada", async () => {
+  const pagedSnapshot: ProjectSelectionSnapshot = {
+    projects: [
+      { name: "alpha", path: "/home/mapita/projetos/alpha" },
+      { name: "beta", path: "/home/mapita/projetos/beta" },
+      { name: "gamma", path: "/home/mapita/projetos/gamma" },
+      { name: "delta", path: "/home/mapita/projetos/delta" },
+      { name: "epsilon", path: "/home/mapita/projetos/epsilon" },
+      { name: "zeta", path: "/home/mapita/projetos/zeta" },
+    ],
+    activeProject: {
+      name: "alpha",
+      path: "/home/mapita/projetos/alpha",
+    },
+  };
+  const { controller } = createController({ projectSnapshot: pagedSnapshot });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:page:1" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Página 2\/2/u);
+  assert.match(edits[0]?.text ?? "", /zeta/u);
+  assert.equal(answers.length, 1);
+});
+
+test("callback de selecao troca projeto ativo e responde confirmacao", async () => {
+  const { controller, controlState } = createController();
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:select:1" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Projeto ativo: beta-project/u);
+  assert.equal(answers.length, 1);
+  assert.match(answers[0] ?? "", /Projeto ativo alterado para beta-project/u);
+});
+
+test("callback de selecao bloqueia troca quando runner esta executando", async () => {
+  const runningState = createState({ isRunning: true });
+  const { controller, controlState } = createController({
+    getState: () => runningState,
+  });
+  const answers: string[] = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:select:1" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.deepEqual(controlState.selectedProjectNames, []);
+  assert.equal(answers.length, 1);
+  assert.match(answers[0] ?? "", /Não é possível trocar o projeto ativo/u);
+});
+
+test("/select-project valida uso quando argumento nao e informado", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Uso: \/select-project/u);
+});
+
+test("/select-project bloqueia troca quando runner esta em execucao", async () => {
+  const { controller, controlState } = createController({
+    getState: () => createState({ isRunning: true }),
+  });
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Não é possível trocar o projeto ativo/u);
+});
+
+test("/select-project confirma troca quando projeto existe", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
+});
+
+test("/select-project responde erro quando projeto nao existe", async () => {
+  const { controller } = createController();
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project projeto-invalido" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Projeto projeto-invalido não encontrado/u);
+  assert.match(replies[0] ?? "", /Projetos disponíveis:/u);
+});
+
+test("callback nao autorizado recebe resposta e gera log de auditoria", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const answers: string[] = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 99 },
+    callbackQuery: { data: "projects:page:0" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+  assert.deepEqual(logger.warnings[0]?.context, {
+    chatId: "99",
+    eventType: "callback-query",
+    callbackData: "projects:page:0",
+  });
 });
 
 test("envia resumo final para chat autorizado configurado", async () => {
@@ -364,7 +771,7 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
 test("status informa ausencia de evento notificado", () => {
   const { controller } = createController();
 
-  const reply = callBuildStatusReply(controller, createState());
+  const reply = callBuildStatusReply(controller, createState({ activeProject: defaultActiveProject }));
 
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);

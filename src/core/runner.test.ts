@@ -378,6 +378,47 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
 });
 
+test("syncActiveProject atualiza estado quando runner esta inativo", () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const outcome = runner.syncActiveProject(activeProjectB);
+
+  assert.deepEqual(outcome, { status: "updated" });
+  const state = runner.getState();
+  assert.equal(state.activeProject?.name, activeProjectB.name);
+  assert.equal(state.activeProject?.path, activeProjectB.path);
+  assert.match(state.lastMessage, /Projeto ativo atualizado para beta-project/u);
+});
+
+test("syncActiveProject bloqueia troca quando runner esta iniciando rodada", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(undefined, true, false, 30),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const runAllPromise = runner.requestRunAll();
+  const syncOutcome = runner.syncActiveProject(activeProjectB);
+  const runAllOutcome = await runAllPromise;
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(syncOutcome, { status: "blocked-running" });
+  assert.deepEqual(runAllOutcome, { status: "started" });
+  const state = runner.getState();
+  assert.equal(state.activeProject?.name, activeProjectA.name);
+  assert.equal(state.activeProject?.path, activeProjectA.path);
+});
+
 test("requestRunAll resolve projeto ativo por rodada e evita mistura entre projetos", async () => {
   const logger = new SpyLogger();
   const codexA = new StubCodexClient();
