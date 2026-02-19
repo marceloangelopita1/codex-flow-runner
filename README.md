@@ -53,7 +53,8 @@ Pré-requisito operacional:
 
 ## Scripts
 
-- `npm run dev`
+- `npm run dev` (execução local sem auto-reload; recomendado para usar `/run_all` no próprio repositório)
+- `npm run dev:watch` (desenvolvimento com hot-reload)
 - `npm run build`
 - `npm start`
 - `npm run check`
