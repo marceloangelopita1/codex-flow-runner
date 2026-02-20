@@ -1678,6 +1678,49 @@ test("saida raw em bootstrap de /plan_spec e suprimida enquanto aguarda brief in
   assert.equal(runner.getState().planSpecSession?.phase, "awaiting-brief");
 });
 
+test("saida raw em waiting-codex e limitada para evitar flood", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const rawOutputs: string[] = [];
+  let nowMs = Date.parse("2026-02-20T20:56:50.000Z");
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      now: () => new Date(nowMs),
+      planSpecEventHandlers: {
+        onQuestion: () => undefined,
+        onFinal: () => undefined,
+        onRawOutput: (_chatId, event) => {
+          rawOutputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+
+  await runner.startPlanSpecSession("42");
+  const inputResult = await runner.submitPlanSpecInput("42", "brief inicial");
+  assert.equal(inputResult.status, "accepted");
+
+  codex.lastPlanSession?.emitRawOutput("chunk 1");
+  codex.lastPlanSession?.emitRawOutput("chunk 2");
+  codex.lastPlanSession?.emitRawOutput("chunk 3");
+  await sleep(0);
+  assert.equal(rawOutputs.length, 1);
+  assert.deepEqual(rawOutputs, ["chunk 1"]);
+
+  nowMs += 2500;
+  codex.lastPlanSession?.emitRawOutput("chunk 4");
+  await sleep(0);
+  assert.equal(rawOutputs.length, 2);
+  assert.deepEqual(rawOutputs, ["chunk 1", "chunk 4"]);
+});
+
 test("submitPlanSpecInput diferencia chat incorreto e sessao inativa", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();

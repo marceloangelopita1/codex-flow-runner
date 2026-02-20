@@ -73,6 +73,8 @@ interface ActivePlanSpecSession {
   latestFinalBlock: PlanSpecFinalBlock | null;
   lastCodexActivityLogAt: Date | null;
   lastHeartbeatLifecycleMessageAt: Date | null;
+  lastRawOutputForwardAt: Date | null;
+  suppressedRawOutputCount: number;
 }
 
 interface ActiveRunnerSlot {
@@ -113,6 +115,7 @@ const PLAN_SPEC_CANCELLED_MESSAGE = "Sessao /plan_spec cancelada.";
 const PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS = 30 * 1000;
 const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
 const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
+const PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS = 2 * 1000;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -424,6 +427,8 @@ export class TicketRunner {
         latestFinalBlock: null,
         lastCodexActivityLogAt: null,
         lastHeartbeatLifecycleMessageAt: null,
+        lastRawOutputForwardAt: null,
+        suppressedRawOutputCount: 0,
       };
 
       slot.isStarting = false;
@@ -1080,13 +1085,52 @@ export class TicketRunner {
       return;
     }
 
-    const slot = this.activeSlots.get(activeSession.slotKey);
-    if (slot) {
-      this.touchSlot(slot, slot.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
-    } else {
-      this.touch(this.state.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
+    if (this.shouldThrottlePlanSpecRawOutput(activeSession, planSpecSession)) {
+      return;
     }
+
+    this.logger.info("Sessao /plan_spec recebeu saida nao parseavel do Codex", {
+      chatId: activeSession.chatId,
+      phase: planSpecSession.phase,
+      preview: event.text.slice(0, 180),
+      activeProjectName: planSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: planSpecSession.activeProjectSnapshot.path,
+    });
     await this.emitPlanSpecRawOutput(activeSession.chatId, event);
+  }
+
+  private shouldThrottlePlanSpecRawOutput(
+    activeSession: ActivePlanSpecSession,
+    planSpecSession: NonNullable<RunnerState["planSpecSession"]>,
+  ): boolean {
+    if (planSpecSession.phase !== "waiting-codex") {
+      return false;
+    }
+
+    const now = this.now();
+    const lastForwardAt = activeSession.lastRawOutputForwardAt;
+    if (
+      lastForwardAt &&
+      now.getTime() - lastForwardAt.getTime() < PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS
+    ) {
+      activeSession.suppressedRawOutputCount += 1;
+      return true;
+    }
+
+    if (activeSession.suppressedRawOutputCount > 0) {
+      this.logger.info("Saida raw do Codex suprimida para evitar flood na sessao /plan_spec", {
+        chatId: activeSession.chatId,
+        phase: planSpecSession.phase,
+        suppressedChunks: activeSession.suppressedRawOutputCount,
+        minIntervalMs: PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS,
+        activeProjectName: planSpecSession.activeProjectSnapshot.name,
+        activeProjectPath: planSpecSession.activeProjectSnapshot.path,
+      });
+      activeSession.suppressedRawOutputCount = 0;
+    }
+
+    activeSession.lastRawOutputForwardAt = now;
+    return false;
   }
 
   private recordPlanSpecCodexActivity(
