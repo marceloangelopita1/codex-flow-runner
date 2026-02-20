@@ -210,6 +210,7 @@ const SELECT_PROJECT_LEGACY_PATTERN = /^\/select-project(?:@[^\s]+)?(?:\s+.*)?$/
 const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
 const BOT_COMMAND_ENTITY_TYPE = "bot_command";
 const MAX_TEXT_PREVIEW_LENGTH = 160;
+const TELEGRAM_HANDLER_TIMEOUT_MS = 30 * 60 * 1000;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -241,7 +242,9 @@ export class TelegramController {
     private readonly controls: BotControls,
     private readonly allowedChatId?: string,
   ) {
-    this.bot = new Telegraf(token);
+    this.bot = new Telegraf(token, {
+      handlerTimeout: TELEGRAM_HANDLER_TIMEOUT_MS,
+    });
     this.notificationChatId = allowedChatId ?? null;
     this.registerHandlers();
   }
@@ -309,6 +312,14 @@ export class TelegramController {
   }
 
   private registerHandlers(): void {
+    this.bot.catch((error, ctx) => {
+      this.logger.error("Falha nao tratada ao processar update do Telegram", {
+        error: error instanceof Error ? error.message : String(error),
+        updateType: (ctx as unknown as IncomingUpdateContext).updateType,
+        chatId: this.resolveContextChatId((ctx as unknown as IncomingUpdateContext).chat),
+      });
+    });
+
     this.bot.use(async (ctx, next) => {
       this.logIncomingUpdate(ctx as unknown as IncomingUpdateContext);
       await next();
