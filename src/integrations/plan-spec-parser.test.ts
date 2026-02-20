@@ -231,11 +231,34 @@ test("ignora eco do primer de protocolo /plan_spec mesmo quando compactado pela 
   assert.equal(events.length, 0);
 });
 
+test("ignora eco do primer final com sequencias de cursor sem ESC", () => {
+  const output = [
+    "[[PLAN_SPEC_FINAL]]",
+    "Titulo: [24;11H<titulo [24;19Hfinal [24;25Hda [24;28Hspec>",
+    "Resumo: [25;11H<resumo [25;19Hfinal [25;25Hobjetivo>",
+    "Acoes:",
+    "- Criar spec",
+    "- Refinar",
+    "- Cancelar",
+    "[[/PLAN_SPEC_FINAL]]",
+  ].join("\n");
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
 test("saneia saida raw removendo ANSI, controles e excesso de espacos", () => {
   const value = "\u001b[31mFalha\u001b[0m\u0007\r\n\r\nDetalhe tecnico\r\n";
   const sanitized = sanitizePlanSpecRawOutput(value);
 
   assert.equal(sanitized, "Falha\n\nDetalhe tecnico");
+});
+
+test("saneia saida raw removendo sequencias de cursor sem ESC", () => {
+  const value = "Titulo: [24;11H<titulo [24;19Hfinal>\nResumo: [25;11H<resumo [25;19Hfinal>";
+  const sanitized = sanitizePlanSpecRawOutput(value);
+
+  assert.equal(sanitized, "Titulo: <titulo final>\nResumo: <resumo final>");
 });
 
 test("saneia saida raw longa aplicando truncamento deterministico", () => {

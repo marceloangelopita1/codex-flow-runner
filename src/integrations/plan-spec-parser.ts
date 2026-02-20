@@ -3,6 +3,8 @@ const QUESTION_BLOCK_CLOSE = "[[/PLAN_SPEC_QUESTION]]";
 const FINAL_BLOCK_OPEN = "[[PLAN_SPEC_FINAL]]";
 const FINAL_BLOCK_CLOSE = "[[/PLAN_SPEC_FINAL]]";
 const ANSI_ESCAPE_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/gu;
+const ORPHAN_PARAMETERIZED_CSI_PATTERN = /\[(?:\?|>|\d)[0-9;?]*[ -/]*[@-~]/gu;
+const ORPHAN_PARAMETERLESS_CSI_PATTERN = /\[[ABCDHFJKSTfhlmnrsu]/gu;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const MAX_RAW_OUTPUT_LENGTH = 3500;
 const OPEN_BLOCK_MARKERS = [QUESTION_BLOCK_OPEN, FINAL_BLOCK_OPEN] as const;
@@ -104,7 +106,8 @@ export const parsePlanSpecOutputChunk = (
   state: PlanSpecParserState,
   chunk: string,
 ): { state: PlanSpecParserState; events: PlanSpecParserEvent[] } => {
-  const combined = `${state.pendingChunk}${chunk}`;
+  const normalizedChunk = normalizePlanSpecChunk(chunk);
+  const combined = `${state.pendingChunk}${normalizedChunk}`;
   const events: PlanSpecParserEvent[] = [];
   const matches = findStructuredBlocks(combined);
   let cursor = 0;
@@ -167,9 +170,7 @@ export const parsePlanSpecOutputChunk = (
 };
 
 export const sanitizePlanSpecRawOutput = (value: string): string => {
-  const normalized = value.replace(/\r\n?/gu, "\n");
-  const withoutAnsi = normalized.replace(ANSI_ESCAPE_PATTERN, "");
-  const withoutControlChars = withoutAnsi.replace(CONTROL_CHAR_PATTERN, "");
+  const withoutControlChars = normalizePlanSpecChunk(value);
   const compactNewLines = withoutControlChars
     .split("\n")
     .map((line) => line.trimEnd())
@@ -745,4 +746,16 @@ const toCompactComparableText = (value: string): string => {
 
 const normalizeLines = (value: string): string[] => {
   return value.replace(/\r\n?/gu, "\n").split("\n");
+};
+
+const normalizePlanSpecChunk = (value: string): string => {
+  const normalized = value.replace(/\r\n?/gu, "\n");
+  return stripPlanSpecTerminalArtifacts(normalized);
+};
+
+const stripPlanSpecTerminalArtifacts = (value: string): string => {
+  const withoutAnsi = value.replace(ANSI_ESCAPE_PATTERN, "");
+  const withoutOrphanParameterizedCsi = withoutAnsi.replace(ORPHAN_PARAMETERIZED_CSI_PATTERN, "");
+  const withoutOrphanCsi = withoutOrphanParameterizedCsi.replace(ORPHAN_PARAMETERLESS_CSI_PATTERN, "");
+  return withoutOrphanCsi.replace(CONTROL_CHAR_PATTERN, "");
 };
