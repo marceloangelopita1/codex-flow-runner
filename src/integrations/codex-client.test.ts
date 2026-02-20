@@ -148,11 +148,10 @@ test("args nao interativos usam full access explicito por chamada", () => {
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
-test("args interativos usam full access explicito por chamada", () => {
+test("args interativos usam full access sem flags exclusivas de codex exec", () => {
   const args = buildInteractiveCodexArgs();
 
   assert.deepEqual(args, [
-    "--skip-git-repo-check",
     "-s",
     "danger-full-access",
     "-a",
@@ -160,6 +159,7 @@ test("args interativos usam full access explicito por chamada", () => {
     "--color",
     "never",
   ]);
+  assert.equal(args.includes("--skip-git-repo-check"), false);
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 

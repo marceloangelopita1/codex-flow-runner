@@ -138,11 +138,11 @@ const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 const CODEX_APPROVAL_NEVER_ARGS = ["-a", "never"] as const;
-const CODEX_EXEC_ENVIRONMENT_ARGS = [
-  "--skip-git-repo-check",
+const CODEX_SANDBOX_FULL_ACCESS_ARGS = [
   "-s",
   "danger-full-access",
 ];
+const CODEX_EXEC_ONLY_ARGS = ["--skip-git-repo-check"] as const;
 const CODEX_COLOR_NEVER_ARGS = [
   "--color",
   "never",
@@ -151,13 +151,14 @@ const CODEX_COLOR_NEVER_ARGS = [
 export const buildNonInteractiveCodexArgs = (): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
-  ...CODEX_EXEC_ENVIRONMENT_ARGS,
+  ...CODEX_EXEC_ONLY_ARGS,
+  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_COLOR_NEVER_ARGS,
   "-",
 ];
 
 export const buildInteractiveCodexArgs = (): string[] => [
-  ...CODEX_EXEC_ENVIRONMENT_ARGS,
+  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_APPROVAL_NEVER_ARGS,
   ...CODEX_COLOR_NEVER_ARGS,
 ];
