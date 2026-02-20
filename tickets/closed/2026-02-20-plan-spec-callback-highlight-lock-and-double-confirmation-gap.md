@@ -1,7 +1,7 @@
 # [TICKET] Callbacks de /plan_spec nao destacam escolha, nao travam botoes e nao confirmam no chat
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-20 22:19Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md
+  - execplans/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
   - SPECS.md
   - INTERNAL_TICKETS.md
 
@@ -77,9 +78,10 @@ Nao obrigatorio. Definir em ExecPlan.
 
 ## Decision log
 - 2026-02-20 - Gap separado do ticket de `/specs` por contexto de sessao interativa e risco proprio em `/plan_spec`.
+- 2026-02-20 - Validacao de aceite do ExecPlan classificada como GO com `npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts`, `npm test`, `npm run check` e `npm run build` verdes.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-20 23:12Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

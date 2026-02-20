@@ -114,6 +114,9 @@ interface CallbackContext {
     from?: {
       id: number | string;
     };
+    message?: {
+      message_id?: number;
+    };
   };
   answerCbQuery: (text?: string) => Promise<unknown>;
   editMessageText: (text: string, extra?: ReplyOptions) => Promise<unknown>;
@@ -136,6 +139,9 @@ interface IncomingUpdateContext {
     data?: string;
     from?: {
       id: number | string;
+    };
+    message?: {
+      message_id?: number;
     };
   };
 }
@@ -186,6 +192,49 @@ interface SpecsCallbackContextState {
   consumed: boolean;
 }
 
+interface PlanSpecQuestionOptionState {
+  value: string;
+  label: string;
+}
+
+interface PlanSpecFinalActionState {
+  id: PlanSpecFinalActionId;
+  label: string;
+}
+
+interface PlanSpecQuestionCallbackContextState {
+  chatId: string;
+  sessionId: number | null;
+  messageId: number | null;
+  consumed: boolean;
+  processing: boolean;
+  prompt: string;
+  options: PlanSpecQuestionOptionState[];
+}
+
+interface PlanSpecFinalCallbackContextState {
+  chatId: string;
+  sessionId: number | null;
+  messageId: number | null;
+  consumed: boolean;
+  processing: boolean;
+  title: string;
+  summary: string;
+  actions: PlanSpecFinalActionState[];
+}
+
+type PlanSpecCallbackContextValidationResult<TContext> =
+  | {
+      status: "passed";
+      context: TContext;
+    }
+  | {
+      status: "blocked";
+      validation: string;
+      blockReason: CallbackBlockReason;
+      reply: string;
+    };
+
 type CallbackAuditFlow = "specs" | "plan-spec";
 type CallbackDecisionResult = "accepted" | "blocked" | "failed";
 type CallbackValidationResult = "passed" | "blocked";
@@ -200,6 +249,7 @@ interface CallbackAuditContext {
   callbackData: string;
   action: string;
   userId?: string;
+  messageId?: number;
   contextId?: string;
   specFileName?: string;
   sessionId?: number;
@@ -246,6 +296,11 @@ const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
 const PLAN_SPEC_CALLBACK_INVALID_REPLY = "Ação de planejamento inválida.";
 const PLAN_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão de planejamento inativa.";
 const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
+const PLAN_SPEC_CALLBACK_STALE_REPLY =
+  "A etapa do planejamento mudou. Aguarde a próxima mensagem do /plan_spec.";
+const PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY =
+  "Seleção já processada. Aguarde a próxima etapa do /plan_spec.";
+const PLAN_SPEC_CALLBACK_LOCKED_HINT = "Botões travados. Aguarde a próxima etapa do /plan_spec.";
 const PLAN_SPEC_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa de planejamento:";
 const PLAN_SPEC_FLOW_FAILED_RETRY_SUFFIX = "Use /plan_spec para tentar novamente.";
 const PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX = "🧩 Saída não parseável do Codex (saneada):";
@@ -295,6 +350,8 @@ export class TelegramController {
   private notificationChatId: string | null;
   private specsCallbackContextCounter = 0;
   private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
+  private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
+  private readonly planSpecFinalCallbackContexts = new Map<string, PlanSpecFinalCallbackContextState>();
 
   constructor(
     token: string,
@@ -352,12 +409,26 @@ export class TelegramController {
 
   async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
     const rendered = this.buildPlanSpecQuestionReply(question);
-    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const state = this.getState();
+    this.registerPlanSpecQuestionCallbackContext(
+      chatId,
+      question,
+      this.resolveOutgoingMessageId(sentMessage),
+      state.planSpecSession?.sessionId ?? null,
+    );
   }
 
   async sendPlanSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
     const rendered = this.buildPlanSpecFinalReply(finalBlock);
-    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const state = this.getState();
+    this.registerPlanSpecFinalCallbackContext(
+      chatId,
+      finalBlock,
+      this.resolveOutgoingMessageId(sentMessage),
+      state.planSpecSession?.sessionId ?? null,
+    );
   }
 
   async sendPlanSpecRawOutput(chatId: string, rawOutput: string): Promise<void> {
@@ -365,6 +436,8 @@ export class TelegramController {
   }
 
   async sendPlanSpecFailure(chatId: string, details?: string): Promise<void> {
+    this.planSpecQuestionCallbackContexts.delete(chatId);
+    this.planSpecFinalCallbackContexts.delete(chatId);
     await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecInteractiveFailureReply(details));
   }
 
@@ -1140,14 +1213,17 @@ export class TelegramController {
     const userId = this.resolveCallbackUserId(ctx.callbackQuery);
     const parsed = this.parsePlanSpecCallbackData(callbackData);
     const action = this.resolvePlanSpecCallbackAction(parsed);
-    const sessionId = this.getState().planSpecSession?.sessionId;
+    const state = this.getState();
+    const session = state.planSpecSession;
+    const callbackMessageId = this.resolveCallbackMessageId(ctx.callbackQuery);
     const auditContext = this.createCallbackAuditContext({
       flow: "plan-spec",
       chatId,
       callbackData,
       action,
       userId,
-      sessionId,
+      sessionId: session?.sessionId,
+      ...(typeof callbackMessageId === "number" ? { messageId: callbackMessageId } : {}),
     });
 
     this.logCallbackAttempt(auditContext);
@@ -1192,20 +1268,63 @@ export class TelegramController {
       }
 
       this.logCallbackValidation(auditContext, "session-handler", "passed");
+      const contextValidation = this.validatePlanSpecQuestionCallbackContext({
+        chatId,
+        optionValue: parsed.optionValue,
+        callbackMessageId,
+        session,
+      });
+      if (contextValidation.status === "blocked") {
+        this.logCallbackValidation(
+          auditContext,
+          contextValidation.validation,
+          "blocked",
+          contextValidation.blockReason,
+        );
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: contextValidation.blockReason,
+        });
+        await this.safeAnswerCallbackQuery(ctx, contextValidation.reply);
+        return;
+      }
+
+      this.logCallbackValidation(auditContext, "context", "passed");
+      this.setPlanSpecQuestionContextProcessing(chatId, true);
       try {
         const outcome = await this.controls.onPlanSpecQuestionOptionSelected(
           chatId,
           parsed.optionValue,
         );
-        await this.safeAnswerCallbackQuery(
-          ctx,
-          outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
-        );
+        if (outcome.status === "accepted") {
+          this.setPlanSpecQuestionContextAccepted(chatId);
+          await this.safeEditPlanSpecQuestionCallbackSelectionMessage(
+            ctx,
+            contextValidation.context,
+            parsed.optionValue,
+          );
+          await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_ACCEPTED_REPLY);
+          await this.sendPlanSpecCallbackChatMessage(
+            chatId,
+            this.buildPlanSpecQuestionSelectionConfirmationReply(
+              contextValidation.context,
+              parsed.optionValue,
+            ),
+          );
+          this.logCallbackDecision(auditContext, {
+            result: "accepted",
+          });
+          return;
+        }
+
+        this.setPlanSpecQuestionContextProcessing(chatId, false);
+        await this.safeAnswerCallbackQuery(ctx, outcome.message);
         this.logCallbackDecision(auditContext, {
-          result: outcome.status === "accepted" ? "accepted" : "blocked",
-          ...(outcome.status === "ignored" ? { blockReason: outcome.reason } : {}),
+          result: "blocked",
+          blockReason: outcome.reason,
         });
       } catch (error) {
+        this.setPlanSpecQuestionContextProcessing(chatId, false);
         this.logger.error("Falha ao processar callback de pergunta do planejamento", {
           optionValue: parsed.optionValue,
           error: error instanceof Error ? error.message : String(error),
@@ -1230,17 +1349,57 @@ export class TelegramController {
     }
 
     this.logCallbackValidation(auditContext, "session-handler", "passed");
-    try {
-      const outcome = await this.controls.onPlanSpecFinalActionSelected(chatId, parsed.action);
-      await this.safeAnswerCallbackQuery(
-        ctx,
-        outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
+    const contextValidation = this.validatePlanSpecFinalCallbackContext({
+      chatId,
+      action: parsed.action,
+      callbackMessageId,
+      session,
+    });
+    if (contextValidation.status === "blocked") {
+      this.logCallbackValidation(
+        auditContext,
+        contextValidation.validation,
+        "blocked",
+        contextValidation.blockReason,
       );
       this.logCallbackDecision(auditContext, {
-        result: outcome.status === "accepted" ? "accepted" : "blocked",
-        ...(outcome.status === "ignored" ? { blockReason: outcome.reason } : {}),
+        result: "blocked",
+        blockReason: contextValidation.blockReason,
+      });
+      await this.safeAnswerCallbackQuery(ctx, contextValidation.reply);
+      return;
+    }
+
+    this.logCallbackValidation(auditContext, "context", "passed");
+    this.setPlanSpecFinalContextProcessing(chatId, true);
+    try {
+      const outcome = await this.controls.onPlanSpecFinalActionSelected(chatId, parsed.action);
+      if (outcome.status === "accepted") {
+        this.setPlanSpecFinalContextAccepted(chatId);
+        await this.safeEditPlanSpecFinalCallbackSelectionMessage(
+          ctx,
+          contextValidation.context,
+          parsed.action,
+        );
+        await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_ACCEPTED_REPLY);
+        await this.sendPlanSpecCallbackChatMessage(
+          chatId,
+          this.buildPlanSpecFinalSelectionConfirmationReply(contextValidation.context, parsed.action),
+        );
+        this.logCallbackDecision(auditContext, {
+          result: "accepted",
+        });
+        return;
+      }
+
+      this.setPlanSpecFinalContextProcessing(chatId, false);
+      await this.safeAnswerCallbackQuery(ctx, outcome.message);
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: outcome.reason,
       });
     } catch (error) {
+      this.setPlanSpecFinalContextProcessing(chatId, false);
       this.logger.error("Falha ao processar callback de finalizacao do planejamento", {
         action: parsed.action,
         error: error instanceof Error ? error.message : String(error),
@@ -1463,7 +1622,7 @@ export class TelegramController {
   private buildPlanSpecQuestionReply(
     question: PlanSpecQuestionBlock,
   ): { text: string; extra: ReplyOptions } {
-    const options = question.options.slice(0, 10);
+    const options = this.resolvePlanSpecQuestionOptions(question);
     const lines = [
       "❓ Pergunta do planejamento",
       question.prompt,
@@ -1499,13 +1658,7 @@ export class TelegramController {
       "Escolha a próxima ação:",
     ];
 
-    const actions = finalBlock.actions.length > 0
-      ? finalBlock.actions
-      : [
-          { id: "create-spec" as const, label: "Criar spec" },
-          { id: "refine" as const, label: "Refinar" },
-          { id: "cancel" as const, label: "Cancelar" },
-        ];
+    const actions = this.resolvePlanSpecFinalActions(finalBlock);
 
     const inlineKeyboard: InlineKeyboardButton[][] = actions.map((action) => [
       {
@@ -1522,6 +1675,118 @@ export class TelegramController {
         },
       },
     };
+  }
+
+  private resolvePlanSpecQuestionOptions(
+    question: PlanSpecQuestionBlock,
+  ): PlanSpecQuestionOptionState[] {
+    return question.options.slice(0, 10).map((option) => ({
+      value: option.value,
+      label: option.label,
+    }));
+  }
+
+  private resolvePlanSpecFinalActions(finalBlock: PlanSpecFinalBlock): PlanSpecFinalActionState[] {
+    const actions = finalBlock.actions.length > 0
+      ? finalBlock.actions
+      : [
+          { id: "create-spec" as const, label: "Criar spec" },
+          { id: "refine" as const, label: "Refinar" },
+          { id: "cancel" as const, label: "Cancelar" },
+        ];
+    return actions.map((action) => ({
+      id: action.id,
+      label: action.label,
+    }));
+  }
+
+  private buildLockedPlanSpecQuestionReply(
+    context: PlanSpecQuestionCallbackContextState,
+    selectedOptionValue: string,
+  ): { text: string; extra: ReplyOptions } {
+    const lines = [
+      "❓ Pergunta do planejamento",
+      context.prompt,
+      "",
+      "Seleção confirmada:",
+    ];
+
+    for (const option of context.options) {
+      const marker = option.value === selectedOptionValue ? "✅" : "▫️";
+      lines.push(`${marker} ${option.label}`);
+    }
+
+    lines.push("", PLAN_SPEC_CALLBACK_LOCKED_HINT);
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [],
+        },
+      },
+    };
+  }
+
+  private buildLockedPlanSpecFinalReply(
+    context: PlanSpecFinalCallbackContextState,
+    selectedAction: PlanSpecFinalActionId,
+  ): { text: string; extra: ReplyOptions } {
+    const lines = [
+      "✅ Planejamento concluído",
+      `Título: ${context.title}`,
+      "",
+      "Resumo:",
+      context.summary,
+      "",
+      "Ação confirmada:",
+    ];
+
+    for (const action of context.actions) {
+      const marker = action.id === selectedAction ? "✅" : "▫️";
+      lines.push(`${marker} ${action.label}`);
+    }
+
+    lines.push("", PLAN_SPEC_CALLBACK_LOCKED_HINT);
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [],
+        },
+      },
+    };
+  }
+
+  private resolvePlanSpecQuestionOptionLabel(
+    context: PlanSpecQuestionCallbackContextState,
+    selectedOptionValue: string,
+  ): string {
+    const option = context.options.find((item) => item.value === selectedOptionValue);
+    return option?.label ?? selectedOptionValue;
+  }
+
+  private resolvePlanSpecFinalActionLabel(
+    context: PlanSpecFinalCallbackContextState,
+    selectedAction: PlanSpecFinalActionId,
+  ): string {
+    const action = context.actions.find((item) => item.id === selectedAction);
+    return action?.label ?? selectedAction;
+  }
+
+  private buildPlanSpecQuestionSelectionConfirmationReply(
+    context: PlanSpecQuestionCallbackContextState,
+    selectedOptionValue: string,
+  ): string {
+    return `✅ ${PLAN_SPEC_CALLBACK_ACCEPTED_REPLY} ${this.resolvePlanSpecQuestionOptionLabel(context, selectedOptionValue)}`;
+  }
+
+  private buildPlanSpecFinalSelectionConfirmationReply(
+    context: PlanSpecFinalCallbackContextState,
+    selectedAction: PlanSpecFinalActionId,
+  ): string {
+    return `✅ ${PLAN_SPEC_CALLBACK_ACCEPTED_REPLY} ${this.resolvePlanSpecFinalActionLabel(context, selectedAction)}`;
   }
 
   private buildPlanSpecRawOutputReply(rawOutput: string): string {
@@ -1619,6 +1884,182 @@ export class TelegramController {
     return "invalid";
   }
 
+  private validatePlanSpecQuestionCallbackContext(params: {
+    chatId: string;
+    optionValue: string;
+    callbackMessageId: number | null;
+    session: RunnerState["planSpecSession"];
+  }): PlanSpecCallbackContextValidationResult<PlanSpecQuestionCallbackContextState> {
+    const { chatId, optionValue, callbackMessageId, session } = params;
+    if (!session || session.chatId !== chatId) {
+      return {
+        status: "blocked",
+        validation: "session",
+        blockReason: "inactive-session",
+        reply: PLAN_SPEC_CALLBACK_INACTIVE_REPLY,
+      };
+    }
+
+    if (session.phase !== "waiting-user") {
+      return {
+        status: "blocked",
+        validation: "phase",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    const context = this.planSpecQuestionCallbackContexts.get(chatId);
+    if (!context) {
+      return {
+        status: "blocked",
+        validation: "context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (this.hasPlanSpecCallbackSessionMismatch(context.sessionId, session.sessionId ?? null)) {
+      return {
+        status: "blocked",
+        validation: "session-context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (this.hasPlanSpecCallbackMessageMismatch(context.messageId, callbackMessageId)) {
+      return {
+        status: "blocked",
+        validation: "message-context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (context.processing || context.consumed) {
+      return {
+        status: "blocked",
+        validation: "idempotency",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY,
+      };
+    }
+
+    if (!context.options.some((option) => option.value === optionValue)) {
+      return {
+        status: "blocked",
+        validation: "payload-context",
+        blockReason: "invalid-action",
+        reply: PLAN_SPEC_CALLBACK_INVALID_REPLY,
+      };
+    }
+
+    return {
+      status: "passed",
+      context,
+    };
+  }
+
+  private validatePlanSpecFinalCallbackContext(params: {
+    chatId: string;
+    action: PlanSpecFinalActionId;
+    callbackMessageId: number | null;
+    session: RunnerState["planSpecSession"];
+  }): PlanSpecCallbackContextValidationResult<PlanSpecFinalCallbackContextState> {
+    const { chatId, action, callbackMessageId, session } = params;
+    if (!session || session.chatId !== chatId) {
+      return {
+        status: "blocked",
+        validation: "session",
+        blockReason: "inactive-session",
+        reply: PLAN_SPEC_CALLBACK_INACTIVE_REPLY,
+      };
+    }
+
+    if (session.phase !== "awaiting-final-action") {
+      return {
+        status: "blocked",
+        validation: "phase",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    const context = this.planSpecFinalCallbackContexts.get(chatId);
+    if (!context) {
+      return {
+        status: "blocked",
+        validation: "context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (this.hasPlanSpecCallbackSessionMismatch(context.sessionId, session.sessionId ?? null)) {
+      return {
+        status: "blocked",
+        validation: "session-context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (this.hasPlanSpecCallbackMessageMismatch(context.messageId, callbackMessageId)) {
+      return {
+        status: "blocked",
+        validation: "message-context",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+      };
+    }
+
+    if (context.processing || context.consumed) {
+      return {
+        status: "blocked",
+        validation: "idempotency",
+        blockReason: "stale",
+        reply: PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY,
+      };
+    }
+
+    if (!context.actions.some((registeredAction) => registeredAction.id === action)) {
+      return {
+        status: "blocked",
+        validation: "payload-context",
+        blockReason: "invalid-action",
+        reply: PLAN_SPEC_CALLBACK_INVALID_REPLY,
+      };
+    }
+
+    return {
+      status: "passed",
+      context,
+    };
+  }
+
+  private hasPlanSpecCallbackSessionMismatch(
+    contextSessionId: number | null,
+    sessionId: number | null,
+  ): boolean {
+    if (typeof contextSessionId !== "number" || typeof sessionId !== "number") {
+      return false;
+    }
+
+    return contextSessionId !== sessionId;
+  }
+
+  private hasPlanSpecCallbackMessageMismatch(
+    contextMessageId: number | null,
+    callbackMessageId: number | null,
+  ): boolean {
+    if (typeof contextMessageId !== "number" || typeof callbackMessageId !== "number") {
+      return false;
+    }
+
+    return contextMessageId !== callbackMessageId;
+  }
+
   private parseSpecsCallbackData(callbackData: string): ParsedSpecsCallbackData {
     if (callbackData.startsWith(SPECS_CALLBACK_PAGE_PREFIX)) {
       const payload = callbackData.slice(SPECS_CALLBACK_PAGE_PREFIX.length);
@@ -1674,6 +2115,87 @@ export class TelegramController {
   private nextSpecsCallbackContextId(): string {
     this.specsCallbackContextCounter += 1;
     return this.specsCallbackContextCounter.toString(36);
+  }
+
+  private registerPlanSpecQuestionCallbackContext(
+    chatId: string,
+    question: PlanSpecQuestionBlock,
+    messageId: number | null,
+    sessionId: number | null,
+  ): void {
+    const options = this.resolvePlanSpecQuestionOptions(question);
+    this.planSpecQuestionCallbackContexts.set(chatId, {
+      chatId,
+      sessionId,
+      messageId,
+      consumed: false,
+      processing: false,
+      prompt: question.prompt,
+      options,
+    });
+    this.planSpecFinalCallbackContexts.delete(chatId);
+  }
+
+  private registerPlanSpecFinalCallbackContext(
+    chatId: string,
+    finalBlock: PlanSpecFinalBlock,
+    messageId: number | null,
+    sessionId: number | null,
+  ): void {
+    const actions = this.resolvePlanSpecFinalActions(finalBlock);
+    this.planSpecFinalCallbackContexts.set(chatId, {
+      chatId,
+      sessionId,
+      messageId,
+      consumed: false,
+      processing: false,
+      title: finalBlock.title,
+      summary: finalBlock.summary,
+      actions,
+    });
+    this.planSpecQuestionCallbackContexts.delete(chatId);
+  }
+
+  private setPlanSpecQuestionContextProcessing(chatId: string, processing: boolean): void {
+    const context = this.planSpecQuestionCallbackContexts.get(chatId);
+    if (!context) {
+      return;
+    }
+
+    context.processing = processing;
+    this.planSpecQuestionCallbackContexts.set(chatId, context);
+  }
+
+  private setPlanSpecQuestionContextAccepted(chatId: string): void {
+    const context = this.planSpecQuestionCallbackContexts.get(chatId);
+    if (!context) {
+      return;
+    }
+
+    context.processing = false;
+    context.consumed = true;
+    this.planSpecQuestionCallbackContexts.set(chatId, context);
+  }
+
+  private setPlanSpecFinalContextProcessing(chatId: string, processing: boolean): void {
+    const context = this.planSpecFinalCallbackContexts.get(chatId);
+    if (!context) {
+      return;
+    }
+
+    context.processing = processing;
+    this.planSpecFinalCallbackContexts.set(chatId, context);
+  }
+
+  private setPlanSpecFinalContextAccepted(chatId: string): void {
+    const context = this.planSpecFinalCallbackContexts.get(chatId);
+    if (!context) {
+      return;
+    }
+
+    context.processing = false;
+    context.consumed = true;
+    this.planSpecFinalCallbackContexts.set(chatId, context);
   }
 
   private buildProjectsReply(
@@ -1779,6 +2301,33 @@ export class TelegramController {
     return callbackQuery.from.id.toString();
   }
 
+  private resolveCallbackMessageId(
+    callbackQuery?: {
+      message?: {
+        message_id?: number;
+      };
+    },
+  ): number | null {
+    if (typeof callbackQuery?.message?.message_id !== "number") {
+      return null;
+    }
+
+    return callbackQuery.message.message_id;
+  }
+
+  private resolveOutgoingMessageId(message: unknown): number | null {
+    if (!message || typeof message !== "object") {
+      return null;
+    }
+
+    const value = (message as { message_id?: unknown }).message_id;
+    if (typeof value !== "number") {
+      return null;
+    }
+
+    return value;
+  }
+
   private createCallbackAuditContext(value: CallbackAuditContext): CallbackAuditContext {
     return {
       ...value,
@@ -1793,6 +2342,7 @@ export class TelegramController {
       callbackData: context.callbackData,
       action: context.action,
       ...(context.userId ? { userId: context.userId } : {}),
+      ...(typeof context.messageId === "number" ? { messageId: context.messageId } : {}),
       ...(context.contextId ? { contextId: context.contextId } : {}),
       ...(context.specFileName ? { specFileName: context.specFileName } : {}),
       ...(typeof context.sessionId === "number" ? { sessionId: context.sessionId } : {}),
@@ -1885,6 +2435,44 @@ export class TelegramController {
     }
   }
 
+  private async safeEditPlanSpecQuestionCallbackSelectionMessage(
+    ctx: CallbackContext,
+    context: PlanSpecQuestionCallbackContextState,
+    selectedOptionValue: string,
+  ): Promise<void> {
+    const rendered = this.buildLockedPlanSpecQuestionReply(context, selectedOptionValue);
+
+    try {
+      await ctx.editMessageText(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.warn("Falha ao editar mensagem de /plan_spec para destacar selecao de pergunta", {
+        chatId: context.chatId,
+        messageId: context.messageId,
+        selectedOptionValue,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async safeEditPlanSpecFinalCallbackSelectionMessage(
+    ctx: CallbackContext,
+    context: PlanSpecFinalCallbackContextState,
+    selectedAction: PlanSpecFinalActionId,
+  ): Promise<void> {
+    const rendered = this.buildLockedPlanSpecFinalReply(context, selectedAction);
+
+    try {
+      await ctx.editMessageText(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.warn("Falha ao editar mensagem de /plan_spec para destacar acao final", {
+        chatId: context.chatId,
+        messageId: context.messageId,
+        selectedAction,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async sendSpecsCallbackChatMessage(chatId: string, message: string): Promise<void> {
     if (!chatId || chatId === "unknown") {
       return;
@@ -1894,6 +2482,21 @@ export class TelegramController {
       await this.bot.telegram.sendMessage(chatId, message);
     } catch (error) {
       this.logger.warn("Falha ao enviar confirmação de callback de /specs no chat", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async sendPlanSpecCallbackChatMessage(chatId: string, message: string): Promise<void> {
+    if (!chatId || chatId === "unknown") {
+      return;
+    }
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar confirmação de callback de /plan_spec no chat", {
         chatId,
         error: error instanceof Error ? error.message : String(error),
       });

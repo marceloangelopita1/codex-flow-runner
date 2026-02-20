@@ -759,7 +759,11 @@ const callHandlePlanSpecCallbackQuery = async (
   controller: TelegramController,
   context: {
     chat?: { id: number };
-    callbackQuery: { data?: string; from?: { id: number } };
+    callbackQuery: {
+      data?: string;
+      from?: { id: number };
+      message?: { message_id?: number };
+    };
     answerCbQuery: (text?: string) => Promise<unknown>;
     editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
   },
@@ -767,7 +771,11 @@ const callHandlePlanSpecCallbackQuery = async (
   const internalController = controller as unknown as {
     handlePlanSpecCallbackQuery: (value: {
       chat?: { id: number };
-      callbackQuery: { data?: string; from?: { id: number } };
+      callbackQuery: {
+        data?: string;
+        from?: { id: number };
+        message?: { message_id?: number };
+      };
       answerCbQuery: (text?: string) => Promise<unknown>;
       editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
     }) => Promise<void>;
@@ -820,19 +828,36 @@ const callBuildPlanSpecInteractiveFailureReply = (
   return internalController.buildPlanSpecInteractiveFailureReply(details);
 };
 
-const mockSendMessage = (controller: TelegramController) => {
-  const messages: Array<{ chatId: string; text: string }> = [];
+const mockSendMessage = (
+  controller: TelegramController,
+  options: {
+    startingMessageId?: number;
+  } = {},
+) => {
+  const messages: Array<{
+    chatId: string;
+    text: string;
+    extra?: unknown;
+    messageId: number;
+  }> = [];
+  let nextMessageId = options.startingMessageId ?? 1000;
   const internalController = controller as unknown as {
     bot: {
       telegram: {
-        sendMessage: (chatId: string, text: string) => Promise<unknown>;
+        sendMessage: (chatId: string, text: string, extra?: unknown) => Promise<unknown>;
       };
     };
   };
 
-  internalController.bot.telegram.sendMessage = async (chatId: string, text: string) => {
-    messages.push({ chatId, text });
-    return Promise.resolve();
+  internalController.bot.telegram.sendMessage = async (
+    chatId: string,
+    text: string,
+    extra?: unknown,
+  ) => {
+    const messageId = nextMessageId;
+    nextMessageId += 1;
+    messages.push({ chatId, text, extra, messageId });
+    return Promise.resolve({ message_id: messageId });
   };
 
   return messages;
@@ -2250,96 +2275,323 @@ test("bloco final parseado gera botoes Criar spec, Refinar e Cancelar (CA-09)", 
   );
 });
 
-test("callback de pergunta registra opcao e permite texto livre em paralelo (CA-08)", async () => {
-  const { controller, controlState } = createController();
+test("callback de pergunta do /plan_spec destaca escolha, trava botoes e confirma no chat (CA-12, CA-14)", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 17,
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 700 });
   const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendPlanSpecQuestion("42", {
+    prompt: "Qual escopo devemos priorizar?",
+    options: [
+      { value: "api", label: "API pública" },
+      { value: "bot", label: "Bot Telegram" },
+    ],
+  });
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
-    callbackQuery: { data: "plan-spec:question:api" },
+    callbackQuery: {
+      data: "plan-spec:question:api",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
     answerCbQuery: async (text) => {
       answers.push(text ?? "");
       return Promise.resolve();
     },
-    editMessageText: async () => Promise.resolve(),
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
   });
 
   assert.deepEqual(controlState.planSpecQuestionSelections, ["api"]);
   assert.equal(answers.length, 1);
   assert.equal(answers[0], "Resposta registrada.");
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Seleção confirmada:/u);
+  assert.match(edits[0]?.text ?? "", /✅ API pública/u);
+  assert.deepEqual(
+    (
+      edits[0]?.extra as {
+        reply_markup?: { inline_keyboard?: unknown[] };
+      }
+    ).reply_markup?.inline_keyboard,
+    [],
+  );
+  assert.equal(sentMessages.length, 2);
+  assert.match(sentMessages[1]?.text ?? "", /Resposta registrada\./u);
+  assert.match(sentMessages[1]?.text ?? "", /API pública/u);
 });
 
-test("callback final de Refinar retorna ao ciclo sem criar arquivo (CA-10)", async () => {
+test("callback final do /plan_spec destaca acao, trava botoes e confirma no chat (CA-13, CA-14)", async () => {
+  const state = createState({
+    phase: "plan-spec-awaiting-final-action",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 21,
+      phase: "awaiting-final-action",
+    }),
+  });
   const { controller, controlState } = createController({
+    getState: () => state,
+    planSpecFinalCallbackOutcome: {
+      status: "accepted",
+    },
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 810 });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendPlanSpecFinalization("42", {
+    title: "Bridge interativa do Codex",
+    summary: "Sessao /plan com parser e callbacks no Telegram.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  });
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:final:create-spec",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Resposta registrada.");
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Ação confirmada:/u);
+  assert.match(edits[0]?.text ?? "", /✅ Criar spec/u);
+  assert.deepEqual(
+    (
+      edits[0]?.extra as {
+        reply_markup?: { inline_keyboard?: unknown[] };
+      }
+    ).reply_markup?.inline_keyboard,
+    [],
+  );
+  assert.equal(sentMessages.length, 2);
+  assert.match(sentMessages[1]?.text ?? "", /Resposta registrada\./u);
+  assert.match(sentMessages[1]?.text ?? "", /Criar spec/u);
+});
+
+test("callback final de Refinar retorna ao ciclo sem lock quando runner rejeita acao", async () => {
+  const state = createState({
+    phase: "plan-spec-awaiting-final-action",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 22,
+      phase: "awaiting-final-action",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
     planSpecFinalCallbackOutcome: {
       status: "ignored",
       reason: "invalid-action",
       message: "Refino solicitado, continue a conversa.",
     },
   });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 830 });
   const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendPlanSpecFinalization("42", {
+    title: "Bridge interativa do Codex",
+    summary: "Sessao /plan com parser e callbacks no Telegram.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  });
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
-    callbackQuery: { data: "plan-spec:final:refine" },
+    callbackQuery: {
+      data: "plan-spec:final:refine",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
     answerCbQuery: async (text) => {
       answers.push(text ?? "");
       return Promise.resolve();
     },
-    editMessageText: async () => Promise.resolve(),
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
   });
 
   assert.deepEqual(controlState.planSpecFinalActions, ["refine"]);
   assert.equal(answers.length, 1);
   assert.equal(answers[0], "Refino solicitado, continue a conversa.");
+  assert.equal(edits.length, 0);
+  assert.equal(sentMessages.length, 1);
 });
 
-test("callback final de Criar spec confirma selecao quando runner aceita acao", async () => {
-  const { controller, controlState } = createController({
-    planSpecFinalCallbackOutcome: {
-      status: "accepted",
-    },
+test("callback stale de /plan_spec por mensagem divergente e bloqueado sem side effects (CA-15)", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 31,
+      phase: "waiting-user",
+    }),
   });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 900 });
   const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendPlanSpecQuestion("42", {
+    prompt: "Qual escopo devemos priorizar?",
+    options: [
+      { value: "api", label: "API pública" },
+      { value: "bot", label: "Bot Telegram" },
+    ],
+  });
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
-    callbackQuery: { data: "plan-spec:final:create-spec" },
+    callbackQuery: {
+      data: "plan-spec:question:api",
+      message: { message_id: sentMessages[0]!.messageId + 1 },
+    },
     answerCbQuery: async (text) => {
       answers.push(text ?? "");
       return Promise.resolve();
     },
-    editMessageText: async () => Promise.resolve(),
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
   });
 
-  assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
+  assert.deepEqual(controlState.planSpecQuestionSelections, []);
+  assert.equal(answers.length, 1);
+  assert.match(answers[0] ?? "", /A etapa do planejamento mudou/u);
+  assert.equal(edits.length, 0);
+  assert.equal(sentMessages.length, 1);
+});
+
+test("callback repetido de /plan_spec e idempotente sem reenviar input (CA-22, CA-23)", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 32,
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 950 });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendPlanSpecQuestion("42", {
+    prompt: "Qual escopo devemos priorizar?",
+    options: [
+      { value: "api", label: "API pública" },
+      { value: "bot", label: "Bot Telegram" },
+    ],
+  });
+
+  const callbackContext = {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:question:api",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
+    answerCbQuery: async (text?: string) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text: string, extra?: unknown) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  };
+
+  await callHandlePlanSpecCallbackQuery(controller, callbackContext);
+  await callHandlePlanSpecCallbackQuery(controller, callbackContext);
+
+  assert.deepEqual(controlState.planSpecQuestionSelections, ["api"]);
+  assert.equal(answers.length, 2);
+  assert.equal(answers[0], "Resposta registrada.");
+  assert.match(answers[1] ?? "", /Seleção já processada/u);
+  assert.equal(edits.length, 1);
+  assert.equal(sentMessages.length, 2);
+});
+
+test("falha de editMessageText em /plan_spec nao quebra callback aceito e gera warning (CA-21)", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-user",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 41,
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState, logger } = createController({
+    getState: () => state,
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 1000 });
+  const answers: string[] = [];
+
+  await controller.sendPlanSpecQuestion("42", {
+    prompt: "Qual escopo devemos priorizar?",
+    options: [
+      { value: "api", label: "API pública" },
+      { value: "bot", label: "Bot Telegram" },
+    ],
+  });
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:question:api",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => {
+      throw new Error("forbidden");
+    },
+  });
+
+  assert.deepEqual(controlState.planSpecQuestionSelections, ["api"]);
   assert.equal(answers.length, 1);
   assert.equal(answers[0], "Resposta registrada.");
-});
-
-test("callback final de Criar spec devolve erro acionavel quando runner rejeita acao", async () => {
-  const { controller, controlState } = createController({
-    planSpecFinalCallbackOutcome: {
-      status: "ignored",
-      reason: "ineligible",
-      message: "Falha ao criar spec planejada: conflito de slug.",
-    },
-  });
-  const answers: string[] = [];
-
-  await callHandlePlanSpecCallbackQuery(controller, {
-    chat: { id: 42 },
-    callbackQuery: { data: "plan-spec:final:create-spec" },
-    answerCbQuery: async (text) => {
-      answers.push(text ?? "");
-      return Promise.resolve();
-    },
-    editMessageText: async () => Promise.resolve(),
-  });
-
-  assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
-  assert.equal(answers.length, 1);
-  assert.equal(answers[0], "Falha ao criar spec planejada: conflito de slug.");
+  assert.equal(sentMessages.length, 2);
+  assert.equal(
+    logger.warnings.some((entry) =>
+      entry.message === "Falha ao editar mensagem de /plan_spec para destacar selecao de pergunta"
+    ),
+    true,
+  );
 });
 
 test("callback de /plan_spec registra decision com reason tipado e sessionId (CA-16)", async () => {
@@ -2358,12 +2610,24 @@ test("callback de /plan_spec registra decision com reason tipado e sessionId (CA
       message: "Falha ao criar spec planejada: conflito de slug.",
     },
   });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 1100 });
+
+  await controller.sendPlanSpecFinalization("42", {
+    title: "Bridge interativa do Codex",
+    summary: "Sessao /plan com parser e callbacks no Telegram.",
+    actions: [
+      { id: "create-spec", label: "Criar spec" },
+      { id: "refine", label: "Refinar" },
+      { id: "cancel", label: "Cancelar" },
+    ],
+  });
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
     callbackQuery: {
       data: "plan-spec:final:create-spec",
       from: { id: 7002 },
+      message: { message_id: sentMessages[0]?.messageId },
     },
     answerCbQuery: async () => Promise.resolve(),
     editMessageText: async () => Promise.resolve(),
@@ -2376,7 +2640,8 @@ test("callback de /plan_spec registra decision com reason tipado e sessionId (CA
       entry.context?.callbackStage === "attempt" &&
       entry.context?.action === "create-spec" &&
       entry.context?.sessionId === 17 &&
-      entry.context?.userId === "7002",
+      entry.context?.userId === "7002" &&
+      entry.context?.messageId === sentMessages[0]?.messageId,
     ),
     true,
   );
