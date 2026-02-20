@@ -115,6 +115,9 @@ Passo a passo da service:
 Notas operacionais:
 - Execute `codex login` no mesmo usuário configurado na unit antes de subir o serviço.
 - Se o `codex` estiver fora do PATH padrão do `systemd`, adicione explicitamente o diretório na linha `Environment=PATH=...`.
+- Para depuração da sessão interativa `/plan_spec`, você pode habilitar:
+  - `CODEX_INTERACTIVE_VERBOSE_LOGS=1` para logs detalhados de stdin/stdout da sessão.
+  - `CODEX_INTERACTIVE_SCRIPT_LOG_PATH=/tmp/codex-plan-spec.tty.log` para salvar transcript bruto do pseudo-TTY e acompanhar com `tail -f`.
 
 ## Documentacao operacional
 

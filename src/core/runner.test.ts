@@ -215,6 +215,7 @@ const env: AppEnv = {
   PROJECTS_ROOT_PATH: "/tmp/projects",
   POLL_INTERVAL_MS: 1,
   RUN_ALL_MAX_TICKETS_PER_ROUND: 20,
+  PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: false,
 };
 
 const activeProjectA: ProjectRef = {

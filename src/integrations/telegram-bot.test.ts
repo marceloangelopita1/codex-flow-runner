@@ -709,6 +709,27 @@ const callHandleSpecsCommand = async (
   await internalController.handleSpecsCommand(context);
 };
 
+const callHandleSpecsCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleSpecsCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleSpecsCallbackQuery(context);
+};
+
 const callHandleProjectsCallbackQuery = async (
   controller: TelegramController,
   context: {
@@ -1497,7 +1518,7 @@ test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao usa /plan_spec* (CA-
   ]);
 });
 
-test("/specs lista somente specs elegiveis (CA-01)", async () => {
+test("/specs lista somente specs elegiveis com teclado inline paginado (CA-01)", async () => {
   const { controller, controlState } = createController({
     eligibleSpecs: [
       {
@@ -1510,21 +1531,30 @@ test("/specs lista somente specs elegiveis (CA-01)", async () => {
       },
     ],
   });
-  const replies: string[] = [];
+  const replies: Array<{ text: string; extra?: unknown }> = [];
 
   await callHandleSpecsCommand(controller, {
     chat: { id: 42 },
-    reply: async (text) => {
-      replies.push(text);
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
       return Promise.resolve();
     },
   });
 
   assert.equal(controlState.listEligibleSpecsCalls, 1);
   assert.equal(replies.length, 1);
-  assert.match(replies[0] ?? "", /Specs elegíveis para \/run_specs/u);
-  assert.match(replies[0] ?? "", /2026-02-19-approved-spec-triage-run-specs\.md/u);
-  assert.match(replies[0] ?? "", /2026-02-20-outra-spec-pending\.md/u);
+  assert.match(replies[0]?.text ?? "", /Specs elegíveis para \/run_specs/u);
+  assert.match(replies[0]?.text ?? "", /Página 1\/1/u);
+  assert.match(replies[0]?.text ?? "", /2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(replies[0]?.text ?? "", /2026-02-20-outra-spec-pending\.md/u);
+  const inlineKeyboard = (replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  assert.equal(inlineKeyboard?.length, 2);
+  assert.match(inlineKeyboard?.[0]?.[0]?.callback_data ?? "", /^specs:select:[a-z0-9]+:0$/u);
+  assert.match(inlineKeyboard?.[1]?.[0]?.callback_data ?? "", /^specs:select:[a-z0-9]+:1$/u);
 });
 
 test("/specs responde mensagem clara quando nao ha specs elegiveis", async () => {
@@ -1543,6 +1573,268 @@ test("/specs responde mensagem clara quando nao ha specs elegiveis", async () =>
 
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Nenhuma spec elegível/u);
+});
+
+test("/specs suporta paginacao por callback sem perder contexto (CA-07)", async () => {
+  const { controller, controlState } = createController({
+    eligibleSpecs: [
+      { fileName: "2026-02-20-spec-01.md", specPath: "docs/specs/2026-02-20-spec-01.md" },
+      { fileName: "2026-02-20-spec-02.md", specPath: "docs/specs/2026-02-20-spec-02.md" },
+      { fileName: "2026-02-20-spec-03.md", specPath: "docs/specs/2026-02-20-spec-03.md" },
+      { fileName: "2026-02-20-spec-04.md", specPath: "docs/specs/2026-02-20-spec-04.md" },
+      { fileName: "2026-02-20-spec-05.md", specPath: "docs/specs/2026-02-20-spec-05.md" },
+      { fileName: "2026-02-20-spec-06.md", specPath: "docs/specs/2026-02-20-spec-06.md" },
+    ],
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const inlineKeyboard = (replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  const nextPageCallback = inlineKeyboard?.[5]?.[0]?.callback_data ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: nextPageCallback },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listEligibleSpecsCalls, 2);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Página 2\/2/u);
+  assert.match(edits[0]?.text ?? "", /2026-02-20-spec-06\.md/u);
+  assert.equal(answers.length, 1);
+});
+
+test("callback de /specs inicia triagem no clique e trava mensagem selecionada (CA-02/CA-03/CA-04/CA-05)", async () => {
+  const { controller, controlState } = createController({
+    eligibleSpecs: [
+      {
+        fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+        specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+      },
+    ],
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 1);
+  assert.deepEqual(controlState.runSpecsArgs, ["2026-02-19-approved-spec-triage-run-specs.md"]);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Triagem iniciada.");
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /✅ Selecionada: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(edits[0]?.text ?? "", /Botões travados/u);
+  const lockedKeyboard = (edits[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  assert.deepEqual(lockedKeyboard, []);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Runner iniciado via \/run_specs para 2026-02-19-approved-spec-triage-run-specs\.md/u,
+  );
+});
+
+test("callback stale de /specs e bloqueado sem iniciar triagem (CA-08)", async () => {
+  const { controller, controlState } = createController();
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async () => Promise.resolve(),
+  });
+
+  const staleCallbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: staleCallbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "A lista de specs mudou. Use /specs para atualizar.");
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.equal(sentMessages[0]?.text, "A lista de specs mudou. Use /specs para atualizar.");
+});
+
+test("callback de /specs revalida elegibilidade e bloqueia spec inelegivel (CA-09)", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "not-eligible",
+      spec: {
+        fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+        specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+      },
+      metadata: {
+        status: "approved",
+        specTreatment: null,
+      },
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Spec não elegível.");
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Spec não elegível para \/run_specs/u);
+  assert.match(sentMessages[0]?.text ?? "", /Spec treatment: \(ausente\)/u);
+});
+
+test("callback de /specs respeita concorrencia e e idempotente em clique repetido (CA-10)", async () => {
+  const { controller, controlState } = createController({
+    runSpecsStatus: "already-running",
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsCalls, 1);
+  assert.equal(answers.length, 2);
+  assert.equal(answers[0], "Runner já está em execução.");
+  assert.equal(answers[1], "Seleção já processada. Use /specs para atualizar.");
+  assert.equal(edits.length, 1);
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Runner já está em execução/u);
 });
 
 test("/run_specs bloqueia spec inexistente sem iniciar runner (CA-03)", async () => {
@@ -1667,6 +1959,46 @@ test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /run_specs (
   assert.equal(replies.length, 1);
   assert.equal(replies[0], "Acesso não autorizado.");
   assert.equal(logger.warnings.length, 1);
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, callback de /specs em chat nao autorizado e bloqueado (CA-11)", async () => {
+  const { controller, controlState, logger } = createController({ allowedChatId: "42" });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 99 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.runSpecsCalls, 0);
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+  assert.deepEqual(logger.warnings[0]?.context, {
+    chatId: "99",
+    eventType: "callback-query",
+    callbackData,
+  });
 });
 
 test("/projects responde lista paginada com marcador de projeto ativo", async () => {

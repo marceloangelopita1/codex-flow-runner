@@ -1,7 +1,7 @@
 # [TICKET] /specs ainda nao suporta selecao por clique com callback inline e inicio imediato de triagem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-20 22:19Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md
+  - execplans/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - SPECS.md
   - INTERNAL_TICKETS.md
 
@@ -77,9 +78,10 @@ Nao obrigatorio. Definir em ExecPlan.
 
 ## Decision log
 - 2026-02-20 - Gap priorizado como P0/S1 por bloquear o objetivo central da UX por clique em `/specs`.
+- 2026-02-20 - Execucao validada com `npx tsx --test src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`; criterios de fechamento do recorte `/specs` atendidos.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-20 22:38Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

@@ -6,10 +6,10 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-20 22:12Z
-- Last reviewed at (UTC): 2026-02-20 22:24Z
+- Last reviewed at (UTC): 2026-02-20 23:40Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
+  - tickets/closed/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - tickets/open/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
   - tickets/open/2026-02-20-callback-observability-and-block-reason-taxonomy-gap.md
   - tickets/open/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
@@ -69,17 +69,17 @@
 - Introduzir paralelizacao de rodadas por click callback.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `/specs` exibe lista paginada de specs elegiveis com um botao inline por item.
-- [ ] CA-02 - Clique valido em item de `/specs` inicia triagem da spec sem necessidade de `/run_specs <arquivo>`.
-- [ ] CA-03 - A mensagem de `/specs` clicada e editada marcando a spec escolhida com `✅`.
-- [ ] CA-04 - A mensagem de `/specs` clicada tem botoes travados apos confirmacao da escolha.
-- [ ] CA-05 - Clique valido em `/specs` retorna confirmacao dupla: toast (`answerCbQuery`) e mensagem no chat.
-- [ ] CA-06 - `/run_specs <arquivo>` continua funcionando como fallback manual apos introducao do clique em `/specs`.
-- [ ] CA-07 - Navegacao de paginacao em `/specs` continua funcional sem quebrar selecao por clique.
-- [ ] CA-08 - Clique em callback stale de `/specs` retorna bloqueio observavel e nao inicia triagem.
-- [ ] CA-09 - Clique em spec que perdeu elegibilidade entre listagem e clique retorna bloqueio observavel e nao inicia triagem.
-- [ ] CA-10 - Com runner em execucao ativa, clique de `/specs` retorna bloqueio de concorrencia e nao abre nova rodada.
-- [ ] CA-11 - Callback de chat nao autorizado em `/specs` ou `/plan_spec` e rejeitado por controle de acesso.
+- [x] CA-01 - `/specs` exibe lista paginada de specs elegiveis com um botao inline por item.
+- [x] CA-02 - Clique valido em item de `/specs` inicia triagem da spec sem necessidade de `/run_specs <arquivo>`.
+- [x] CA-03 - A mensagem de `/specs` clicada e editada marcando a spec escolhida com `✅`.
+- [x] CA-04 - A mensagem de `/specs` clicada tem botoes travados apos confirmacao da escolha.
+- [x] CA-05 - Clique valido em `/specs` retorna confirmacao dupla: toast (`answerCbQuery`) e mensagem no chat.
+- [x] CA-06 - `/run_specs <arquivo>` continua funcionando como fallback manual apos introducao do clique em `/specs`.
+- [x] CA-07 - Navegacao de paginacao em `/specs` continua funcional sem quebrar selecao por clique.
+- [x] CA-08 - Clique em callback stale de `/specs` retorna bloqueio observavel e nao inicia triagem.
+- [x] CA-09 - Clique em spec que perdeu elegibilidade entre listagem e clique retorna bloqueio observavel e nao inicia triagem.
+- [x] CA-10 - Com runner em execucao ativa, clique de `/specs` retorna bloqueio de concorrencia e nao abre nova rodada.
+- [x] CA-11 - Callback de chat nao autorizado em `/specs` ou `/plan_spec` e rejeitado por controle de acesso.
 - [ ] CA-12 - Clique em opcao de pergunta de `/plan_spec` edita a mensagem da pergunta, destaca a opcao e trava botoes.
 - [ ] CA-13 - Clique em acao final de `/plan_spec` edita a mensagem de decisao, destaca a acao e trava botoes.
 - [ ] CA-14 - Clique valido em `/plan_spec` retorna confirmacao dupla: toast (`answerCbQuery`) e mensagem no chat.
@@ -89,15 +89,16 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
+  - RF-01..RF-12 / CA-01..CA-10: `/specs` agora usa teclado inline paginado com callback contextual, revalidacao no clique, tratamento stale/idempotente, destaque de selecao e bloqueio de botoes.
+  - RF-13 / CA-11: callbacks de `/specs` e `/plan_spec` respeitam `TELEGRAM_ALLOWED_CHAT_ID`, incluindo callback query.
   - RF-07 / CA-06: fallback manual `/run_specs <arquivo>` permanece funcional e documentado no bot.
 - Itens parcialmente atendidos:
-  - RF-13 / CA-11: controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID` ja existe para callbacks de `/plan_spec`, mas ainda nao cobre callbacks de `/specs` (nao implementados).
   - RF-16 / CA-14: callbacks validos de `/plan_spec` ja retornam `answerCbQuery`, mas sem segunda confirmacao em mensagem no chat.
   - RF-17 / CA-15: existem bloqueios basicos de sessao inativa/chat incorreto em `/plan_spec`, mas sem controle completo de stale por mensagem/fase e sem idempotencia de escolha confirmada.
+  - RF-21..RF-23: o padrao de destaque/trava/idempotencia foi aplicado em `/specs`, mas ainda nao esta harmonizado em `/plan_spec`.
   - RF-18, RF-19, RF-20 e CA-16: parte da trilha de log ja existe (entrada e acesso), mas ainda sem taxonomia completa de bloqueios e sem rastreio consistente de validacao + decisao final para `/specs` e `/plan_spec`.
   - RF-24: runner atual preserva sequencialidade por projeto, mas ja suporta execucao paralela entre projetos (modo multi-runner), exigindo alinhamento explicito da semantica deste RF.
 - Pendencias em aberto:
-  - RF-01..RF-06, RF-08..RF-12 e RF-21..RF-23: implementar UX completa de clique em `/specs` (inline keyboard, callback data contextual, revalidacao no clique, stale/idempotencia, destaque/trava e confirmacao dupla).
   - RF-14..RF-15, RF-16..RF-17, RF-21..RF-23: aplicar em `/plan_spec` o mesmo padrao de destaque/trava/confirmacao dupla com tratamento de stale e idempotencia.
   - RF-18..RF-20 e CA-16: completar observabilidade operacional de callback (tentativa, validacoes, decisao, motivo de bloqueio e identificadores de rastreio).
   - RF-24: alinhar redacao da sequencialidade desta spec com o contrato multi-runner vigente para evitar ambiguidade de aceite.
@@ -106,7 +107,8 @@
   - src/integrations/telegram-bot.ts
   - src/core/runner.ts
   - src/integrations/telegram-bot.test.ts
-  - tickets/open/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
+  - npx tsx --test src/integrations/telegram-bot.test.ts
+  - tickets/closed/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - tickets/open/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
   - tickets/open/2026-02-20-callback-observability-and-block-reason-taxonomy-gap.md
   - tickets/open/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
@@ -126,3 +128,4 @@
 - 2026-02-20 22:12Z - Versao inicial da spec criada com status aprovado e tratamento pendente.
 - 2026-02-20 22:19Z - Revisao de gaps concluida com abertura de 4 tickets (UX de clique em `/specs`, UX de callback em `/plan_spec`, observabilidade de callbacks e alinhamento do RF-24 com multi-runner).
 - 2026-02-20 22:24Z - Validacao final da triagem concluida com `Status: approved` e `Spec treatment: done`, mantendo 4 pendencias rastreadas em `tickets/open/`.
+- 2026-02-20 23:40Z - Recorte `/specs` entregue com callback inline, revalidacao no clique, stale/idempotencia, destaque/trava e cobertura automatizada CA-01..CA-10 (incluindo CA-11 para acesso em callback).

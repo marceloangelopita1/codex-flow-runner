@@ -159,6 +159,26 @@ type ParsedPlanSpecCallbackData =
       status: "invalid";
     };
 
+type ParsedSpecsCallbackData =
+  | {
+      status: "page";
+      contextId: string;
+      page: number;
+    }
+  | {
+      status: "select";
+      contextId: string;
+      specIndex: number;
+    }
+  | {
+      status: "invalid";
+    };
+
+interface SpecsCallbackContextState {
+  chatId: string;
+  consumed: boolean;
+}
+
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
@@ -177,6 +197,19 @@ const SPECS_EMPTY_REPLY =
   "Critério: Status: approved e Spec treatment: pending.";
 const SPECS_LIST_FAILED_REPLY =
   "❌ Falha ao listar specs elegíveis. Verifique logs do runner e tente novamente.";
+const SPECS_PAGE_SIZE = 5;
+const SPECS_CALLBACK_PREFIX = "specs:";
+const SPECS_CALLBACK_PAGE_PREFIX = "specs:page:";
+const SPECS_CALLBACK_SELECT_PREFIX = "specs:select:";
+const SPECS_CALLBACK_INVALID_REPLY = "Ação de spec inválida.";
+const SPECS_CALLBACK_STALE_REPLY = "A lista de specs mudou. Use /specs para atualizar.";
+const SPECS_CALLBACK_ALREADY_PROCESSED_REPLY = "Seleção já processada. Use /specs para atualizar.";
+const SPECS_CALLBACK_SELECTION_STARTED_REPLY = "Triagem iniciada.";
+const SPECS_CALLBACK_SELECTION_ALREADY_RUNNING_REPLY = "Runner já está em execução.";
+const SPECS_CALLBACK_SELECTION_BLOCKED_REPLY = "Triagem bloqueada.";
+const SPECS_CALLBACK_SELECTION_FAILED_REPLY =
+  "❌ Falha ao processar seleção de spec. Use /specs para tentar novamente.";
+const SPECS_CALLBACK_LOCKED_HINT = "Botões travados. Use /specs para gerar uma nova lista.";
 const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
@@ -234,6 +267,8 @@ const START_REPLY_LINES = [
 export class TelegramController {
   private readonly bot: Telegraf;
   private notificationChatId: string | null;
+  private specsCallbackContextCounter = 0;
+  private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
 
   constructor(
     token: string,
@@ -473,6 +508,11 @@ export class TelegramController {
       return;
     }
 
+    if (callbackData.startsWith(SPECS_CALLBACK_PREFIX)) {
+      await this.handleSpecsCallbackQuery(ctx);
+      return;
+    }
+
     if (callbackData.startsWith(PROJECTS_CALLBACK_PREFIX)) {
       await this.handleProjectsCallbackQuery(ctx);
       return;
@@ -686,13 +726,174 @@ export class TelegramController {
 
     try {
       const specs = await this.controls.listEligibleSpecs();
-      await ctx.reply(this.buildSpecsReply(specs));
+      if (specs.length === 0) {
+        await ctx.reply(SPECS_EMPTY_REPLY);
+        return;
+      }
+
+      const contextId = this.createSpecsCallbackContext(chatId);
+      const rendered = this.buildSpecsReply(specs, contextId, 0);
+      await ctx.reply(rendered.text, rendered.extra);
     } catch (error) {
       this.logger.error("Falha ao listar specs elegiveis via comando /specs", {
         chatId,
         error: error instanceof Error ? error.message : String(error),
       });
       await ctx.reply(SPECS_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleSpecsCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(SPECS_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    this.logger.info("Callback de specs recebido via Telegram", {
+      chatId,
+      callbackData,
+    });
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseSpecsCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    const callbackContext = this.specsCallbackContexts.get(parsed.contextId);
+    if (!callbackContext || callbackContext.chatId !== chatId) {
+      await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_STALE_REPLY);
+      await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    if (callbackContext.consumed) {
+      await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_ALREADY_PROCESSED_REPLY);
+      return;
+    }
+
+    if (parsed.status === "page") {
+      await this.renderSpecsCallbackPage(ctx, chatId, parsed.contextId, parsed.page);
+      return;
+    }
+
+    await this.handleSpecsSelectionFromCallback(
+      ctx,
+      chatId,
+      parsed.contextId,
+      parsed.specIndex,
+      callbackContext,
+    );
+  }
+
+  private async renderSpecsCallbackPage(
+    ctx: CallbackContext,
+    chatId: string,
+    contextId: string,
+    page: number,
+  ): Promise<void> {
+    try {
+      const specs = await this.controls.listEligibleSpecs();
+      if (specs.length === 0) {
+        this.specsCallbackContexts.delete(contextId);
+        await ctx.editMessageText(SPECS_EMPTY_REPLY, {
+          reply_markup: {
+            inline_keyboard: [],
+          },
+        });
+        await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_STALE_REPLY);
+        await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      const rendered = this.buildSpecsReply(specs, contextId, page);
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx);
+    } catch (error) {
+      this.logger.error("Falha ao paginar listagem de specs via callback", {
+        requestedPage: page,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, SPECS_LIST_FAILED_REPLY);
+      await this.sendSpecsCallbackChatMessage(chatId, SPECS_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleSpecsSelectionFromCallback(
+    ctx: CallbackContext,
+    chatId: string,
+    contextId: string,
+    specIndex: number,
+    callbackContext: SpecsCallbackContextState,
+  ): Promise<void> {
+    try {
+      const specs = await this.controls.listEligibleSpecs();
+      const targetSpec = specs[specIndex];
+      if (!targetSpec) {
+        await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_STALE_REPLY);
+        await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      callbackContext.consumed = true;
+      this.specsCallbackContexts.set(contextId, callbackContext);
+
+      let validation: SpecEligibilityResult;
+      try {
+        validation = await this.controls.validateRunSpecsTarget(targetSpec.fileName);
+      } catch (error) {
+        this.logger.error("Falha ao validar spec em callback de /specs", {
+          chatId,
+          specInput: targetSpec.fileName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await this.safeAnswerCallbackQuery(ctx, RUN_SPECS_VALIDATION_FAILED_REPLY);
+        await this.sendSpecsCallbackChatMessage(chatId, RUN_SPECS_VALIDATION_FAILED_REPLY);
+        return;
+      }
+
+      if (validation.status !== "eligible") {
+        const validationReply = this.buildRunSpecsValidationReply(validation);
+        await this.safeAnswerCallbackQuery(ctx, this.buildSpecsValidationToast(validation));
+        await this.sendSpecsCallbackChatMessage(chatId, validationReply);
+        return;
+      }
+
+      const runOutcome = await this.buildRunSpecsReply({
+        chatId,
+        specFileName: validation.spec.fileName,
+      });
+      if (runOutcome.started) {
+        this.captureNotificationChat(chatId);
+      }
+
+      await this.safeEditSpecsCallbackSelectionMessage(
+        ctx,
+        specs,
+        validation.spec.fileName,
+        runOutcome.reply,
+      );
+      await this.safeAnswerCallbackQuery(ctx, this.buildSpecsSelectionToast(runOutcome.status));
+      await this.sendSpecsCallbackChatMessage(chatId, runOutcome.reply);
+    } catch (error) {
+      this.logger.error("Falha ao executar callback de selecao de /specs", {
+        chatId,
+        specIndex,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_SELECTION_FAILED_REPLY);
+      await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_SELECTION_FAILED_REPLY);
     }
   }
 
@@ -999,25 +1200,98 @@ export class TelegramController {
     return PROJECTS_CALLBACK_STALE_REPLY;
   }
 
-  private buildSpecsReply(specs: EligibleSpecRef[]): string {
-    if (specs.length === 0) {
-      return SPECS_EMPTY_REPLY;
+  private buildSpecsReply(
+    specs: EligibleSpecRef[],
+    contextId: string,
+    requestedPage: number,
+  ): { text: string; extra: ReplyOptions } {
+    const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
+    const totalSpecs = specs.length;
+    const totalPages = Math.max(1, Math.ceil(totalSpecs / SPECS_PAGE_SIZE));
+    const page = Math.min(Math.max(requestedPage, 0), totalPages - 1);
+    const start = page * SPECS_PAGE_SIZE;
+    const pageSpecs = specs.slice(start, start + SPECS_PAGE_SIZE);
+
+    const lines = [
+      "📚 Specs elegíveis para /run_specs",
+      `Página ${page + 1}/${totalPages}`,
+      `Projeto ativo: ${activeProjectName}`,
+      RUN_SPECS_VALIDATION_CRITERIA_REPLY,
+      "",
+    ];
+
+    for (const [index, spec] of pageSpecs.entries()) {
+      const absoluteIndex = start + index;
+      lines.push(`${absoluteIndex + 1}. ▫️ ${spec.fileName}`);
     }
 
+    lines.push(
+      "",
+      "Toque em uma spec para iniciar a triagem.",
+      "Fallback manual: /run_specs <arquivo-da-spec.md>.",
+    );
+
+    const inlineKeyboard: InlineKeyboardButton[][] = pageSpecs.map((spec, index) => {
+      const absoluteIndex = start + index;
+      return [
+        {
+          text: `▶️ ${spec.fileName}`,
+          callback_data: this.buildSpecsSelectCallbackData(contextId, absoluteIndex),
+        },
+      ];
+    });
+
+    const pageButtons: InlineKeyboardButton[] = [];
+    if (page > 0) {
+      pageButtons.push({
+        text: "⬅️ Anterior",
+        callback_data: this.buildSpecsPageCallbackData(contextId, page - 1),
+      });
+    }
+    if (page < totalPages - 1) {
+      pageButtons.push({
+        text: "Próxima ➡️",
+        callback_data: this.buildSpecsPageCallbackData(contextId, page + 1),
+      });
+    }
+    if (pageButtons.length > 0) {
+      inlineKeyboard.push(pageButtons);
+    }
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildLockedSpecsReply(
+    selectedSpecFileName: string,
+    outcomeReply: string,
+  ): { text: string; extra: ReplyOptions } {
     const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
     const lines = [
       "📚 Specs elegíveis para /run_specs",
       `Projeto ativo: ${activeProjectName}`,
       RUN_SPECS_VALIDATION_CRITERIA_REPLY,
       "",
+      `✅ Selecionada: ${selectedSpecFileName}`,
+      SPECS_CALLBACK_LOCKED_HINT,
+      "",
+      `Resultado: ${outcomeReply}`,
     ];
 
-    for (const [index, spec] of specs.entries()) {
-      lines.push(`${index + 1}. ${spec.fileName}`);
-    }
-
-    lines.push("", "Use /run_specs <arquivo-da-spec.md> para iniciar a triagem.");
-    return lines.join("\n");
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [],
+        },
+      },
+    };
   }
 
   private buildPlanSpecQuestionReply(
@@ -1109,6 +1383,14 @@ export class TelegramController {
     return `${PLAN_SPEC_CALLBACK_FINAL_PREFIX}${action}`;
   }
 
+  private buildSpecsPageCallbackData(contextId: string, page: number): string {
+    return `${SPECS_CALLBACK_PAGE_PREFIX}${contextId}:${page}`;
+  }
+
+  private buildSpecsSelectCallbackData(contextId: string, specIndex: number): string {
+    return `${SPECS_CALLBACK_SELECT_PREFIX}${contextId}:${specIndex}`;
+  }
+
   private parseProjectsCallbackData(callbackData: string): ParsedProjectsCallbackData {
     if (callbackData.startsWith(PROJECTS_CALLBACK_PAGE_PREFIX)) {
       const rawPage = callbackData.slice(PROJECTS_CALLBACK_PAGE_PREFIX.length);
@@ -1157,6 +1439,63 @@ export class TelegramController {
     }
 
     return { status: "invalid" };
+  }
+
+  private parseSpecsCallbackData(callbackData: string): ParsedSpecsCallbackData {
+    if (callbackData.startsWith(SPECS_CALLBACK_PAGE_PREFIX)) {
+      const payload = callbackData.slice(SPECS_CALLBACK_PAGE_PREFIX.length);
+      const [contextId, rawPage] = payload.split(":", 2);
+      const page = Number.parseInt(rawPage ?? "", 10);
+      if (!contextId || !Number.isFinite(page) || page < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "page",
+        contextId,
+        page,
+      };
+    }
+
+    if (callbackData.startsWith(SPECS_CALLBACK_SELECT_PREFIX)) {
+      const payload = callbackData.slice(SPECS_CALLBACK_SELECT_PREFIX.length);
+      const [contextId, rawIndex] = payload.split(":", 2);
+      const specIndex = Number.parseInt(rawIndex ?? "", 10);
+      if (!contextId || !Number.isFinite(specIndex) || specIndex < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "select",
+        contextId,
+        specIndex,
+      };
+    }
+
+    return { status: "invalid" };
+  }
+
+  private createSpecsCallbackContext(chatId: string): string {
+    this.invalidateSpecsCallbackContextsForChat(chatId);
+    const contextId = this.nextSpecsCallbackContextId();
+    this.specsCallbackContexts.set(contextId, {
+      chatId,
+      consumed: false,
+    });
+    return contextId;
+  }
+
+  private invalidateSpecsCallbackContextsForChat(chatId: string): void {
+    for (const [contextId, context] of this.specsCallbackContexts.entries()) {
+      if (context.chatId === chatId) {
+        this.specsCallbackContexts.delete(contextId);
+      }
+    }
+  }
+
+  private nextSpecsCallbackContextId(): string {
+    this.specsCallbackContextCounter += 1;
+    return this.specsCallbackContextCounter.toString(36);
   }
 
   private buildProjectsReply(
@@ -1248,6 +1587,68 @@ export class TelegramController {
     return chat.id.toString();
   }
 
+  private buildSpecsSelectionToast(status: "started" | "already-running" | "blocked"): string {
+    if (status === "started") {
+      return SPECS_CALLBACK_SELECTION_STARTED_REPLY;
+    }
+
+    if (status === "already-running") {
+      return SPECS_CALLBACK_SELECTION_ALREADY_RUNNING_REPLY;
+    }
+
+    return SPECS_CALLBACK_SELECTION_BLOCKED_REPLY;
+  }
+
+  private buildSpecsValidationToast(
+    validation: Exclude<SpecEligibilityResult, {
+      status: "eligible";
+    }>,
+  ): string {
+    if (validation.status === "invalid-path") {
+      return "Spec inválida.";
+    }
+
+    if (validation.status === "not-found") {
+      return "Spec não encontrada.";
+    }
+
+    return "Spec não elegível.";
+  }
+
+  private async safeEditSpecsCallbackSelectionMessage(
+    ctx: CallbackContext,
+    specs: EligibleSpecRef[],
+    selectedSpecFileName: string,
+    outcomeReply: string,
+  ): Promise<void> {
+    const rendered = this.buildLockedSpecsReply(selectedSpecFileName, outcomeReply);
+
+    try {
+      await ctx.editMessageText(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.warn("Falha ao editar mensagem de /specs para destacar selecao", {
+        selectedSpecFileName,
+        listedSpecsCount: specs.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async sendSpecsCallbackChatMessage(chatId: string, message: string): Promise<void> {
+    if (!chatId || chatId === "unknown") {
+      return;
+    }
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar confirmação de callback de /specs no chat", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async safeAnswerCallbackQuery(ctx: CallbackContext, message?: string): Promise<void> {
     try {
       await ctx.answerCbQuery(message);
@@ -1292,7 +1693,7 @@ export class TelegramController {
   private async buildRunSpecsReply(context: {
     chatId: string;
     specFileName: string;
-  }): Promise<{ reply: string; started: boolean }> {
+  }): Promise<{ reply: string; started: boolean; status: "started" | "already-running" | "blocked" }> {
     const result = await this.controls.runSpecs(context.specFileName);
     const logContext = {
       commandStatus: result.status,
@@ -1306,12 +1707,13 @@ export class TelegramController {
       return {
         reply: `▶️ Runner iniciado via /run_specs para ${context.specFileName}.`,
         started: true,
+        status: "started",
       };
     }
 
     if (result.status === "already-running") {
       this.logger.warn("Comando /run_specs ignorado: rodada ja em execucao", logContext);
-      return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false };
+      return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false, status: "already-running" };
     }
 
     this.logger.warn("Comando /run_specs bloqueado", {
@@ -1321,6 +1723,7 @@ export class TelegramController {
     return {
       reply: `${RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
       started: false,
+      status: "blocked",
     };
   }
 
