@@ -38,6 +38,30 @@ test("parseia bloco estruturado de pergunta com opcoes clicaveis", () => {
   ]);
 });
 
+test("parseia pergunta em formato compacto sem quebras de linha", () => {
+  const output =
+    "[[PLAN_SPEC_QUESTION]]Pergunta:Qualescopodevemospriorizar?Opcoes:-[api]APIpublica-[bot]BotTelegram[[/PLAN_SPEC_QUESTION]]";
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "question");
+  if (!events[0] || events[0].type !== "question") {
+    assert.fail("Evento de pergunta nao encontrado");
+  }
+
+  assert.equal(events[0].question.prompt, "Qualescopodevemospriorizar?");
+  assert.deepEqual(events[0].question.options, [
+    {
+      value: "api",
+      label: "APIpublica",
+    },
+    {
+      value: "bot",
+      label: "BotTelegram",
+    },
+  ]);
+});
+
 test("parseia bloco final com titulo, resumo e acoes", () => {
   const output = [
     "[[PLAN_SPEC_FINAL]]",
@@ -59,6 +83,25 @@ test("parseia bloco final com titulo, resumo e acoes", () => {
 
   assert.equal(events[0].final.title, "Bridge interativa do Codex no planejamento");
   assert.match(events[0].final.summary, /sessao \/plan stateful/u);
+  assert.deepEqual(
+    events[0].final.actions.map((action) => action.id),
+    ["create-spec", "refine", "cancel"],
+  );
+});
+
+test("parseia bloco final em formato compacto sem quebras de linha", () => {
+  const output =
+    "[[PLAN_SPEC_FINAL]]Titulo:BridgeinterativaResumo:FluxosequencialdeplanejamentoAcoes:-Criarspec-Refinar-Cancelar[[/PLAN_SPEC_FINAL]]";
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "final");
+  if (!events[0] || events[0].type !== "final") {
+    assert.fail("Evento final nao encontrado");
+  }
+
+  assert.equal(events[0].final.title, "Bridgeinterativa");
+  assert.equal(events[0].final.summary, "Fluxosequencialdeplanejamento");
   assert.deepEqual(
     events[0].final.actions.map((action) => action.id),
     ["create-spec", "refine", "cancel"],
@@ -171,6 +214,18 @@ test("ignora ruido conhecido de bootstrap da TUI do Codex", () => {
 test("ignora eco de input do operador acompanhado de contador de contexto", () => {
   const output =
     "Gostariaqueainteratividadeequandoseescolheumaspecfossecomumclick.Podecriaressajornadacomospec?100% context left";
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
+test("ignora eco do primer de protocolo /plan_spec mesmo quando compactado pela TUI", () => {
+  const output = [
+    "[[PLAN_SPEC_QUESTION]]Pergunta:<perguntaobjetiva>Opcoes:-[slug-opcao-1]Rotuloopcao1-[slug-opcao-2]Rotuloopcao2[[/PLAN_SPEC_QUESTION]]",
+    "[[PLAN_SPEC_FINAL]]Titulo:<titulofinaldaspec>Resumo:<resumofinalobjetivo>Acoes:-Criarspec-Refinar-Cancelar[[/PLAN_SPEC_FINAL]]",
+    "›Contexto:voceestaemumaponteTelegramparaplanejamentodespec.Respondasempreemblocosparseaveisparaautomacao.",
+    "QuandoConcluiroplanejamento,respondaexatamentenesteformato:",
+  ].join("\n");
 
   const events = parsePlanSpecOutput(output);
   assert.equal(events.length, 0);

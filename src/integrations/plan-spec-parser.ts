@@ -14,6 +14,17 @@ const CODEX_UI_NOISE_PATTERNS = [
   /tip:\s*visit the codex community forum/u,
   /tip:\s*new\s+\d+x\s+rate limits/u,
 ] as const;
+const PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS = [
+  "contextovoceestaemumapontelegramparaplanejamentodespec",
+  "respondasempreemblocosparseaveisparaautomacao",
+  "quandoprecisardedesambiguacaorespondaexatamentenesteformato",
+  "quandoconcluiroplanejamentorespondaexatamentenesteformato",
+  "naoincluatextoforadosblocosacima",
+  "briefdooperador",
+  "planspecquestionperguntaperguntaobjetiva",
+  "planspecfinaltitulotitulofinaldaspec",
+  "resumoresumofinalobjetivo",
+] as const;
 
 export type PlanSpecFinalActionId = "create-spec" | "refine" | "cancel";
 
@@ -209,15 +220,17 @@ export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
 };
 
 const isLikelyCodexUiNoise = (value: string): boolean => {
-  const normalized = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/gu, "")
-    .toLowerCase();
+  const normalized = normalizeComparableText(value);
   if (!normalized) {
     return false;
   }
 
-  return CODEX_UI_NOISE_PATTERNS.some((pattern) => pattern.test(normalized));
+  if (CODEX_UI_NOISE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  const compact = toCompactComparableText(normalized);
+  return PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS.some((snippet) => compact.includes(snippet));
 };
 
 const pushRawEvent = (events: PlanSpecParserEvent[], value: string): void => {
@@ -338,7 +351,10 @@ const parseQuestionBlock = (body: string): PlanSpecQuestionBlock | null => {
 
     const promptMatch = trimmed.match(/^(?:pergunta|question)\s*:\s*(.+)$/iu);
     if (promptMatch) {
-      prompt = promptMatch[1]?.trim() ?? null;
+      const promptCandidate = extractQuestionPrompt(promptMatch[1] ?? "");
+      if (promptCandidate) {
+        prompt = promptCandidate;
+      }
       continue;
     }
 
@@ -356,23 +372,31 @@ const parseQuestionBlock = (body: string): PlanSpecQuestionBlock | null => {
     }
   }
 
-  if (!prompt) {
+  const resolvedPrompt = prompt || extractQuestionPromptFromBody(body);
+  if (!resolvedPrompt) {
     return null;
   }
 
-  const options = parseQuestionOptions(optionLines);
+  const optionsFromLines = parseQuestionOptions(optionLines);
+  const options = optionsFromLines.length > 0 ? optionsFromLines : parseQuestionOptionsFromBody(body);
   if (options.length === 0) {
     return null;
   }
 
-  return {
-    prompt,
+  const question: PlanSpecQuestionBlock = {
+    prompt: resolvedPrompt,
     options,
   };
+
+  if (isQuestionProtocolTemplate(question)) {
+    return null;
+  }
+
+  return question;
 };
 
 const isOptionLine = (value: string): boolean => {
-  return /^(?:[-*]|\d+[.)])\s+/u.test(value);
+  return /^(?:[-*]|\d+[.)])(?:\s+|(?=\[))/u.test(value);
 };
 
 const parseQuestionOptions = (lines: string[]): PlanSpecQuestionOption[] => {
@@ -393,6 +417,28 @@ const parseQuestionOptions = (lines: string[]): PlanSpecQuestionOption[] => {
 
     const baseValue = normalizeOptionValue(rawValue || label || `option-${index + 1}`);
     const value = ensureUniqueOptionValue(baseValue || `option-${index + 1}`, usedValues);
+    options.push({ value, label });
+  }
+
+  return options;
+};
+
+const parseQuestionOptionsFromBody = (body: string): PlanSpecQuestionOption[] => {
+  const optionPattern = /(?:[-*]|\d+[.)])\s*\[([^\]]+)\]\s*([\s\S]*?)(?=(?:[-*]|\d+[.)])\s*\[|$)/gu;
+  const options: PlanSpecQuestionOption[] = [];
+  const usedValues = new Set<string>();
+  let fallbackIndex = 0;
+
+  for (const match of body.matchAll(optionPattern)) {
+    const rawValue = match[1]?.trim() ?? "";
+    const label = cleanupInlineSegment(match[2] ?? "");
+    if (!label) {
+      continue;
+    }
+
+    fallbackIndex += 1;
+    const baseValue = normalizeOptionValue(rawValue || label || `option-${fallbackIndex}`);
+    const value = ensureUniqueOptionValue(baseValue || `option-${fallbackIndex}`, usedValues);
     options.push({ value, label });
   }
 
@@ -440,14 +486,17 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
 
     const titleMatch = trimmed.match(/^(?:titulo|title)\s*:\s*(.+)$/iu);
     if (titleMatch) {
-      title = titleMatch[1]?.trim() ?? null;
+      const titleCandidate = cleanupInlineSegment(titleMatch[1] ?? "");
+      if (titleCandidate) {
+        title = titleCandidate;
+      }
       collectingSummary = false;
       continue;
     }
 
     const summaryMatch = trimmed.match(/^(?:resumo|summary)\s*:\s*(.*)$/iu);
     if (summaryMatch) {
-      summaryInlineValue = summaryMatch[1]?.trim() ?? "";
+      summaryInlineValue = cleanupInlineSegment(summaryMatch[1] ?? "");
       collectingSummary = true;
       continue;
     }
@@ -479,17 +528,46 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
     ...(summaryInlineValue ? [summaryInlineValue] : []),
     ...summaryLines,
   ].filter(Boolean);
-  const summary = summaryParts.join("\n").trim();
+  let summary = summaryParts.join("\n").trim();
+
+  const taggedTitle = extractTaggedField(
+    body,
+    "(?:titulo|title)",
+    "(?:resumo|summary|a[cç][oõ]es|actions)",
+  );
+  if (
+    taggedTitle &&
+    (!title || hasInlineFieldMarker(title, "(?:resumo|summary|a[cç][oõ]es|actions)"))
+  ) {
+    title = taggedTitle;
+  }
+
+  const taggedSummary = extractTaggedField(body, "(?:resumo|summary)", "(?:a[cç][oõ]es|actions)");
+  if (taggedSummary && (!summary || hasInlineFieldMarker(summary, "(?:a[cç][oõ]es|actions)"))) {
+    summary = taggedSummary;
+  }
+
+  if (actions.size === 0) {
+    for (const action of parseFinalActionsFromBody(body)) {
+      actions.set(action.id, action);
+    }
+  }
 
   if (!title || !summary) {
     return null;
   }
 
-  return {
+  const finalBlock: PlanSpecFinalBlock = {
     title,
     summary,
     actions: actions.size > 0 ? [...actions.values()] : [...DEFAULT_FINAL_ACTIONS],
   };
+
+  if (isFinalProtocolTemplate(finalBlock)) {
+    return null;
+  }
+
+  return finalBlock;
 };
 
 const parseFinalAction = (line: string): PlanSpecFinalAction | null => {
@@ -497,19 +575,25 @@ const parseFinalAction = (line: string): PlanSpecFinalAction | null => {
     .replace(/^(?:[-*]|\d+[.)])\s*/u, "")
     .trim()
     .toLowerCase();
+  const compact = normalized.replace(/[^a-z0-9]+/gu, "");
 
   if (!normalized) {
     return null;
   }
 
-  if (normalized.includes("criar spec") || normalized.includes("create spec")) {
+  if (
+    normalized.includes("criar spec") ||
+    normalized.includes("create spec") ||
+    compact.includes("criarspec") ||
+    compact.includes("createspec")
+  ) {
     return {
       id: "create-spec",
       label: "Criar spec",
     };
   }
 
-  if (normalized.includes("refinar") || normalized.includes("refine")) {
+  if (normalized.includes("refinar") || normalized.includes("refine") || compact.includes("refinar")) {
     return {
       id: "refine",
       label: "Refinar",
@@ -524,6 +608,139 @@ const parseFinalAction = (line: string): PlanSpecFinalAction | null => {
   }
 
   return null;
+};
+
+const parseFinalActionsFromBody = (body: string): PlanSpecFinalAction[] => {
+  const actions = new Map<PlanSpecFinalActionId, PlanSpecFinalAction>();
+
+  const bulletCandidates = body
+    .replace(/\r\n?/gu, "\n")
+    .split(/(?=(?:[-*]|\d+[.)])\s*)/gu)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  for (const candidate of bulletCandidates) {
+    const parsedAction = parseFinalAction(candidate);
+    if (parsedAction) {
+      actions.set(parsedAction.id, parsedAction);
+    }
+  }
+
+  if (actions.size > 0) {
+    return [...actions.values()];
+  }
+
+  const actionSection = extractTaggedField(body, "(?:a[cç][oõ]es|actions)");
+  if (!actionSection) {
+    return [];
+  }
+
+  const compactActionSection = toCompactComparableText(actionSection);
+  if (compactActionSection.includes("criarspec") || compactActionSection.includes("createspec")) {
+    actions.set("create-spec", { id: "create-spec", label: "Criar spec" });
+  }
+  if (compactActionSection.includes("refinar") || compactActionSection.includes("refine")) {
+    actions.set("refine", { id: "refine", label: "Refinar" });
+  }
+  if (compactActionSection.includes("cancelar") || compactActionSection.includes("cancel")) {
+    actions.set("cancel", { id: "cancel", label: "Cancelar" });
+  }
+
+  return [...actions.values()];
+};
+
+const extractQuestionPromptFromBody = (body: string): string | null => {
+  const taggedPrompt = extractTaggedField(body, "(?:pergunta|question)", "(?:op[cç][oõ]es|options)");
+  if (taggedPrompt) {
+    const prompt = extractQuestionPrompt(taggedPrompt);
+    if (prompt) {
+      return prompt;
+    }
+  }
+
+  const lines = normalizeLines(body);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || isOptionLine(trimmed)) {
+      continue;
+    }
+    if (/^(?:op[cç][oõ]es|options)\s*:/iu.test(trimmed)) {
+      continue;
+    }
+
+    return extractQuestionPrompt(trimmed) || null;
+  }
+
+  return null;
+};
+
+const extractQuestionPrompt = (value: string): string => {
+  const withoutOptionsSection = value.replace(/(?:op[cç][oõ]es|options)\s*:.*$/iu, "");
+  return cleanupInlineSegment(withoutOptionsSection);
+};
+
+const extractTaggedField = (
+  body: string,
+  labelsPattern: string,
+  stopLabelsPattern?: string,
+): string | null => {
+  const pattern = stopLabelsPattern
+    ? new RegExp(
+        `(?:${labelsPattern})\\s*:\\s*([\\s\\S]*?)(?=(?:${stopLabelsPattern})\\s*:|$)`,
+        "iu",
+      )
+    : new RegExp(`(?:${labelsPattern})\\s*:\\s*([\\s\\S]*)$`, "iu");
+  const match = body.match(pattern);
+  if (!match || match[1] === undefined) {
+    return null;
+  }
+
+  const cleaned = cleanupInlineSegment(match[1]);
+  return cleaned || null;
+};
+
+const cleanupInlineSegment = (value: string): string => {
+  return value.replace(/\s+/gu, " ").trim();
+};
+
+const hasInlineFieldMarker = (value: string, fieldPattern: string): boolean => {
+  return new RegExp(`${fieldPattern}\\s*:`, "iu").test(value);
+};
+
+const isQuestionProtocolTemplate = (question: PlanSpecQuestionBlock): boolean => {
+  const promptCompact = toCompactComparableText(question.prompt);
+  const hasTemplatePrompt = promptCompact.includes("perguntaobjetiva");
+  if (!hasTemplatePrompt) {
+    return false;
+  }
+
+  return question.options.some((option) => {
+    const valueCompact = toCompactComparableText(option.value);
+    const labelCompact = toCompactComparableText(option.label);
+    return (
+      valueCompact.startsWith("slugopcao") ||
+      labelCompact.includes("rotuloopcao") ||
+      labelCompact.includes("optionlabel")
+    );
+  });
+};
+
+const isFinalProtocolTemplate = (finalBlock: PlanSpecFinalBlock): boolean => {
+  const titleCompact = toCompactComparableText(finalBlock.title);
+  const summaryCompact = toCompactComparableText(finalBlock.summary);
+
+  return titleCompact.includes("titulofinaldaspec") && summaryCompact.includes("resumofinalobjetivo");
+};
+
+const normalizeComparableText = (value: string): string => {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase();
+};
+
+const toCompactComparableText = (value: string): string => {
+  return normalizeComparableText(value).replace(/[^a-z0-9]+/gu, "");
 };
 
 const normalizeLines = (value: string): string[] => {
