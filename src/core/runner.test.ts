@@ -1615,6 +1615,38 @@ test("submitPlanSpecInput encaminha brief inicial e transita para espera do Code
   assert.equal(state.planSpecSession?.phase, "waiting-user");
 });
 
+test("sessao /plan_spec registra atividade observada do Codex para diagnostico", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const inputResult = await runner.submitPlanSpecInput("42", "Brief inicial da spec");
+  assert.equal(inputResult.status, "accepted");
+  codex.lastPlanSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 42,
+      preview: "processando plano",
+    },
+  });
+  await sleep(0);
+
+  const state = runner.getState();
+  assert.equal(state.planSpecSession?.phase, "waiting-codex");
+  assert.match(state.planSpecSession?.waitingCodexSinceAt?.toISOString() ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(state.planSpecSession?.lastCodexStream, "stdout");
+  assert.equal(state.planSpecSession?.lastCodexPreview, "processando plano");
+  assert.match(state.planSpecSession?.lastCodexActivityAt?.toISOString() ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+});
+
 test("saida raw em bootstrap de /plan_spec e suprimida enquanto aguarda brief inicial", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
@@ -1669,7 +1701,7 @@ test("submitPlanSpecInput diferencia chat incorreto e sessao inativa", async () 
   assert.match(inactiveResult.message, /Nenhuma sessão \/plan_spec ativa/u);
 });
 
-test("submitPlanSpecInput encerra sessao com erro quando envio para o Codex falha", async () => {
+test("submitPlanSpecInput retorna ack imediato e encerra sessao com erro quando envio para o Codex falha", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const failures: string[] = [];
@@ -1700,9 +1732,11 @@ test("submitPlanSpecInput encerra sessao com erro quando envio para o Codex falh
   };
 
   const inputResult = await runner.submitPlanSpecInput("42", "brief inicial");
+  await waitForPlanSpecSessionToClose(runner, 1000);
+  await sleep(0);
 
-  assert.equal(inputResult.status, "inactive");
-  assert.match(inputResult.message, /falha de escrita interativa/u);
+  assert.equal(inputResult.status, "accepted");
+  assert.match(inputResult.message, /Brief inicial enviado para o Codex/u);
   assert.equal(runner.getState().planSpecSession, null);
   assert.equal(runner.getState().phase, "error");
   assert.equal(failures.length, 1);

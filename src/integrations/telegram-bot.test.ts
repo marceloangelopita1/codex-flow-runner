@@ -56,6 +56,10 @@ const createPlanSpecSession = (
   phase: "awaiting-brief",
   startedAt: new Date("2026-02-19T12:00:00.000Z"),
   lastActivityAt: new Date("2026-02-19T12:05:00.000Z"),
+  waitingCodexSinceAt: null,
+  lastCodexActivityAt: null,
+  lastCodexStream: null,
+  lastCodexPreview: null,
   activeProjectSnapshot: cloneProject(defaultActiveProject),
   ...value,
 });
@@ -1320,6 +1324,38 @@ test("/plan_spec_status exibe fase, projeto e ultima atividade da sessao (CA-05)
   assert.match(replies[0] ?? "", /Fase: waiting-user/u);
   assert.match(replies[0] ?? "", /Projeto da sessão: codex-flow-runner/u);
   assert.match(replies[0] ?? "", /Última atividade: 2026-02-19T12:15:00.000Z/u);
+  assert.match(replies[0] ?? "", /Última atividade do Codex: \(ainda sem saída observável\)/u);
+});
+
+test("/plan_spec_status inclui diagnostico do Codex durante espera", async () => {
+  const state = createState({
+    phase: "plan-spec-waiting-codex",
+    planSpecSession: createPlanSpecSession({
+      phase: "waiting-codex",
+      waitingCodexSinceAt: new Date("2026-02-19T12:10:00.000Z"),
+      lastCodexActivityAt: new Date("2026-02-19T12:12:30.000Z"),
+      lastCodexStream: "stderr",
+      lastCodexPreview: "planner em andamento",
+    }),
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandlePlanSpecStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Aguardando Codex desde: 2026-02-19T12:10:00.000Z/u);
+  assert.match(replies[0] ?? "", /Última atividade do Codex: 2026-02-19T12:12:30.000Z/u);
+  assert.match(replies[0] ?? "", /Último stream do Codex: stderr/u);
+  assert.match(replies[0] ?? "", /Preview da última saída do Codex: planner em andamento/u);
 });
 
 test("/plan_spec_cancel encerra sessao ativa (CA-06)", async () => {

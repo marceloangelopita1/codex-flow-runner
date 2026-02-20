@@ -1402,7 +1402,7 @@ export class TelegramController {
       return PLAN_SPEC_STATUS_INACTIVE_REPLY;
     }
 
-    return [
+    const lines = [
       "🧭 Sessão /plan_spec ativa",
       `Fase: ${session.phase}`,
       `Projeto da sessão: ${session.activeProjectSnapshot.name}`,
@@ -1410,7 +1410,22 @@ export class TelegramController {
       `Chat da sessão: ${session.chatId}`,
       `Iniciada em: ${session.startedAt.toISOString()}`,
       `Última atividade: ${session.lastActivityAt.toISOString()}`,
-    ].join("\n");
+      `Última atividade do Codex: ${session.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
+    ];
+
+    if (session.waitingCodexSinceAt) {
+      lines.push(`Aguardando Codex desde: ${session.waitingCodexSinceAt.toISOString()}`);
+    }
+
+    if (session.lastCodexStream) {
+      lines.push(`Último stream do Codex: ${session.lastCodexStream}`);
+    }
+
+    if (session.lastCodexPreview) {
+      lines.push(`Preview da última saída do Codex: ${session.lastCodexPreview}`);
+    }
+
+    return lines.join("\n");
   }
 
   private buildStartReply(): string {
@@ -1554,7 +1569,16 @@ export class TelegramController {
         `Projeto da sessão /plan_spec: ${state.planSpecSession.activeProjectSnapshot.name}`,
         `Início da sessão /plan_spec: ${state.planSpecSession.startedAt.toISOString()}`,
         `Última atividade /plan_spec: ${state.planSpecSession.lastActivityAt.toISOString()}`,
+        `Última atividade Codex /plan_spec: ${state.planSpecSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
       );
+      if (state.planSpecSession.waitingCodexSinceAt) {
+        lines.push(
+          `Aguardando Codex /plan_spec desde: ${state.planSpecSession.waitingCodexSinceAt.toISOString()}`,
+        );
+      }
+      if (state.planSpecSession.lastCodexStream) {
+        lines.push(`Último stream Codex /plan_spec: ${state.planSpecSession.lastCodexStream}`);
+      }
     }
 
     if (!state.lastNotifiedEvent) {

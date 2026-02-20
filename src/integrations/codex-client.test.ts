@@ -519,6 +519,73 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   await session.cancel();
 });
 
+test("startPlanSession emite telemetria de atividade para stdout/stderr", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const activities: Array<{ source: string; bytes: number; preview: string }> = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: (event) => {
+        if (event.type === "activity") {
+          activities.push({
+            source: event.activity.source,
+            bytes: event.activity.bytes,
+            preview: event.activity.preview,
+          });
+        }
+      },
+      onFailure: () => undefined,
+    },
+  });
+
+  interactiveProcess.stdout.write("saida parcial do codex\n");
+  interactiveProcess.stderr.write("erro parcial do codex\n");
+
+  assert.equal(activities.length >= 2, true);
+  assert.equal(activities.some((activity) => activity.source === "stdout"), true);
+  assert.equal(activities.some((activity) => activity.source === "stderr"), true);
+  assert.equal(activities.every((activity) => activity.bytes > 0), true);
+
+  await session.cancel();
+});
+
+test("startPlanSession aplica fallback de bootstrap quando prompt pronto nao e detectado", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  const pendingInput = session.sendUserInput("brief sem prompt detectado");
+  await new Promise((resolve) => {
+    setTimeout(resolve, 2200);
+  });
+  await pendingInput;
+
+  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r"), true);
+  const briefWrite = interactiveProcess.stdinWrites.find((value) =>
+    value.includes("Brief do operador: brief sem prompt detectado"),
+  );
+  assert.ok(briefWrite);
+
+  await session.cancel();
+});
+
 test("sendUserInput apos encerramento da sessao retorna erro de input", async () => {
   const interactiveProcess = new FakeInteractiveProcess();
 

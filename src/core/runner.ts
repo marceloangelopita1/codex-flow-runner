@@ -69,7 +69,10 @@ interface ActivePlanSpecSession {
   codexClient: CodexTicketFlowClient;
   session: PlanSpecSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  heartbeatHandle: ReturnType<typeof setTimeout> | null;
   latestFinalBlock: PlanSpecFinalBlock | null;
+  lastCodexActivityLogAt: Date | null;
+  lastHeartbeatLifecycleMessageAt: Date | null;
 }
 
 interface ActiveRunnerSlot {
@@ -107,6 +110,9 @@ const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
 const PLAN_SPEC_TIMEOUT_MESSAGE =
   "Sessao /plan_spec encerrada por inatividade de 30 minutos.";
 const PLAN_SPEC_CANCELLED_MESSAGE = "Sessao /plan_spec cancelada.";
+const PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS = 30 * 1000;
+const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
+const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -255,6 +261,16 @@ export class TicketRunner {
             activeProjectSnapshot: { ...this.state.planSpecSession.activeProjectSnapshot },
             startedAt: new Date(this.state.planSpecSession.startedAt),
             lastActivityAt: new Date(this.state.planSpecSession.lastActivityAt),
+            ...(this.state.planSpecSession.waitingCodexSinceAt
+              ? {
+                  waitingCodexSinceAt: new Date(this.state.planSpecSession.waitingCodexSinceAt),
+                }
+              : {}),
+            ...(this.state.planSpecSession.lastCodexActivityAt
+              ? {
+                  lastCodexActivityAt: new Date(this.state.planSpecSession.lastCodexActivityAt),
+                }
+              : {}),
           },
         }
       : {}),
@@ -390,6 +406,10 @@ export class TicketRunner {
         phase: "awaiting-brief",
         startedAt: now,
         lastActivityAt: now,
+        waitingCodexSinceAt: null,
+        lastCodexActivityAt: null,
+        lastCodexStream: null,
+        lastCodexPreview: null,
         activeProjectSnapshot: { ...slot.project },
       };
       this.activePlanSpecSession = {
@@ -400,7 +420,10 @@ export class TicketRunner {
         codexClient: slot.codexClient,
         session,
         timeoutHandle: null,
+        heartbeatHandle: null,
         latestFinalBlock: null,
+        lastCodexActivityLogAt: null,
+        lastHeartbeatLifecycleMessageAt: null,
       };
 
       slot.isStarting = false;
@@ -453,7 +476,7 @@ export class TicketRunner {
 
     const isInitialBrief = this.state.planSpecSession?.phase === "awaiting-brief";
     try {
-      await session.session.sendUserInput(normalizedInput);
+      const pendingSend = session.session.sendUserInput(normalizedInput);
       this.setPlanSpecPhase(
         "waiting-codex",
         "plan-spec-waiting-codex",
@@ -461,6 +484,11 @@ export class TicketRunner {
           ? "Brief inicial enviado ao Codex na sessao /plan_spec"
           : "Mensagem enviada ao Codex na sessao /plan_spec",
       );
+
+      void pendingSend.catch((error) => {
+        void this.handlePlanSpecSessionFailure(session.id, error);
+      });
+
       return {
         status: "accepted",
         message: isInitialBrief
@@ -856,9 +884,18 @@ export class TicketRunner {
       return;
     }
 
+    const now = this.now();
     planSpecSession.phase = phase;
-    planSpecSession.lastActivityAt = this.now();
+    planSpecSession.lastActivityAt = now;
+    if (phase === "waiting-codex") {
+      if (!planSpecSession.waitingCodexSinceAt) {
+        planSpecSession.waitingCodexSinceAt = now;
+      }
+    } else {
+      planSpecSession.waitingCodexSinceAt = null;
+    }
     this.refreshPlanSpecTimeout(activeSession.id);
+    this.refreshPlanSpecCodexHeartbeat(activeSession.id);
 
     const slot = this.activeSlots.get(activeSession.slotKey);
     if (slot) {
@@ -885,6 +922,84 @@ export class TicketRunner {
     activeSession.timeoutHandle.unref?.();
   }
 
+  private refreshPlanSpecCodexHeartbeat(sessionId: number): void {
+    const activeSession = this.activePlanSpecSession;
+    const planSpecSession = this.state.planSpecSession;
+    if (!activeSession || !planSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    this.clearPlanSpecCodexHeartbeat(sessionId);
+    if (planSpecSession.phase !== "waiting-codex") {
+      return;
+    }
+
+    activeSession.heartbeatHandle = this.setTimer(() => {
+      void this.handlePlanSpecCodexHeartbeat(sessionId);
+    }, PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS);
+    activeSession.heartbeatHandle.unref?.();
+  }
+
+  private clearPlanSpecCodexHeartbeat(sessionId: number): void {
+    const activeSession = this.activePlanSpecSession;
+    if (!activeSession || activeSession.id !== sessionId || !activeSession.heartbeatHandle) {
+      return;
+    }
+
+    this.clearTimer(activeSession.heartbeatHandle);
+    activeSession.heartbeatHandle = null;
+  }
+
+  private async handlePlanSpecCodexHeartbeat(sessionId: number): Promise<void> {
+    const activeSession = this.activePlanSpecSession;
+    const planSpecSession = this.state.planSpecSession;
+    if (!activeSession || !planSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    activeSession.heartbeatHandle = null;
+    if (planSpecSession.phase !== "waiting-codex") {
+      return;
+    }
+
+    const now = this.now();
+    const waitingSince = planSpecSession.waitingCodexSinceAt ?? planSpecSession.lastActivityAt;
+    const waitingMs = Math.max(0, now.getTime() - waitingSince.getTime());
+    const lastCodexAgeMs = planSpecSession.lastCodexActivityAt
+      ? Math.max(0, now.getTime() - planSpecSession.lastCodexActivityAt.getTime())
+      : null;
+
+    this.logger.info("Sessao /plan_spec ainda aguardando retorno do Codex", {
+      chatId: activeSession.chatId,
+      phase: planSpecSession.phase,
+      waitingMs,
+      timeoutMs: this.planSpecSessionTimeoutMs,
+      lastCodexAgeMs,
+      lastCodexStream: planSpecSession.lastCodexStream,
+      lastCodexPreview: planSpecSession.lastCodexPreview,
+      activeProjectName: planSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: planSpecSession.activeProjectSnapshot.path,
+    });
+
+    const lastLifecycleAt = activeSession.lastHeartbeatLifecycleMessageAt;
+    if (
+      !lastLifecycleAt ||
+      now.getTime() - lastLifecycleAt.getTime() >= PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS
+    ) {
+      activeSession.lastHeartbeatLifecycleMessageAt = now;
+      const waitingSeconds = Math.floor(waitingMs / 1000);
+      const codexTail = planSpecSession.lastCodexPreview
+        ? ` Última saída observada (${planSpecSession.lastCodexStream ?? "stdout"}): ${planSpecSession.lastCodexPreview.slice(0, 160)}`
+        : " Ainda sem saída observável do Codex CLI.";
+      await this.emitPlanSpecLifecycleMessage(
+        activeSession.chatId,
+        `Sessao /plan_spec aguardando resposta do Codex ha ${String(waitingSeconds)}s.${codexTail}`,
+      );
+    }
+
+    this.refreshPlanSpecCodexHeartbeat(sessionId);
+  }
+
   private async handlePlanSpecSessionTimeout(sessionId: number): Promise<void> {
     const activeSession = this.activePlanSpecSession;
     if (!activeSession || activeSession.id !== sessionId) {
@@ -894,6 +1009,12 @@ export class TicketRunner {
     this.logger.warn("Sessao /plan_spec expirada por inatividade", {
       chatId: activeSession.chatId,
       timeoutMs: this.planSpecSessionTimeoutMs,
+      phase: this.state.planSpecSession?.phase,
+      waitingCodexSinceAt: this.state.planSpecSession?.waitingCodexSinceAt?.toISOString() ?? null,
+      lastCodexActivityAt:
+        this.state.planSpecSession?.lastCodexActivityAt?.toISOString() ?? null,
+      lastCodexStream: this.state.planSpecSession?.lastCodexStream ?? null,
+      lastCodexPreview: this.state.planSpecSession?.lastCodexPreview ?? null,
       activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
       activeProjectPath: this.state.planSpecSession?.activeProjectSnapshot.path,
     });
@@ -918,6 +1039,12 @@ export class TicketRunner {
 
     planSpecSession.lastActivityAt = this.now();
     this.refreshPlanSpecTimeout(sessionId);
+
+    if (event.type === "activity") {
+      this.recordPlanSpecCodexActivity(activeSession, planSpecSession, event);
+      this.refreshPlanSpecCodexHeartbeat(sessionId);
+      return;
+    }
 
     if (event.type === "question") {
       activeSession.latestFinalBlock = null;
@@ -960,6 +1087,37 @@ export class TicketRunner {
       this.touch(this.state.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
     }
     await this.emitPlanSpecRawOutput(activeSession.chatId, event);
+  }
+
+  private recordPlanSpecCodexActivity(
+    activeSession: ActivePlanSpecSession,
+    planSpecSession: NonNullable<RunnerState["planSpecSession"]>,
+    event: Extract<PlanSpecSessionEvent, { type: "activity" }>,
+  ): void {
+    const now = this.now();
+    const preview = event.activity.preview.trim();
+    planSpecSession.lastCodexActivityAt = now;
+    planSpecSession.lastCodexStream = event.activity.source;
+    planSpecSession.lastCodexPreview = preview.length > 0 ? preview : null;
+
+    const shouldLogActivity =
+      !activeSession.lastCodexActivityLogAt ||
+      now.getTime() - activeSession.lastCodexActivityLogAt.getTime() >=
+        PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS;
+    if (!shouldLogActivity) {
+      return;
+    }
+
+    activeSession.lastCodexActivityLogAt = now;
+    this.logger.info("Atividade do Codex observada na sessao /plan_spec", {
+      chatId: activeSession.chatId,
+      phase: planSpecSession.phase,
+      source: event.activity.source,
+      bytes: event.activity.bytes,
+      preview: planSpecSession.lastCodexPreview,
+      activeProjectName: planSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: planSpecSession.activeProjectSnapshot.path,
+    });
   }
 
   private async handlePlanSpecSessionFailure(sessionId: number, error: unknown): Promise<void> {
@@ -1035,6 +1193,9 @@ export class TicketRunner {
 
     if (activeSession.timeoutHandle) {
       this.clearTimer(activeSession.timeoutHandle);
+    }
+    if (activeSession.heartbeatHandle) {
+      this.clearTimer(activeSession.heartbeatHandle);
     }
 
     this.activePlanSpecSession = null;

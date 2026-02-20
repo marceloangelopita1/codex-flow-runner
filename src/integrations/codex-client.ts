@@ -54,6 +54,12 @@ interface CodexInteractiveSpawnRequest {
   args: string[];
 }
 
+export interface PlanSpecSessionActivity {
+  source: "stdout" | "stderr";
+  bytes: number;
+  preview: string;
+}
+
 export type PlanSpecSessionEvent =
   | {
       type: "question";
@@ -66,6 +72,10 @@ export type PlanSpecSessionEvent =
   | {
       type: "raw-sanitized";
       text: string;
+    }
+  | {
+      type: "activity";
+      activity: PlanSpecSessionActivity;
     };
 
 export interface PlanSpecSessionCloseResult {
@@ -146,6 +156,7 @@ const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 const INTERACTIVE_ENTER_KEY = "\r";
 const INTERACTIVE_QUEUE_KEY = "\t";
 const INTERACTIVE_QUEUE_DELAY_MS = 60;
+const INTERACTIVE_BOOTSTRAP_FALLBACK_MS = 1500;
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -542,6 +553,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
   private promptReadyDetected = false;
   private planCommandBootstrapped = false;
   private planCommandBootstrapInFlight = false;
+  private bootstrapFallbackHandle: ReturnType<typeof setTimeout> | null = null;
   private writePipeline: Promise<void> = Promise.resolve();
   private readonly pendingInputs: Array<{
     value: string;
@@ -576,6 +588,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
         resolve: () => undefined,
         reject: () => undefined,
       });
+      this.scheduleBootstrapFallback();
     }
   }
 
@@ -591,11 +604,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
     const decorated = this.decorateFirstUserInput(normalized);
     if (!this.planCommandBootstrapped) {
-      if (this.promptReadyDetected) {
-        void this.bootstrapPlanMode().catch(() => undefined);
-      }
-
-      return new Promise<void>((resolve, reject) => {
+      const pending = new Promise<void>((resolve, reject) => {
         this.pendingInputs.push({
           value: decorated,
           phase: "input",
@@ -603,6 +612,17 @@ class CodexInteractivePlanSession implements PlanSpecSession {
           reject,
         });
       });
+
+      this.logger.info("Input de /plan_spec enfileirado aguardando bootstrap do modo /plan", {
+        promptReadyDetected: this.promptReadyDetected,
+        pendingInputs: this.pendingInputs.length,
+      });
+      this.scheduleBootstrapFallback();
+      if (this.promptReadyDetected) {
+        void this.bootstrapPlanMode().catch(() => undefined);
+      }
+
+      return pending;
     }
 
     await this.sendInteractiveInput(decorated, "input");
@@ -622,6 +642,8 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     if (!chunk) {
       return;
     }
+
+    this.emitActivityObservation("stdout", chunk);
 
     if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
       this.trustPromptHandled = true;
@@ -652,6 +674,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
   }
 
   private handleStderrChunk(chunk: string): void {
+    this.emitActivityObservation("stderr", chunk);
     const sanitized = sanitizePlanSpecRawOutput(chunk);
     if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
       return;
@@ -668,6 +691,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private handleClose(code: number | null): void {
     this.closed = true;
+    this.clearBootstrapFallback();
     this.rejectPendingInputs(new Error("Sessao interativa encerrada antes de concluir mensagens pendentes."));
     this.logVerbose("Sessao interativa /plan_spec encerrada", {
       exitCode: code,
@@ -711,10 +735,12 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       return;
     }
 
+    this.clearBootstrapFallback();
     this.planCommandBootstrapInFlight = true;
     try {
       await this.sendInteractiveInput(PLAN_COMMAND, "start");
       this.planCommandBootstrapped = true;
+      this.clearBootstrapFallback();
       await this.flushPendingInputs();
     } catch (error) {
       this.rejectPendingInputs(error);
@@ -722,6 +748,42 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     } finally {
       this.planCommandBootstrapInFlight = false;
     }
+  }
+
+  private scheduleBootstrapFallback(): void {
+    if (this.closed || this.planCommandBootstrapped || this.planCommandBootstrapInFlight) {
+      return;
+    }
+
+    if (this.bootstrapFallbackHandle) {
+      return;
+    }
+
+    this.bootstrapFallbackHandle = setTimeout(() => {
+      this.bootstrapFallbackHandle = null;
+      if (this.closed || this.planCommandBootstrapped || this.planCommandBootstrapInFlight) {
+        return;
+      }
+
+      this.logger.warn(
+        "Prompt interativo nao detectado no tempo esperado; aplicando bootstrap /plan por fallback",
+        {
+          fallbackDelayMs: INTERACTIVE_BOOTSTRAP_FALLBACK_MS,
+          pendingInputs: this.pendingInputs.length,
+        },
+      );
+      void this.bootstrapPlanMode().catch(() => undefined);
+    }, INTERACTIVE_BOOTSTRAP_FALLBACK_MS);
+    this.bootstrapFallbackHandle.unref?.();
+  }
+
+  private clearBootstrapFallback(): void {
+    if (!this.bootstrapFallbackHandle) {
+      return;
+    }
+
+    clearTimeout(this.bootstrapFallbackHandle);
+    this.bootstrapFallbackHandle = null;
   }
 
   private async flushPendingInputs(): Promise<void> {
@@ -746,6 +808,27 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       const next = this.pendingInputs.shift();
       next?.reject(error);
     }
+  }
+
+  private emitActivityObservation(source: "stdout" | "stderr", chunk: string): void {
+    const preview = this.buildActivityPreview(chunk);
+    this.emitEvent({
+      type: "activity",
+      activity: {
+        source,
+        bytes: chunk.length,
+        preview,
+      },
+    });
+  }
+
+  private buildActivityPreview(chunk: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized) {
+      return "";
+    }
+
+    return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
   }
 
   private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {

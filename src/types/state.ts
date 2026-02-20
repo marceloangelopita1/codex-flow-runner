@@ -23,11 +23,17 @@ export type PlanSpecSessionPhase =
   | "waiting-user"
   | "awaiting-final-action";
 
+export type PlanSpecCodexStream = "stdout" | "stderr";
+
 export interface PlanSpecSessionState {
   chatId: string;
   phase: PlanSpecSessionPhase;
   startedAt: Date;
   lastActivityAt: Date;
+  waitingCodexSinceAt: Date | null;
+  lastCodexActivityAt: Date | null;
+  lastCodexStream: PlanSpecCodexStream | null;
+  lastCodexPreview: string | null;
   activeProjectSnapshot: ProjectRef;
 }
 
