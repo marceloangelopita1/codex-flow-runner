@@ -48,6 +48,7 @@ test("parseEnv aceita TELEGRAM_ALLOWED_CHAT_ID e aplica defaults", () => {
   assert.equal(env.PROJECTS_ROOT_PATH, "/home/mapita/projetos");
   assert.equal(env.POLL_INTERVAL_MS, 5000);
   assert.equal(env.RUN_ALL_MAX_TICKETS_PER_ROUND, 20);
+  assert.equal(env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM, false);
 });
 
 test("parseEnv aceita RUN_ALL_MAX_TICKETS_PER_ROUND customizado", () => {
@@ -82,5 +83,36 @@ test("parseEnv falha quando RUN_ALL_MAX_TICKETS_PER_ROUND nao e inteiro positivo
         RUN_ALL_MAX_TICKETS_PER_ROUND: "1.5",
       }),
     /RUN_ALL_MAX_TICKETS_PER_ROUND/u,
+  );
+});
+
+test("parseEnv aceita PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM como boolean string", () => {
+  const enabled = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: "true",
+  });
+  assert.equal(enabled.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM, true);
+
+  const disabled = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: "false",
+  });
+  assert.equal(disabled.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM, false);
+});
+
+test("parseEnv falha quando PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM recebe valor invalido", () => {
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: "talvez",
+      }),
+    /PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM/u,
   );
 });

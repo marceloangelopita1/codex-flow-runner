@@ -230,6 +230,10 @@ export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
     return false;
   }
 
+  if (lines.every((line) => isLikelyFragmentedTokenNoiseLine(line))) {
+    return false;
+  }
+
   const compact = lines.join("");
   const alphanumericCount = Array.from(compact).filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
   if (alphanumericCount < 3) {
@@ -259,7 +263,12 @@ const isLikelyShortTokenNoiseLine = (value: string): boolean => {
     return false;
   }
 
-  const compact = normalized.replace(/[^a-z0-9]+/gu, "");
+  const compactTokens = extractCompactTokens(normalized);
+  if (compactTokens.length !== 1) {
+    return false;
+  }
+
+  const compact = compactTokens[0] ?? "";
   if (!compact || compact.length > SHORT_TOKEN_NOISE_MAX_LENGTH) {
     return false;
   }
@@ -269,6 +278,46 @@ const isLikelyShortTokenNoiseLine = (value: string): boolean => {
   }
 
   return true;
+};
+
+const isLikelyFragmentedTokenNoiseLine = (value: string): boolean => {
+  const normalized = normalizeComparableText(value).trim();
+  if (!normalized || !/\s/u.test(normalized)) {
+    return false;
+  }
+
+  const compactTokens = extractCompactTokens(normalized);
+  if (compactTokens.length === 0) {
+    return true;
+  }
+
+  if (compactTokens.some((token) => SHORT_TOKEN_MEANINGFUL_ALLOWLIST.has(token))) {
+    return false;
+  }
+
+  const hasSingleCharToken = compactTokens.some((token) => token.length <= 1);
+  if (hasSingleCharToken && compactTokens.every((token) => token.length <= 2)) {
+    return true;
+  }
+
+  if (
+    compactTokens.length === 1 &&
+    compactTokens[0] !== undefined &&
+    compactTokens[0].length <= 4 &&
+    value.length <= 8 &&
+    /[^\p{L}\p{N}\s]/u.test(value)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const extractCompactTokens = (value: string): string[] => {
+  return value
+    .split(/\s+/u)
+    .map((token) => token.replace(/[^a-z0-9]+/gu, ""))
+    .filter((token) => token.length > 0);
 };
 
 const pushRawEvent = (events: PlanSpecParserEvent[], value: string): void => {

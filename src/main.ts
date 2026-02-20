@@ -100,6 +100,10 @@ const bootstrap = async () => {
           await telegram.sendPlanSpecFinalization(chatId, event.final);
         },
         onRawOutput: async (chatId, event) => {
+          if (!env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM) {
+            return;
+          }
+
           if (!telegram) {
             logger.warn("Saida raw de /plan_spec nao enviada: Telegram indisponivel", {
               chatId,
@@ -193,6 +197,9 @@ const bootstrap = async () => {
   );
 
   await telegram.start();
+  logger.info("Encaminhamento de saida raw /plan_spec para Telegram", {
+    enabled: env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM,
+  });
   logger.info("Runner aguardando comando /run-all no Telegram", {
     activeProjectName: initialRoundDependencies.activeProject.name,
     activeProjectPath: initialRoundDependencies.activeProject.path,

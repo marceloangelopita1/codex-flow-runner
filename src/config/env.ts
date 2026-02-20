@@ -1,11 +1,33 @@
 import { z } from "zod";
 
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
   TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1),
   PROJECTS_ROOT_PATH: z.string().min(1),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   RUN_ALL_MAX_TICKETS_PER_ROUND: z.coerce.number().int().positive().default(20),
+  PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: booleanFromEnv.default(false),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

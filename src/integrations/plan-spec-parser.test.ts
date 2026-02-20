@@ -236,11 +236,26 @@ test("ignora fragmentos curtos de token sem delimitadores", () => {
   assert.equal(events.length, 0);
 });
 
+test("ignora fragmentos curtos com espacos vindos de renderizacao parcial da TUI", () => {
+  const output = ["es r", "ra s", "◦n te", "n ra", "ng c s", "ro s", "◦ sse3", "c ct", "if s"].join(
+    "\n",
+  );
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
 test("mantem erro curto de uma palavra como raw significativo", () => {
   const events = parsePlanSpecOutput("Erro");
   assert.equal(events.length, 1);
   assert.equal(events[0]?.type, "raw-sanitized");
   assert.equal(events[0]?.text, "Erro");
+});
+
+test("mantem resposta curta de duas palavras sem token unitario", () => {
+  const events = parsePlanSpecOutput("No Go");
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "raw-sanitized");
+  assert.equal(events[0]?.text, "No Go");
 });
 
 test("ignora eco do primer de protocolo /plan_spec mesmo quando compactado pela TUI", () => {
