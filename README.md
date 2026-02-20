@@ -34,6 +34,7 @@ Pastas esperadas no repositório alvo:
 - `TELEGRAM_ALLOWED_CHAT_ID` (**obrigatório**)
 - `PROJECTS_ROOT_PATH` (**obrigatório**, ex.: `/home/mapita/projetos`)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
+- `RUN_ALL_MAX_TICKETS_PER_ROUND` (opcional, padrão: `20`)
 - O app carrega automaticamente o arquivo `.env` na raiz do projeto ao iniciar (sem necessidade de `source .env` manual para `npm run dev`/`npm start`).
 
 Regras de bootstrap multi-projeto:
@@ -45,6 +46,7 @@ Regras de bootstrap multi-projeto:
 
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
+- cada comando `/run_all` processa no maximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada; ao atingir o limite, a rodada e encerrada de forma controlada.
 
 Pré-requisito operacional:
 - `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).

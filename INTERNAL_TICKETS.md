@@ -28,7 +28,7 @@ If unsure, open a ticket and mark low severity.
 ## Ticket lifecycle
 Ticket files live under `tickets/`:
 - `tickets/open/`: active backlog (`open`, `in-progress`, `blocked`).
-- `tickets/closed/`: closed tickets (resolved, invalid, duplicate, or wont-fix with reason).
+- `tickets/closed/`: closed tickets (resolved, invalid, duplicate, wont-fix, or split-follow-up with reason).
 - `tickets/templates/`: ticket template(s).
 
 Status values:
@@ -40,6 +40,11 @@ Status values:
 Closure/commit rule:
 - If a commit/push includes the implementation that resolves an `open` ticket, that same commit must move the ticket file to `tickets/closed/`.
 - The closure metadata must be completed in the same commit (`Status: closed`, `Closed at (UTC)`, `Closure reason`, and `Related PR/commit/execplan`).
+- `Closure reason: split-follow-up` is allowed when the current ticket must be closed for traceability while remaining pending work is moved to a new ticket.
+- In `split-follow-up`, the same commit must include:
+  - closure of the current ticket in `tickets/closed/`;
+  - creation of the new follow-up ticket in `tickets/open/`;
+  - explicit linkage between parent and follow-up (ticket path/name, related execplan, and commit context).
 
 ## Priority and severity
 - Priority (`P0`, `P1`, `P2`):

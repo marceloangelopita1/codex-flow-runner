@@ -47,4 +47,40 @@ test("parseEnv aceita TELEGRAM_ALLOWED_CHAT_ID e aplica defaults", () => {
   assert.equal(env.TELEGRAM_ALLOWED_CHAT_ID, "42");
   assert.equal(env.PROJECTS_ROOT_PATH, "/home/mapita/projetos");
   assert.equal(env.POLL_INTERVAL_MS, 5000);
+  assert.equal(env.RUN_ALL_MAX_TICKETS_PER_ROUND, 20);
+});
+
+test("parseEnv aceita RUN_ALL_MAX_TICKETS_PER_ROUND customizado", () => {
+  const env = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    RUN_ALL_MAX_TICKETS_PER_ROUND: "35",
+  });
+
+  assert.equal(env.RUN_ALL_MAX_TICKETS_PER_ROUND, 35);
+});
+
+test("parseEnv falha quando RUN_ALL_MAX_TICKETS_PER_ROUND nao e inteiro positivo", () => {
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        RUN_ALL_MAX_TICKETS_PER_ROUND: "0",
+      }),
+    /RUN_ALL_MAX_TICKETS_PER_ROUND/u,
+  );
+
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        RUN_ALL_MAX_TICKETS_PER_ROUND: "1.5",
+      }),
+    /RUN_ALL_MAX_TICKETS_PER_ROUND/u,
+  );
 });

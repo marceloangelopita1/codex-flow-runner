@@ -214,6 +214,7 @@ const env: AppEnv = {
   TELEGRAM_ALLOWED_CHAT_ID: "42",
   PROJECTS_ROOT_PATH: "/tmp/projects",
   POLL_INTERVAL_MS: 1,
+  RUN_ALL_MAX_TICKETS_PER_ROUND: 20,
 };
 
 const activeProjectA: ProjectRef = {
@@ -297,6 +298,7 @@ const createRunner = (
   logger: SpyLogger,
   initialRoundDependencies: RunnerRoundDependencies,
   options: {
+    envOverride?: Partial<AppEnv>;
     onTicketFinalized?: (
       summary: TicketFinalSummary,
     ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
@@ -305,7 +307,10 @@ const createRunner = (
   } = {},
 ): TicketRunner => {
   return new TicketRunner(
-    env,
+    {
+      ...env,
+      ...options.envOverride,
+    },
     logger,
     initialRoundDependencies,
     options.resolveRoundDependencies ?? (async () => initialRoundDependencies),
@@ -558,6 +563,67 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   assert.equal(summaries[0]?.status, "success");
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
+});
+
+test("requestRunAll encerra rodada ao atingir limite maximo de tickets", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+
+      if (nextTicketCalls === 2) {
+        return ticketB;
+      }
+
+      return null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    onTicketFinalized,
+    envOverride: {
+      RUN_ALL_MAX_TICKETS_PER_ROUND: 1,
+    },
+  });
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
+
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(
+    codex.calls.map((value) => `${value.ticketName}:${value.stage}`),
+    [
+      `${ticketA.name}:plan`,
+      `${ticketA.name}:implement`,
+      `${ticketA.name}:close-and-version`,
+    ],
+  );
+  assert.equal(nextTicketCalls, 1);
+  assert.equal(gitVersioning.syncChecks, 1);
+
+  const state = runner.getState();
+  assert.equal(state.isRunning, false);
+  assert.equal(state.phase, "idle");
+  assert.match(state.lastMessage, /limite de 1 tickets atingido/u);
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.ticket, ticketA.name);
+  assert.equal(summaries[0]?.status, "success");
 });
 
 test("syncActiveProject atualiza estado quando runner esta inativo", () => {

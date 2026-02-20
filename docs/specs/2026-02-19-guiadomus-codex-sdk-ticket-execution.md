@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 16:05Z
+- Last reviewed at (UTC): 2026-02-20 17:08Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
@@ -18,6 +18,7 @@
   - execplans/2026-02-19-plan-dir-compat-and-ticket-flow-tests-gap.md
   - execplans/2026-02-19-run-all-round-fail-fast-and-auto-push-gap.md
   - execplans/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
+  - execplans/2026-02-20-close-and-version-no-go-follow-up-ticket-and-run-all-limit-gap.md
 - Related commits:
   - A definir
 
@@ -40,6 +41,8 @@
 - RF-05: o fluxo deve realizar `push` automatico apos commit de fechamento de cada ticket.
 - RF-06: a rodada deve parar no primeiro erro, mantendo rastreabilidade do ticket que falhou.
 - RF-07: runner deve ser compativel com repositorios que usam `plans/` ou `execplans/`, sem exigir migracao manual previa.
+- RF-08: quando o fechamento resultar em `NO_GO`, o ticket atual deve ser encerrado com `Closure reason: split-follow-up` e um novo ticket de follow-up deve ser criado em `tickets/open/` no mesmo commit/push.
+- RF-09: cada comando `/run-all` deve respeitar limite maximo de tickets por rodada (`RUN_ALL_MAX_TICKETS_PER_ROUND`, padrao `20`) e encerrar de forma controlada ao atingir o limite.
 
 ## Nao-escopo
 - Execucao paralela de tickets.
@@ -52,6 +55,8 @@
 - [x] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
 - [x] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
 - [x] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
+- [x] CA-06 - Em `NO_GO` no fechamento, o ticket atual e fechado em `tickets/closed/` com `split-follow-up` e o follow-up e criado em `tickets/open/` no mesmo ciclo de versionamento.
+- [x] CA-07 - Ao atingir o limite configurado de tickets por rodada, `/run-all` encerra em estado `idle` sem erro tecnico, exigindo novo comando para continuar o backlog.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
@@ -70,6 +75,8 @@
   - Suite automatizada cobre rodada finita, fail-fast entre tickets e validacao de push/sincronismo em `git-client`.
   - `/run-all` agora executa preflight de autenticacao do Codex CLI e bloqueia inicio da rodada com mensagem acionavel quando a sessao nao existe.
   - Integracao com Codex CLI deixou de injetar `CODEX_API_KEY`/`OPENAI_API_KEY`; autenticacao passa a depender da sessao do usuario (`codex login`).
+  - Fluxo de fechamento passou a suportar handoff `NO_GO` com `split-follow-up`: fecha o ticket atual e cria ticket de continuidade no mesmo commit/push.
+  - `/run-all` passou a respeitar limite maximo de tickets por rodada via `RUN_ALL_MAX_TICKETS_PER_ROUND` (padrao `20`), encerrando de forma controlada ao atingir o teto.
 - Pendencias em aberto:
   - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
@@ -88,10 +95,15 @@
   - src/integrations/ticket-queue.ts
   - src/integrations/ticket-queue.test.ts
   - src/config/env.ts
+  - src/config/env.test.ts
   - src/main.ts
   - README.md
+  - prompts/04-encerrar-ticket-commit-push.md
+  - INTERNAL_TICKETS.md
+  - tickets/templates/internal-ticket-template.md
   - docs/systemd/codex-flow-runner.service
   - src/integrations/telegram-bot.test.ts
+  - execplans/2026-02-20-close-and-version-no-go-follow-up-ticket-and-run-all-limit-gap.md
   - execplans/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
   - tickets/closed/2026-02-19-codex-cli-auth-chatgpt-only-no-api-key-fallback.md
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
@@ -116,3 +128,4 @@
 - 2026-02-19 12:40Z - Rodada finita/fail-fast e push obrigatorio implementados com validacao git pos `close-and-version` e cobertura automatizada.
 - 2026-02-19 12:43Z - Ticket de rodada fail-fast/push obrigatorio encerrado com move para `tickets/closed/` no mesmo commit da solucao.
 - 2026-02-19 16:05Z - Fluxo migrado para autenticacao login-only do Codex CLI, com preflight de `/run-all`, remocao de injecao de API key e testes/documentacao atualizados.
+- 2026-02-20 17:08Z - Fluxo ajustado para handoff `NO_GO` com `split-follow-up` no fechamento e limite de tickets por rodada (`RUN_ALL_MAX_TICKETS_PER_ROUND`, padrao 20).

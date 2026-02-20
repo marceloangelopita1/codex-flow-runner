@@ -32,6 +32,7 @@ Depois preencha os campos obrigatorios do template.
 - Atualize para `in-progress` ao iniciar implementacao.
 - Atualize para `blocked` se faltar decisao/dependencia externa.
 - Mova para `tickets/closed/` quando encerrar e registre motivo de fechamento.
+- Use `Closure reason: split-follow-up` quando precisar encerrar o ticket atual por rastreabilidade e abrir um novo ticket de continuidade.
 - Se um commit/push contem a solucao de um ticket em `tickets/open/`, esse mesmo commit deve incluir a movimentacao do ticket para `tickets/closed/` e o preenchimento da secao `Closure`.
 
 Exemplo de fechamento:
@@ -44,6 +45,7 @@ Checklist minimo no commit de fechamento:
 - arquivo movido de `tickets/open/` para `tickets/closed/`;
 - `Status: closed`;
 - `Closed at (UTC)`, `Closure reason` e `Related PR/commit/execplan` preenchidos.
+- quando `Closure reason: split-follow-up`, incluir no mesmo commit o novo ticket em `tickets/open/` com vinculo ao ticket fechado.
 
 ## Relacao com planejamento
 Quando um ticket exigir mudanca complexa (multiarquivo, contrato, alto risco), abrir um ExecPlan em `execplans/` antes de implementar.

@@ -8,6 +8,9 @@
 - Reporter:
 - Owner:
 - Source: local-run | automated-test | external-test | production-observation
+- Parent ticket (optional):
+- Parent execplan (optional):
+- Parent commit (optional):
 - Request ID:
 - Related artifacts:
   - Request file:
@@ -61,5 +64,6 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Closure
 - Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
 - Related PR/commit/execplan:
+- Follow-up ticket (required when `Closure reason: split-follow-up`):

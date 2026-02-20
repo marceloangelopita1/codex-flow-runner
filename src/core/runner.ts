@@ -1401,13 +1401,32 @@ export class TicketRunner {
     }
     this.touchSlot(slot, "idle", "Rodada /run-all iniciada");
     const processedTickets = new Set<string>();
+    const maxTicketsPerRound = this.env.RUN_ALL_MAX_TICKETS_PER_ROUND;
     this.logger.info("Loop da rodada /run-all iniciado", {
       pollIntervalMs: this.env.POLL_INTERVAL_MS,
+      maxTicketsPerRound,
       activeProjectName: slot.project.name,
       activeProjectPath: slot.project.path,
     });
 
     while (slot.isRunning && this.activeSlots.has(slot.key)) {
+      if (processedTickets.size >= maxTicketsPerRound) {
+        slot.isRunning = false;
+        this.touchSlot(
+          slot,
+          "idle",
+          `Rodada /run-all finalizada: limite de ${maxTicketsPerRound} tickets atingido`,
+        );
+        this.logger.info("Rodada /run-all finalizada por limite de tickets", {
+          processedTicketsCount: processedTickets.size,
+          maxTicketsPerRound,
+          durationMs: Date.now() - roundStartedAt,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        return;
+      }
+
       if (slot.isPaused) {
         await sleep(this.env.POLL_INTERVAL_MS);
         continue;
