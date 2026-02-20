@@ -5,6 +5,7 @@ import {
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
 import type {
+  PlanSpecCallbackIgnoredReason,
   PlanSpecCallbackResult,
   PlanSpecSessionCancelResult,
   PlanSpecSessionInputResult,
@@ -110,6 +111,9 @@ interface CallbackContext {
   };
   callbackQuery: {
     data?: string;
+    from?: {
+      id: number | string;
+    };
   };
   answerCbQuery: (text?: string) => Promise<unknown>;
   editMessageText: (text: string, extra?: ReplyOptions) => Promise<unknown>;
@@ -130,6 +134,9 @@ interface IncomingUpdateContext {
   };
   callbackQuery?: {
     data?: string;
+    from?: {
+      id: number | string;
+    };
   };
 }
 
@@ -177,6 +184,25 @@ type ParsedSpecsCallbackData =
 interface SpecsCallbackContextState {
   chatId: string;
   consumed: boolean;
+}
+
+type CallbackAuditFlow = "specs" | "plan-spec";
+type CallbackDecisionResult = "accepted" | "blocked" | "failed";
+type CallbackValidationResult = "passed" | "blocked";
+type CallbackBlockReason =
+  | PlanSpecCallbackIgnoredReason
+  | "access-denied"
+  | "stale";
+
+interface CallbackAuditContext {
+  flow: CallbackAuditFlow;
+  chatId: string;
+  callbackData: string;
+  action: string;
+  userId?: string;
+  contextId?: string;
+  specFileName?: string;
+  sessionId?: number;
 }
 
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
@@ -750,10 +776,16 @@ export class TelegramController {
     }
 
     const chatId = this.resolveContextChatId(ctx.chat);
-    this.logger.info("Callback de specs recebido via Telegram", {
+    const userId = this.resolveCallbackUserId(ctx.callbackQuery);
+    let auditContext = this.createCallbackAuditContext({
+      flow: "specs",
       chatId,
       callbackData,
+      action: "unknown",
+      userId,
     });
+    this.logCallbackAttempt(auditContext);
+
     if (
       !this.isAllowed({
         chatId,
@@ -761,30 +793,64 @@ export class TelegramController {
         callbackData,
       })
     ) {
+      this.logCallbackValidation(auditContext, "access", "blocked", "access-denied");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "access-denied",
+      });
       await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
       return;
     }
 
+    this.logCallbackValidation(auditContext, "access", "passed");
     const parsed = this.parseSpecsCallbackData(callbackData);
     if (parsed.status === "invalid") {
+      auditContext = {
+        ...auditContext,
+        action: "invalid",
+      };
+      this.logCallbackValidation(auditContext, "payload", "blocked", "invalid-action");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "invalid-action",
+      });
       await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_INVALID_REPLY);
       return;
     }
 
+    auditContext = {
+      ...auditContext,
+      action: parsed.status,
+      contextId: parsed.contextId,
+    };
+    this.logCallbackValidation(auditContext, "payload", "passed");
+
     const callbackContext = this.specsCallbackContexts.get(parsed.contextId);
     if (!callbackContext || callbackContext.chatId !== chatId) {
+      this.logCallbackValidation(auditContext, "context", "blocked", "stale");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "stale",
+      });
       await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_STALE_REPLY);
       await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_STALE_REPLY);
       return;
     }
 
+    this.logCallbackValidation(auditContext, "context", "passed");
+
     if (callbackContext.consumed) {
+      this.logCallbackValidation(auditContext, "idempotency", "blocked", "stale");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "stale",
+      });
       await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_ALREADY_PROCESSED_REPLY);
       return;
     }
 
     if (parsed.status === "page") {
-      await this.renderSpecsCallbackPage(ctx, chatId, parsed.contextId, parsed.page);
+      await this.renderSpecsCallbackPage(ctx, chatId, parsed.contextId, parsed.page, auditContext);
       return;
     }
 
@@ -794,6 +860,7 @@ export class TelegramController {
       parsed.contextId,
       parsed.specIndex,
       callbackContext,
+      auditContext,
     );
   }
 
@@ -802,10 +869,16 @@ export class TelegramController {
     chatId: string,
     contextId: string,
     page: number,
+    auditContext: CallbackAuditContext,
   ): Promise<void> {
     try {
       const specs = await this.controls.listEligibleSpecs();
       if (specs.length === 0) {
+        this.logCallbackValidation(auditContext, "list-refresh", "blocked", "stale");
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: "stale",
+        });
         this.specsCallbackContexts.delete(contextId);
         await ctx.editMessageText(SPECS_EMPTY_REPLY, {
           reply_markup: {
@@ -817,13 +890,21 @@ export class TelegramController {
         return;
       }
 
+      this.logCallbackValidation(auditContext, "list-refresh", "passed");
       const rendered = this.buildSpecsReply(specs, contextId, page);
       await ctx.editMessageText(rendered.text, rendered.extra);
       await this.safeAnswerCallbackQuery(ctx);
+      this.logCallbackDecision(auditContext, {
+        result: "accepted",
+      });
     } catch (error) {
       this.logger.error("Falha ao paginar listagem de specs via callback", {
         requestedPage: page,
         error: error instanceof Error ? error.message : String(error),
+      });
+      this.logCallbackDecision(auditContext, {
+        result: "failed",
+        detail: error instanceof Error ? error.message : String(error),
       });
       await this.safeAnswerCallbackQuery(ctx, SPECS_LIST_FAILED_REPLY);
       await this.sendSpecsCallbackChatMessage(chatId, SPECS_LIST_FAILED_REPLY);
@@ -836,15 +917,27 @@ export class TelegramController {
     contextId: string,
     specIndex: number,
     callbackContext: SpecsCallbackContextState,
+    auditContext: CallbackAuditContext,
   ): Promise<void> {
     try {
       const specs = await this.controls.listEligibleSpecs();
       const targetSpec = specs[specIndex];
       if (!targetSpec) {
+        this.logCallbackValidation(auditContext, "target-spec", "blocked", "stale");
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: "stale",
+        });
         await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_STALE_REPLY);
         await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_STALE_REPLY);
         return;
       }
+
+      const selectionAuditContext: CallbackAuditContext = {
+        ...auditContext,
+        specFileName: targetSpec.fileName,
+      };
+      this.logCallbackValidation(selectionAuditContext, "target-spec", "passed");
 
       callbackContext.consumed = true;
       this.specsCallbackContexts.set(contextId, callbackContext);
@@ -858,17 +951,32 @@ export class TelegramController {
           specInput: targetSpec.fileName,
           error: error instanceof Error ? error.message : String(error),
         });
+        this.logCallbackDecision(selectionAuditContext, {
+          result: "failed",
+          detail: error instanceof Error ? error.message : String(error),
+        });
         await this.safeAnswerCallbackQuery(ctx, RUN_SPECS_VALIDATION_FAILED_REPLY);
         await this.sendSpecsCallbackChatMessage(chatId, RUN_SPECS_VALIDATION_FAILED_REPLY);
         return;
       }
 
       if (validation.status !== "eligible") {
+        this.logCallbackValidation(selectionAuditContext, "eligibility", "blocked", "ineligible");
+        this.logCallbackDecision(selectionAuditContext, {
+          result: "blocked",
+          blockReason: "ineligible",
+        });
         const validationReply = this.buildRunSpecsValidationReply(validation);
         await this.safeAnswerCallbackQuery(ctx, this.buildSpecsValidationToast(validation));
         await this.sendSpecsCallbackChatMessage(chatId, validationReply);
         return;
       }
+
+      const eligibleAuditContext: CallbackAuditContext = {
+        ...selectionAuditContext,
+        specFileName: validation.spec.fileName,
+      };
+      this.logCallbackValidation(eligibleAuditContext, "eligibility", "passed");
 
       const runOutcome = await this.buildRunSpecsReply({
         chatId,
@@ -886,11 +994,19 @@ export class TelegramController {
       );
       await this.safeAnswerCallbackQuery(ctx, this.buildSpecsSelectionToast(runOutcome.status));
       await this.sendSpecsCallbackChatMessage(chatId, runOutcome.reply);
+      this.logCallbackDecision(eligibleAuditContext, {
+        result: runOutcome.status === "started" ? "accepted" : "blocked",
+        ...(runOutcome.status === "started" ? {} : { blockReason: "concurrency" }),
+      });
     } catch (error) {
       this.logger.error("Falha ao executar callback de selecao de /specs", {
         chatId,
         specIndex,
         error: error instanceof Error ? error.message : String(error),
+      });
+      this.logCallbackDecision(auditContext, {
+        result: "failed",
+        detail: error instanceof Error ? error.message : String(error),
       });
       await this.safeAnswerCallbackQuery(ctx, SPECS_CALLBACK_SELECTION_FAILED_REPLY);
       await this.sendSpecsCallbackChatMessage(chatId, SPECS_CALLBACK_SELECTION_FAILED_REPLY);
@@ -1021,10 +1137,20 @@ export class TelegramController {
     }
 
     const chatId = this.resolveContextChatId(ctx.chat);
-    this.logger.info("Callback de planejamento de spec recebido via Telegram", {
+    const userId = this.resolveCallbackUserId(ctx.callbackQuery);
+    const parsed = this.parsePlanSpecCallbackData(callbackData);
+    const action = this.resolvePlanSpecCallbackAction(parsed);
+    const sessionId = this.getState().planSpecSession?.sessionId;
+    const auditContext = this.createCallbackAuditContext({
+      flow: "plan-spec",
       chatId,
       callbackData,
+      action,
+      userId,
+      sessionId,
     });
+
+    this.logCallbackAttempt(auditContext);
     if (
       !this.isAllowed({
         chatId,
@@ -1032,22 +1158,40 @@ export class TelegramController {
         callbackData,
       })
     ) {
+      this.logCallbackValidation(auditContext, "access", "blocked", "access-denied");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "access-denied",
+      });
       await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
       return;
     }
 
-    const parsed = this.parsePlanSpecCallbackData(callbackData);
+    this.logCallbackValidation(auditContext, "access", "passed");
     if (parsed.status === "invalid") {
+      this.logCallbackValidation(auditContext, "payload", "blocked", "invalid-action");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "invalid-action",
+      });
       await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INVALID_REPLY);
       return;
     }
 
+    this.logCallbackValidation(auditContext, "payload", "passed");
+
     if (parsed.status === "question") {
       if (!this.controls.onPlanSpecQuestionOptionSelected) {
+        this.logCallbackValidation(auditContext, "session-handler", "blocked", "inactive-session");
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: "inactive-session",
+        });
         await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
         return;
       }
 
+      this.logCallbackValidation(auditContext, "session-handler", "passed");
       try {
         const outcome = await this.controls.onPlanSpecQuestionOptionSelected(
           chatId,
@@ -1057,10 +1201,18 @@ export class TelegramController {
           ctx,
           outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
         );
+        this.logCallbackDecision(auditContext, {
+          result: outcome.status === "accepted" ? "accepted" : "blocked",
+          ...(outcome.status === "ignored" ? { blockReason: outcome.reason } : {}),
+        });
       } catch (error) {
         this.logger.error("Falha ao processar callback de pergunta do planejamento", {
           optionValue: parsed.optionValue,
           error: error instanceof Error ? error.message : String(error),
+        });
+        this.logCallbackDecision(auditContext, {
+          result: "failed",
+          detail: error instanceof Error ? error.message : String(error),
         });
         await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
       }
@@ -1068,20 +1220,34 @@ export class TelegramController {
     }
 
     if (!this.controls.onPlanSpecFinalActionSelected) {
+      this.logCallbackValidation(auditContext, "session-handler", "blocked", "inactive-session");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "inactive-session",
+      });
       await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
       return;
     }
 
+    this.logCallbackValidation(auditContext, "session-handler", "passed");
     try {
       const outcome = await this.controls.onPlanSpecFinalActionSelected(chatId, parsed.action);
       await this.safeAnswerCallbackQuery(
         ctx,
         outcome.status === "accepted" ? PLAN_SPEC_CALLBACK_ACCEPTED_REPLY : outcome.message,
       );
+      this.logCallbackDecision(auditContext, {
+        result: outcome.status === "accepted" ? "accepted" : "blocked",
+        ...(outcome.status === "ignored" ? { blockReason: outcome.reason } : {}),
+      });
     } catch (error) {
       this.logger.error("Falha ao processar callback de finalizacao do planejamento", {
         action: parsed.action,
         error: error instanceof Error ? error.message : String(error),
+      });
+      this.logCallbackDecision(auditContext, {
+        result: "failed",
+        detail: error instanceof Error ? error.message : String(error),
       });
       await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
     }
@@ -1441,6 +1607,18 @@ export class TelegramController {
     return { status: "invalid" };
   }
 
+  private resolvePlanSpecCallbackAction(parsed: ParsedPlanSpecCallbackData): string {
+    if (parsed.status === "question") {
+      return "question";
+    }
+
+    if (parsed.status === "final") {
+      return parsed.action;
+    }
+
+    return "invalid";
+  }
+
   private parseSpecsCallbackData(callbackData: string): ParsedSpecsCallbackData {
     if (callbackData.startsWith(SPECS_CALLBACK_PAGE_PREFIX)) {
       const payload = callbackData.slice(SPECS_CALLBACK_PAGE_PREFIX.length);
@@ -1585,6 +1763,79 @@ export class TelegramController {
     }
 
     return chat.id.toString();
+  }
+
+  private resolveCallbackUserId(
+    callbackQuery?: {
+      from?: {
+        id: number | string;
+      };
+    },
+  ): string | undefined {
+    if (!callbackQuery?.from) {
+      return undefined;
+    }
+
+    return callbackQuery.from.id.toString();
+  }
+
+  private createCallbackAuditContext(value: CallbackAuditContext): CallbackAuditContext {
+    return {
+      ...value,
+      callbackData: this.limit(value.callbackData),
+    };
+  }
+
+  private buildCallbackAuditPayload(context: CallbackAuditContext): Record<string, unknown> {
+    return {
+      callbackFlow: context.flow,
+      chatId: context.chatId,
+      callbackData: context.callbackData,
+      action: context.action,
+      ...(context.userId ? { userId: context.userId } : {}),
+      ...(context.contextId ? { contextId: context.contextId } : {}),
+      ...(context.specFileName ? { specFileName: context.specFileName } : {}),
+      ...(typeof context.sessionId === "number" ? { sessionId: context.sessionId } : {}),
+    };
+  }
+
+  private logCallbackAttempt(context: CallbackAuditContext): void {
+    this.logger.info("Callback recebido via Telegram", {
+      ...this.buildCallbackAuditPayload(context),
+      callbackStage: "attempt",
+    });
+  }
+
+  private logCallbackValidation(
+    context: CallbackAuditContext,
+    validation: string,
+    validationResult: CallbackValidationResult,
+    blockReason?: CallbackBlockReason,
+  ): void {
+    this.logger.info("Validacao de callback executada", {
+      ...this.buildCallbackAuditPayload(context),
+      callbackStage: "validation",
+      validation,
+      validationResult,
+      ...(blockReason ? { blockReason } : {}),
+    });
+  }
+
+  private logCallbackDecision(
+    context: CallbackAuditContext,
+    decision: {
+      result: CallbackDecisionResult;
+      blockReason?: CallbackBlockReason;
+      detail?: string;
+    },
+  ): void {
+    this.logger.info("Decisao final de callback registrada", {
+      ...this.buildCallbackAuditPayload(context),
+      callbackStage: "decision",
+      result: decision.result,
+      ...(decision.blockReason ? { blockReason: decision.blockReason } : {}),
+      ...(decision.detail ? { detail: this.limit(decision.detail) } : {}),
+    });
   }
 
   private buildSpecsSelectionToast(status: "started" | "already-running" | "blocked"): string {
@@ -1884,6 +2135,7 @@ export class TelegramController {
   private logIncomingUpdate(ctx: IncomingUpdateContext): void {
     const chatId = this.resolveContextChatId(ctx.chat);
     const messageText = ctx.message?.text;
+    const callbackUserId = this.resolveCallbackUserId(ctx.callbackQuery);
     const commandEntity = ctx.message?.entities?.find(
       (entity) => entity.type === BOT_COMMAND_ENTITY_TYPE && entity.offset === 0,
     );
@@ -1894,9 +2146,10 @@ export class TelegramController {
     this.logger.info("Update recebido do Telegram", {
       updateType: ctx.updateType ?? "unknown",
       chatId,
+      ...(callbackUserId ? { userId: callbackUserId } : {}),
       ...(command ? { command } : {}),
       ...(messageText ? { messageText: this.limit(messageText.trim()) } : {}),
-      ...(ctx.callbackQuery?.data ? { callbackData: ctx.callbackQuery.data } : {}),
+      ...(ctx.callbackQuery?.data ? { callbackData: this.limit(ctx.callbackQuery.data) } : {}),
     });
   }
 

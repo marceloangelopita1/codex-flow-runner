@@ -26,6 +26,7 @@ export type PlanSpecSessionPhase =
 export type PlanSpecCodexStream = "stdout" | "stderr";
 
 export interface PlanSpecSessionState {
+  sessionId?: number;
   chatId: string;
   phase: PlanSpecSessionPhase;
   startedAt: Date;

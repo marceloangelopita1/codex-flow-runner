@@ -1745,6 +1745,43 @@ test("submitPlanSpecInput diferencia chat incorreto e sessao inativa", async () 
   assert.match(inactiveResult.message, /Nenhuma sessão \/plan_spec ativa/u);
 });
 
+test("callbacks de /plan_spec retornam motivo tipado para bloqueios funcionais", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const wrongChatOutcome = await runner.handlePlanSpecQuestionOptionSelection("99", "api");
+  assert.equal(wrongChatOutcome.status, "ignored");
+  if (wrongChatOutcome.status === "ignored") {
+    assert.equal(wrongChatOutcome.reason, "inactive-session");
+    assert.match(wrongChatOutcome.message, /outro chat/u);
+  }
+
+  const invalidActionOutcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
+  assert.equal(invalidActionOutcome.status, "ignored");
+  if (invalidActionOutcome.status === "ignored") {
+    assert.equal(invalidActionOutcome.reason, "invalid-action");
+    assert.match(invalidActionOutcome.message, /so pode ser executada apos o bloco final/u);
+  }
+
+  const cancelOutcome = await runner.cancelPlanSpecSession("42");
+  assert.equal(cancelOutcome.status, "cancelled");
+
+  const inactiveOutcome = await runner.handlePlanSpecFinalActionSelection("42", "refine");
+  assert.equal(inactiveOutcome.status, "ignored");
+  if (inactiveOutcome.status === "ignored") {
+    assert.equal(inactiveOutcome.reason, "inactive-session");
+    assert.match(inactiveOutcome.message, /Nenhuma sessão \/plan_spec ativa/u);
+  }
+});
+
 test("submitPlanSpecInput retorna ack imediato e encerra sessao com erro quando envio para o Codex falha", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
@@ -2069,6 +2106,7 @@ test("acao Criar spec bloqueia colisao de arquivo e mantem sessao ativa para ref
     const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
     assert.equal(outcome.status, "ignored");
     if (outcome.status === "ignored") {
+      assert.equal(outcome.reason, "ineligible");
       assert.match(outcome.message, /Ja existe docs\/specs\/2026-02-19-bridge-interativa-do-codex\.md/u);
       assert.match(outcome.message, /Refinar/u);
     }
@@ -2150,6 +2188,7 @@ test("falha em etapa de Criar spec encerra sessao com erro acionavel sem corromp
     const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
     assert.equal(outcome.status, "ignored");
     if (outcome.status === "ignored") {
+      assert.equal(outcome.reason, "ineligible");
       assert.match(outcome.message, /Falha ao criar spec planejada/u);
       assert.match(outcome.message, /falha simulada/u);
     }

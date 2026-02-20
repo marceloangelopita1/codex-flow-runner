@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectSelectionSnapshot } from "../core/project-selection.js";
-import { RunnerProjectControlResult } from "../core/runner.js";
+import { PlanSpecCallbackIgnoredReason, RunnerProjectControlResult } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
@@ -11,9 +11,12 @@ import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 import { TelegramController } from "./telegram-bot.js";
 
 class SpyLogger extends Logger {
+  public readonly infos: Array<{ message: string; context?: Record<string, unknown> }> = [];
   public readonly warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
 
-  override info(): void {}
+  override info(message: string, context?: Record<string, unknown>): void {
+    this.infos.push({ message, context });
+  }
 
   override warn(message: string, context?: Record<string, unknown>): void {
     this.warnings.push({ message, context });
@@ -86,6 +89,7 @@ type PlanSpecControlOutcome =
     }
   | {
       status: "ignored";
+      reason: PlanSpecCallbackIgnoredReason;
       message: string;
     };
 
@@ -713,7 +717,7 @@ const callHandleSpecsCallbackQuery = async (
   controller: TelegramController,
   context: {
     chat?: { id: number };
-    callbackQuery: { data?: string };
+    callbackQuery: { data?: string; from?: { id: number } };
     answerCbQuery: (text?: string) => Promise<unknown>;
     editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
   },
@@ -721,7 +725,7 @@ const callHandleSpecsCallbackQuery = async (
   const internalController = controller as unknown as {
     handleSpecsCallbackQuery: (value: {
       chat?: { id: number };
-      callbackQuery: { data?: string };
+      callbackQuery: { data?: string; from?: { id: number } };
       answerCbQuery: (text?: string) => Promise<unknown>;
       editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
     }) => Promise<void>;
@@ -734,7 +738,7 @@ const callHandleProjectsCallbackQuery = async (
   controller: TelegramController,
   context: {
     chat?: { id: number };
-    callbackQuery: { data?: string };
+    callbackQuery: { data?: string; from?: { id: number } };
     answerCbQuery: (text?: string) => Promise<unknown>;
     editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
   },
@@ -742,7 +746,7 @@ const callHandleProjectsCallbackQuery = async (
   const internalController = controller as unknown as {
     handleProjectsCallbackQuery: (value: {
       chat?: { id: number };
-      callbackQuery: { data?: string };
+      callbackQuery: { data?: string; from?: { id: number } };
       answerCbQuery: (text?: string) => Promise<unknown>;
       editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
     }) => Promise<void>;
@@ -755,7 +759,7 @@ const callHandlePlanSpecCallbackQuery = async (
   controller: TelegramController,
   context: {
     chat?: { id: number };
-    callbackQuery: { data?: string };
+    callbackQuery: { data?: string; from?: { id: number } };
     answerCbQuery: (text?: string) => Promise<unknown>;
     editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
   },
@@ -763,7 +767,7 @@ const callHandlePlanSpecCallbackQuery = async (
   const internalController = controller as unknown as {
     handlePlanSpecCallbackQuery: (value: {
       chat?: { id: number };
-      callbackQuery: { data?: string };
+      callbackQuery: { data?: string; from?: { id: number } };
       answerCbQuery: (text?: string) => Promise<unknown>;
       editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
     }) => Promise<void>;
@@ -1731,6 +1735,69 @@ test("callback stale de /specs e bloqueado sem iniciar triagem (CA-08)", async (
   assert.equal(sentMessages[0]?.text, "A lista de specs mudou. Use /specs para atualizar.");
 });
 
+test("callback stale de /specs registra attempt/validation/decision com blockReason (CA-16)", async () => {
+  const { controller, logger } = createController();
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async () => Promise.resolve(),
+  });
+
+  const staleCallbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: staleCallbackData,
+      from: { id: 7001 },
+    },
+    answerCbQuery: async () => Promise.resolve(),
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(
+    logger.infos.some((entry) =>
+      entry.message === "Callback recebido via Telegram" &&
+      entry.context?.callbackFlow === "specs" &&
+      entry.context?.callbackStage === "attempt" &&
+      entry.context?.chatId === "42" &&
+      entry.context?.userId === "7001",
+    ),
+    true,
+  );
+  assert.equal(
+    logger.infos.some((entry) =>
+      entry.message === "Validacao de callback executada" &&
+      entry.context?.callbackFlow === "specs" &&
+      entry.context?.validation === "context" &&
+      entry.context?.validationResult === "blocked" &&
+      entry.context?.blockReason === "stale",
+    ),
+    true,
+  );
+  assert.equal(
+    logger.infos.some((entry) =>
+      entry.message === "Decisao final de callback registrada" &&
+      entry.context?.callbackFlow === "specs" &&
+      entry.context?.result === "blocked" &&
+      entry.context?.blockReason === "stale",
+    ),
+    true,
+  );
+});
+
 test("callback de /specs revalida elegibilidade e bloqueia spec inelegivel (CA-09)", async () => {
   const { controller, controlState } = createController({
     runSpecsValidationResult: {
@@ -2206,6 +2273,7 @@ test("callback final de Refinar retorna ao ciclo sem criar arquivo (CA-10)", asy
   const { controller, controlState } = createController({
     planSpecFinalCallbackOutcome: {
       status: "ignored",
+      reason: "invalid-action",
       message: "Refino solicitado, continue a conversa.",
     },
   });
@@ -2253,6 +2321,7 @@ test("callback final de Criar spec devolve erro acionavel quando runner rejeita 
   const { controller, controlState } = createController({
     planSpecFinalCallbackOutcome: {
       status: "ignored",
+      reason: "ineligible",
       message: "Falha ao criar spec planejada: conflito de slug.",
     },
   });
@@ -2271,6 +2340,57 @@ test("callback final de Criar spec devolve erro acionavel quando runner rejeita 
   assert.deepEqual(controlState.planSpecFinalActions, ["create-spec"]);
   assert.equal(answers.length, 1);
   assert.equal(answers[0], "Falha ao criar spec planejada: conflito de slug.");
+});
+
+test("callback de /plan_spec registra decision com reason tipado e sessionId (CA-16)", async () => {
+  const state = createState({
+    phase: "plan-spec-awaiting-final-action",
+    planSpecSession: createPlanSpecSession({
+      sessionId: 17,
+      phase: "awaiting-final-action",
+    }),
+  });
+  const { controller, logger } = createController({
+    getState: () => state,
+    planSpecFinalCallbackOutcome: {
+      status: "ignored",
+      reason: "ineligible",
+      message: "Falha ao criar spec planejada: conflito de slug.",
+    },
+  });
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:final:create-spec",
+      from: { id: 7002 },
+    },
+    answerCbQuery: async () => Promise.resolve(),
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(
+    logger.infos.some((entry) =>
+      entry.message === "Callback recebido via Telegram" &&
+      entry.context?.callbackFlow === "plan-spec" &&
+      entry.context?.callbackStage === "attempt" &&
+      entry.context?.action === "create-spec" &&
+      entry.context?.sessionId === 17 &&
+      entry.context?.userId === "7002",
+    ),
+    true,
+  );
+  assert.equal(
+    logger.infos.some((entry) =>
+      entry.message === "Decisao final de callback registrada" &&
+      entry.context?.callbackFlow === "plan-spec" &&
+      entry.context?.action === "create-spec" &&
+      entry.context?.result === "blocked" &&
+      entry.context?.blockReason === "ineligible" &&
+      entry.context?.sessionId === 17,
+    ),
+    true,
+  );
 });
 
 test("callback de planejamento invalido recebe mensagem de erro", async () => {

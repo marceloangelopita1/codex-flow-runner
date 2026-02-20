@@ -195,10 +195,17 @@ export type PlanSpecSessionCancelResult =
   | { status: "cancelled"; message: string }
   | PlanSpecSessionChatRejectedResult;
 
+export type PlanSpecCallbackIgnoredReason =
+  | "inactive-session"
+  | "concurrency"
+  | "ineligible"
+  | "invalid-action";
+
 export type PlanSpecCallbackResult =
   | { status: "accepted" }
   | {
       status: "ignored";
+      reason: PlanSpecCallbackIgnoredReason;
       message: string;
     };
 
@@ -405,6 +412,7 @@ export class TicketRunner {
 
       const now = this.now();
       this.state.planSpecSession = {
+        sessionId,
         chatId,
         phase: "awaiting-brief",
         startedAt: now,
@@ -537,8 +545,13 @@ export class TicketRunner {
       return { status: "accepted" };
     }
 
+    const reason =
+      result.status === "inactive" || result.status === "ignored-chat"
+        ? "inactive-session"
+        : "invalid-action";
     return {
       status: "ignored",
+      reason,
       message: result.message,
     };
   };
@@ -551,6 +564,7 @@ export class TicketRunner {
     if ("status" in session) {
       return {
         status: "ignored",
+        reason: "inactive-session",
         message: session.message,
       };
     }
@@ -576,8 +590,13 @@ export class TicketRunner {
       return { status: "accepted" };
     }
 
+    const reason =
+      result.status === "inactive" || result.status === "ignored-chat"
+        ? "inactive-session"
+        : "invalid-action";
     return {
       status: "ignored",
+      reason,
       message: result.message,
     };
   };
@@ -589,6 +608,7 @@ export class TicketRunner {
     if (!planSpecSession) {
       return {
         status: "ignored",
+        reason: "inactive-session",
         message: PLAN_SPEC_INACTIVE_MESSAGE,
       };
     }
@@ -596,6 +616,7 @@ export class TicketRunner {
     if (planSpecSession.phase !== "awaiting-final-action") {
       return {
         status: "ignored",
+        reason: "invalid-action",
         message:
           "Acao `Criar spec` so pode ser executada apos o bloco final do planejamento. Use `Refinar` para continuar.",
       };
@@ -605,6 +626,7 @@ export class TicketRunner {
     if (!finalBlock) {
       return {
         status: "ignored",
+        reason: "invalid-action",
         message:
           "Bloco final do planejamento indisponivel para `Criar spec`. Solicite `Refinar` e conclua novamente.",
       };
@@ -621,6 +643,7 @@ export class TicketRunner {
       const details = error instanceof Error ? error.message : String(error);
       return {
         status: "ignored",
+        reason: "ineligible",
         message: details,
       };
     }
@@ -648,6 +671,7 @@ export class TicketRunner {
       });
       return {
         status: "ignored",
+        reason: "ineligible",
         message: `Falha ao persistir trilha spec_planning: ${details}`,
       };
     }
@@ -756,6 +780,7 @@ export class TicketRunner {
       await this.emitPlanSpecFailure(session.chatId, `Falha ao criar spec planejada: ${details}`);
       return {
         status: "ignored",
+        reason: "ineligible",
         message: `Falha ao criar spec planejada: ${details}`,
       };
     } finally {
