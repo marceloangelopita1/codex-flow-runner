@@ -420,13 +420,13 @@ test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parsead
     },
   });
 
-  assert.equal(interactiveProcess.stdinWrites[0], "/plan\n");
+  assert.equal(interactiveProcess.stdinWrites[0], "/plan\r");
   assert.match(interactiveProcess.stdinWrites[1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
   assert.match(interactiveProcess.stdinWrites[1] ?? "", /Brief do operador: brief inicial da spec/u);
 
   interactiveProcess.stdout.write("Do you trust this directory? (yes/no)\n");
-  assert.equal(interactiveProcess.stdinWrites.includes("yes\n"), true);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "/plan\n").length >= 2, true);
+  assert.equal(interactiveProcess.stdinWrites.includes("yes\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "/plan\r").length >= 2, true);
 
   interactiveProcess.stdout.write(
     [
@@ -474,7 +474,7 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   assert.match(interactiveProcess.stdinWrites[1] ?? "", /Brief do operador: resposta em texto livre/u);
 
   await session.sendUserInput("segunda resposta");
-  assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\n"), true);
+  assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\r"), true);
 
   interactiveProcess.stderr.write("\u001b[31mErro interativo\u001b[0m\n");
   assert.equal(rawEvents.length, 1);

@@ -143,6 +143,7 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const INTERACTIVE_ENTER_KEY = "\r";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -549,10 +550,10 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       this.handleClose(code);
     });
 
-    this.write(`${PLAN_COMMAND}\n`, "start");
+    this.write(`${PLAN_COMMAND}${INTERACTIVE_ENTER_KEY}`, "start");
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
-      this.write(`${this.decorateFirstUserInput(initialUserInput)}\n`, "start");
+      this.write(`${this.decorateFirstUserInput(initialUserInput)}${INTERACTIVE_ENTER_KEY}`, "start");
     }
   }
 
@@ -566,7 +567,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       throw new CodexPlanSessionError("input", "A sessao interativa ja foi encerrada.");
     }
 
-    this.write(`${this.decorateFirstUserInput(normalized)}\n`, "input");
+    this.write(`${this.decorateFirstUserInput(normalized)}${INTERACTIVE_ENTER_KEY}`, "input");
   }
 
   async cancel(): Promise<void> {
@@ -587,8 +588,8 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
       this.trustPromptHandled = true;
       this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
-      this.write("yes\n", "start");
-      this.write(`${PLAN_COMMAND}\n`, "start");
+      this.write(`yes${INTERACTIVE_ENTER_KEY}`, "start");
+      this.write(`${PLAN_COMMAND}${INTERACTIVE_ENTER_KEY}`, "start");
     }
 
     const parsed = parsePlanSpecOutputChunk(this.parserState, chunk);
