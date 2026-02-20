@@ -4,6 +4,8 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import {
+  buildInteractiveCodexArgs,
+  buildNonInteractiveCodexArgs,
   CodexAuthenticationError,
   CodexCliTicketFlowClient,
   CodexPlanSessionError,
@@ -127,6 +129,38 @@ test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", as
       process.env.OPENAI_API_KEY = originalOpenaiApiKey;
     }
   }
+});
+
+test("args nao interativos usam full access explicito por chamada", () => {
+  const args = buildNonInteractiveCodexArgs();
+
+  assert.deepEqual(args, [
+    "exec",
+    "--skip-git-repo-check",
+    "-s",
+    "danger-full-access",
+    "-a",
+    "never",
+    "--color",
+    "never",
+    "-",
+  ]);
+  assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+});
+
+test("args interativos usam full access explicito por chamada", () => {
+  const args = buildInteractiveCodexArgs();
+
+  assert.deepEqual(args, [
+    "--skip-git-repo-check",
+    "-s",
+    "danger-full-access",
+    "-a",
+    "never",
+    "--color",
+    "never",
+  ]);
+  assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {

@@ -137,6 +137,23 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const CODEX_EXPLICIT_FULL_ACCESS_ARGS = [
+  "--skip-git-repo-check",
+  "-s",
+  "danger-full-access",
+  "-a",
+  "never",
+  "--color",
+  "never",
+] as const;
+
+export const buildNonInteractiveCodexArgs = (): string[] => [
+  "exec",
+  ...CODEX_EXPLICIT_FULL_ACCESS_ARGS,
+  "-",
+];
+
+export const buildInteractiveCodexArgs = (): string[] => [...CODEX_EXPLICIT_FULL_ACCESS_ARGS];
 
 export class CodexStageExecutionError extends Error {
   constructor(
@@ -627,14 +644,7 @@ export const isTicketFlowStage = (stage: CodexFlowStage): stage is TicketFlowSta
   stage === "plan" || stage === "implement" || stage === "close-and-version";
 
 const runCodexCommand = async (request: CodexCommandRequest): Promise<CodexCommandResult> => {
-  const args = [
-    "exec",
-    "--skip-git-repo-check",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--color",
-    "never",
-    "-",
-  ];
+  const args = buildNonInteractiveCodexArgs();
 
   return new Promise<CodexCommandResult>((resolve, reject) => {
     const child = spawn("codex", args, {
@@ -717,12 +727,7 @@ const runCodexAuthStatusCommand = async (
 const spawnCodexInteractiveProcess = (
   request: CodexInteractiveSessionRequest,
 ): InteractiveCodexProcess => {
-  const args = [
-    "--skip-git-repo-check",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--color",
-    "never",
-  ];
+  const args = buildInteractiveCodexArgs();
 
   return spawn("codex", args, {
     cwd: request.cwd,
