@@ -143,6 +143,30 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const PLAN_SPEC_PROTOCOL_PRIMER = [
+  "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
+  "Responda sempre em blocos parseaveis para automacao.",
+  "",
+  "Quando precisar de desambiguacao, responda exatamente neste formato:",
+  "[[PLAN_SPEC_QUESTION]]",
+  "Pergunta: <pergunta objetiva>",
+  "Opcoes:",
+  "- [slug-opcao-1] Rotulo opcao 1",
+  "- [slug-opcao-2] Rotulo opcao 2",
+  "[[/PLAN_SPEC_QUESTION]]",
+  "",
+  "Quando concluir o planejamento, responda exatamente neste formato:",
+  "[[PLAN_SPEC_FINAL]]",
+  "Titulo: <titulo final da spec>",
+  "Resumo: <resumo final objetivo>",
+  "Acoes:",
+  "- Criar spec",
+  "- Refinar",
+  "- Cancelar",
+  "[[/PLAN_SPEC_FINAL]]",
+  "",
+  "Nao inclua texto fora dos blocos acima.",
+].join("\n");
 const CODEX_APPROVAL_NEVER_ARGS = ["-a", "never"] as const;
 const CODEX_SANDBOX_FULL_ACCESS_ARGS = [
   "-s",
@@ -505,6 +529,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
   private cancelled = false;
   private failureNotified = false;
   private trustPromptHandled = false;
+  private protocolPrimerInjected = false;
 
   constructor(
     private readonly process: InteractiveCodexProcess,
@@ -527,7 +552,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     this.write(`${PLAN_COMMAND}\n`, "start");
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
-      this.write(`${initialUserInput}\n`, "start");
+      this.write(`${this.decorateFirstUserInput(initialUserInput)}\n`, "start");
     }
   }
 
@@ -541,7 +566,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       throw new CodexPlanSessionError("input", "A sessao interativa ja foi encerrada.");
     }
 
-    this.write(`${normalized}\n`, "input");
+    this.write(`${this.decorateFirstUserInput(normalized)}\n`, "input");
   }
 
   async cancel(): Promise<void> {
@@ -679,6 +704,15 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       this.notifyFailure(phase, errorMessage(error));
       throw new CodexPlanSessionError(phase, errorMessage(error));
     }
+  }
+
+  private decorateFirstUserInput(input: string): string {
+    if (this.protocolPrimerInjected) {
+      return input;
+    }
+
+    this.protocolPrimerInjected = true;
+    return [PLAN_SPEC_PROTOCOL_PRIMER, "", `Brief do operador: ${input}`].join("\n");
   }
 }
 

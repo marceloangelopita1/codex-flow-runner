@@ -1615,6 +1615,37 @@ test("submitPlanSpecInput encaminha brief inicial e transita para espera do Code
   assert.equal(state.planSpecSession?.phase, "waiting-user");
 });
 
+test("saida raw em bootstrap de /plan_spec e suprimida enquanto aguarda brief inicial", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const rawOutputs: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      planSpecEventHandlers: {
+        onQuestion: () => undefined,
+        onFinal: () => undefined,
+        onRawOutput: (_chatId, event) => {
+          rawOutputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+
+  await runner.startPlanSpecSession("42");
+  codex.lastPlanSession?.emitRawOutput("OpenAI Codex bootstrap");
+  await sleep(0);
+
+  assert.deepEqual(rawOutputs, []);
+  assert.equal(runner.getState().planSpecSession?.phase, "awaiting-brief");
+});
+
 test("submitPlanSpecInput diferencia chat incorreto e sessao inativa", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();

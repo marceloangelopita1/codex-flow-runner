@@ -154,6 +154,28 @@ test("ignora ruido baixo-sinal de TTY em eventos raw", () => {
   assert.equal(emittedEvents.length, 0);
 });
 
+test("ignora ruido conhecido de bootstrap da TUI do Codex", () => {
+  const output = [
+    ">_ OpenAI Codex (v0.104.0)",
+    "model: gpt-5.3-codex xhigh /model to change",
+    "directory: ~/projetos/codex-flow-runner",
+    "Tip: Visit the Codex community forum: https://community.openai.com/c/codex/37",
+    "for shortcuts",
+    "100% context left",
+  ].join("\n");
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
+test("ignora eco de input do operador acompanhado de contador de contexto", () => {
+  const output =
+    "Gostariaqueainteratividadeequandoseescolheumaspecfossecomumclick.Podecriaressajornadacomospec?100% context left";
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
 test("saneia saida raw removendo ANSI, controles e excesso de espacos", () => {
   const value = "\u001b[31mFalha\u001b[0m\u0007\r\n\r\nDetalhe tecnico\r\n";
   const sanitized = sanitizePlanSpecRawOutput(value);

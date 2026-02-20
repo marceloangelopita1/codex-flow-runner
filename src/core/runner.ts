@@ -945,6 +945,14 @@ export class TicketRunner {
       return;
     }
 
+    if (planSpecSession.phase === "awaiting-brief") {
+      this.logger.info("Saida raw da sessao /plan_spec suprimida durante aguardando brief inicial", {
+        chatId: activeSession.chatId,
+        preview: event.text.slice(0, 180),
+      });
+      return;
+    }
+
     const slot = this.activeSlots.get(activeSession.slotKey);
     if (slot) {
       this.touchSlot(slot, slot.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");

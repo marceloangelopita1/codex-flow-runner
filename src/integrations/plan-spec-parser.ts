@@ -6,6 +6,14 @@ const ANSI_ESCAPE_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const MAX_RAW_OUTPUT_LENGTH = 3500;
 const OPEN_BLOCK_MARKERS = [QUESTION_BLOCK_OPEN, FINAL_BLOCK_OPEN] as const;
+const CODEX_UI_NOISE_PATTERNS = [
+  /openai codex/u,
+  /\/model to change/u,
+  /for shortcuts/u,
+  /\b\d+%\s*context left\b/u,
+  /tip:\s*visit the codex community forum/u,
+  /tip:\s*new\s+\d+x\s+rate limits/u,
+] as const;
 
 export type PlanSpecFinalActionId = "create-spec" | "refine" | "cancel";
 
@@ -171,6 +179,10 @@ export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
     return false;
   }
 
+  if (isLikelyCodexUiNoise(trimmed)) {
+    return false;
+  }
+
   if (trimmed.length < 3) {
     return false;
   }
@@ -194,6 +206,18 @@ export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
   }
 
   return true;
+};
+
+const isLikelyCodexUiNoise = (value: string): boolean => {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return CODEX_UI_NOISE_PATTERNS.some((pattern) => pattern.test(normalized));
 };
 
 const pushRawEvent = (events: PlanSpecParserEvent[], value: string): void => {
