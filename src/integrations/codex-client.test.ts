@@ -135,12 +135,12 @@ test("args nao interativos usam full access explicito por chamada", () => {
   const args = buildNonInteractiveCodexArgs();
 
   assert.deepEqual(args, [
+    "-a",
+    "never",
     "exec",
     "--skip-git-repo-check",
     "-s",
     "danger-full-access",
-    "-a",
-    "never",
     "--color",
     "never",
     "-",

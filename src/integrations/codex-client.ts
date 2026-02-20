@@ -137,23 +137,30 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
-const CODEX_EXPLICIT_FULL_ACCESS_ARGS = [
+const CODEX_APPROVAL_NEVER_ARGS = ["-a", "never"] as const;
+const CODEX_EXEC_ENVIRONMENT_ARGS = [
   "--skip-git-repo-check",
   "-s",
   "danger-full-access",
-  "-a",
-  "never",
+];
+const CODEX_COLOR_NEVER_ARGS = [
   "--color",
   "never",
 ] as const;
 
 export const buildNonInteractiveCodexArgs = (): string[] => [
+  ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
-  ...CODEX_EXPLICIT_FULL_ACCESS_ARGS,
+  ...CODEX_EXEC_ENVIRONMENT_ARGS,
+  ...CODEX_COLOR_NEVER_ARGS,
   "-",
 ];
 
-export const buildInteractiveCodexArgs = (): string[] => [...CODEX_EXPLICIT_FULL_ACCESS_ARGS];
+export const buildInteractiveCodexArgs = (): string[] => [
+  ...CODEX_EXEC_ENVIRONMENT_ARGS,
+  ...CODEX_APPROVAL_NEVER_ARGS,
+  ...CODEX_COLOR_NEVER_ARGS,
+];
 
 export class CodexStageExecutionError extends Error {
   constructor(
