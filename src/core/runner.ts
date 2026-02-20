@@ -143,8 +143,23 @@ export type RunSpecsRequestResult =
 
 export type SyncActiveProjectResult =
   | { status: "updated" }
-  | { status: "blocked-running" }
   | { status: "blocked-plan-spec" };
+
+export type RunnerProjectControlAction = "pause" | "resume";
+
+export type RunnerProjectControlResult =
+  | {
+      status: "applied";
+      action: RunnerProjectControlAction;
+      project: ProjectRef;
+      isPaused: boolean;
+    }
+  | {
+      status: "ignored";
+      action: RunnerProjectControlAction;
+      reason: "active-project-unavailable" | "project-slot-inactive";
+      project: ProjectRef | null;
+    };
 
 export type PlanSpecSessionStartResult =
   | { status: "started"; message: string }
@@ -253,59 +268,11 @@ export class TicketRunner {
       : {}),
   });
 
-  requestPause = (): void => {
-    const runSlots = this.getRunSlots();
-    if (runSlots.length === 0) {
-      this.state.isPaused = true;
-      if (this.isPlanSpecSessionActive()) {
-        this.logger.info("Pausa solicitada durante sessao /plan_spec ativa", {
-          phase: this.state.phase,
-          planSpecPhase: this.state.planSpecSession?.phase,
-        });
-        return;
-      }
-      this.touch("paused", "Pausa solicitada via Telegram");
-      return;
-    }
+  requestPause = (): RunnerProjectControlResult => this.requestProjectControl("pause");
 
-    for (const slot of runSlots) {
-      slot.isPaused = true;
-      slot.phase = "paused";
-    }
-    this.syncStateFromSlots();
-    this.touch("paused", "Pausa solicitada via Telegram");
-  };
-
-  requestResume = (): void => {
-    const runSlots = this.getRunSlots();
-    if (runSlots.length === 0) {
-      this.state.isPaused = false;
-      if (this.isPlanSpecSessionActive()) {
-        this.logger.info("Resume solicitado durante sessao /plan_spec ativa", {
-          phase: this.state.phase,
-          planSpecPhase: this.state.planSpecSession?.phase,
-        });
-        return;
-      }
-      this.touch("idle", "Runner retomado via Telegram");
-      return;
-    }
-
-    for (const slot of runSlots) {
-      slot.isPaused = false;
-      if (slot.phase === "paused") {
-        slot.phase = "idle";
-      }
-    }
-    this.syncStateFromSlots();
-    this.touch("idle", "Runner retomado via Telegram");
-  };
+  requestResume = (): RunnerProjectControlResult => this.requestProjectControl("resume");
 
   syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
-    if (this.hasBusyRunSlots()) {
-      return { status: "blocked-running" };
-    }
-
     if (this.isPlanSpecSessionActive()) {
       return { status: "blocked-plan-spec" };
     }
@@ -1869,22 +1836,58 @@ export class TicketRunner {
     });
   }
 
-  private hasBusyRunSlots(): boolean {
-    if (this.startRequestsInFlight > 0) {
-      return true;
+  private requestProjectControl(action: RunnerProjectControlAction): RunnerProjectControlResult {
+    const activeProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+    if (!activeProject) {
+      this.logger.warn("Controle de runner ignorado: projeto ativo indisponivel", {
+        action,
+      });
+      return {
+        status: "ignored",
+        action,
+        reason: "active-project-unavailable",
+        project: null,
+      };
     }
 
-    for (const slot of this.activeSlots.values()) {
-      if (slot.kind === "plan-spec") {
-        continue;
-      }
-
-      if (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)) {
-        return true;
-      }
+    const slot = this.activeSlots.get(this.buildSlotKey(activeProject));
+    if (!slot || slot.kind === "plan-spec") {
+      this.logger.info("Controle de runner ignorado: sem slot de execucao no projeto ativo", {
+        action,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
+      });
+      return {
+        status: "ignored",
+        action,
+        reason: "project-slot-inactive",
+        project: activeProject,
+      };
     }
 
-    return false;
+    if (action === "pause") {
+      slot.isPaused = true;
+      slot.phase = "paused";
+      this.touchSlot(slot, "paused", "Pausa solicitada via Telegram");
+      return {
+        status: "applied",
+        action,
+        project: { ...slot.project },
+        isPaused: true,
+      };
+    }
+
+    slot.isPaused = false;
+    if (slot.phase === "paused") {
+      slot.phase = "idle";
+    }
+    this.touchSlot(slot, "idle", "Runner retomado via Telegram");
+    return {
+      status: "applied",
+      action,
+      project: { ...slot.project },
+      isPaused: false,
+    };
   }
 
   private getRunSlots(): ActiveRunnerSlot[] {

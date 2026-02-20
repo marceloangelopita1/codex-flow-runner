@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-20 15:44Z
-- Last reviewed at (UTC): 2026-02-20 16:23Z
+- Last reviewed at (UTC): 2026-02-20 16:42Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
@@ -15,6 +15,7 @@
 - Related execplans:
   - execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
   - execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
+  - execplans/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
 - Related commits:
   - A definir
 
@@ -64,36 +65,38 @@
 - [x] CA-02 - Com runner ativo em `alpha-project`, novo `/run_all` ou `/run_specs` em `alpha-project` retorna bloqueio de slot ja ocupado.
 - [x] CA-03 - Com 5 projetos ativos, tentativa de iniciar execucao em sexto projeto retorna bloqueio de capacidade maxima com lista de projetos ativos.
 - [x] CA-04 - Ao finalizar um runner ativo e liberar vaga, novo start em outro projeto passa a ser aceito.
-- [ ] CA-05 - `/status` exibe dados detalhados do projeto ativo e painel global de runners com indicador `N/5`.
-- [ ] CA-06 - `/pause` e `/resume` enviados com projeto `beta` ativo nao alteram estado do runner de `alpha`.
-- [ ] CA-07 - Troca de projeto via `/select_project` e callbacks de `/projects` funciona mesmo com execucao ativa em projeto diferente.
+- [x] CA-05 - `/status` exibe dados detalhados do projeto ativo e painel global de runners com indicador `N/5`.
+- [x] CA-06 - `/pause` e `/resume` enviados com projeto `beta` ativo nao alteram estado do runner de `alpha`.
+- [x] CA-07 - Troca de projeto via `/select_project` e callbacks de `/projects` funciona mesmo com execucao ativa em projeto diferente.
 - [x] CA-08 - `/plan_spec` ativo em um projeto nao bloqueia `/run_all` em outro projeto com capacidade disponivel.
 - [x] CA-09 - Durante `/plan_spec` ativo, nova tentativa de `/plan_spec` em qualquer projeto retorna bloqueio explicito.
-- [ ] CA-10 - Mensagem de resumo final por ticket identifica explicitamente o projeto no proprio texto da notificacao.
+- [x] CA-10 - Mensagem de resumo final por ticket identifica explicitamente o projeto no proprio texto da notificacao.
 - [x] CA-11 - Sem `TELEGRAM_ALLOWED_CHAT_ID`, bootstrap falha com erro claro de configuracao obrigatoria.
 - [x] CA-12 - Chat nao autorizado continua bloqueado para comandos e callbacks do bot.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Matriz RF:
-  - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-14, RF-15, RF-16, RF-17, RF-18.
-  - Parcialmente atendidos: RF-11, RF-12, RF-13.
+  - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-11, RF-12, RF-13, RF-14, RF-15, RF-16, RF-17, RF-18.
+  - Parcialmente atendidos: nenhum.
   - Nao atendidos: nenhum.
 - Matriz CA:
-  - Atendidos: CA-01, CA-02, CA-03, CA-04, CA-08, CA-09, CA-10, CA-11, CA-12.
-  - Parcialmente atendidos: CA-05.
-  - Nao atendidos: CA-06, CA-07.
+  - Atendidos: CA-01, CA-02, CA-03, CA-04, CA-05, CA-06, CA-07, CA-08, CA-09, CA-10, CA-11, CA-12.
+  - Parcialmente atendidos: nenhum.
+  - Nao atendidos: nenhum.
 - Itens atendidos:
   - Descoberta de projetos elegiveis e projeto ativo global persistido ja existem.
   - Nucleo multi-runner por projeto implementado com limite global fixo de 5 slots e bloqueio acionavel sem fila automatica.
   - `/run_all` e `/run_specs` executam em paralelo para projetos distintos, mantendo sequencialidade de tickets por projeto.
   - `/plan_spec` continua com sessao global unica e bloqueio explicito para segunda tentativa, coexistindo com `/run_all` em outro projeto quando ha capacidade.
+  - `/status` agora combina detalhes do projeto ativo com painel global de capacidade (`N/5`) e listagem de slots ativos.
+  - `/pause` e `/resume` passaram a atuar apenas no slot do projeto ativo, sem alterar runners de outros projetos.
+  - `/select_project` e callbacks de `/projects` permanecem operaveis durante execucao em outro projeto, mantendo bloqueio apenas para sessao `/plan_spec` ativa.
   - Resumo final por ticket e logs operacionais ja incluem nome/caminho do projeto.
   - Bootstrap falha cedo quando `TELEGRAM_ALLOWED_CHAT_ID` nao esta configurado.
   - Controle de acesso por chat segue aplicado a comandos e callbacks quando `TELEGRAM_ALLOWED_CHAT_ID` esta configurado.
 - Pendencias em aberto:
-  - `P1/S2` - Adaptar contrato Telegram para painel global `N/5`, controles `/pause`/`/resume` por projeto e selecao de projeto durante execucao em outros projetos.
-  - Cobrir os CAs de concorrencia/capacidade e controles por projeto com testes automatizados dedicados.
+  - Nenhuma pendencia tecnica funcional aberta nesta spec; resta apenas fechamento operacional dos tickets relacionados.
 - Evidencias de validacao:
   - src/main.ts
   - src/core/runner.ts
@@ -104,6 +107,7 @@
   - src/config/env.ts
   - src/config/env.test.ts
   - execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
+  - execplans/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
   - docs/specs/2026-02-19-telegram-multi-project-active-selection.md
   - docs/specs/2026-02-19-telegram-run-status-notification.md
 
@@ -126,3 +130,4 @@
 - 2026-02-20 15:51Z - Revisao de gaps concluida com matriz RF/CA atualizada e abertura de tickets de backlog para nucleo multi-runner, contrato Telegram e exigencia de `TELEGRAM_ALLOWED_CHAT_ID`.
 - 2026-02-20 16:14Z - Core multi-runner entregue com limite global de 5 slots, lock por projeto e cobertura automatizada de CA-01/02/03/04/08/09.
 - 2026-02-20 16:23Z - Bootstrap passou a exigir `TELEGRAM_ALLOWED_CHAT_ID` via `parseEnv`, com cobertura de testes para ausencia/valor vazio e preservacao do bloqueio de acesso no Telegram.
+- 2026-02-20 16:42Z - Contrato Telegram multi-runner concluido com painel global `N/5` em `/status`, `/pause` e `/resume` por projeto ativo, e troca de projeto liberada durante execucao em outros projetos com cobertura de CA-05/06/07.

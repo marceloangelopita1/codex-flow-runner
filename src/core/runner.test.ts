@@ -579,7 +579,7 @@ test("syncActiveProject atualiza estado quando runner esta inativo", () => {
   assert.match(state.lastMessage, /Projeto ativo atualizado para beta-project/u);
 });
 
-test("syncActiveProject bloqueia troca quando runner esta iniciando rodada", async () => {
+test("syncActiveProject permite troca enquanto runner inicia rodada em outro projeto", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({
     activeProject: activeProjectA,
@@ -590,15 +590,127 @@ test("syncActiveProject bloqueia troca quando runner esta iniciando rodada", asy
   const runner = createRunner(logger, roundDependencies);
 
   const runAllPromise = runner.requestRunAll();
-  const syncOutcome = runner.syncActiveProject(activeProjectB);
   const runAllOutcome = await runAllPromise;
+  const syncOutcome = runner.syncActiveProject(activeProjectB);
   await waitForRunnerToStop(runner);
 
-  assert.deepEqual(syncOutcome, { status: "blocked-running" });
+  assert.deepEqual(syncOutcome, { status: "updated" });
   assert.deepEqual(runAllOutcome, { status: "started" });
   const state = runner.getState();
-  assert.equal(state.activeProject?.name, activeProjectA.name);
-  assert.equal(state.activeProject?.path, activeProjectA.path);
+  assert.equal(state.activeProject?.name, activeProjectB.name);
+  assert.equal(state.activeProject?.path, activeProjectB.path);
+});
+
+test("requestPause e requestResume atuam apenas no slot do projeto ativo", async () => {
+  const logger = new SpyLogger();
+
+  const createBlockingQueue = () => {
+    let releaseWait: (() => void) | null = null;
+    const waitForRelease = new Promise<TicketRef | null>((resolve) => {
+      releaseWait = () => resolve(null);
+    });
+
+    return {
+      queue: {
+        ensureStructure: async () => undefined,
+        nextOpenTicket: async () => waitForRelease,
+        closeTicket: async () => undefined,
+      } satisfies TicketQueue,
+      release: () => {
+        releaseWait?.();
+      },
+    };
+  };
+
+  const alphaQueue = createBlockingQueue();
+  const betaQueue = createBlockingQueue();
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: alphaQueue.queue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: betaQueue.queue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+
+  let currentProject: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
+
+  const runAlphaResult = await runner.requestRunAll();
+  currentProject = "beta";
+  const runBetaResult = await runner.requestRunAll();
+  assert.deepEqual(runAlphaResult, { status: "started" });
+  assert.deepEqual(runBetaResult, { status: "started" });
+
+  assert.deepEqual(runner.syncActiveProject(activeProjectB), { status: "updated" });
+  const pauseResult = runner.requestPause();
+  assert.deepEqual(pauseResult, {
+    status: "applied",
+    action: "pause",
+    project: activeProjectB,
+    isPaused: true,
+  });
+  const pausedState = runner.getState();
+  const pausedAlphaSlot = pausedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
+  const pausedBetaSlot = pausedState.activeSlots.find((slot) => slot.project.name === activeProjectB.name);
+  assert.equal(pausedAlphaSlot?.isPaused, false);
+  assert.equal(pausedBetaSlot?.isPaused, true);
+
+  const resumeResult = runner.requestResume();
+  assert.deepEqual(resumeResult, {
+    status: "applied",
+    action: "resume",
+    project: activeProjectB,
+    isPaused: false,
+  });
+  const resumedState = runner.getState();
+  const resumedAlphaSlot = resumedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
+  const resumedBetaSlot = resumedState.activeSlots.find((slot) => slot.project.name === activeProjectB.name);
+  assert.equal(resumedAlphaSlot?.isPaused, false);
+  assert.equal(resumedBetaSlot?.isPaused, false);
+
+  alphaQueue.release();
+  betaQueue.release();
+  await waitForRunnerToStop(runner);
+});
+
+test("requestPause e requestResume retornam ignored quando projeto ativo nao tem slot", () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  const idleProject: ProjectRef = {
+    name: "idle-project",
+    path: "/tmp/projects/idle-project",
+  };
+  assert.deepEqual(runner.syncActiveProject(idleProject), { status: "updated" });
+
+  const pauseResult = runner.requestPause();
+  const resumeResult = runner.requestResume();
+
+  assert.deepEqual(pauseResult, {
+    status: "ignored",
+    action: "pause",
+    reason: "project-slot-inactive",
+    project: idleProject,
+  });
+  assert.deepEqual(resumeResult, {
+    status: "ignored",
+    action: "resume",
+    reason: "project-slot-inactive",
+    project: idleProject,
+  });
 });
 
 test("requestRunAll resolve projeto ativo por rodada e evita mistura entre projetos", async () => {

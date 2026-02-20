@@ -1,7 +1,7 @@
 # [TICKET] Contrato Telegram para multi-runner (status global e controles por projeto) esta incompleto
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-20 15:51Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
-  - ExecPlan: A definir
+  - execplans/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
 
 ## Context
 - Workflow area: `src/integrations/telegram-bot.ts` e contratos de controle no `runner`
@@ -76,8 +76,9 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-20 - Ticket aberto apos avaliacao de gaps da spec `2026-02-20-telegram-multi-project-parallel-runners`.
+- 2026-02-20 - Ticket resolvido com contrato Telegram alinhado ao multi-runner (status global + controles scoped por projeto ativo).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-20 16:45Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md

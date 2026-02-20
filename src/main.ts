@@ -168,7 +168,7 @@ const bootstrap = async () => {
         }
 
         const sync = runner.syncActiveProject(selection.activeProject);
-        if (sync.status === "blocked-running" || sync.status === "blocked-plan-spec") {
+        if (sync.status === "blocked-plan-spec") {
           if (selection.changed && previousActiveProject) {
             try {
               await activeProjectStore.save(previousActiveProject);

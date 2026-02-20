@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectSelectionSnapshot } from "../core/project-selection.js";
+import { RunnerProjectControlResult } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
@@ -103,12 +104,13 @@ interface ControllerOptions {
     message: string;
   };
   runSpecsValidationResult?: SpecEligibilityResult;
+  pauseResult?: RunnerProjectControlResult;
+  resumeResult?: RunnerProjectControlResult;
   getState?: () => RunnerState;
   projectSnapshot?: ProjectSelectionSnapshot;
   eligibleSpecs?: EligibleSpecRef[];
   listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
-  forceSelectBlocked?: boolean;
   forceSelectBlockedPlanSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
@@ -173,6 +175,8 @@ const createController = (options: ControllerOptions = {}) => {
     listEligibleSpecsCalls: 0,
     validateRunSpecsTargetCalls: 0,
     validatedSpecsArgs: [] as string[],
+    pauseCalls: 0,
+    resumeCalls: 0,
     listProjectsCalls: 0,
     selectedProjectNames: [] as string[],
     planSpecQuestionSelections: [] as string[],
@@ -322,8 +326,32 @@ const createController = (options: ControllerOptions = {}) => {
         },
       };
     },
-    pause: () => undefined,
-    resume: () => undefined,
+    pause: () => {
+      controlState.pauseCalls += 1;
+      if (options.pauseResult) {
+        return options.pauseResult;
+      }
+
+      return {
+        status: "applied" as const,
+        action: "pause" as const,
+        project: cloneProject(defaultActiveProject),
+        isPaused: true,
+      };
+    },
+    resume: () => {
+      controlState.resumeCalls += 1;
+      if (options.resumeResult) {
+        return options.resumeResult;
+      }
+
+      return {
+        status: "applied" as const,
+        action: "resume" as const,
+        project: cloneProject(defaultActiveProject),
+        isPaused: false,
+      };
+    },
     listProjects: () => {
       controlState.listProjectsCalls += 1;
       if (options.listProjectsErrorMessage) {
@@ -335,9 +363,6 @@ const createController = (options: ControllerOptions = {}) => {
     selectProjectByName: (projectName: string) => {
       controlState.selectedProjectNames.push(projectName);
 
-      if (options.forceSelectBlocked) {
-        return { status: "blocked-running" as const };
-      }
       if (options.forceSelectBlockedPlanSpec) {
         return { status: "blocked-plan-spec" as const };
       }
@@ -549,6 +574,40 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandlePauseCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handlePauseCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handlePauseCommand(context);
+};
+
+const callHandleResumeCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleResumeCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleResumeCommand(context);
 };
 
 const callHandlePlanSpecCommand = async (
@@ -923,6 +982,67 @@ test("gera resposta acionavel quando /run_specs e bloqueado", async () => {
   );
   assert.equal(reply.started, false);
   assert.equal(controlState.runSpecsCalls, 1);
+});
+
+test("/pause atua no runner do projeto ativo", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandlePauseCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.pauseCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "✅ Runner do projeto codex-flow-runner será pausado após a etapa corrente.");
+});
+
+test("/resume atua no runner do projeto ativo", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleResumeCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.resumeCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "▶️ Runner do projeto codex-flow-runner retomado.");
+});
+
+test("/pause informa quando projeto ativo nao possui runner em execucao", async () => {
+  const { controller, controlState } = createController({
+    pauseResult: {
+      status: "ignored",
+      action: "pause",
+      reason: "project-slot-inactive",
+      project: {
+        name: "beta-project",
+        path: "/home/mapita/projetos/beta-project",
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandlePauseCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.pauseCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Nenhum runner em execução no projeto ativo beta-project.");
 });
 
 test("mensagem de /start descreve o bot e os comandos aceitos", () => {
@@ -1611,12 +1731,13 @@ test("callback de selecao troca projeto ativo e responde confirmacao", async () 
   assert.match(answers[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
-test("callback de selecao bloqueia troca quando runner esta executando", async () => {
+test("callback de selecao permite troca durante execucao em outro projeto", async () => {
   const runningState = createState({ isRunning: true });
   const { controller, controlState } = createController({
     getState: () => runningState,
   });
   const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
 
   await callHandleProjectsCallbackQuery(controller, {
     chat: { id: 42 },
@@ -1625,12 +1746,17 @@ test("callback de selecao bloqueia troca quando runner esta executando", async (
       answers.push(text ?? "");
       return Promise.resolve();
     },
-    editMessageText: async () => Promise.resolve(),
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
   });
 
-  assert.deepEqual(controlState.selectedProjectNames, []);
+  assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Projeto ativo: beta-project/u);
   assert.equal(answers.length, 1);
-  assert.match(answers[0] ?? "", /Não é possível trocar o projeto ativo/u);
+  assert.match(answers[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
 test("pergunta parseada gera teclado inline com opcoes clicaveis (CA-07)", () => {
@@ -1879,7 +2005,7 @@ test("/select_project com underscore seleciona projeto corretamente", async () =
   assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
-test("/select-project bloqueia troca quando runner esta em execucao", async () => {
+test("/select-project permite troca durante execucao em outro projeto", async () => {
   const { controller, controlState } = createController({
     getState: () => createState({ isRunning: true }),
   });
@@ -1894,9 +2020,10 @@ test("/select-project bloqueia troca quando runner esta em execucao", async () =
     },
   });
 
-  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.equal(controlState.selectedProjectNames.length, 1);
+  assert.equal(controlState.selectedProjectNames[0], "beta-project");
   assert.equal(replies.length, 1);
-  assert.match(replies[0] ?? "", /Não é possível trocar o projeto ativo/u);
+  assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
 test("/select-project confirma troca quando projeto existe", async () => {
@@ -2073,6 +2200,36 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   const state: RunnerState = {
     ...createState(),
     isRunning: true,
+    capacity: {
+      limit: 5,
+      used: 2,
+    },
+    activeSlots: [
+      {
+        project: {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+        },
+        kind: "run-all",
+        phase: "implement",
+        currentTicket: "2026-02-20-alpha.md",
+        currentSpec: null,
+        isPaused: false,
+        startedAt: new Date("2026-02-20T16:00:00.000Z"),
+      },
+      {
+        project: {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+        },
+        kind: "run-specs",
+        phase: "paused",
+        currentTicket: null,
+        currentSpec: "2026-02-20-beta.md",
+        isPaused: true,
+        startedAt: new Date("2026-02-20T16:01:00.000Z"),
+      },
+    ],
     phase: "idle",
     lastNotifiedEvent: {
       summary: createSuccessSummary(),
@@ -2088,6 +2245,10 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
 
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(reply, /Runners ativos \(global\): 2\/5/u);
+  assert.match(reply, /Slots ativos:/u);
+  assert.match(reply, /1\. alpha-project \(\/run_all\)/u);
+  assert.match(reply, /2\. beta-project \(\/run_specs\)/u);
   assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: 2026-02-19-flow-a\.md \(success\)/u);
   assert.match(reply, /Projeto notificado: codex-flow-runner/u);
@@ -2103,6 +2264,8 @@ test("status informa ausencia de evento notificado", () => {
 
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(reply, /Runners ativos \(global\): 0\/5/u);
+  assert.match(reply, /Slots ativos: nenhum/u);
   assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: nenhum/u);
 });

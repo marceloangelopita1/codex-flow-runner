@@ -9,11 +9,12 @@ import type {
   PlanSpecSessionCancelResult,
   PlanSpecSessionInputResult,
   PlanSpecSessionStartResult,
+  RunnerProjectControlResult,
   RunAllRequestResult,
   RunSpecsRequestResult,
 } from "../core/runner.js";
 import { ProjectRef } from "../types/project.js";
-import { RunnerState } from "../types/state.js";
+import { RunnerSlotKind, RunnerState } from "../types/state.js";
 import {
   TicketFinalSummary,
   TicketNotificationDelivery,
@@ -43,8 +44,8 @@ interface BotControls {
   validateRunSpecsTarget: (
     specInput: string,
   ) => Promise<SpecEligibilityResult> | SpecEligibilityResult;
-  pause: () => void;
-  resume: () => void;
+  pause: () => Promise<RunnerProjectControlResult> | RunnerProjectControlResult;
+  resume: () => Promise<RunnerProjectControlResult> | RunnerProjectControlResult;
   listProjects: () => Promise<ProjectSelectionSnapshot> | ProjectSelectionSnapshot;
   selectProjectByName: (
     projectName: string,
@@ -61,9 +62,6 @@ interface BotControls {
 
 type ProjectSelectionControlResult =
   | ProjectSelectionResult
-  | {
-      status: "blocked-running";
-    }
   | {
       status: "blocked-plan-spec";
     };
@@ -197,8 +195,6 @@ const PLAN_SPEC_INPUT_BRIEF_ACCEPTED_REPLY = "✅ Brief inicial recebido. Aguard
 const PLAN_SPEC_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /plan_spec.";
 const SELECT_PROJECT_USAGE_REPLY =
   "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
-const SELECT_PROJECT_BLOCKED_RUNNING_REPLY =
-  "❌ Não é possível trocar o projeto ativo enquanto o runner está em execução.";
 const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
   "❌ Não é possível trocar o projeto ativo durante uma sessão /plan_spec ativa.";
 const LIST_PROJECTS_FAILED_REPLY =
@@ -376,33 +372,11 @@ export class TelegramController {
     });
 
     this.bot.command("pause", async (ctx) => {
-      if (
-        !this.isAllowed({
-          chatId: ctx.chat.id.toString(),
-          eventType: "command",
-          command: "pause",
-        })
-      ) {
-        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
-        return;
-      }
-      this.controls.pause();
-      await ctx.reply("✅ Runner será pausado após a etapa corrente.");
+      await this.handlePauseCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("resume", async (ctx) => {
-      if (
-        !this.isAllowed({
-          chatId: ctx.chat.id.toString(),
-          eventType: "command",
-          command: "resume",
-        })
-      ) {
-        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
-        return;
-      }
-      this.controls.resume();
-      await ctx.reply("▶️ Runner retomado.");
+      await this.handleResumeCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("projects", async (ctx) => {
@@ -446,6 +420,40 @@ export class TelegramController {
     this.bot.on("callback_query", async (ctx) => {
       await this.handleCallbackQuery(ctx as unknown as CallbackContext);
     });
+  }
+
+  private async handlePauseCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "pause",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.pause();
+    await ctx.reply(this.buildRunnerProjectControlReply(result));
+  }
+
+  private async handleResumeCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "resume",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.resume();
+    await ctx.reply(this.buildRunnerProjectControlReply(result));
   }
 
   private async handleCallbackQuery(ctx: CallbackContext): Promise<void> {
@@ -738,11 +746,6 @@ export class TelegramController {
       return;
     }
 
-    if (state.isRunning) {
-      await ctx.reply(SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
-      return;
-    }
-
     try {
       const result = await this.controls.selectProjectByName(projectName);
       await ctx.reply(this.buildSelectProjectReply(result));
@@ -793,11 +796,6 @@ export class TelegramController {
     if (parsed.status === "page") {
       await this.renderProjectsCallbackPage(ctx, parsed.page);
       await this.safeAnswerCallbackQuery(ctx);
-      return;
-    }
-
-    if (state.isRunning) {
-      await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
       return;
     }
 
@@ -906,10 +904,6 @@ export class TelegramController {
       }
 
       const selectionResult = await this.controls.selectProjectByName(targetProject.name);
-      if (selectionResult.status === "blocked-running") {
-        await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_RUNNING_REPLY);
-        return;
-      }
       if (selectionResult.status === "blocked-plan-spec") {
         await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
         return;
@@ -958,10 +952,6 @@ export class TelegramController {
   }
 
   private buildSelectProjectReply(result: ProjectSelectionControlResult): string {
-    if (result.status === "blocked-running") {
-      return SELECT_PROJECT_BLOCKED_RUNNING_REPLY;
-    }
-
     if (result.status === "blocked-plan-spec") {
       return SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY;
     }
@@ -1377,6 +1367,24 @@ export class TelegramController {
     return `ℹ️ ${result.message}`;
   }
 
+  private buildRunnerProjectControlReply(result: RunnerProjectControlResult): string {
+    if (result.status === "applied") {
+      if (result.action === "pause") {
+        return `✅ Runner do projeto ${result.project.name} será pausado após a etapa corrente.`;
+      }
+
+      return `▶️ Runner do projeto ${result.project.name} retomado.`;
+    }
+
+    if (result.reason === "active-project-unavailable") {
+      const command = result.action === "pause" ? "/pause" : "/resume";
+      return `ℹ️ Nenhum projeto ativo selecionado para ${command}.`;
+    }
+
+    const projectName = result.project?.name ?? "desconhecido";
+    return `ℹ️ Nenhum runner em execução no projeto ativo ${projectName}.`;
+  }
+
   private buildPlanSpecStatusReply(state: RunnerState): string {
     const session = state.planSpecSession;
     if (!session) {
@@ -1507,10 +1515,27 @@ export class TelegramController {
       `Spec atual: ${state.currentSpec ?? "nenhuma"}`,
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
+      `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Última mensagem: ${state.lastMessage}`,
       `Atualizado em: ${state.updatedAt.toISOString()}`,
     ];
+
+    if (state.activeSlots.length === 0) {
+      lines.push("Slots ativos: nenhum");
+    } else {
+      lines.push("Slots ativos:");
+      for (const [index, slot] of state.activeSlots.entries()) {
+        const details = [
+          `${index + 1}. ${slot.project.name} (${this.renderRunnerSlotCommand(slot.kind)})`,
+          `fase: ${slot.phase}`,
+          `pausado: ${slot.isPaused ? "sim" : "nao"}`,
+          `ticket: ${slot.currentTicket ?? "nenhum"}`,
+          `spec: ${slot.currentSpec ?? "nenhuma"}`,
+        ];
+        lines.push(details.join(" | "));
+      }
+    }
 
     if (state.planSpecSession) {
       lines.push(
@@ -1546,5 +1571,17 @@ export class TelegramController {
     }
 
     return lines.join("\n");
+  }
+
+  private renderRunnerSlotCommand(kind: RunnerSlotKind): string {
+    if (kind === "run-all") {
+      return "/run_all";
+    }
+
+    if (kind === "run-specs") {
+      return "/run_specs";
+    }
+
+    return "/plan_spec";
   }
 }
