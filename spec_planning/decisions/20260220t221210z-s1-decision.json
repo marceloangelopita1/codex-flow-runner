@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 1,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md",
+  "specFileName": "2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md",
+  "specTitle": "UX de selecao por clique com destaque e confirmacao em /specs e /plan_spec",
+  "specSummary": "Especificar a jornada interativa para tratamento de spec com 1 clique via /specs, mantendo /run_specs\n<arquivo> como fallback. Em /specs, cada item elegivel deve ter botao inline; ao clicar, o fluxo inicia imediatamente,\na mensagem da lista e editada para destacar a spec escolhida com ✅ e desabilitar novos cliques dessa mensagem, com\nconfirmacao dupla (answerCbQuery + mensagem no chat). O padrao de destaque e confirmacao deve ser estendido para /\nplan_spec: ao clicar em opcoes de pergunta e acoes finais, a mensagem correspondente deve ser atualizada marcando a\nopcao escolhida e travando os botoes, tambem com toast e mensagem de confirmacao. A spec deve cobrir paginação,\nvalidacao de elegibilidade no clique, bloqueios de concorrencia/acesso, tratamento de callback stale, rastreabilidade\nem logs e criterios de aceitacao observaveis para clique e fallback manual.",
+  "commitMessage": "feat(spec): add 2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md",
+  "recordedAtUtc": "2026-02-20T22:12:10.724Z"
+}
