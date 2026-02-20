@@ -48,6 +48,11 @@ export interface CodexStageResult {
   execPlanPath?: string;
 }
 
+interface CodexInteractiveSpawnRequest {
+  command: string;
+  args: string[];
+}
+
 export type PlanSpecSessionEvent =
   | {
       type: "question";
@@ -147,6 +152,15 @@ const CODEX_COLOR_NEVER_ARGS = [
   "--color",
   "never",
 ] as const;
+const SCRIPT_PSEUDO_TTY_ARGS = [
+  "--quiet",
+  "--return",
+  "--flush",
+  "--echo",
+  "never",
+] as const;
+const SCRIPT_PSEUDO_TTY_LOG_FILE = "/dev/null";
+const SHELL_SAFE_ARG_PATTERN = /^[A-Za-z0-9_@%+=:,./-]+$/u;
 
 export const buildNonInteractiveCodexArgs = (): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
@@ -161,6 +175,28 @@ export const buildInteractiveCodexArgs = (): string[] => [
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_APPROVAL_NEVER_ARGS,
 ];
+
+export const buildInteractiveCodexSpawnRequest = (
+  stdinIsTty: boolean,
+): CodexInteractiveSpawnRequest => {
+  const codexArgs = buildInteractiveCodexArgs();
+  if (stdinIsTty) {
+    return {
+      command: "codex",
+      args: codexArgs,
+    };
+  }
+
+  return {
+    command: "script",
+    args: [
+      ...SCRIPT_PSEUDO_TTY_ARGS,
+      "--command",
+      buildShellCommand("codex", codexArgs),
+      SCRIPT_PSEUDO_TTY_LOG_FILE,
+    ],
+  };
+};
 
 export class CodexStageExecutionError extends Error {
   constructor(
@@ -734,9 +770,9 @@ const runCodexAuthStatusCommand = async (
 const spawnCodexInteractiveProcess = (
   request: CodexInteractiveSessionRequest,
 ): InteractiveCodexProcess => {
-  const args = buildInteractiveCodexArgs();
+  const spawnRequest = buildInteractiveCodexSpawnRequest(Boolean(process.stdin.isTTY));
 
-  return spawn("codex", args, {
+  return spawn(spawnRequest.command, spawnRequest.args, {
     cwd: request.cwd,
     env: request.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -775,6 +811,17 @@ const isAuthenticatedStatusOutput = (stdout: string, stderr: string): boolean =>
   }
 
   return true;
+};
+
+const buildShellCommand = (command: string, args: readonly string[]): string =>
+  [command, ...args].map(shellEscape).join(" ");
+
+const shellEscape = (value: string): string => {
+  if (SHELL_SAFE_ARG_PATTERN.test(value)) {
+    return value;
+  }
+
+  return `'${value.replace(/'/gu, `'\"'\"'`)}'`;
 };
 
 const errorMessage = (error: unknown): string => {

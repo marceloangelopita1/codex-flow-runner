@@ -5,6 +5,7 @@ import test from "node:test";
 import { Logger } from "../core/logger.js";
 import {
   buildInteractiveCodexArgs,
+  buildInteractiveCodexSpawnRequest,
   buildNonInteractiveCodexArgs,
   CodexAuthenticationError,
   CodexCliTicketFlowClient,
@@ -160,6 +161,29 @@ test("args interativos usam full access sem flags exclusivas de codex exec", () 
   assert.equal(args.includes("--skip-git-repo-check"), false);
   assert.equal(args.includes("--color"), false);
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
+});
+
+test("spawn interativo usa codex direto quando stdin e TTY", () => {
+  const request = buildInteractiveCodexSpawnRequest(true);
+
+  assert.equal(request.command, "codex");
+  assert.deepEqual(request.args, ["-s", "danger-full-access", "-a", "never"]);
+});
+
+test("spawn interativo usa script quando stdin nao e TTY", () => {
+  const request = buildInteractiveCodexSpawnRequest(false);
+
+  assert.equal(request.command, "script");
+  assert.deepEqual(request.args, [
+    "--quiet",
+    "--return",
+    "--flush",
+    "--echo",
+    "never",
+    "--command",
+    "codex -s danger-full-access -a never",
+    "/dev/null",
+  ]);
 });
 
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
