@@ -1141,8 +1141,12 @@ export class TicketRunner {
     const now = this.now();
     const preview = event.activity.preview.trim();
     planSpecSession.lastCodexActivityAt = now;
-    planSpecSession.lastCodexStream = event.activity.source;
-    planSpecSession.lastCodexPreview = preview.length > 0 ? preview : null;
+    if (preview.length > 0) {
+      planSpecSession.lastCodexStream = event.activity.source;
+      planSpecSession.lastCodexPreview = preview;
+    } else {
+      return;
+    }
 
     const shouldLogActivity =
       !activeSession.lastCodexActivityLogAt ||

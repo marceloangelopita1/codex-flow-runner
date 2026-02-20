@@ -157,6 +157,7 @@ const INTERACTIVE_ENTER_KEY = "\r";
 const INTERACTIVE_QUEUE_KEY = "\t";
 const INTERACTIVE_QUEUE_DELAY_MS = 60;
 const INTERACTIVE_BOOTSTRAP_FALLBACK_MS = 1500;
+const INTERACTIVE_PROMPT_PROBE_MAX_CHARS = 12000;
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -545,6 +546,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
 class CodexInteractivePlanSession implements PlanSpecSession {
   private parserState: PlanSpecParserState = createPlanSpecParserState();
+  private promptReadyProbeBuffer = "";
   private closed = false;
   private cancelled = false;
   private failureNotified = false;
@@ -644,6 +646,10 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     }
 
     this.emitActivityObservation("stdout", chunk);
+    this.promptReadyProbeBuffer = appendInteractivePromptProbeBuffer(
+      this.promptReadyProbeBuffer,
+      chunk,
+    );
 
     if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
       this.trustPromptHandled = true;
@@ -651,7 +657,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       this.write(`yes${INTERACTIVE_ENTER_KEY}`, "start");
     }
 
-    if (!this.promptReadyDetected && isInteractivePromptReady(chunk)) {
+    if (!this.promptReadyDetected && isInteractivePromptReady(this.promptReadyProbeBuffer)) {
       this.promptReadyDetected = true;
     }
 
@@ -691,6 +697,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private handleClose(code: number | null): void {
     this.closed = true;
+    this.promptReadyProbeBuffer = "";
     this.clearBootstrapFallback();
     this.rejectPendingInputs(new Error("Sessao interativa encerrada antes de concluir mensagens pendentes."));
     this.logVerbose("Sessao interativa /plan_spec encerrada", {
@@ -824,7 +831,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private buildActivityPreview(chunk: string): string {
     const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized) {
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
       return "";
     }
 
@@ -1060,6 +1067,15 @@ const isInteractivePromptReady = (value: string): boolean => {
   }
 
   return normalized.includes("for shortcuts") && /\b\d+%\s*context left\b/u.test(normalized);
+};
+
+const appendInteractivePromptProbeBuffer = (current: string, chunk: string): string => {
+  const combined = `${current}${chunk}`;
+  if (combined.length <= INTERACTIVE_PROMPT_PROBE_MAX_CHARS) {
+    return combined;
+  }
+
+  return combined.slice(combined.length - INTERACTIVE_PROMPT_PROBE_MAX_CHARS);
 };
 
 const resolveInteractiveTranscriptPath = (): string => {

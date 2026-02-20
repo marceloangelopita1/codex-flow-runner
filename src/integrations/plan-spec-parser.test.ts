@@ -219,6 +219,30 @@ test("ignora eco de input do operador acompanhado de contador de contexto", () =
   assert.equal(events.length, 0);
 });
 
+test("ignora hints de navegacao da TUI do Codex durante /plan_spec", () => {
+  const output = [
+    "›/plan100% context left",
+    "10s • esc to interupt)",
+    "(shift+tab to cycle)89",
+  ].join("\n");
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
+test("ignora fragmentos curtos de token sem delimitadores", () => {
+  const output = ["pph", "xpng", "apach"].join("\n");
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events.length, 0);
+});
+
+test("mantem erro curto de uma palavra como raw significativo", () => {
+  const events = parsePlanSpecOutput("Erro");
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "raw-sanitized");
+  assert.equal(events[0]?.text, "Erro");
+});
+
 test("ignora eco do primer de protocolo /plan_spec mesmo quando compactado pela TUI", () => {
   const output = [
     "[[PLAN_SPEC_QUESTION]]Pergunta:<perguntaobjetiva>Opcoes:-[slug-opcao-1]Rotuloopcao1-[slug-opcao-2]Rotuloopcao2[[/PLAN_SPEC_QUESTION]]",

@@ -87,6 +87,24 @@ const waitForInteractiveWrites = async (): Promise<void> => {
   });
 };
 
+const waitForCondition = async (
+  predicate: () => boolean,
+  timeoutMs: number,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return true;
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+
+  return predicate();
+};
+
 test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
   let capturedPrompt = "";
   let capturedEnv: NodeJS.ProcessEnv | undefined;
@@ -583,6 +601,37 @@ test("startPlanSession aplica fallback de bootstrap quando prompt pronto nao e d
   );
   assert.ok(briefWrite);
 
+  await session.cancel();
+});
+
+test("startPlanSession detecta prompt interativo mesmo quando frase de readiness chega em chunks fragmentados", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  const pendingInput = session.sendUserInput("brief com prompt fragmentado");
+  interactiveProcess.stdout.write("Explain this codebase? for shor");
+  interactiveProcess.stdout.write("tcuts 100% context left\n");
+
+  const planWriteObserved = await waitForCondition(
+    () => interactiveProcess.stdinWrites.includes("/plan\r"),
+    700,
+  );
+  assert.equal(planWriteObserved, true);
+
+  await pendingInput;
   await session.cancel();
 });
 

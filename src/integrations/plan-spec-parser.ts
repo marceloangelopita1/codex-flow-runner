@@ -12,10 +12,25 @@ const CODEX_UI_NOISE_PATTERNS = [
   /openai codex/u,
   /\/model to change/u,
   /for shortcuts/u,
-  /\b\d+%\s*context left\b/u,
+  /\b\d+%?\s*context left\b/u,
+  /\/?plan\s*\d+%?\s*context left/u,
+  /shift\+tab to cycle/u,
+  /esc to interr?upt/u,
   /tip:\s*visit the codex community forum/u,
   /tip:\s*new\s+\d+x\s+rate limits/u,
 ] as const;
+const SHORT_TOKEN_NOISE_MAX_LENGTH = 6;
+const SHORT_TOKEN_MEANINGFUL_ALLOWLIST = new Set([
+  "erro",
+  "error",
+  "falha",
+  "fatal",
+  "panic",
+  "warn",
+  "warning",
+  "failed",
+  "abort",
+]);
 const PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS = [
   "contextovoceestaemumapontelegramparaplanejamentodespec",
   "respondasempreemblocosparseaveisparaautomacao",
@@ -211,6 +226,10 @@ export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
     return false;
   }
 
+  if (lines.every((line) => isLikelyShortTokenNoiseLine(line))) {
+    return false;
+  }
+
   const compact = lines.join("");
   const alphanumericCount = Array.from(compact).filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
   if (alphanumericCount < 3) {
@@ -232,6 +251,24 @@ const isLikelyCodexUiNoise = (value: string): boolean => {
 
   const compact = toCompactComparableText(normalized);
   return PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS.some((snippet) => compact.includes(snippet));
+};
+
+const isLikelyShortTokenNoiseLine = (value: string): boolean => {
+  const normalized = normalizeComparableText(value).trim();
+  if (!normalized || /\s/u.test(normalized)) {
+    return false;
+  }
+
+  const compact = normalized.replace(/[^a-z0-9]+/gu, "");
+  if (!compact || compact.length > SHORT_TOKEN_NOISE_MAX_LENGTH) {
+    return false;
+  }
+
+  if (SHORT_TOKEN_MEANINGFUL_ALLOWLIST.has(compact)) {
+    return false;
+  }
+
+  return true;
 };
 
 const pushRawEvent = (events: PlanSpecParserEvent[], value: string): void => {
