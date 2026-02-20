@@ -153,7 +153,8 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
-const INTERACTIVE_ENTER_KEY = "\r";
+const INTERACTIVE_CONFIRM_KEY = "\r";
+const INTERACTIVE_SUBMIT_SEQUENCE = "\r\n";
 const INTERACTIVE_QUEUE_KEY = "\t";
 const INTERACTIVE_QUEUE_DELAY_MS = 60;
 const INTERACTIVE_BOOTSTRAP_FALLBACK_MS = 1500;
@@ -654,7 +655,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
       this.trustPromptHandled = true;
       this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
-      this.write(`yes${INTERACTIVE_ENTER_KEY}`, "start");
+      this.write(`yes${INTERACTIVE_CONFIRM_KEY}`, "start");
     }
 
     if (!this.promptReadyDetected && isInteractivePromptReady(this.promptReadyProbeBuffer)) {
@@ -840,7 +841,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {
     return this.enqueueWriteOperation(async () => {
-      this.write(`${value}${INTERACTIVE_ENTER_KEY}`, phase);
+      this.write(`${value}${INTERACTIVE_SUBMIT_SEQUENCE}`, phase);
       await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
       this.write(INTERACTIVE_QUEUE_KEY, phase);
     });

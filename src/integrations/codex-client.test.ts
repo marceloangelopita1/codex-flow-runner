@@ -468,7 +468,7 @@ test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parsead
   interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
   await waitForInteractiveWrites();
 
-  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), true);
   assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
   const initialBriefWrite = interactiveProcess.stdinWrites.find((value) =>
     value.includes("Brief do operador: brief inicial da spec"),
@@ -527,7 +527,7 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
 
   await session.sendUserInput("segunda resposta");
-  assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\r\n"), true);
   assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 3, true);
 
   interactiveProcess.stderr.write("\u001b[31mErro interativo\u001b[0m\n");
@@ -595,7 +595,7 @@ test("startPlanSession aplica fallback de bootstrap quando prompt pronto nao e d
   });
   await pendingInput;
 
-  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), true);
   const briefWrite = interactiveProcess.stdinWrites.find((value) =>
     value.includes("Brief do operador: brief sem prompt detectado"),
   );
@@ -626,7 +626,7 @@ test("startPlanSession detecta prompt interativo mesmo quando frase de readiness
   interactiveProcess.stdout.write("tcuts 100% context left\n");
 
   const planWriteObserved = await waitForCondition(
-    () => interactiveProcess.stdinWrites.includes("/plan\r"),
+    () => interactiveProcess.stdinWrites.includes("/plan\r\n"),
     700,
   );
   assert.equal(planWriteObserved, true);
