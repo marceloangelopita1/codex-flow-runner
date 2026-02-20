@@ -4,7 +4,7 @@ const FINAL_BLOCK_OPEN = "[[PLAN_SPEC_FINAL]]";
 const FINAL_BLOCK_CLOSE = "[[/PLAN_SPEC_FINAL]]";
 const ANSI_ESCAPE_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/gu;
 const ORPHAN_PARAMETERIZED_CSI_PATTERN = /\[(?:\?|>|\d)[0-9;?]*[ -/]*[@-~]/gu;
-const ORPHAN_PARAMETERLESS_CSI_PATTERN = /\[[ABCDHFJKSTfhlmnrsu]/gu;
+const ORPHAN_PARAMETERLESS_CSI_PATTERN = /\[[ABCDHFJKSTfhlmnrsu](?![A-Za-z0-9_-])/gu;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const MAX_RAW_OUTPUT_LENGTH = 3500;
 const OPEN_BLOCK_MARKERS = [QUESTION_BLOCK_OPEN, FINAL_BLOCK_OPEN] as const;

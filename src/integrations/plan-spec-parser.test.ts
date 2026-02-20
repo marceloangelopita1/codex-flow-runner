@@ -261,6 +261,21 @@ test("saneia saida raw removendo sequencias de cursor sem ESC", () => {
   assert.equal(sanitized, "Titulo: <titulo final>\nResumo: <resumo final>");
 });
 
+test("saneia saida raw sem remover opcoes no formato [slug]", () => {
+  const value = [
+    "[[PLAN_SPEC_QUESTION]]",
+    "Pergunta: Qual opcao?",
+    "Opcoes:",
+    "- [sim] Continuar",
+    "- [nao] Cancelar",
+    "[[/PLAN_SPEC_QUESTION]]",
+  ].join("\n");
+
+  const sanitized = sanitizePlanSpecRawOutput(value);
+  assert.match(sanitized, /-\s*\[sim\]\s*Continuar/u);
+  assert.match(sanitized, /-\s*\[nao\]\s*Cancelar/u);
+});
+
 test("saneia saida raw longa aplicando truncamento deterministico", () => {
   const longValue = `prefixo-${"x".repeat(5000)}`;
   const sanitized = sanitizePlanSpecRawOutput(longValue);

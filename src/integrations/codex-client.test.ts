@@ -81,6 +81,12 @@ class FakeInteractiveProcess {
   }
 }
 
+const waitForInteractiveWrites = async (): Promise<void> => {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 250);
+  });
+};
+
 test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
   let capturedPrompt = "";
   let capturedEnv: NodeJS.ProcessEnv | undefined;
@@ -177,6 +183,22 @@ test("spawn interativo usa script para garantir pseudo-tty", () => {
     "sh -lc 'stty cols 120 rows 40; exec codex -s danger-full-access -a never'",
     "/dev/null",
   ]);
+});
+
+test("spawn interativo permite configurar arquivo de transcript via env", () => {
+  const previous = process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH;
+  process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH = "/tmp/codex-plan-spec.tty.log";
+
+  try {
+    const request = buildInteractiveCodexSpawnRequest();
+    assert.equal(request.args[request.args.length - 1], "/tmp/codex-plan-spec.tty.log");
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH;
+    } else {
+      process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH = previous;
+    }
+  }
 });
 
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
@@ -420,13 +442,20 @@ test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parsead
     },
   });
 
-  assert.equal(interactiveProcess.stdinWrites[0], "/plan\r");
-  assert.match(interactiveProcess.stdinWrites[1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
-  assert.match(interactiveProcess.stdinWrites[1] ?? "", /Brief do operador: brief inicial da spec/u);
+  assert.equal(interactiveProcess.stdinWrites.length, 0);
 
   interactiveProcess.stdout.write("Do you trust this directory? (yes/no)\n");
   assert.equal(interactiveProcess.stdinWrites.includes("yes\r"), true);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "/plan\r").length >= 2, true);
+
+  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
+  await waitForInteractiveWrites();
+
+  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
+  const initialBriefWrite = interactiveProcess.stdinWrites.find((value) =>
+    value.includes("Brief do operador: brief inicial da spec"),
+  );
+  assert.match(initialBriefWrite ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
 
   interactiveProcess.stdout.write(
     [
@@ -469,12 +498,19 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
     },
   });
 
+  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
+  await waitForInteractiveWrites();
+
   await session.sendUserInput("resposta em texto livre");
-  assert.match(interactiveProcess.stdinWrites[1] ?? "", /\[\[PLAN_SPEC_FINAL\]\]/u);
-  assert.match(interactiveProcess.stdinWrites[1] ?? "", /Brief do operador: resposta em texto livre/u);
+  const firstInputWrite = interactiveProcess.stdinWrites.find((value) =>
+    value.includes("Brief do operador: resposta em texto livre"),
+  );
+  assert.match(firstInputWrite ?? "", /\[\[PLAN_SPEC_FINAL\]\]/u);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
 
   await session.sendUserInput("segunda resposta");
   assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\r"), true);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 3, true);
 
   interactiveProcess.stderr.write("\u001b[31mErro interativo\u001b[0m\n");
   assert.equal(rawEvents.length, 1);

@@ -144,6 +144,8 @@ const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
 const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 const INTERACTIVE_ENTER_KEY = "\r";
+const INTERACTIVE_QUEUE_KEY = "\t";
+const INTERACTIVE_QUEUE_DELAY_MS = 60;
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -188,6 +190,8 @@ const SCRIPT_PSEUDO_TTY_ARGS = [
   "never",
 ] as const;
 const SCRIPT_PSEUDO_TTY_LOG_FILE = "/dev/null";
+const SCRIPT_PSEUDO_TTY_LOG_FILE_ENV = "CODEX_INTERACTIVE_SCRIPT_LOG_PATH";
+const INTERACTIVE_VERBOSE_LOG_ENV = "CODEX_INTERACTIVE_VERBOSE_LOGS";
 const SHELL_SAFE_ARG_PATTERN = /^[A-Za-z0-9_@%+=:,./-]+$/u;
 
 export const buildNonInteractiveCodexArgs = (): string[] => [
@@ -211,13 +215,14 @@ export const buildInteractiveCodexSpawnRequest = (): CodexInteractiveSpawnReques
     "-lc",
     `stty cols ${String(INTERACTIVE_PSEUDO_TTY_COLUMNS)} rows ${String(INTERACTIVE_PSEUDO_TTY_ROWS)}; exec ${codexCommand}`,
   ]);
+  const transcriptPath = resolveInteractiveTranscriptPath();
   return {
     command: "script",
     args: [
       ...SCRIPT_PSEUDO_TTY_ARGS,
       "--command",
       interactiveCommand,
-      SCRIPT_PSEUDO_TTY_LOG_FILE,
+      transcriptPath,
     ],
   };
 };
@@ -396,9 +401,12 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   }
 
   async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
+    const spawnRequest = buildInteractiveCodexSpawnRequest();
     this.logger.info("Iniciando sessao interativa de planejamento via Codex CLI", {
       repoPath: this.repoPath,
       mode: PLAN_COMMAND,
+      interactiveTranscriptPath: spawnRequest.args[spawnRequest.args.length - 1],
+      interactiveVerboseLogs: isInteractiveVerboseLogsEnabled(),
     });
 
     try {
@@ -531,6 +539,16 @@ class CodexInteractivePlanSession implements PlanSpecSession {
   private failureNotified = false;
   private trustPromptHandled = false;
   private protocolPrimerInjected = false;
+  private promptReadyDetected = false;
+  private planCommandBootstrapped = false;
+  private planCommandBootstrapInFlight = false;
+  private writePipeline: Promise<void> = Promise.resolve();
+  private readonly pendingInputs: Array<{
+    value: string;
+    phase: "start" | "input";
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }> = [];
 
   constructor(
     private readonly process: InteractiveCodexProcess,
@@ -550,10 +568,14 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       this.handleClose(code);
     });
 
-    this.write(`${PLAN_COMMAND}${INTERACTIVE_ENTER_KEY}`, "start");
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
-      this.write(`${this.decorateFirstUserInput(initialUserInput)}${INTERACTIVE_ENTER_KEY}`, "start");
+      this.pendingInputs.push({
+        value: this.decorateFirstUserInput(initialUserInput),
+        phase: "start",
+        resolve: () => undefined,
+        reject: () => undefined,
+      });
     }
   }
 
@@ -567,7 +589,23 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       throw new CodexPlanSessionError("input", "A sessao interativa ja foi encerrada.");
     }
 
-    this.write(`${this.decorateFirstUserInput(normalized)}${INTERACTIVE_ENTER_KEY}`, "input");
+    const decorated = this.decorateFirstUserInput(normalized);
+    if (!this.planCommandBootstrapped) {
+      if (this.promptReadyDetected) {
+        void this.bootstrapPlanMode().catch(() => undefined);
+      }
+
+      return new Promise<void>((resolve, reject) => {
+        this.pendingInputs.push({
+          value: decorated,
+          phase: "input",
+          resolve,
+          reject,
+        });
+      });
+    }
+
+    await this.sendInteractiveInput(decorated, "input");
   }
 
   async cancel(): Promise<void> {
@@ -589,11 +627,25 @@ class CodexInteractivePlanSession implements PlanSpecSession {
       this.trustPromptHandled = true;
       this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
       this.write(`yes${INTERACTIVE_ENTER_KEY}`, "start");
-      this.write(`${PLAN_COMMAND}${INTERACTIVE_ENTER_KEY}`, "start");
+    }
+
+    if (!this.promptReadyDetected && isInteractivePromptReady(chunk)) {
+      this.promptReadyDetected = true;
+    }
+
+    if (this.promptReadyDetected && !this.planCommandBootstrapped && !this.planCommandBootstrapInFlight) {
+      this.logger.info("Prompt interativo do Codex pronto; enviando /plan");
+      void this.bootstrapPlanMode().catch(() => undefined);
     }
 
     const parsed = parsePlanSpecOutputChunk(this.parserState, chunk);
     this.parserState = parsed.state;
+    this.logVerbose("Sessao interativa /plan_spec recebeu chunk stdout", {
+      chunkLength: chunk.length,
+      parsedEvents: parsed.events.map((event) => event.type),
+      pendingChunkLength: this.parserState.pendingChunk.length,
+      preview: limit(sanitizePlanSpecRawOutput(chunk).replace(/\r/gu, "\\r").replace(/\n/gu, "\\n")),
+    });
     for (const event of parsed.events) {
       this.forwardParserEvent(event);
     }
@@ -616,6 +668,12 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private handleClose(code: number | null): void {
     this.closed = true;
+    this.rejectPendingInputs(new Error("Sessao interativa encerrada antes de concluir mensagens pendentes."));
+    this.logVerbose("Sessao interativa /plan_spec encerrada", {
+      exitCode: code,
+      cancelled: this.cancelled,
+      pendingChunkLength: this.parserState.pendingChunk.length,
+    });
     if (this.parserState.pendingChunk.trim().length > 0) {
       const pending = sanitizePlanSpecRawOutput(this.parserState.pendingChunk);
       if (pending && isPlanSpecRawOutputMeaningful(pending)) {
@@ -646,6 +704,68 @@ class CodexInteractivePlanSession implements PlanSpecSession {
         });
       }
     }
+  }
+
+  private async bootstrapPlanMode(): Promise<void> {
+    if (this.closed || this.planCommandBootstrapped || this.planCommandBootstrapInFlight) {
+      return;
+    }
+
+    this.planCommandBootstrapInFlight = true;
+    try {
+      await this.sendInteractiveInput(PLAN_COMMAND, "start");
+      this.planCommandBootstrapped = true;
+      await this.flushPendingInputs();
+    } catch (error) {
+      this.rejectPendingInputs(error);
+      throw error;
+    } finally {
+      this.planCommandBootstrapInFlight = false;
+    }
+  }
+
+  private async flushPendingInputs(): Promise<void> {
+    while (this.pendingInputs.length > 0) {
+      const next = this.pendingInputs.shift();
+      if (!next) {
+        continue;
+      }
+
+      try {
+        await this.sendInteractiveInput(next.value, next.phase);
+        next.resolve();
+      } catch (error) {
+        next.reject(error);
+        throw error;
+      }
+    }
+  }
+
+  private rejectPendingInputs(error: unknown): void {
+    while (this.pendingInputs.length > 0) {
+      const next = this.pendingInputs.shift();
+      next?.reject(error);
+    }
+  }
+
+  private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {
+    return this.enqueueWriteOperation(async () => {
+      this.write(`${value}${INTERACTIVE_ENTER_KEY}`, phase);
+      await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
+      this.write(INTERACTIVE_QUEUE_KEY, phase);
+    });
+  }
+
+  private enqueueWriteOperation(operation: () => Promise<void>): Promise<void> {
+    const scheduled = this.writePipeline.then(async () => operation());
+    this.writePipeline = scheduled.catch(() => undefined);
+    return scheduled;
+  }
+
+  private wait(delayMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
   }
 
   private forwardParserEvent(event: PlanSpecParserEvent): void {
@@ -700,6 +820,11 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private write(value: string, phase: "start" | "input"): void {
     try {
+      this.logVerbose("Sessao interativa /plan_spec enviou input para Codex", {
+        phase,
+        bytes: value.length,
+        preview: limit(value.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n")),
+      });
       this.process.stdin.write(value);
     } catch (error) {
       this.notifyFailure(phase, errorMessage(error));
@@ -714,6 +839,14 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
     this.protocolPrimerInjected = true;
     return [PLAN_SPEC_PROTOCOL_PRIMER, "", `Brief do operador: ${input}`].join("\n");
+  }
+
+  private logVerbose(message: string, context: Record<string, unknown>): void {
+    if (!isInteractiveVerboseLogsEnabled()) {
+      return;
+    }
+
+    this.logger.info(message, context);
   }
 }
 
@@ -831,6 +964,33 @@ const isDirectoryTrustPrompt = (value: string): boolean => {
     normalized.includes("confiar neste diretorio") ||
     normalized.includes("confianca de diretorio")
   );
+};
+
+const isInteractivePromptReady = (value: string): boolean => {
+  const normalized = sanitizePlanSpecRawOutput(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.includes("for shortcuts") && /\b\d+%\s*context left\b/u.test(normalized);
+};
+
+const resolveInteractiveTranscriptPath = (): string => {
+  const configured = process.env[SCRIPT_PSEUDO_TTY_LOG_FILE_ENV]?.trim();
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+
+  return SCRIPT_PSEUDO_TTY_LOG_FILE;
+};
+
+const isInteractiveVerboseLogsEnabled = (): boolean => {
+  const configured = process.env[INTERACTIVE_VERBOSE_LOG_ENV]?.trim().toLowerCase();
+  return configured === "1" || configured === "true";
 };
 
 const isAuthenticatedStatusOutput = (stdout: string, stderr: string): boolean => {
