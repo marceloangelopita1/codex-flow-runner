@@ -174,7 +174,7 @@ test("spawn interativo usa script para garantir pseudo-tty", () => {
     "--echo",
     "never",
     "--command",
-    "codex -s danger-full-access -a never",
+    "sh -lc 'stty cols 120 rows 40; exec codex -s danger-full-access -a never'",
     "/dev/null",
   ]);
 });

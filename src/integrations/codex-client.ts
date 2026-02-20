@@ -153,6 +153,8 @@ const CODEX_COLOR_NEVER_ARGS = [
   "--color",
   "never",
 ] as const;
+const INTERACTIVE_PSEUDO_TTY_COLUMNS = 120;
+const INTERACTIVE_PSEUDO_TTY_ROWS = 40;
 const SCRIPT_PSEUDO_TTY_ARGS = [
   "--quiet",
   "--return",
@@ -179,12 +181,17 @@ export const buildInteractiveCodexArgs = (): string[] => [
 
 export const buildInteractiveCodexSpawnRequest = (): CodexInteractiveSpawnRequest => {
   const codexArgs = buildInteractiveCodexArgs();
+  const codexCommand = buildShellCommand("codex", codexArgs);
+  const interactiveCommand = buildShellCommand("sh", [
+    "-lc",
+    `stty cols ${String(INTERACTIVE_PSEUDO_TTY_COLUMNS)} rows ${String(INTERACTIVE_PSEUDO_TTY_ROWS)}; exec ${codexCommand}`,
+  ]);
   return {
     command: "script",
     args: [
       ...SCRIPT_PSEUDO_TTY_ARGS,
       "--command",
-      buildShellCommand("codex", codexArgs),
+      interactiveCommand,
       SCRIPT_PSEUDO_TTY_LOG_FILE,
     ],
   };
