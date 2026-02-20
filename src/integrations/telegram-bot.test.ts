@@ -35,6 +35,11 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
     name: "codex-flow-runner",
     path: "/home/mapita/projetos/codex-flow-runner",
   },
+  capacity: {
+    limit: 5,
+    used: 0,
+  },
+  activeSlots: [],
   planSpecSession: null,
   phase: "idle",
   lastMessage: "estado de teste",

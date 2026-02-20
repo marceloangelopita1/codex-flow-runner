@@ -893,11 +893,15 @@ test("requestRunAll evita corrida durante preflight de autenticacao", async () =
 
   const [firstResult, secondResult] = await Promise.all([firstRequest, secondRequest]);
   assert.deepEqual(firstResult, { status: "started" });
-  assert.deepEqual(secondResult, { status: "already-running" });
+  assert.deepEqual(secondResult, {
+    status: "blocked",
+    reason: "project-slot-busy",
+    message: "Nao e possivel iniciar /run_all: slot do projeto alpha-project ja ocupado por /run_all.",
+  });
 
   await waitForRunnerToStop(runner);
   assert.equal(codex.authChecks, 1);
-  assert.equal(resolveCalls, 1);
+  assert.equal(resolveCalls, 2);
 });
 
 test("requestRunSpecs evita corrida durante preflight de autenticacao", async () => {
@@ -922,11 +926,179 @@ test("requestRunSpecs evita corrida durante preflight de autenticacao", async ()
 
   const [firstResult, secondResult] = await Promise.all([firstRequest, secondRequest]);
   assert.deepEqual(firstResult, { status: "started" });
-  assert.deepEqual(secondResult, { status: "already-running" });
+  assert.deepEqual(secondResult, {
+    status: "blocked",
+    reason: "project-slot-busy",
+    message:
+      "Nao e possivel iniciar /run_specs: slot do projeto alpha-project ja ocupado por /run_specs.",
+  });
 
   await waitForRunnerToStop(runner);
   assert.equal(codex.authChecks, 1);
-  assert.equal(resolveCalls, 1);
+  assert.equal(resolveCalls, 2);
+});
+
+test("requestRunAll aceita execucoes paralelas em projetos distintos (CA-01)", async () => {
+  const logger = new SpyLogger();
+  const codexA = new StubCodexClient();
+  const codexB = new StubCodexClient();
+  let nextTicketCallsA = 0;
+  let nextTicketCallsB = 0;
+
+  const queueA: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCallsA += 1;
+      return nextTicketCallsA === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+  const queueB: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCallsB += 1;
+      return nextTicketCallsB === 1 ? ticketB : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: queueA,
+    codexClient: codexA,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: queueB,
+    codexClient: codexB,
+    gitVersioning: new StubGitVersioning(),
+  });
+
+  let currentProject: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
+
+  const runAlphaPromise = runner.requestRunAll();
+  currentProject = "beta";
+  const runBetaPromise = runner.requestRunAll();
+  const [runAlphaResult, runBetaResult] = await Promise.all([runAlphaPromise, runBetaPromise]);
+
+  assert.deepEqual(runAlphaResult, { status: "started" });
+  assert.deepEqual(runBetaResult, { status: "started" });
+
+  await waitForRunnerToStop(runner);
+  assert.equal(codexA.authChecks, 1);
+  assert.equal(codexB.authChecks, 1);
+});
+
+test("requestRunAll bloqueia no sexto projeto com capacidade cheia e aceita apos liberar vaga (CA-03, CA-04)", async () => {
+  const logger = new SpyLogger();
+
+  const createBlockingQueue = () => {
+    let releaseWait: (() => void) | null = null;
+    const waitForRelease = new Promise<TicketRef | null>((resolve) => {
+      releaseWait = () => {
+        resolve(null);
+      };
+    });
+
+    return {
+      queue: {
+        ensureStructure: async () => undefined,
+        nextOpenTicket: async () => waitForRelease,
+        closeTicket: async () => undefined,
+      } satisfies TicketQueue,
+      release: () => {
+        releaseWait?.();
+      },
+    };
+  };
+
+  const projects: ProjectRef[] = [
+    { name: "proj-1", path: "/tmp/projects/proj-1" },
+    { name: "proj-2", path: "/tmp/projects/proj-2" },
+    { name: "proj-3", path: "/tmp/projects/proj-3" },
+    { name: "proj-4", path: "/tmp/projects/proj-4" },
+    { name: "proj-5", path: "/tmp/projects/proj-5" },
+    { name: "proj-6", path: "/tmp/projects/proj-6" },
+  ];
+
+  const queueControls = projects.map(() => createBlockingQueue());
+  const dependencies = projects.map((project, index) =>
+    createRoundDependencies({
+      activeProject: project,
+      queue: queueControls[index].queue,
+      codexClient: new StubCodexClient(),
+      gitVersioning: new StubGitVersioning(),
+    }),
+  );
+
+  let activeProjectIndex = 0;
+  const runner = createRunner(logger, dependencies[0], {
+    resolveRoundDependencies: async () => dependencies[activeProjectIndex],
+  });
+
+  for (let index = 0; index < 5; index += 1) {
+    activeProjectIndex = index;
+    const result = await runner.requestRunAll();
+    assert.deepEqual(result, { status: "started" });
+  }
+
+  activeProjectIndex = 5;
+  const blockedResult = await runner.requestRunAll();
+  assert.equal(blockedResult.status, "blocked");
+  if (blockedResult.status === "blocked") {
+    assert.equal(blockedResult.reason, "runner-capacity-full");
+    assert.equal(blockedResult.activeProjects?.length, 5);
+    assert.match(blockedResult.message, /Capacidade maxima de 5 runners ativos atingida/u);
+  }
+
+  queueControls[0].release();
+  await sleep(0);
+
+  const retryResult = await runner.requestRunAll();
+  assert.deepEqual(retryResult, { status: "started" });
+
+  for (const control of queueControls) {
+    control.release();
+  }
+  await waitForRunnerToStop(runner);
+});
+
+test("startPlanSpecSession pode coexistir com /run_all em outro projeto (CA-08)", async () => {
+  const logger = new SpyLogger();
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+
+  let activeProjectName: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      activeProjectName === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
+
+  const planSpecStartResult = await runner.startPlanSpecSession("42");
+  assert.equal(planSpecStartResult.status, "started");
+
+  activeProjectName = "beta";
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
+
+  const cancelResult = await runner.cancelPlanSpecSession("42");
+  assert.equal(cancelResult.status, "cancelled");
+  await waitForRunnerToStop(runner);
 });
 
 test("requestRunSpecs bloqueia rodada de tickets quando spec-close-and-version falha", async () => {
@@ -1195,8 +1367,11 @@ test("startPlanSpecSession bloqueia inicio durante rodada em andamento", async (
   const runAllResult = await runAllPromise;
   await waitForRunnerToStop(runner);
 
-  assert.equal(startResult.status, "blocked-running");
-  assert.match(startResult.message, /nao e possivel iniciar \/plan_spec/ui);
+  assert.equal(startResult.status, "blocked");
+  if (startResult.status === "blocked") {
+    assert.equal(startResult.reason, "project-slot-busy");
+  }
+  assert.match(startResult.message, /slot do projeto alpha-project/i);
   assert.deepEqual(runAllResult, { status: "started" });
   assert.equal(codex.planSessionStartCalls, 0);
 });
@@ -1340,11 +1515,11 @@ test("requestRunAll e requestRunSpecs ficam bloqueados durante sessao /plan_spec
   const runSpecsResult = await runner.requestRunSpecs(specFileName);
 
   assert.equal(runAllResult.status, "blocked");
-  assert.equal(runAllResult.reason, "plan-spec-active");
-  assert.match(runAllResult.message, /plan_spec_cancel/u);
+  assert.equal(runAllResult.reason, "project-slot-busy");
+  assert.match(runAllResult.message, /slot do projeto alpha-project/u);
   assert.equal(runSpecsResult.status, "blocked");
-  assert.equal(runSpecsResult.reason, "plan-spec-active");
-  assert.match(runSpecsResult.message, /plan_spec_cancel/u);
+  assert.equal(runSpecsResult.reason, "project-slot-busy");
+  assert.match(runSpecsResult.message, /slot do projeto alpha-project/u);
   assert.equal(codex.calls.length, 0);
 });
 

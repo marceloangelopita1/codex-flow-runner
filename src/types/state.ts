@@ -36,12 +36,31 @@ export interface RunnerLastNotifiedEvent {
   delivery: TicketNotificationDelivery;
 }
 
+export type RunnerSlotKind = "run-all" | "run-specs" | "plan-spec";
+
+export interface RunnerActiveSlotState {
+  project: ProjectRef;
+  kind: RunnerSlotKind;
+  phase: RunnerPhase;
+  currentTicket: string | null;
+  currentSpec: string | null;
+  isPaused: boolean;
+  startedAt: Date;
+}
+
+export interface RunnerCapacitySnapshot {
+  limit: number;
+  used: number;
+}
+
 export interface RunnerState {
   isRunning: boolean;
   isPaused: boolean;
   currentTicket: string | null;
   currentSpec: string | null;
   activeProject: ProjectRef | null;
+  capacity: RunnerCapacitySnapshot;
+  activeSlots: RunnerActiveSlotState[];
   planSpecSession: PlanSpecSessionState | null;
   phase: RunnerPhase;
   lastMessage: string;
@@ -49,12 +68,20 @@ export interface RunnerState {
   lastNotifiedEvent: RunnerLastNotifiedEvent | null;
 }
 
-export const createInitialState = (activeProject: ProjectRef | null = null): RunnerState => ({
+export const createInitialState = (
+  activeProject: ProjectRef | null = null,
+  capacityLimit = 5,
+): RunnerState => ({
   isRunning: false,
   isPaused: false,
   currentTicket: null,
   currentSpec: null,
   activeProject: activeProject ? { ...activeProject } : null,
+  capacity: {
+    limit: capacityLimit,
+    used: 0,
+  },
+  activeSlots: [],
   planSpecSession: null,
   phase: "idle",
   lastMessage: "Runner inicializado",

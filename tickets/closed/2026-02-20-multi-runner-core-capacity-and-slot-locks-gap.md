@@ -1,7 +1,7 @@
 # [TICKET] Gerenciador multi-runner por projeto com limite de 5 slots ainda nao implementado
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-20 15:51Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
-  - ExecPlan: A definir
+  - ExecPlan: execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
 
 ## Context
 - Workflow area: `src/main.ts`, `src/core/runner.ts`, `src/types/state.ts`
@@ -80,6 +80,9 @@ Nao obrigatorio. Detalhar em ExecPlan.
 - 2026-02-20 - Ticket aberto apos avaliacao de gaps da spec `2026-02-20-telegram-multi-project-parallel-runners`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-20 16:16Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - PR: N/A
+  - Commit: registrado no historico Git deste fechamento
+  - ExecPlan: execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md

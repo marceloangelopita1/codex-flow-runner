@@ -4,6 +4,7 @@ import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
 import {
   PlanSpecSessionPhase,
+  RunnerSlotKind,
   RunnerState,
   createInitialState,
 } from "../types/state.js";
@@ -63,9 +64,29 @@ export interface TicketRunnerOptions {
 interface ActivePlanSpecSession {
   id: number;
   chatId: string;
+  project: ProjectRef;
+  slotKey: string;
+  codexClient: CodexTicketFlowClient;
   session: PlanSpecSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   latestFinalBlock: PlanSpecFinalBlock | null;
+}
+
+interface ActiveRunnerSlot {
+  key: string;
+  kind: RunnerSlotKind;
+  project: ProjectRef;
+  queue: TicketQueue;
+  codexClient: CodexTicketFlowClient;
+  gitVersioning: GitVersioning;
+  isStarting: boolean;
+  isRunning: boolean;
+  isPaused: boolean;
+  currentTicket: string | null;
+  currentSpec: string | null;
+  phase: RunnerState["phase"];
+  startedAt: Date;
+  loopPromise: Promise<void> | null;
 }
 
 type PlanSpecSessionChatRejectedResult =
@@ -78,16 +99,11 @@ type PlanSpecSessionChatRejectedResult =
       message: string;
     };
 
+const RUNNER_SLOT_LIMIT = 5;
 const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const PLAN_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /plan_spec ativa no momento.";
 const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
   "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
-const PLAN_SPEC_BLOCKED_RUNNING_MESSAGE =
-  "Nao e possivel iniciar /plan_spec enquanto o runner esta em execucao.";
-const PLAN_SPEC_BLOCKED_RUN_ALL_MESSAGE =
-  "Sessao /plan_spec ativa. Finalize com /plan_spec_cancel antes de iniciar /run_all.";
-const PLAN_SPEC_BLOCKED_RUN_SPECS_MESSAGE =
-  "Sessao /plan_spec ativa. Finalize com /plan_spec_cancel antes de iniciar /run_specs.";
 const PLAN_SPEC_TIMEOUT_MESSAGE =
   "Sessao /plan_spec encerrada por inatividade de 30 minutos.";
 const PLAN_SPEC_CANCELLED_MESSAGE = "Sessao /plan_spec cancelada.";
@@ -101,6 +117,20 @@ export interface RunnerRoundDependencies {
 
 export type RunnerRoundDependenciesResolver = () => Promise<RunnerRoundDependencies>;
 
+type RunnerRequestBlockedReason =
+  | "codex-auth-missing"
+  | "active-project-unavailable"
+  | "plan-spec-active"
+  | "project-slot-busy"
+  | "runner-capacity-full";
+
+type RunnerRequestBlockedResult = {
+  status: "blocked";
+  reason: RunnerRequestBlockedReason;
+  message: string;
+  activeProjects?: ProjectRef[];
+};
+
 export type RunAllRequestResult =
   | { status: "started" }
   | { status: "already-running" }
@@ -111,12 +141,6 @@ export type RunSpecsRequestResult =
   | { status: "already-running" }
   | RunnerRequestBlockedResult;
 
-type RunnerRequestBlockedResult = {
-  status: "blocked";
-  reason: "codex-auth-missing" | "active-project-unavailable" | "plan-spec-active";
-  message: string;
-};
-
 export type SyncActiveProjectResult =
   | { status: "updated" }
   | { status: "blocked-running" }
@@ -126,7 +150,16 @@ export type PlanSpecSessionStartResult =
   | { status: "started"; message: string }
   | { status: "already-active"; message: string }
   | { status: "blocked-running"; message: string }
-  | { status: "blocked"; reason: "active-project-unavailable" | "codex-auth-missing"; message: string }
+  | {
+      status: "blocked";
+      reason:
+        | "active-project-unavailable"
+        | "codex-auth-missing"
+        | "project-slot-busy"
+        | "runner-capacity-full";
+      message: string;
+      activeProjects?: ProjectRef[];
+    }
   | { status: "failed"; message: string };
 
 export type PlanSpecSessionInputResult =
@@ -147,11 +180,9 @@ export type PlanSpecCallbackResult =
 
 export class TicketRunner {
   private readonly state: RunnerState;
-  private loopPromise: Promise<void> | null = null;
-  private isStarting = false;
-  private queue: TicketQueue;
-  private codexClient: CodexTicketFlowClient;
-  private gitVersioning: GitVersioning;
+  private readonly activeSlots = new Map<string, ActiveRunnerSlot>();
+  private readonly initialRoundDependencies: RunnerRoundDependencies;
+  private startRequestsInFlight = 0;
   private readonly now: () => Date;
   private readonly setTimer: typeof setTimeout;
   private readonly clearTimer: typeof clearTimeout;
@@ -169,10 +200,13 @@ export class TicketRunner {
     private readonly onTicketFinalized?: TicketFinalSummaryHandler,
     options: TicketRunnerOptions = {},
   ) {
-    this.queue = initialRoundDependencies.queue;
-    this.codexClient = initialRoundDependencies.codexClient;
-    this.gitVersioning = initialRoundDependencies.gitVersioning;
-    this.state = createInitialState(initialRoundDependencies.activeProject);
+    this.initialRoundDependencies = {
+      activeProject: { ...initialRoundDependencies.activeProject },
+      queue: initialRoundDependencies.queue,
+      codexClient: initialRoundDependencies.codexClient,
+      gitVersioning: initialRoundDependencies.gitVersioning,
+    };
+    this.state = createInitialState(initialRoundDependencies.activeProject, RUNNER_SLOT_LIMIT);
     this.now = options.now ?? (() => new Date());
     this.setTimer = options.setTimer ?? setTimeout;
     this.clearTimer = options.clearTimer ?? clearTimeout;
@@ -183,10 +217,17 @@ export class TicketRunner {
       ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.state.updatedAt = this.now();
+    this.syncStateFromSlots();
   }
 
   getState = (): RunnerState => ({
     ...this.state,
+    capacity: { ...this.state.capacity },
+    activeSlots: this.state.activeSlots.map((slot) => ({
+      ...slot,
+      project: { ...slot.project },
+      startedAt: new Date(slot.startedAt),
+    })),
     ...(this.state.activeProject
       ? {
           activeProject: { ...this.state.activeProject },
@@ -213,31 +254,55 @@ export class TicketRunner {
   });
 
   requestPause = (): void => {
-    this.state.isPaused = true;
-    if (this.isPlanSpecSessionActive()) {
-      this.logger.info("Pausa solicitada durante sessao /plan_spec ativa", {
-        phase: this.state.phase,
-        planSpecPhase: this.state.planSpecSession?.phase,
-      });
+    const runSlots = this.getRunSlots();
+    if (runSlots.length === 0) {
+      this.state.isPaused = true;
+      if (this.isPlanSpecSessionActive()) {
+        this.logger.info("Pausa solicitada durante sessao /plan_spec ativa", {
+          phase: this.state.phase,
+          planSpecPhase: this.state.planSpecSession?.phase,
+        });
+        return;
+      }
+      this.touch("paused", "Pausa solicitada via Telegram");
       return;
     }
+
+    for (const slot of runSlots) {
+      slot.isPaused = true;
+      slot.phase = "paused";
+    }
+    this.syncStateFromSlots();
     this.touch("paused", "Pausa solicitada via Telegram");
   };
 
   requestResume = (): void => {
-    this.state.isPaused = false;
-    if (this.isPlanSpecSessionActive()) {
-      this.logger.info("Resume solicitado durante sessao /plan_spec ativa", {
-        phase: this.state.phase,
-        planSpecPhase: this.state.planSpecSession?.phase,
-      });
+    const runSlots = this.getRunSlots();
+    if (runSlots.length === 0) {
+      this.state.isPaused = false;
+      if (this.isPlanSpecSessionActive()) {
+        this.logger.info("Resume solicitado durante sessao /plan_spec ativa", {
+          phase: this.state.phase,
+          planSpecPhase: this.state.planSpecSession?.phase,
+        });
+        return;
+      }
+      this.touch("idle", "Runner retomado via Telegram");
       return;
     }
+
+    for (const slot of runSlots) {
+      slot.isPaused = false;
+      if (slot.phase === "paused") {
+        slot.phase = "idle";
+      }
+    }
+    this.syncStateFromSlots();
     this.touch("idle", "Runner retomado via Telegram");
   };
 
   syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
-    if (this.state.isRunning || this.loopPromise || this.isStarting) {
+    if (this.hasBusyRunSlots()) {
       return { status: "blocked-running" };
     }
 
@@ -246,6 +311,7 @@ export class TicketRunner {
     }
 
     this.state.activeProject = { ...project };
+    this.syncStateFromSlots();
     this.state.lastMessage = `Projeto ativo atualizado para ${project.name} via Telegram`;
     this.state.updatedAt = this.now();
 
@@ -268,14 +334,8 @@ export class TicketRunner {
       hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
     });
-
-    if (this.isBusy()) {
-      return {
-        status: "blocked-running",
-        message: PLAN_SPEC_BLOCKED_RUNNING_MESSAGE,
-      };
-    }
 
     if (this.isPlanSpecSessionActive()) {
       return {
@@ -284,9 +344,11 @@ export class TicketRunner {
       };
     }
 
+    let roundDependencies: RunnerRoundDependencies;
     try {
-      const roundDependencies = await this.resolveRoundDependencies();
-      this.applyRoundDependencies(roundDependencies);
+      roundDependencies = await this.resolveRoundDependencies();
+      this.state.activeProject = { ...roundDependencies.activeProject };
+      this.syncStateFromSlots();
     } catch (error) {
       const message = this.buildActiveProjectResolutionErrorMessage(error, "plan-spec");
       this.touch("error", message);
@@ -300,9 +362,23 @@ export class TicketRunner {
       };
     }
 
+    const reservation = this.reserveSlot(roundDependencies, "plan-spec");
+    if (reservation.status === "blocked") {
+      const blockedReason =
+        reservation.reason === "plan-spec-active" ? "project-slot-busy" : reservation.reason;
+      return {
+        status: "blocked",
+        reason: blockedReason,
+        message: reservation.message,
+        ...(reservation.activeProjects ? { activeProjects: reservation.activeProjects } : {}),
+      };
+    }
+
+    const slot = reservation.slot;
     try {
-      await this.codexClient.ensureAuthenticated();
+      await slot.codexClient.ensureAuthenticated();
     } catch (error) {
+      this.releaseSlot(slot.key);
       const message =
         error instanceof CodexAuthenticationError
           ? error.message
@@ -313,8 +389,8 @@ export class TicketRunner {
       this.touch("error", message);
       this.logger.error("Falha de autenticacao do Codex CLI ao iniciar /plan_spec", {
         error: error instanceof Error ? error.message : String(error),
-        activeProjectName: this.state.activeProject?.name,
-        activeProjectPath: this.state.activeProject?.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
       return {
         status: "blocked",
@@ -323,24 +399,11 @@ export class TicketRunner {
       };
     }
 
-    const activeProject = this.state.activeProject;
-    if (!activeProject) {
-      const message =
-        "Falha ao iniciar /plan_spec: projeto ativo indisponivel no estado do runner.";
-      this.touch("error", message);
-      this.logger.error("Projeto ativo indisponivel ao iniciar /plan_spec");
-      return {
-        status: "blocked",
-        reason: "active-project-unavailable",
-        message,
-      };
-    }
-
     const sessionId = this.nextPlanSpecSessionId;
     this.nextPlanSpecSessionId += 1;
 
     try {
-      const session = await this.codexClient.startPlanSession({
+      const session = await slot.codexClient.startPlanSession({
         callbacks: {
           onEvent: (event) => {
             void this.handlePlanSpecSessionEvent(sessionId, event);
@@ -360,24 +423,33 @@ export class TicketRunner {
         phase: "awaiting-brief",
         startedAt: now,
         lastActivityAt: now,
-        activeProjectSnapshot: { ...activeProject },
+        activeProjectSnapshot: { ...slot.project },
       };
       this.activePlanSpecSession = {
         id: sessionId,
         chatId,
+        project: { ...slot.project },
+        slotKey: slot.key,
+        codexClient: slot.codexClient,
         session,
         timeoutHandle: null,
         latestFinalBlock: null,
       };
 
+      slot.isStarting = false;
+      slot.isRunning = true;
+      slot.phase = "plan-spec-awaiting-brief";
+      this.syncStateFromSlots();
+
       this.refreshPlanSpecTimeout(sessionId);
-      this.touch("plan-spec-awaiting-brief", "Sessao /plan_spec iniciada e aguardando brief inicial");
+      this.touchSlot(slot, "plan-spec-awaiting-brief", "Sessao /plan_spec iniciada e aguardando brief inicial");
 
       return {
         status: "started",
         message: "Sessao /plan_spec iniciada. Envie a proxima mensagem com o brief inicial.",
       };
     } catch (error) {
+      this.releaseSlot(slot.key);
       const details = error instanceof Error ? error.message : String(error);
       const message =
         error instanceof CodexPlanSessionError
@@ -580,21 +652,36 @@ export class TicketRunner {
       };
     }
 
-    this.isStarting = true;
-    this.state.currentSpec = spec.fileName;
+    const slot = this.activeSlots.get(session.slotKey);
+    if (slot) {
+      slot.isStarting = true;
+      slot.currentSpec = spec.fileName;
+      slot.phase = "plan-spec-waiting-codex";
+      this.syncStateFromSlots();
+    }
+
     try {
       await this.finalizePlanSpecSession(session.id, {
         mode: "cancel",
         phase: "plan-spec-waiting-codex",
         message: `Sessao /plan_spec encerrada para executar Criar spec: ${spec.fileName}`,
         notifyMessage: `Executando Criar spec para ${spec.path}.`,
+        releaseSlot: false,
       });
 
-      this.touch(
-        "plan-spec-waiting-codex",
-        `Executando etapa plan-spec-materialize para ${spec.fileName}`,
-      );
-      const materializeResult = await this.codexClient.runSpecStage("plan-spec-materialize", {
+      if (slot) {
+        this.touchSlot(
+          slot,
+          "plan-spec-waiting-codex",
+          `Executando etapa plan-spec-materialize para ${spec.fileName}`,
+        );
+      } else {
+        this.touch(
+          "plan-spec-waiting-codex",
+          `Executando etapa plan-spec-materialize para ${spec.fileName}`,
+        );
+      }
+      const materializeResult = await session.codexClient.runSpecStage("plan-spec-materialize", {
         fileName: spec.fileName,
         path: spec.path,
         plannedTitle: finalBlock.title,
@@ -607,11 +694,19 @@ export class TicketRunner {
       });
       await this.assertPlannedSpecMetadata(activeProject.path, spec.path);
 
-      this.touch(
-        "plan-spec-waiting-codex",
-        `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
-      );
-      const versionResult = await this.codexClient.runSpecStage("plan-spec-version-and-push", {
+      if (slot) {
+        this.touchSlot(
+          slot,
+          "plan-spec-waiting-codex",
+          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
+        );
+      } else {
+        this.touch(
+          "plan-spec-waiting-codex",
+          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
+        );
+      }
+      const versionResult = await session.codexClient.runSpecStage("plan-spec-version-and-push", {
         fileName: spec.fileName,
         path: spec.path,
         commitMessage,
@@ -627,7 +722,11 @@ export class TicketRunner {
         recordedAt: this.now(),
       });
 
-      this.touch("idle", `Spec criada e versionada com sucesso: ${spec.path}`);
+      if (slot) {
+        this.touchSlot(slot, "idle", `Spec criada e versionada com sucesso: ${spec.path}`);
+      } else {
+        this.touch("idle", `Spec criada e versionada com sucesso: ${spec.path}`);
+      }
       await this.emitPlanSpecLifecycleMessage(
         session.chatId,
         `Spec criada e versionada com sucesso: ${spec.path}`,
@@ -635,10 +734,18 @@ export class TicketRunner {
       return { status: "accepted" };
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
-      this.touch(
-        "error",
-        `Falha ao executar acao Criar spec para ${spec.fileName}: ${details}`,
-      );
+      if (slot) {
+        this.touchSlot(
+          slot,
+          "error",
+          `Falha ao executar acao Criar spec para ${spec.fileName}: ${details}`,
+        );
+      } else {
+        this.touch(
+          "error",
+          `Falha ao executar acao Criar spec para ${spec.fileName}: ${details}`,
+        );
+      }
       this.logger.error("Falha na acao final create-spec da sessao /plan_spec", {
         sessionId: session.id,
         chatId: session.chatId,
@@ -652,8 +759,12 @@ export class TicketRunner {
         message: `Falha ao criar spec planejada: ${details}`,
       };
     } finally {
-      this.state.currentSpec = null;
-      this.isStarting = false;
+      if (slot) {
+        slot.currentSpec = null;
+        slot.isStarting = false;
+        slot.isRunning = false;
+      }
+      this.releaseSlot(session.slotKey);
     }
   }
 
@@ -667,50 +778,32 @@ export class TicketRunner {
       currentSpec: this.state.currentSpec,
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
     });
 
-    if (this.isPlanSpecSessionActive()) {
-      this.logger.warn("Comando /run-all bloqueado por sessao /plan_spec ativa", {
-        phase: this.state.phase,
-        planSpecPhase: this.state.planSpecSession?.phase,
-        activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+    this.startRequestsInFlight += 1;
+    try {
+      const preflightOutcome = await this.prepareRunSlotStart("run-all");
+      if ("status" in preflightOutcome) {
+        if (preflightOutcome.status === "already-running") {
+          return preflightOutcome;
+        }
+
+        return preflightOutcome;
+      }
+
+      const { slot } = preflightOutcome;
+      this.startRunSlotLoop(slot, () => this.runForever(slot));
+
+      this.logger.info("Rodada /run-all agendada no loop principal", {
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
-      return {
-        status: "blocked",
-        reason: "plan-spec-active",
-        message: PLAN_SPEC_BLOCKED_RUN_ALL_MESSAGE,
-      };
+
+      return { status: "started" };
+    } finally {
+      this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
     }
-
-    if (this.isBusy()) {
-      this.logger.warn("Comando /run-all ignorado: runner ja esta em execucao", {
-        phase: this.state.phase,
-        currentTicket: this.state.currentTicket,
-        currentSpec: this.state.currentSpec,
-      });
-      return { status: "already-running" };
-    }
-
-    this.isStarting = true;
-    this.logger.info("Inicializando rodada /run-all", {
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
-    });
-
-    const preflightOutcome = await this.prepareRoundStart("run-all");
-    if (preflightOutcome) {
-      this.isStarting = false;
-      return preflightOutcome;
-    }
-
-    this.startLoop(() => this.runForever());
-
-    this.logger.info("Rodada /run-all agendada no loop principal", {
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
-    });
-
-    return { status: "started" };
   };
 
   requestRunSpecs = async (specFileName: string): Promise<RunSpecsRequestResult> => {
@@ -731,55 +824,34 @@ export class TicketRunner {
       currentSpec: this.state.currentSpec,
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
     });
 
-    if (this.isPlanSpecSessionActive()) {
-      this.logger.warn("Comando /run_specs bloqueado por sessao /plan_spec ativa", {
+    this.startRequestsInFlight += 1;
+    try {
+      const preflightOutcome = await this.prepareRunSlotStart("run-specs");
+      if ("status" in preflightOutcome) {
+        if (preflightOutcome.status === "already-running") {
+          return preflightOutcome;
+        }
+
+        return preflightOutcome;
+      }
+
+      const { slot } = preflightOutcome;
+      this.startRunSlotLoop(slot, () => this.runSpecsAndRunAll(slot, spec));
+
+      this.logger.info("Fluxo /run_specs agendado no loop principal", {
         specFileName: spec.fileName,
-        phase: this.state.phase,
-        planSpecPhase: this.state.planSpecSession?.phase,
-        activeProjectName: this.state.planSpecSession?.activeProjectSnapshot.name,
+        specPath: spec.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
-      return {
-        status: "blocked",
-        reason: "plan-spec-active",
-        message: PLAN_SPEC_BLOCKED_RUN_SPECS_MESSAGE,
-      };
+
+      return { status: "started" };
+    } finally {
+      this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
     }
-
-    if (this.isBusy()) {
-      this.logger.warn("Comando /run_specs ignorado: runner ja esta em execucao", {
-        phase: this.state.phase,
-        currentTicket: this.state.currentTicket,
-        currentSpec: this.state.currentSpec,
-      });
-      return { status: "already-running" };
-    }
-
-    this.isStarting = true;
-    this.logger.info("Inicializando fluxo /run_specs", {
-      specFileName: spec.fileName,
-      specPath: spec.path,
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
-    });
-
-    const preflightOutcome = await this.prepareRoundStart("run-specs");
-    if (preflightOutcome) {
-      this.isStarting = false;
-      return preflightOutcome;
-    }
-
-    this.startLoop(() => this.runSpecsAndRunAll(spec));
-
-    this.logger.info("Fluxo /run_specs agendado no loop principal", {
-      specFileName: spec.fileName,
-      specPath: spec.path,
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
-    });
-
-    return { status: "started" };
   };
 
   private isPlanSpecSessionActive(): boolean {
@@ -820,6 +892,13 @@ export class TicketRunner {
     planSpecSession.phase = phase;
     planSpecSession.lastActivityAt = this.now();
     this.refreshPlanSpecTimeout(activeSession.id);
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      this.touchSlot(slot, runnerPhase, message);
+      return;
+    }
+
     this.touch(runnerPhase, message);
   }
 
@@ -899,7 +978,12 @@ export class TicketRunner {
       return;
     }
 
-    this.touch(this.state.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      this.touchSlot(slot, slot.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
+    } else {
+      this.touch(this.state.phase, "Sessao /plan_spec recebeu saida nao parseavel do Codex");
+    }
     await this.emitPlanSpecRawOutput(activeSession.chatId, event);
   }
 
@@ -966,6 +1050,7 @@ export class TicketRunner {
       phase: RunnerState["phase"];
       message: string;
       notifyMessage?: string;
+      releaseSlot?: boolean;
     },
   ): Promise<void> {
     const activeSession = this.activePlanSpecSession;
@@ -990,7 +1075,21 @@ export class TicketRunner {
       }
     }
 
-    this.touch(options.phase, options.message);
+    const shouldReleaseSlot = options.releaseSlot ?? true;
+    if (shouldReleaseSlot) {
+      this.releaseSlot(activeSession.slotKey);
+    }
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      slot.phase = options.phase;
+      slot.isStarting = false;
+      slot.isRunning = true;
+      this.syncStateFromSlots();
+      this.touchSlot(slot, options.phase, options.message);
+    } else {
+      this.touch(options.phase, options.message);
+    }
 
     if (options.notifyMessage) {
       await this.emitPlanSpecLifecycleMessage(activeSession.chatId, options.notifyMessage);
@@ -1076,36 +1175,16 @@ export class TicketRunner {
     }
   }
 
-  private isBusy(): boolean {
-    return this.state.isRunning || Boolean(this.loopPromise) || this.isStarting;
-  }
-
-  private startLoop(loopFactory: () => Promise<void>): void {
-    this.state.isRunning = true;
-    this.loopPromise = loopFactory()
-      .catch((error) => {
-        this.state.isRunning = false;
-        this.touch("error", "Falha fatal no loop principal");
-        this.logger.error("Erro fatal no loop principal", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      })
-      .finally(() => {
-        this.loopPromise = null;
-        this.isStarting = false;
-        this.state.currentSpec = null;
-      });
-    this.isStarting = false;
-  }
-
-  private async prepareRoundStart(
+  private async prepareRunSlotStart(
     source: "run-all" | "run-specs",
-  ): Promise<RunnerRequestBlockedResult | null> {
+  ): Promise<{ slot: ActiveRunnerSlot } | RunAllRequestResult | RunSpecsRequestResult> {
     const command = source === "run-all" ? "/run-all" : "/run_specs";
 
+    let roundDependencies: RunnerRoundDependencies;
     try {
-      const roundDependencies = await this.resolveRoundDependencies();
-      this.applyRoundDependencies(roundDependencies);
+      roundDependencies = await this.resolveRoundDependencies();
+      this.state.activeProject = { ...roundDependencies.activeProject };
+      this.syncStateFromSlots();
     } catch (error) {
       const message = this.buildActiveProjectResolutionErrorMessage(error, source);
       this.touch("error", message);
@@ -1120,9 +1199,16 @@ export class TicketRunner {
       };
     }
 
+    const reservation = this.reserveSlot(roundDependencies, source);
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
+
+    const slot = reservation.slot;
     try {
-      await this.codexClient.ensureAuthenticated();
+      await slot.codexClient.ensureAuthenticated();
     } catch (error) {
+      this.releaseSlot(slot.key);
       const message =
         error instanceof CodexAuthenticationError
           ? error.message
@@ -1134,8 +1220,8 @@ export class TicketRunner {
       this.logger.error("Falha de autenticacao do Codex CLI antes da rodada", {
         command,
         error: error instanceof Error ? error.message : String(error),
-        activeProjectName: this.state.activeProject?.name,
-        activeProjectPath: this.state.activeProject?.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
       return {
         status: "blocked",
@@ -1144,27 +1230,54 @@ export class TicketRunner {
       };
     }
 
+    slot.isStarting = false;
+    slot.phase = "idle";
+    this.syncStateFromSlots();
+
     this.logger.info("Autenticacao do Codex CLI validada para rodada", {
       command,
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
     });
 
-    return null;
+    return { slot };
   }
 
-  private async runSpecsAndRunAll(spec: SpecRef): Promise<void> {
+  private startRunSlotLoop(slot: ActiveRunnerSlot, loopFactory: () => Promise<void>): void {
+    slot.isRunning = true;
+    slot.isStarting = false;
+    this.syncStateFromSlots();
+
+    slot.loopPromise = loopFactory()
+      .catch((error) => {
+        slot.isRunning = false;
+        this.touchSlot(slot, "error", "Falha fatal no loop principal");
+        this.logger.error("Erro fatal no loop principal", {
+          error: error instanceof Error ? error.message : String(error),
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+      })
+      .finally(() => {
+        slot.loopPromise = null;
+        slot.isStarting = false;
+        slot.isRunning = false;
+        slot.isPaused = false;
+        slot.currentSpec = null;
+        slot.currentTicket = null;
+        this.releaseSlot(slot.key);
+      });
+  }
+
+  private async runSpecsAndRunAll(slot: ActiveRunnerSlot, spec: SpecRef): Promise<void> {
     const specStartedAt = Date.now();
-    this.state.currentSpec = spec.fileName;
-    this.touch("select-spec", `Triagem da spec ${spec.fileName} iniciada`);
+    slot.currentSpec = spec.fileName;
+    this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
 
     try {
+      await this.runSpecStage(slot, "spec-triage", spec, `Executando etapa spec-triage para ${spec.fileName}`);
       await this.runSpecStage(
-        "spec-triage",
-        spec,
-        `Executando etapa spec-triage para ${spec.fileName}`,
-      );
-      await this.runSpecStage(
+        slot,
         "spec-close-and-version",
         spec,
         `Executando etapa spec-close-and-version para ${spec.fileName}`,
@@ -1173,10 +1286,12 @@ export class TicketRunner {
         spec: spec.fileName,
         specPath: spec.path,
         durationMs: Date.now() - specStartedAt,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
-      this.state.currentSpec = null;
-      this.touch("idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
-      await this.runForever();
+      slot.currentSpec = null;
+      this.touchSlot(slot, "idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
+      await this.runForever(slot);
     } catch (error) {
       const stage =
         error instanceof CodexStageExecutionError &&
@@ -1185,8 +1300,9 @@ export class TicketRunner {
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const failedAtCloseAndVersion = stage === "spec-close-and-version";
-      this.state.isRunning = false;
-      this.touch(
+      slot.isRunning = false;
+      this.touchSlot(
+        slot,
         "error",
         failedAtCloseAndVersion
           ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
@@ -1198,9 +1314,12 @@ export class TicketRunner {
         stage,
         error: errorMessage,
         durationMs: Date.now() - specStartedAt,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
     } finally {
-      this.state.currentSpec = null;
+      slot.currentSpec = null;
+      this.syncStateFromSlots();
     }
   }
 
@@ -1299,69 +1418,71 @@ export class TicketRunner {
     return path.join(projectPath, ...relativePath.split("/"));
   }
 
-  private async runForever(): Promise<void> {
+  private async runForever(slot: ActiveRunnerSlot): Promise<void> {
     const roundStartedAt = Date.now();
     this.logger.info("Preparando estrutura da rodada /run-all", {
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
     });
-    await this.queue.ensureStructure();
-    if (!this.state.isRunning) {
+    await slot.queue.ensureStructure();
+    if (!slot.isRunning || !this.activeSlots.has(slot.key)) {
       this.logger.warn("Rodada /run-all encerrada antes de iniciar processamento", {
-        activeProjectName: this.state.activeProject?.name,
-        activeProjectPath: this.state.activeProject?.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
       return;
     }
-    this.touch("idle", "Rodada /run-all iniciada");
+    this.touchSlot(slot, "idle", "Rodada /run-all iniciada");
     const processedTickets = new Set<string>();
     this.logger.info("Loop da rodada /run-all iniciado", {
       pollIntervalMs: this.env.POLL_INTERVAL_MS,
-      activeProjectName: this.state.activeProject?.name,
-      activeProjectPath: this.state.activeProject?.path,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
     });
 
-    while (this.state.isRunning) {
-      if (this.state.isPaused) {
+    while (slot.isRunning && this.activeSlots.has(slot.key)) {
+      if (slot.isPaused) {
         await sleep(this.env.POLL_INTERVAL_MS);
         continue;
       }
 
-      this.touch("select-ticket", "Buscando proximo ticket aberto");
-      const ticket = await this.queue.nextOpenTicket();
+      this.touchSlot(slot, "select-ticket", "Buscando proximo ticket aberto");
+      const ticket = await slot.queue.nextOpenTicket();
 
       if (!ticket) {
-        this.state.isRunning = false;
-        this.touch("idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
+        slot.isRunning = false;
+        this.touchSlot(slot, "idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
         this.logger.info("Rodada /run-all finalizada sem tickets pendentes", {
           processedTicketsCount: processedTickets.size,
           durationMs: Date.now() - roundStartedAt,
-          activeProjectName: this.state.activeProject?.name,
-          activeProjectPath: this.state.activeProject?.path,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
         });
         return;
       }
 
       if (processedTickets.has(ticket.name)) {
-        this.state.isRunning = false;
-        this.touch("error", `Rodada interrompida: ticket ${ticket.name} reapareceu na fila`);
+        slot.isRunning = false;
+        this.touchSlot(slot, "error", `Rodada interrompida: ticket ${ticket.name} reapareceu na fila`);
         this.logger.error("Falha de fechamento detectada no ticket da rodada", {
           ticket: ticket.name,
           reason: "ticket reaberto/nao movido apos close-and-version",
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
         });
         return;
       }
 
-      const succeeded = await this.processTicket(ticket);
+      const succeeded = await this.processTicketInSlot(slot, ticket);
       processedTickets.add(ticket.name);
       if (!succeeded) {
-        this.state.isRunning = false;
+        slot.isRunning = false;
         this.logger.warn("Rodada /run-all interrompida por falha de ticket", {
           ticket: ticket.name,
           processedTicketsCount: processedTickets.size,
           durationMs: Date.now() - roundStartedAt,
-          activeProjectName: this.state.activeProject?.name,
-          activeProjectPath: this.state.activeProject?.path,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
         });
         return;
       }
@@ -1369,7 +1490,11 @@ export class TicketRunner {
   }
 
   shutdown(): void {
-    this.state.isRunning = false;
+    for (const slot of this.getRunSlots()) {
+      slot.isRunning = false;
+      slot.isPaused = false;
+    }
+
     if (this.activePlanSpecSession) {
       void this.finalizePlanSpecSession(this.activePlanSpecSession.id, {
         mode: "cancel",
@@ -1378,47 +1503,94 @@ export class TicketRunner {
       });
       return;
     }
+
+    for (const slot of this.getRunSlots()) {
+      if (!slot.loopPromise) {
+        this.releaseSlot(slot.key);
+      }
+    }
+
     this.touch("idle", "Desligamento solicitado");
   }
 
   private async processTicket(ticket: TicketRef): Promise<boolean> {
+    const activeProject = this.state.activeProject ?? { ...this.initialRoundDependencies.activeProject };
+    this.state.activeProject = { ...activeProject };
+
+    const fallbackSlot: ActiveRunnerSlot = {
+      key: "__legacy-process-ticket__",
+      kind: "run-all",
+      project: { ...activeProject },
+      queue: this.initialRoundDependencies.queue,
+      codexClient: this.initialRoundDependencies.codexClient,
+      gitVersioning: this.initialRoundDependencies.gitVersioning,
+      isStarting: false,
+      isRunning: true,
+      isPaused: false,
+      currentTicket: null,
+      currentSpec: null,
+      phase: this.state.phase,
+      startedAt: this.now(),
+      loopPromise: null,
+    };
+
+    return this.processTicketInSlot(fallbackSlot, ticket, true);
+  }
+
+  private async processTicketInSlot(
+    slot: ActiveRunnerSlot,
+    ticket: TicketRef,
+    updateGlobalStateDirectly = false,
+  ): Promise<boolean> {
     const ticketStartedAt = Date.now();
-    this.state.currentTicket = ticket.name;
+    slot.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
-    const activeProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+    const activeProject = { ...slot.project };
     this.logger.info("Processando ticket da rodada atual", {
       ticket: ticket.name,
       openPath: ticket.openPath,
       closedPath: ticket.closedPath,
-      activeProjectName: activeProject?.name,
-      activeProjectPath: activeProject?.path,
+      activeProjectName: activeProject.name,
+      activeProjectPath: activeProject.path,
     });
 
     try {
-      if (!activeProject) {
-        throw new CodexStageExecutionError(
-          ticket.name,
-          "plan",
-          "Projeto ativo ausente no estado do runner para a rodada atual.",
-        );
-      }
-
-      const planResult = await this.runStage("plan", ticket, `Executando etapa plan para ${ticket.name}`);
+      const planResult = await this.runStage(
+        slot,
+        "plan",
+        ticket,
+        `Executando etapa plan para ${ticket.name}`,
+        updateGlobalStateDirectly,
+      );
       const execPlanPath = this.resolveExecPlanPath(ticket, planResult.execPlanPath);
-      await this.runStage("implement", ticket, `Executando etapa implement para ${ticket.name}`);
       await this.runStage(
+        slot,
+        "implement",
+        ticket,
+        `Executando etapa implement para ${ticket.name}`,
+        updateGlobalStateDirectly,
+      );
+      await this.runStage(
+        slot,
         "close-and-version",
         ticket,
         `Executando etapa close-and-version para ${ticket.name}`,
+        updateGlobalStateDirectly,
       );
-      const syncEvidence = await this.assertCloseAndVersion(ticket);
+      const syncEvidence = await this.assertCloseAndVersion(slot, ticket);
 
-      this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      if (updateGlobalStateDirectly) {
+        this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      } else {
+        this.touchSlot(slot, "idle", `Ticket ${ticket.name} finalizado com sucesso`);
+      }
       this.logger.info("Ticket finalizado com sucesso na rodada atual", {
         ticket: ticket.name,
         durationMs: Date.now() - ticketStartedAt,
         commitHash: syncEvidence.commitHash,
         pushUpstream: syncEvidence.upstream,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
       });
       finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence, activeProject);
       return true;
@@ -1428,30 +1600,36 @@ export class TicketRunner {
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.touch("error", `Falha ao processar ${ticket.name}`);
+      if (updateGlobalStateDirectly) {
+        this.touch("error", `Falha ao processar ${ticket.name}`);
+      } else {
+        this.touchSlot(slot, "error", `Falha ao processar ${ticket.name}`);
+      }
       this.logger.error("Erro no ciclo de ticket", {
         ticket: ticket.name,
         stage,
         error: errorMessage,
         durationMs: Date.now() - ticketStartedAt,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
       });
 
-      const fallbackProject = activeProject ?? {
-        name: "projeto-ativo-indefinido",
-        path: "(indefinido)",
-      };
       finalSummary = this.buildFailureSummary(
         ticket.name,
-        this.resolveFailureStage(stage),
+        this.resolveFailureStage(stage, slot.phase),
         errorMessage,
-        fallbackProject,
+        activeProject,
       );
       return false;
     } finally {
       if (finalSummary) {
         await this.publishTicketFinalSummary(finalSummary);
       }
-      this.state.currentTicket = null;
+      slot.currentTicket = null;
+      if (updateGlobalStateDirectly) {
+        this.state.currentTicket = null;
+      }
+      this.syncStateFromSlots();
     }
   }
 
@@ -1504,17 +1682,17 @@ export class TicketRunner {
     };
   }
 
-  private resolveFailureStage(stage?: TicketFlowStage): TicketFinalStage {
+  private resolveFailureStage(stage?: TicketFlowStage, fallbackPhase?: RunnerState["phase"]): TicketFinalStage {
     if (stage) {
       return stage;
     }
 
     if (
-      this.state.phase === "plan" ||
-      this.state.phase === "implement" ||
-      this.state.phase === "close-and-version"
+      fallbackPhase === "plan" ||
+      fallbackPhase === "implement" ||
+      fallbackPhase === "close-and-version"
     ) {
-      return this.state.phase;
+      return fallbackPhase;
     }
 
     return "close-and-version";
@@ -1545,9 +1723,9 @@ export class TicketRunner {
     }
   }
 
-  private async assertCloseAndVersion(ticket: TicketRef): Promise<GitSyncEvidence> {
+  private async assertCloseAndVersion(slot: ActiveRunnerSlot, ticket: TicketRef): Promise<GitSyncEvidence> {
     try {
-      return await this.gitVersioning.assertSyncedWithRemote();
+      return await slot.gitVersioning.assertSyncedWithRemote();
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
@@ -1555,14 +1733,21 @@ export class TicketRunner {
   }
 
   private async runStage(
+    slot: ActiveRunnerSlot,
     stage: TicketFlowStage,
     ticket: TicketRef,
     message: string,
+    updateGlobalStateDirectly = false,
   ): Promise<CodexStageResult> {
     const stageStartedAt = Date.now();
-    this.touch(stage, message);
+    if (updateGlobalStateDirectly) {
+      this.state.currentTicket = ticket.name;
+      this.touch(stage, message);
+    } else {
+      this.touchSlot(slot, stage, message);
+    }
 
-    const result = await this.codexClient.runStage(stage, ticket);
+    const result = await slot.codexClient.runStage(stage, ticket);
     if (result.execPlanPath) {
       this.logger.info("ExecPlan reportado pela etapa plan", {
         ticket: ticket.name,
@@ -1573,12 +1758,15 @@ export class TicketRunner {
       ticket: ticket.name,
       stage,
       durationMs: Date.now() - stageStartedAt,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
     });
 
     return result;
   }
 
   private async runSpecStage(
+    slot: ActiveRunnerSlot,
     stage: SpecFlowStage,
     spec: SpecRef,
     message: string,
@@ -1588,30 +1776,148 @@ export class TicketRunner {
       stage === "spec-triage" || stage === "spec-close-and-version"
         ? stage
         : "plan-spec-waiting-codex";
-    this.touch(phase, message);
+    this.touchSlot(slot, phase, message);
 
-    const result = await this.codexClient.runSpecStage(stage, spec);
+    const result = await slot.codexClient.runSpecStage(stage, spec);
     this.logger.info("Etapa de spec concluida no runner", {
       spec: spec.fileName,
       specPath: spec.path,
       stage,
       durationMs: Date.now() - stageStartedAt,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
     });
 
     return result;
   }
 
-  private applyRoundDependencies(roundDependencies: RunnerRoundDependencies): void {
-    this.queue = roundDependencies.queue;
-    this.codexClient = roundDependencies.codexClient;
-    this.gitVersioning = roundDependencies.gitVersioning;
-    this.state.activeProject = { ...roundDependencies.activeProject };
-    this.state.updatedAt = this.now();
+  private reserveSlot(
+    roundDependencies: RunnerRoundDependencies,
+    kind: RunnerSlotKind,
+  ): { status: "reserved"; slot: ActiveRunnerSlot } | RunnerRequestBlockedResult {
+    const slotKey = this.buildSlotKey(roundDependencies.activeProject);
+    const existing = this.activeSlots.get(slotKey);
+    if (existing) {
+      const requestedCommand = this.renderSlotCommand(kind);
+      const existingCommand = this.renderSlotCommand(existing.kind);
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message:
+          `Nao e possivel iniciar ${requestedCommand}: slot do projeto ${roundDependencies.activeProject.name} ` +
+          `ja ocupado por ${existingCommand}.`,
+      };
+    }
 
-    this.logger.info("Projeto ativo aplicado para rodada /run-all", {
-      activeProjectName: roundDependencies.activeProject.name,
-      activeProjectPath: roundDependencies.activeProject.path,
+    if (this.activeSlots.size >= RUNNER_SLOT_LIMIT) {
+      const activeProjects = this.getActiveProjects();
+      return {
+        status: "blocked",
+        reason: "runner-capacity-full",
+        message: this.buildCapacityFullMessage(activeProjects),
+        activeProjects,
+      };
+    }
+
+    const slot: ActiveRunnerSlot = {
+      key: slotKey,
+      kind,
+      project: { ...roundDependencies.activeProject },
+      queue: roundDependencies.queue,
+      codexClient: roundDependencies.codexClient,
+      gitVersioning: roundDependencies.gitVersioning,
+      isStarting: true,
+      isRunning: false,
+      isPaused: false,
+      currentTicket: null,
+      currentSpec: null,
+      phase: "idle",
+      startedAt: this.now(),
+      loopPromise: null,
+    };
+
+    this.activeSlots.set(slotKey, slot);
+    this.syncStateFromSlots();
+    this.logger.info("Slot de projeto reservado", {
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
+      kind,
+      usedSlots: this.activeSlots.size,
+      maxSlots: RUNNER_SLOT_LIMIT,
     });
+
+    return {
+      status: "reserved",
+      slot,
+    };
+  }
+
+  private releaseSlot(slotKey: string): void {
+    const slot = this.activeSlots.get(slotKey);
+    if (!slot) {
+      return;
+    }
+
+    this.activeSlots.delete(slotKey);
+    this.syncStateFromSlots();
+    this.logger.info("Slot de projeto liberado", {
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
+      kind: slot.kind,
+      usedSlots: this.activeSlots.size,
+      maxSlots: RUNNER_SLOT_LIMIT,
+    });
+  }
+
+  private hasBusyRunSlots(): boolean {
+    if (this.startRequestsInFlight > 0) {
+      return true;
+    }
+
+    for (const slot of this.activeSlots.values()) {
+      if (slot.kind === "plan-spec") {
+        continue;
+      }
+
+      if (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private getRunSlots(): ActiveRunnerSlot[] {
+    return Array.from(this.activeSlots.values()).filter((slot) => slot.kind !== "plan-spec");
+  }
+
+  private getActiveProjects(): ProjectRef[] {
+    return Array.from(this.activeSlots.values()).map((slot) => ({ ...slot.project }));
+  }
+
+  private buildSlotKey(project: ProjectRef): string {
+    return `${project.name}::${project.path}`;
+  }
+
+  private renderSlotCommand(kind: RunnerSlotKind): string {
+    if (kind === "run-all") {
+      return "/run_all";
+    }
+
+    if (kind === "run-specs") {
+      return "/run_specs";
+    }
+
+    return "/plan_spec";
+  }
+
+  private buildCapacityFullMessage(activeProjects: ProjectRef[]): string {
+    const activeProjectNames = activeProjects.map((project) => project.name).join(", ");
+    const suffix = activeProjectNames
+      ? ` Projetos em execucao: ${activeProjectNames}.`
+      : "";
+
+    return `Capacidade maxima de ${RUNNER_SLOT_LIMIT} runners ativos atingida.${suffix}`;
   }
 
   private buildActiveProjectResolutionErrorMessage(
@@ -1626,6 +1932,79 @@ export class TicketRunner {
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
       `Detalhes: ${details}`,
     ].join(" ");
+  }
+
+  private syncStateFromSlots(): void {
+    const slots = Array.from(this.activeSlots.values()).sort(
+      (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
+    );
+
+    this.state.capacity = {
+      limit: RUNNER_SLOT_LIMIT,
+      used: slots.length,
+    };
+    this.state.activeSlots = slots.map((slot) => ({
+      project: { ...slot.project },
+      kind: slot.kind,
+      phase: slot.phase,
+      currentTicket: slot.currentTicket,
+      currentSpec: slot.currentSpec,
+      isPaused: slot.isPaused,
+      startedAt: new Date(slot.startedAt),
+    }));
+
+    this.state.isRunning = slots.some((slot) =>
+      slot.kind !== "plan-spec" && (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)),
+    );
+
+    const activeProject = this.state.activeProject;
+    if (activeProject) {
+      const activeSlot = this.activeSlots.get(this.buildSlotKey(activeProject));
+      if (activeSlot) {
+        this.state.isPaused = activeSlot.isPaused;
+        this.state.currentTicket = activeSlot.currentTicket;
+        this.state.currentSpec = activeSlot.currentSpec;
+        this.state.phase = activeSlot.phase;
+      } else {
+        this.state.isPaused = false;
+        this.state.currentTicket = null;
+        this.state.currentSpec = null;
+        if (!this.isPlanSpecSessionActive() && this.state.phase !== "error") {
+          this.state.phase = "idle";
+        }
+      }
+    }
+
+    this.state.updatedAt = this.now();
+  }
+
+  private isSameProject(left: ProjectRef | null, right: ProjectRef): boolean {
+    if (!left) {
+      return false;
+    }
+
+    return left.name === right.name && left.path === right.path;
+  }
+
+  private touchSlot(slot: ActiveRunnerSlot, phase: RunnerState["phase"], message: string): void {
+    slot.phase = phase;
+    this.syncStateFromSlots();
+    this.state.lastMessage = message;
+    if (this.isSameProject(this.state.activeProject, slot.project)) {
+      this.state.phase = phase;
+      this.state.currentTicket = slot.currentTicket;
+      this.state.currentSpec = slot.currentSpec;
+      this.state.isPaused = slot.isPaused;
+    }
+    this.state.updatedAt = this.now();
+
+    this.logger.info(message, {
+      phase,
+      currentTicket: slot.currentTicket,
+      currentSpec: slot.currentSpec,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
+    });
   }
 
   private touch(phase: RunnerState["phase"], message: string): void {
