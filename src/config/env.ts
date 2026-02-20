@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
-  TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1).optional(),
+  TELEGRAM_ALLOWED_CHAT_ID: z.string().min(1),
   PROJECTS_ROOT_PATH: z.string().min(1),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
 });

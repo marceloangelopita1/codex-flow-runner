@@ -1,7 +1,7 @@
 # [TICKET] TELEGRAM_ALLOWED_CHAT_ID obrigatorio no bootstrap ainda nao e exigido
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-20 15:51Z
@@ -15,7 +15,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
-  - ExecPlan: A definir
+  - ExecPlan: execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
 
 ## Context
 - Workflow area: `src/config/env.ts`, `src/main.ts`, `src/integrations/telegram-bot.ts`
@@ -71,6 +71,9 @@ Nao obrigatorio. Detalhar em ExecPlan.
 - 2026-02-20 - Ticket aberto apos avaliacao de gaps da spec `2026-02-20-telegram-multi-project-parallel-runners`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix
+- Closed at (UTC): 2026-02-20 16:25Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - PR: N/A
+  - Commit: registrado no historico Git deste fechamento
+  - ExecPlan: execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md

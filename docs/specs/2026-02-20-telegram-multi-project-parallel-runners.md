@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-20 15:44Z
-- Last reviewed at (UTC): 2026-02-20 16:14Z
+- Last reviewed at (UTC): 2026-02-20 16:23Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
@@ -14,6 +14,7 @@
   - tickets/open/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
 - Related execplans:
   - execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
+  - execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
 - Related commits:
   - A definir
 
@@ -69,28 +70,28 @@
 - [x] CA-08 - `/plan_spec` ativo em um projeto nao bloqueia `/run_all` em outro projeto com capacidade disponivel.
 - [x] CA-09 - Durante `/plan_spec` ativo, nova tentativa de `/plan_spec` em qualquer projeto retorna bloqueio explicito.
 - [ ] CA-10 - Mensagem de resumo final por ticket identifica explicitamente o projeto no proprio texto da notificacao.
-- [ ] CA-11 - Sem `TELEGRAM_ALLOWED_CHAT_ID`, bootstrap falha com erro claro de configuracao obrigatoria.
-- [ ] CA-12 - Chat nao autorizado continua bloqueado para comandos e callbacks do bot.
+- [x] CA-11 - Sem `TELEGRAM_ALLOWED_CHAT_ID`, bootstrap falha com erro claro de configuracao obrigatoria.
+- [x] CA-12 - Chat nao autorizado continua bloqueado para comandos e callbacks do bot.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Matriz RF:
-  - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-14, RF-15, RF-17, RF-18.
+  - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-14, RF-15, RF-16, RF-17, RF-18.
   - Parcialmente atendidos: RF-11, RF-12, RF-13.
-  - Nao atendidos: RF-16.
+  - Nao atendidos: nenhum.
 - Matriz CA:
-  - Atendidos: CA-01, CA-02, CA-03, CA-04, CA-08, CA-09, CA-10, CA-12.
+  - Atendidos: CA-01, CA-02, CA-03, CA-04, CA-08, CA-09, CA-10, CA-11, CA-12.
   - Parcialmente atendidos: CA-05.
-  - Nao atendidos: CA-06, CA-07, CA-11.
+  - Nao atendidos: CA-06, CA-07.
 - Itens atendidos:
   - Descoberta de projetos elegiveis e projeto ativo global persistido ja existem.
   - Nucleo multi-runner por projeto implementado com limite global fixo de 5 slots e bloqueio acionavel sem fila automatica.
   - `/run_all` e `/run_specs` executam em paralelo para projetos distintos, mantendo sequencialidade de tickets por projeto.
   - `/plan_spec` continua com sessao global unica e bloqueio explicito para segunda tentativa, coexistindo com `/run_all` em outro projeto quando ha capacidade.
   - Resumo final por ticket e logs operacionais ja incluem nome/caminho do projeto.
+  - Bootstrap falha cedo quando `TELEGRAM_ALLOWED_CHAT_ID` nao esta configurado.
   - Controle de acesso por chat segue aplicado a comandos e callbacks quando `TELEGRAM_ALLOWED_CHAT_ID` esta configurado.
 - Pendencias em aberto:
-  - `P0/S1` - Tornar `TELEGRAM_ALLOWED_CHAT_ID` obrigatorio no bootstrap, falhando cedo quando ausente.
   - `P1/S2` - Adaptar contrato Telegram para painel global `N/5`, controles `/pause`/`/resume` por projeto e selecao de projeto durante execucao em outros projetos.
   - Cobrir os CAs de concorrencia/capacidade e controles por projeto com testes automatizados dedicados.
 - Evidencias de validacao:
@@ -102,6 +103,7 @@
   - src/integrations/telegram-bot.test.ts
   - src/config/env.ts
   - src/config/env.test.ts
+  - execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
   - docs/specs/2026-02-19-telegram-multi-project-active-selection.md
   - docs/specs/2026-02-19-telegram-run-status-notification.md
 
@@ -123,3 +125,4 @@
 - 2026-02-20 15:44Z - Versao inicial da spec criada e aprovada para derivacao tecnica.
 - 2026-02-20 15:51Z - Revisao de gaps concluida com matriz RF/CA atualizada e abertura de tickets de backlog para nucleo multi-runner, contrato Telegram e exigencia de `TELEGRAM_ALLOWED_CHAT_ID`.
 - 2026-02-20 16:14Z - Core multi-runner entregue com limite global de 5 slots, lock por projeto e cobertura automatizada de CA-01/02/03/04/08/09.
+- 2026-02-20 16:23Z - Bootstrap passou a exigir `TELEGRAM_ALLOWED_CHAT_ID` via `parseEnv`, com cobertura de testes para ausencia/valor vazio e preservacao do bloqueio de acesso no Telegram.

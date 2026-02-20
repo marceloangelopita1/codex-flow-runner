@@ -31,7 +31,7 @@ Pastas esperadas no repositório alvo:
 ## Variáveis de ambiente
 
 - `TELEGRAM_BOT_TOKEN` (**obrigatório**)
-- `TELEGRAM_ALLOWED_CHAT_ID` (opcional)
+- `TELEGRAM_ALLOWED_CHAT_ID` (**obrigatório**)
 - `PROJECTS_ROOT_PATH` (**obrigatório**, ex.: `/home/mapita/projetos`)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
 - O app carrega automaticamente o arquivo `.env` na raiz do projeto ao iniciar (sem necessidade de `source .env` manual para `npm run dev`/`npm start`).
@@ -76,12 +76,9 @@ Pré-requisito operacional:
 
 ### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
 
-- Modo restrito (`TELEGRAM_ALLOWED_CHAT_ID` configurado):
-  - Somente o chat com `chat.id` igual ao valor configurado pode executar comandos do bot.
-  - Tentativas de chat nao autorizado sao bloqueadas e registradas em log com `chatId`, `eventType` e `command`.
-- Modo sem restricao (`TELEGRAM_ALLOWED_CHAT_ID` ausente):
-  - O bot aceita comandos de qualquer chat.
-  - Indicado apenas para ambiente de desenvolvimento controlado.
+- `TELEGRAM_ALLOWED_CHAT_ID` e obrigatorio no bootstrap.
+- Somente o chat com `chat.id` igual ao valor configurado pode executar comandos do bot.
+- Tentativas de chat nao autorizado sao bloqueadas e registradas em log com `chatId`, `eventType` e `command`.
 
 ## Execução com systemd (WSL)
 
