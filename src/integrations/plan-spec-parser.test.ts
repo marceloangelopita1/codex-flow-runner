@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  type PlanSpecParserEvent,
   createPlanSpecParserState,
   parsePlanSpecOutput,
   parsePlanSpecOutputChunk,
@@ -95,6 +96,36 @@ test("mantem bloco parcial em buffer e parseia quando fechamento chega", () => {
   assert.equal(secondPass.state.pendingChunk, "");
 });
 
+test("preserva marcador de abertura parcial entre chunks e parseia quando completo", () => {
+  const initialState = createPlanSpecParserState();
+  const firstPass = parsePlanSpecOutputChunk(initialState, "ruido inicial\n[[PLAN_SPEC_");
+
+  assert.equal(firstPass.events.length, 1);
+  assert.equal(firstPass.events[0]?.type, "raw-sanitized");
+  assert.match(firstPass.events[0]?.text ?? "", /ruido inicial/u);
+  assert.equal(firstPass.state.pendingChunk, "[[PLAN_SPEC_");
+
+  const secondPass = parsePlanSpecOutputChunk(
+    firstPass.state,
+    [
+      "QUESTION]]",
+      "Pergunta: Qual opcao atende melhor?",
+      "Opcoes:",
+      "- [a] Opcao A",
+      "- [b] Opcao B",
+      "[[/PLAN_SPEC_QUESTION]]",
+    ].join("\n"),
+  );
+
+  assert.equal(secondPass.events.length, 1);
+  assert.equal(secondPass.events[0]?.type, "question");
+  if (!secondPass.events[0] || secondPass.events[0].type !== "question") {
+    assert.fail("Evento de pergunta nao encontrado apos completar marcador quebrado");
+  }
+  assert.equal(secondPass.events[0].question.options.length, 2);
+  assert.equal(secondPass.state.pendingChunk, "");
+});
+
 test("quando bloco estruturado e invalido, retorna fallback raw saneado (CA-20)", () => {
   const output = [
     "[[PLAN_SPEC_QUESTION]]",
@@ -107,6 +138,20 @@ test("quando bloco estruturado e invalido, retorna fallback raw saneado (CA-20)"
   assert.equal(events.length, 1);
   assert.equal(events[0]?.type, "raw-sanitized");
   assert.match(events[0]?.text ?? "", /PLAN_SPEC_QUESTION/u);
+});
+
+test("ignora ruido baixo-sinal de TTY em eventos raw", () => {
+  let state = createPlanSpecParserState();
+  const chunks = ["\u001b[?2004h", "\u001b[>7u", ";?\\", "T", "i", "p", ":", "N", "e", "w", "2", "x"];
+  const emittedEvents: PlanSpecParserEvent[] = [];
+
+  for (const chunk of chunks) {
+    const parsed = parsePlanSpecOutputChunk(state, chunk);
+    state = parsed.state;
+    emittedEvents.push(...parsed.events);
+  }
+
+  assert.equal(emittedEvents.length, 0);
 });
 
 test("saneia saida raw removendo ANSI, controles e excesso de espacos", () => {

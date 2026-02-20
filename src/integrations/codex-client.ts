@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger } from "../core/logger.js";
 import {
+  isPlanSpecRawOutputMeaningful,
   PlanSpecFinalBlock,
   PlanSpecParserEvent,
   PlanSpecParserState,
@@ -567,7 +568,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
   private handleStderrChunk(chunk: string): void {
     const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized) {
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
       return;
     }
 
@@ -584,7 +585,7 @@ class CodexInteractivePlanSession implements PlanSpecSession {
     this.closed = true;
     if (this.parserState.pendingChunk.trim().length > 0) {
       const pending = sanitizePlanSpecRawOutput(this.parserState.pendingChunk);
-      if (pending) {
+      if (pending && isPlanSpecRawOutputMeaningful(pending)) {
         this.emitEvent({
           type: "raw-sanitized",
           text: pending,

@@ -5,6 +5,7 @@ const FINAL_BLOCK_CLOSE = "[[/PLAN_SPEC_FINAL]]";
 const ANSI_ESCAPE_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/gu;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const MAX_RAW_OUTPUT_LENGTH = 3500;
+const OPEN_BLOCK_MARKERS = [QUESTION_BLOCK_OPEN, FINAL_BLOCK_OPEN] as const;
 
 export type PlanSpecFinalActionId = "create-spec" | "refine" | "cancel";
 
@@ -164,9 +165,40 @@ export const sanitizePlanSpecRawOutput = (value: string): string => {
   return `${compactNewLines.slice(0, MAX_RAW_OUTPUT_LENGTH)}...`;
 };
 
+export const isPlanSpecRawOutputMeaningful = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed.length < 3) {
+    return false;
+  }
+
+  const lines = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return false;
+  }
+
+  if (lines.length >= 4 && lines.every((line) => line.length <= 2)) {
+    return false;
+  }
+
+  const compact = lines.join("");
+  const alphanumericCount = Array.from(compact).filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
+  if (alphanumericCount < 3) {
+    return false;
+  }
+
+  return true;
+};
+
 const pushRawEvent = (events: PlanSpecParserEvent[], value: string): void => {
   const sanitized = sanitizePlanSpecRawOutput(value);
-  if (!sanitized) {
+  if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
     return;
   }
 
@@ -217,7 +249,7 @@ const resolvePendingStart = (value: string): number => {
   const finalStart = findUnclosedMarkerStart(value, FINAL_BLOCK_OPEN, FINAL_BLOCK_CLOSE);
 
   if (questionStart < 0) {
-    return finalStart;
+    return finalStart >= 0 ? finalStart : findPartialOpenMarkerStart(value);
   }
 
   if (finalStart < 0) {
@@ -225,6 +257,30 @@ const resolvePendingStart = (value: string): number => {
   }
 
   return Math.min(questionStart, finalStart);
+};
+
+const findPartialOpenMarkerStart = (value: string): number => {
+  if (!value) {
+    return -1;
+  }
+
+  let candidate = -1;
+  for (const marker of OPEN_BLOCK_MARKERS) {
+    const maxPrefixLength = Math.min(marker.length - 1, value.length);
+    for (let length = maxPrefixLength; length >= 1; length -= 1) {
+      if (!value.endsWith(marker.slice(0, length))) {
+        continue;
+      }
+
+      const start = value.length - length;
+      if (candidate < 0 || start < candidate) {
+        candidate = start;
+      }
+      break;
+    }
+  }
+
+  return candidate;
 };
 
 const findUnclosedMarkerStart = (
