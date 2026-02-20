@@ -6,13 +6,13 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-20 22:12Z
-- Last reviewed at (UTC): 2026-02-20 23:12Z
+- Last reviewed at (UTC): 2026-02-20 23:22Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - tickets/closed/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
   - tickets/closed/2026-02-20-callback-observability-and-block-reason-taxonomy-gap.md
-  - tickets/open/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
+  - tickets/closed/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
 - Related execplans:
   - execplans/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - execplans/2026-02-20-callback-observability-and-block-reason-taxonomy-gap.md
@@ -61,7 +61,7 @@
 - RF-21: a edicao de mensagem para destaque/trava deve ser best effort; se a edicao falhar, o fluxo principal deve manter consistencia e registrar erro.
 - RF-22: callbacks repetidos para mesma escolha ja confirmada devem ser tratados de forma idempotente.
 - RF-23: o comportamento de destaque e confirmacao deve ser consistente entre `/specs` e `/plan_spec` para reduzir ambiguidade de UX.
-- RF-24: a implementacao deve manter processamento sequencial de tickets/specs, sem paralelizacao de execucoes.
+- RF-24: a implementacao deve manter processamento sequencial de tickets/specs por projeto (sem paralelizacao no mesmo projeto), permitindo execucao paralela entre projetos quando houver capacidade no modo multi-runner conforme `docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md`.
 
 ## Nao-escopo
 - Substituir ou remover `/run_specs <arquivo>`.
@@ -80,7 +80,7 @@
 - [x] CA-07 - Navegacao de paginacao em `/specs` continua funcional sem quebrar selecao por clique.
 - [x] CA-08 - Clique em callback stale de `/specs` retorna bloqueio observavel e nao inicia triagem.
 - [x] CA-09 - Clique em spec que perdeu elegibilidade entre listagem e clique retorna bloqueio observavel e nao inicia triagem.
-- [x] CA-10 - Com runner em execucao ativa, clique de `/specs` retorna bloqueio de concorrencia e nao abre nova rodada.
+- [x] CA-10 - Com runner em execucao ativa no mesmo projeto, clique de `/specs` retorna bloqueio de concorrencia e nao abre nova rodada.
 - [x] CA-11 - Callback de chat nao autorizado em `/specs` ou `/plan_spec` e rejeitado por controle de acesso.
 - [x] CA-12 - Clique em opcao de pergunta de `/plan_spec` edita a mensagem da pergunta, destaca a opcao e trava botoes.
 - [x] CA-13 - Clique em acao final de `/plan_spec` edita a mensagem de decisao, destaca a acao e trava botoes.
@@ -100,12 +100,14 @@
   - RF-18..RF-20 / CA-16: callbacks de `/specs` e `/plan_spec` registram trilha padronizada `attempt -> validation -> decision`, com taxonomia minima de bloqueio (`access-denied`, `concurrency`, `stale`, `ineligible`, `invalid-action`, `inactive-session`) e campos operacionais (`chatId`, `userId` quando disponivel, `callbackData`, `action`, `specFileName|sessionId`, `result`).
   - RF-14..RF-17 / CA-12..CA-15: callbacks de `/plan_spec` agora validam contexto ativo por mensagem/sessao/fase, aplicam destaque+lock da escolha e fazem confirmacao dupla (toast + chat) nos caminhos aceitos.
   - RF-21..RF-23 / CA-21..CA-23: lock visual de `/plan_spec` opera em best effort com warning em falha de edicao; callbacks repetidos/stale nao reenviam input ao runner, mantendo consistencia de UX com `/specs`.
+  - RF-24: sequencialidade desta spec fica definida por projeto (slot unico por projeto), com rastreabilidade explicita para o contrato multi-runner e sem bloqueio global entre projetos distintos quando houver capacidade.
 - Itens parcialmente atendidos:
-  - RF-24: runner atual preserva sequencialidade por projeto, mas ja suporta execucao paralela entre projetos (modo multi-runner), exigindo alinhamento explicito da semantica deste RF.
+  - Nenhum.
 - Pendencias em aberto:
-  - RF-24: alinhar redacao da sequencialidade desta spec com o contrato multi-runner vigente para evitar ambiguidade de aceite.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md
+  - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
   - src/integrations/telegram-bot.ts
   - src/core/runner.ts
   - src/integrations/telegram-bot.test.ts
@@ -116,7 +118,7 @@
   - tickets/closed/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
   - tickets/closed/2026-02-20-plan-spec-callback-highlight-lock-and-double-confirmation-gap.md
   - tickets/closed/2026-02-20-callback-observability-and-block-reason-taxonomy-gap.md
-  - tickets/open/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
+  - tickets/closed/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
 
 ## Riscos e impacto
 - Risco funcional: callback fora de contexto iniciar fluxo incorreto se validacao stale for incompleta.
@@ -128,6 +130,7 @@
 - 2026-02-20 - Confirmacao dupla (toast + mensagem no chat) para todo clique valido - melhora feedback imediato e rastreabilidade conversacional.
 - 2026-02-20 - Travar botoes apos escolha na mesma mensagem - reduz risco de duplicidade e torna estado visual explicito.
 - 2026-02-20 - Revalidar elegibilidade e concorrencia no clique, nao apenas na listagem - evita acoes com estado desatualizado.
+- 2026-02-20 - RF-24 alinhado para sequencialidade por projeto (nao global) - preserva contrato multi-runner vigente e evita bloqueio incorreto entre projetos.
 
 ## Historico de atualizacao
 - 2026-02-20 22:12Z - Versao inicial da spec criada com status aprovado e tratamento pendente.
@@ -136,3 +139,5 @@
 - 2026-02-20 23:40Z - Recorte `/specs` entregue com callback inline, revalidacao no clique, stale/idempotencia, destaque/trava e cobertura automatizada CA-01..CA-10 (incluindo CA-11 para acesso em callback).
 - 2026-02-20 23:59Z - Recorte de observabilidade de callbacks entregue com taxonomia minima de bloqueios e logs padronizados em `/specs` e `/plan_spec` (RF-18..RF-20, CA-16).
 - 2026-02-20 23:09Z - Recorte `/plan_spec` entregue com contexto de callback por mensagem/sessao, destaque+lock de pergunta/final, confirmacao dupla em callbacks aceitos e cobertura CA-12, CA-13, CA-14, CA-15, CA-21, CA-22 e CA-23.
+- 2026-02-20 23:19Z - RF-24 e criterio de concorrencia alinhados ao contrato multi-runner: sequencialidade definida por projeto e rastreada com a spec `2026-02-20-telegram-multi-project-parallel-runners`.
+- 2026-02-20 23:22Z - Referencias do ticket RF-24 atualizadas para `tickets/closed/` apos fechamento operacional.

@@ -6,12 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-20 15:44Z
-- Last reviewed at (UTC): 2026-02-20 16:42Z
+- Last reviewed at (UTC): 2026-02-20 23:22Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
   - tickets/open/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
   - tickets/open/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
+  - tickets/closed/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
 - Related execplans:
   - execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
   - execplans/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
@@ -95,6 +96,7 @@
   - Resumo final por ticket e logs operacionais ja incluem nome/caminho do projeto.
   - Bootstrap falha cedo quando `TELEGRAM_ALLOWED_CHAT_ID` nao esta configurado.
   - Controle de acesso por chat segue aplicado a comandos e callbacks quando `TELEGRAM_ALLOWED_CHAT_ID` esta configurado.
+  - RF-02 desta spec passa a ser referencia explicita para a semantica do RF-24 em `docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md` (sequencialidade por projeto, nao global).
 - Pendencias em aberto:
   - Nenhuma pendencia tecnica funcional aberta nesta spec; resta apenas fechamento operacional dos tickets relacionados.
 - Evidencias de validacao:
@@ -124,6 +126,7 @@
 - 2026-02-20 - `/status` com foco no projeto ativo + painel global - preserva ergonomia atual sem perder visibilidade multiprojeto.
 - 2026-02-20 - `/pause` e `/resume` com escopo do projeto ativo - evita efeito colateral em runners nao relacionados.
 - 2026-02-20 - Tornar `TELEGRAM_ALLOWED_CHAT_ID` obrigatorio para esta evolucao - reforca previsibilidade operacional no modo paralelo.
+- 2026-02-20 - Formalizar rastreabilidade com RF-24 da spec de UX por clique - evita interpretacao de sequencialidade global conflitante com o contrato multi-runner.
 
 ## Historico de atualizacao
 - 2026-02-20 15:44Z - Versao inicial da spec criada e aprovada para derivacao tecnica.
@@ -131,3 +134,5 @@
 - 2026-02-20 16:14Z - Core multi-runner entregue com limite global de 5 slots, lock por projeto e cobertura automatizada de CA-01/02/03/04/08/09.
 - 2026-02-20 16:23Z - Bootstrap passou a exigir `TELEGRAM_ALLOWED_CHAT_ID` via `parseEnv`, com cobertura de testes para ausencia/valor vazio e preservacao do bloqueio de acesso no Telegram.
 - 2026-02-20 16:42Z - Contrato Telegram multi-runner concluido com painel global `N/5` em `/status`, `/pause` e `/resume` por projeto ativo, e troca de projeto liberada durante execucao em outros projetos com cobertura de CA-05/06/07.
+- 2026-02-20 23:19Z - Rastreabilidade cruzada adicionada para o ticket de alinhamento do RF-24 na spec de UX por clique, reafirmando que a sequencialidade oficial e por projeto.
+- 2026-02-20 23:22Z - Referencia do ticket RF-24 atualizada para `tickets/closed/` apos fechamento operacional.

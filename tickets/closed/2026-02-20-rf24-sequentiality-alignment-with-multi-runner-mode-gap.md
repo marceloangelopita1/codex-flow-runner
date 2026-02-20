@@ -1,7 +1,7 @@
 # [TICKET] RF-24 da spec de clique precisa alinhamento explicito com modo multi-runner atual
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S3
 - Created at (UTC): 2026-02-20 22:19Z
@@ -71,9 +71,13 @@ Nao obrigatorio. Definir em ExecPlan/documentacao.
 
 ## Decision log
 - 2026-02-20 - Gap aberto para alinhar requisito funcional e evitar conflito com comportamento multi-runner ja entregue.
+- 2026-02-20 - Criterios do ExecPlan validados com resultado GO; RF-24 e CA-10 alinhados para semantica por projeto e testes alvo aprovados.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-02-20 23:22Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - PR: N/A
+  - Commit: registrado no historico Git deste fechamento
+  - ExecPlan: execplans/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
