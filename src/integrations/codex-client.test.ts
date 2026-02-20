@@ -163,15 +163,8 @@ test("args interativos usam full access sem flags exclusivas de codex exec", () 
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
-test("spawn interativo usa codex direto quando stdin e TTY", () => {
-  const request = buildInteractiveCodexSpawnRequest(true);
-
-  assert.equal(request.command, "codex");
-  assert.deepEqual(request.args, ["-s", "danger-full-access", "-a", "never"]);
-});
-
-test("spawn interativo usa script quando stdin nao e TTY", () => {
-  const request = buildInteractiveCodexSpawnRequest(false);
+test("spawn interativo usa script para garantir pseudo-tty", () => {
+  const request = buildInteractiveCodexSpawnRequest();
 
   assert.equal(request.command, "script");
   assert.deepEqual(request.args, [

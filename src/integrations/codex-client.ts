@@ -176,17 +176,8 @@ export const buildInteractiveCodexArgs = (): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
 ];
 
-export const buildInteractiveCodexSpawnRequest = (
-  stdinIsTty: boolean,
-): CodexInteractiveSpawnRequest => {
+export const buildInteractiveCodexSpawnRequest = (): CodexInteractiveSpawnRequest => {
   const codexArgs = buildInteractiveCodexArgs();
-  if (stdinIsTty) {
-    return {
-      command: "codex",
-      args: codexArgs,
-    };
-  }
-
   return {
     command: "script",
     args: [
@@ -770,7 +761,7 @@ const runCodexAuthStatusCommand = async (
 const spawnCodexInteractiveProcess = (
   request: CodexInteractiveSessionRequest,
 ): InteractiveCodexProcess => {
-  const spawnRequest = buildInteractiveCodexSpawnRequest(Boolean(process.stdin.isTTY));
+  const spawnRequest = buildInteractiveCodexSpawnRequest();
 
   return spawn(spawnRequest.command, spawnRequest.args, {
     cwd: request.cwd,
