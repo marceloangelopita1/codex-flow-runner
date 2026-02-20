@@ -160,7 +160,6 @@ export const buildNonInteractiveCodexArgs = (): string[] => [
 export const buildInteractiveCodexArgs = (): string[] => [
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_APPROVAL_NEVER_ARGS,
-  ...CODEX_COLOR_NEVER_ARGS,
 ];
 
 export class CodexStageExecutionError extends Error {

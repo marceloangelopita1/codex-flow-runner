@@ -156,10 +156,9 @@ test("args interativos usam full access sem flags exclusivas de codex exec", () 
     "danger-full-access",
     "-a",
     "never",
-    "--color",
-    "never",
   ]);
   assert.equal(args.includes("--skip-git-repo-check"), false);
+  assert.equal(args.includes("--color"), false);
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
