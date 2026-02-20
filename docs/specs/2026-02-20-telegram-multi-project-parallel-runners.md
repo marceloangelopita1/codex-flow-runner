@@ -6,10 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-20 15:44Z
-- Last reviewed at (UTC): 2026-02-20 15:44Z
+- Last reviewed at (UTC): 2026-02-20 15:51Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
+  - tickets/open/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
+  - tickets/open/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -72,17 +74,24 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
+- Matriz RF:
+  - Atendidos: RF-08, RF-10, RF-14, RF-15, RF-17, RF-18.
+  - Parcialmente atendidos: RF-02, RF-03, RF-04, RF-11, RF-12, RF-13.
+  - Nao atendidos: RF-01, RF-05, RF-06, RF-07, RF-09, RF-16.
+- Matriz CA:
+  - Atendidos: CA-09, CA-10, CA-12.
+  - Parcialmente atendidos: CA-02, CA-04, CA-05.
+  - Nao atendidos: CA-01, CA-03, CA-06, CA-07, CA-08, CA-11.
 - Itens atendidos:
-  - O sistema ja possui descoberta de projetos elegiveis e projeto ativo global persistido.
-  - O runner atual ja inclui contexto de projeto em estado interno e resumo final por ticket.
-  - O controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID` ja existe, mas ainda e opcional na configuracao.
-  - A arquitetura atual ainda utiliza um unico `TicketRunner`, mantendo bloqueio global de concorrencia.
+  - Descoberta de projetos elegiveis e projeto ativo global persistido ja existem.
+  - `/plan_spec` continua com sessao global unica e bloqueio explicito para segunda tentativa.
+  - Resumo final por ticket e logs operacionais ja incluem nome/caminho do projeto.
+  - Controle de acesso por chat segue aplicado a comandos e callbacks quando `TELEGRAM_ALLOWED_CHAT_ID` esta configurado.
 - Pendencias em aberto:
-  - Introduzir gerenciador multi-runner por projeto com limite global de 5 slots.
-  - Migrar o contrato de comandos Telegram para operar por projeto alvo, sem bloqueio global indevido.
-  - Ajustar `status` para combinar visao do projeto ativo com painel global de runners.
-  - Tornar `TELEGRAM_ALLOWED_CHAT_ID` obrigatorio na validacao de ambiente.
-  - Cobrir regras de concorrencia por projeto e capacidade maxima com testes automatizados.
+  - `P0/S1` - Implementar gerenciador multi-runner por projeto com limite global de 5 slots, sem fila automatica no limite e com coexistencia de `/plan_spec` global em projetos distintos.
+  - `P0/S1` - Tornar `TELEGRAM_ALLOWED_CHAT_ID` obrigatorio no bootstrap, falhando cedo quando ausente.
+  - `P1/S2` - Adaptar contrato Telegram para painel global `N/5`, controles `/pause`/`/resume` por projeto e selecao de projeto durante execucao em outros projetos.
+  - Cobrir os CAs de concorrencia/capacidade e controles por projeto com testes automatizados dedicados.
 - Evidencias de validacao:
   - src/main.ts
   - src/core/runner.ts
@@ -110,3 +119,4 @@
 
 ## Historico de atualizacao
 - 2026-02-20 15:44Z - Versao inicial da spec criada e aprovada para derivacao tecnica.
+- 2026-02-20 15:51Z - Revisao de gaps concluida com matriz RF/CA atualizada e abertura de tickets de backlog para nucleo multi-runner, contrato Telegram e exigencia de `TELEGRAM_ALLOWED_CHAT_ID`.
