@@ -106,6 +106,9 @@ interface ActiveCodexChatSession {
   outputFlushHandle: ReturnType<typeof setTimeout> | null;
   pendingOutputText: string;
   pendingOutputChunks: number;
+  lastCodexActivityLogAt: Date | null;
+  suppressedCodexActivityCount: number;
+  suppressedCodexActivityBytes: number;
 }
 
 interface ActiveRunnerSlot {
@@ -167,6 +170,7 @@ const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
 const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 const PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS = 2 * 1000;
 const CODEX_CHAT_OUTPUT_FLUSH_DELAY_MS = 1200;
+const CODEX_CHAT_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -777,6 +781,9 @@ export class TicketRunner {
         outputFlushHandle: null,
         pendingOutputText: "",
         pendingOutputChunks: 0,
+        lastCodexActivityLogAt: null,
+        suppressedCodexActivityCount: 0,
+        suppressedCodexActivityBytes: 0,
       };
 
       slot.isStarting = false;
@@ -1470,31 +1477,11 @@ export class TicketRunner {
     this.refreshCodexChatTimeout(sessionId);
 
     if (event.type === "activity") {
-      const preview = event.activity.preview.trim();
-      codexChatSession.lastCodexActivityAt = this.now();
-      if (preview.length > 0) {
-        codexChatSession.lastCodexStream = event.activity.source;
-        codexChatSession.lastCodexPreview = preview;
-      }
-      this.logger.info("Lifecycle /codex_chat: codex-activity", {
-        chatId: activeSession.chatId,
-        sessionId,
-        source: event.activity.source,
-        bytes: event.activity.bytes,
-        preview,
-      });
+      this.recordCodexChatActivity(activeSession, codexChatSession, sessionId, event);
       return;
     }
 
     if (codexChatSession.phase !== "waiting-codex" && activeSession.pendingOutputChunks === 0) {
-      this.logger.info("Lifecycle /codex_chat: output-suppressed-outside-waiting-codex", {
-        chatId: activeSession.chatId,
-        sessionId,
-        outputLength: event.text.length,
-        phase: codexChatSession.phase,
-        activeProjectName: codexChatSession.activeProjectSnapshot.name,
-        activeProjectPath: codexChatSession.activeProjectSnapshot.path,
-      });
       return;
     }
 
@@ -1524,6 +1511,51 @@ export class TicketRunner {
       closureReason: "failure",
     });
     await this.emitCodexChatFailure(activeSession.chatId, details);
+  }
+
+  private recordCodexChatActivity(
+    activeSession: ActiveCodexChatSession,
+    codexChatSession: NonNullable<RunnerState["codexChatSession"]>,
+    sessionId: number,
+    event: Extract<CodexChatSessionEvent, { type: "activity" }>,
+  ): void {
+    const now = this.now();
+    const preview = event.activity.preview.trim();
+    codexChatSession.lastCodexActivityAt = now;
+    if (preview.length > 0) {
+      codexChatSession.lastCodexStream = event.activity.source;
+      codexChatSession.lastCodexPreview = preview;
+    } else {
+      return;
+    }
+
+    const shouldLogActivity =
+      !activeSession.lastCodexActivityLogAt ||
+      now.getTime() - activeSession.lastCodexActivityLogAt.getTime() >=
+        CODEX_CHAT_CODEX_ACTIVITY_LOG_INTERVAL_MS;
+    if (!shouldLogActivity) {
+      activeSession.suppressedCodexActivityCount += 1;
+      activeSession.suppressedCodexActivityBytes += event.activity.bytes;
+      return;
+    }
+
+    const suppressedEvents = activeSession.suppressedCodexActivityCount;
+    const suppressedBytes = activeSession.suppressedCodexActivityBytes;
+    activeSession.suppressedCodexActivityCount = 0;
+    activeSession.suppressedCodexActivityBytes = 0;
+    activeSession.lastCodexActivityLogAt = now;
+
+    this.logger.info("Lifecycle /codex_chat: codex-activity", {
+      chatId: activeSession.chatId,
+      sessionId,
+      phase: codexChatSession.phase,
+      source: event.activity.source,
+      bytes: event.activity.bytes,
+      preview: codexChatSession.lastCodexPreview,
+      ...(suppressedEvents > 0 ? { suppressedEvents, suppressedBytes } : {}),
+      activeProjectName: codexChatSession.activeProjectSnapshot.name,
+      activeProjectPath: codexChatSession.activeProjectSnapshot.path,
+    });
   }
 
   private async handleCodexChatSessionClose(

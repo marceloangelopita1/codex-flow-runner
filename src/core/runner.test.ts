@@ -2117,6 +2117,74 @@ test("submitCodexChatInput agrega chunks e encaminha uma unica resposta no /code
   assert.equal(forwardedLogs[0]?.context?.outputChunks, 3);
 });
 
+test("sessao /codex_chat limita log de atividade do Codex e ignora preview vazio", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  let nowMs = Date.parse("2026-02-21T10:00:00.000Z");
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      now: () => new Date(nowMs),
+    },
+  });
+  await runner.startCodexChatSession("42");
+
+  codex.lastFreeChatSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 180,
+      preview: "",
+    },
+  });
+
+  codex.lastFreeChatSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 190,
+      preview: "primeira saida util",
+    },
+  });
+
+  nowMs += 1000;
+  codex.lastFreeChatSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 222,
+      preview: "segunda saida util",
+    },
+  });
+
+  nowMs += 11_000;
+  codex.lastFreeChatSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 210,
+      preview: "terceira saida util",
+    },
+  });
+
+  await sleep(0);
+
+  const activityLogs = logger.infos.filter(
+    (entry) => entry.message === "Lifecycle /codex_chat: codex-activity",
+  );
+  assert.equal(activityLogs.length, 2);
+  assert.equal(activityLogs[0]?.context?.preview, "primeira saida util");
+  assert.equal(activityLogs[1]?.context?.preview, "terceira saida util");
+  assert.equal(activityLogs[1]?.context?.suppressedEvents, 1);
+  assert.equal(activityLogs[1]?.context?.suppressedBytes, 222);
+  assert.equal(runner.getState().codexChatSession?.lastCodexPreview, "terceira saida util");
+});
+
 test("submitCodexChatInput diferencia chat incorreto e sessao inativa", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
