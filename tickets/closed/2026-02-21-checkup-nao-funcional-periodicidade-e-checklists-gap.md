@@ -1,7 +1,7 @@
 # [TICKET] Check-up nao funcional sem periodicidade e checklist base dos 5 eixos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-21 08:42Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md
+  - execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md
   - SPECS.md
   - INTERNAL_TICKETS.md
   - tickets/templates/internal-ticket-template.md
@@ -72,9 +73,10 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto apos revisao da spec para formalizar baseline operacional do check-up nao funcional.
+- 2026-02-21 - ExecPlan validado como GO; criterios de fechamento atendidos com artefato operacional publicado e rastreabilidade atualizada na spec.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 08:55Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
