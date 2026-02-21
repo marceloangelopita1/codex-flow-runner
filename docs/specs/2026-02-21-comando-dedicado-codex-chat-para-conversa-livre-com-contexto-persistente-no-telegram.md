@@ -2,20 +2,22 @@
 
 ## Metadata
 - Spec ID: 2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-21 00:02Z
-- Last reviewed at (UTC): 2026-02-21 00:11Z
+- Last reviewed at (UTC): 2026-02-21 00:58Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
-  - tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
-  - tickets/open/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md
+  - tickets/closed/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+  - tickets/closed/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+  - tickets/closed/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md
 - Related execplans:
-  - A definir
+  - execplans/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+  - execplans/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+  - execplans/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md
 - Related commits:
-  - A definir
+  - commit: mesmo changeset de fechamento de `tickets/closed/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md`
 
 ## Objetivo e contexto
 - Problema que esta spec resolve: o bot ainda nao possui um comando dedicado para conversa livre com Codex, isolado do fluxo de planejamento de spec.
@@ -55,35 +57,43 @@
 - Introduzir paralelizacao de tickets/specs por causa do novo comando.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `/codex_chat` inicia sessao de conversa livre quando nao ha conflito ativo.
-- [ ] CA-02 - `/codex-chat` inicia a mesma sessao e segue as mesmas regras de `/codex_chat`.
-- [ ] CA-03 - Com sessao ativa, mensagem de texto livre recebe resposta do Codex no mesmo contexto.
-- [ ] CA-04 - Cada resposta do Codex em `/codex_chat` traz botao de encerramento manual do contexto.
-- [ ] CA-05 - Acionar encerramento manual finaliza a sessao e confirma o fechamento no Telegram.
-- [ ] CA-06 - Apos 10 minutos sem atividade, o bot encerra automaticamente a sessao e informa timeout.
-- [ ] CA-07 - Enviar qualquer outro comando durante sessao ativa encerra o contexto atual e executa o novo comando na mesma mensagem.
-- [ ] CA-08 - Com sessao `/plan_spec` ativa, `/codex_chat` e bloqueado com mensagem explicita e sem abrir nova sessao.
-- [ ] CA-09 - Sistema impede mais de uma sessao global simultanea de `/codex_chat` por instancia.
-- [ ] CA-10 - O fluxo `/codex_chat` nao entra em modo `/plan` automaticamente em nenhum ponto da jornada.
+- [x] CA-01 - `/codex_chat` inicia sessao de conversa livre quando nao ha conflito ativo.
+- [x] CA-02 - `/codex-chat` inicia a mesma sessao e segue as mesmas regras de `/codex_chat`.
+- [x] CA-03 - Com sessao ativa, mensagem de texto livre recebe resposta do Codex no mesmo contexto.
+- [x] CA-04 - Cada resposta do Codex em `/codex_chat` traz botao de encerramento manual do contexto.
+- [x] CA-05 - Acionar encerramento manual finaliza a sessao e confirma o fechamento no Telegram.
+- [x] CA-06 - Apos 10 minutos sem atividade, o bot encerra automaticamente a sessao e informa timeout.
+- [x] CA-07 - Enviar qualquer outro comando durante sessao ativa encerra o contexto atual e executa o novo comando na mesma mensagem.
+- [x] CA-08 - Com sessao `/plan_spec` ativa, `/codex_chat` e bloqueado com mensagem explicita e sem abrir nova sessao.
+- [x] CA-09 - Sistema impede mais de uma sessao global simultanea de `/codex_chat` por instancia.
+- [x] CA-10 - O fluxo `/codex_chat` nao entra em modo `/plan` automaticamente em nenhum ponto da jornada.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
-  - Nenhum RF/CA de `/codex_chat` esta concluido no codigo atual.
-- Itens parcialmente atendidos:
-  - Existe base de sessao global interativa, roteamento de texto livre, timeout e telemetria para `/plan_spec`, que pode ser reaproveitada como referencia arquitetural (`src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`).
+  - RF-01..RF-11 entregues via backend de sessao livre, camada Telegram e bloqueios de concorrencia de `/plan_spec`.
+  - RF-12 entregue com metadado tipado de ultimo encerramento de `/codex_chat`, logs de lifecycle (inicio, continuidade e encerramento) e bloco operacional no `/status`.
+  - README alinhado com help `/start` para `/codex_chat` e alias `/codex-chat`.
 - Pendencias em aberto:
-  - [P0/S1] Implementar backend dedicado de sessao `/codex_chat` (runner + codex-client), incluindo sessao unica global, conversa sem `/plan`, timeout de 10 minutos e bloqueio contra `/plan_spec` ativo (RF-03, RF-04, RF-05, RF-06, RF-08, RF-09, RF-11; CA-03, CA-05, CA-06, CA-08, CA-09, CA-10) em `tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md`.
-  - [P1/S2] Implementar camada Telegram do `/codex_chat` com alias `/codex-chat`, roteamento de texto livre, botao de encerramento manual e encerramento por troca de comando na mesma mensagem (RF-01, RF-02, RF-07, RF-10; CA-01, CA-02, CA-04, CA-05, CA-07) em `tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md`.
-  - [P2/S2] Completar observabilidade/status/documentacao e cobertura automatizada de aceitacao para o fluxo `/codex_chat` (RF-12 + rastreabilidade CA-01..CA-10) em `tickets/open/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md`.
+  - Nenhuma.
 - Evidencias de validacao:
-  - Validacao final da triagem executada em 2026-02-21 00:11Z, mantendo `Status: approved` e `Spec treatment: pending` devido a 3 gaps rastreados em `tickets/open/`.
-  - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts`
+  - `npm run check`
+  - `npm test`
+  - `npm run build`
+  - `src/integrations/telegram-bot.test.ts`: CA-01, CA-02, CA-03, CA-04, CA-05, CA-06, CA-07.
+  - `src/core/runner.test.ts`: CA-01, CA-03, CA-06, CA-07, CA-08, CA-09.
+  - `src/integrations/codex-client.test.ts`: CA-10.
+  - `src/integrations/telegram-bot.ts`: bloco detalhado de `/status` para sessao ativa e ultimo encerramento de `/codex_chat`.
+  - `src/core/runner.ts`: rastreabilidade de encerramento (`manual`, `timeout`, `command-handoff`, `unexpected-close`, `failure`, `shutdown`) e logs de lifecycle.
+  - `README.md`: secao "Controle por Telegram" alinhada com `/codex_chat` e `/codex-chat`.
   - src/types/state.ts
   - src/core/runner.ts
   - src/integrations/codex-client.ts
   - src/integrations/telegram-bot.ts
-  - src/main.ts
+  - src/integrations/telegram-bot.test.ts
+  - src/core/runner.test.ts
+  - src/integrations/codex-client.test.ts
 
 ## Riscos e impacto
 - Risco funcional: mistura de contexto entre comandos se o encerramento por troca de comando nao for atomico.
@@ -100,3 +110,5 @@
 - 2026-02-21 00:02Z - Versao inicial da spec criada com `Status: approved` e `Spec treatment: pending`.
 - 2026-02-21 00:06Z - Revisao de gaps concluida com abertura de 3 tickets em `tickets/open/` priorizados em fila sequencial P0 -> P1 -> P2.
 - 2026-02-21 00:11Z - Validacao final da triagem concluida, mantendo `Status: approved` e `Spec treatment: pending` com rastreabilidade nos tickets abertos.
+- 2026-02-21 04:55Z - Implementacao e validacao do ExecPlan P2 concluida com cobertura CA-01..CA-10; pendente apenas etapa operacional de fechamento de ticket e versionamento.
+- 2026-02-21 00:58Z - Ticket P2 encerrado com validacao verde (`check`, `test`, `build`), movido para `tickets/closed/`; spec atualizada para `Status: attended` e `Spec treatment: done`.

@@ -44,6 +44,14 @@ export type CodexChatSessionPhase = "waiting-user" | "waiting-codex";
 
 export type CodexChatCodexStream = "stdout" | "stderr";
 
+export type CodexChatSessionClosureReason =
+  | "manual"
+  | "timeout"
+  | "command-handoff"
+  | "unexpected-close"
+  | "failure"
+  | "shutdown";
+
 export interface CodexChatSessionState {
   sessionId?: number;
   chatId: string;
@@ -55,6 +63,17 @@ export interface CodexChatSessionState {
   lastCodexStream: CodexChatCodexStream | null;
   lastCodexPreview: string | null;
   activeProjectSnapshot: ProjectRef;
+}
+
+export interface CodexChatSessionLastClosureState {
+  reason: CodexChatSessionClosureReason;
+  closedAt: Date;
+  chatId: string;
+  sessionId: number | null;
+  phase: CodexChatSessionPhase | null;
+  message: string;
+  activeProjectSnapshot: ProjectRef;
+  triggeringCommand: string | null;
 }
 
 export interface RunnerLastNotifiedEvent {
@@ -89,6 +108,7 @@ export interface RunnerState {
   activeSlots: RunnerActiveSlotState[];
   planSpecSession: PlanSpecSessionState | null;
   codexChatSession: CodexChatSessionState | null;
+  lastCodexChatSessionClosure: CodexChatSessionLastClosureState | null;
   phase: RunnerPhase;
   lastMessage: string;
   updatedAt: Date;
@@ -111,6 +131,7 @@ export const createInitialState = (
   activeSlots: [],
   planSpecSession: null,
   codexChatSession: null,
+  lastCodexChatSessionClosure: null,
   phase: "idle",
   lastMessage: "Runner inicializado",
   updatedAt: new Date(),

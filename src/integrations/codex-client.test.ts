@@ -538,7 +538,7 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   await session.cancel();
 });
 
-test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input livre", async () => {
+test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input livre (CA-10)", async () => {
   const interactiveProcess = new FakeInteractiveProcess();
   const rawEvents: string[] = [];
 

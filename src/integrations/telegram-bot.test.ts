@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectSelectionSnapshot } from "../core/project-selection.js";
 import {
+  CodexChatSessionCancelOptions,
   CodexChatSessionCancelResult,
   CodexChatSessionInputResult,
   CodexChatSessionStartResult,
@@ -57,6 +58,7 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   lastNotifiedEvent: null,
   ...value,
   codexChatSession: value.codexChatSession ?? null,
+  lastCodexChatSessionClosure: value.lastCodexChatSessionClosure ?? null,
 });
 
 const createPlanSpecSession = (
@@ -208,6 +210,7 @@ const createController = (options: ControllerOptions = {}) => {
     codexChatInputCallsByChat: [] as { chatId: string; input: string }[],
     codexChatCancelCalls: 0,
     codexChatCancelChatIds: [] as string[],
+    codexChatCancelOptions: [] as Array<CodexChatSessionCancelOptions | undefined>,
     planSpecStartCalls: 0,
     planSpecStartChatIds: [] as string[],
     planSpecInputCalls: 0,
@@ -273,9 +276,10 @@ const createController = (options: ControllerOptions = {}) => {
         message: "Mensagem encaminhada para a sessao /codex_chat.",
       };
     },
-    cancelCodexChatSession: (chatId: string) => {
+    cancelCodexChatSession: (chatId: string, cancelOptions?: CodexChatSessionCancelOptions) => {
       controlState.codexChatCancelCalls += 1;
       controlState.codexChatCancelChatIds.push(chatId);
+      controlState.codexChatCancelOptions.push(cancelOptions);
       if (options.codexChatCancelResult) {
         return options.codexChatCancelResult;
       }
@@ -1577,6 +1581,10 @@ test("handoff por comando encerra /codex_chat e executa novo comando no mesmo up
   });
 
   assert.equal(controlState.codexChatCancelCalls, 1);
+  assert.deepEqual(controlState.codexChatCancelOptions, [{
+    reason: "command-handoff",
+    triggeringCommand: "run_all",
+  }]);
   assert.equal(controlState.runAllCalls, 1);
   assert.deepEqual(replies, ["▶️ Runner iniciado via /run_all."]);
 });
@@ -3403,6 +3411,61 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   assert.match(reply, /Caminho notificado: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /ExecPlan notificado: execplans\/2026-02-19-flow-a\.md/u);
   assert.match(reply, /Commit\/Push notificado: abc123@origin\/main/u);
+});
+
+test("status inclui bloco detalhado de /codex_chat quando sessao esta ativa (CA-06)", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      codexChatSession: createCodexChatSession({
+        phase: "waiting-codex",
+        startedAt: new Date("2026-02-21T10:00:00.000Z"),
+        lastActivityAt: new Date("2026-02-21T10:03:00.000Z"),
+        waitingCodexSinceAt: new Date("2026-02-21T10:02:00.000Z"),
+        lastCodexActivityAt: new Date("2026-02-21T10:02:30.000Z"),
+        lastCodexStream: "stdout",
+        lastCodexPreview: "resposta parcial do codex",
+      }),
+    }),
+  );
+
+  assert.match(reply, /Sessão \/codex_chat: ativa/u);
+  assert.match(reply, /Fase \/codex_chat: waiting-codex/u);
+  assert.match(reply, /Projeto da sessão \/codex_chat: codex-flow-runner/u);
+  assert.match(reply, /Caminho do projeto da sessão \/codex_chat: \/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(reply, /Início da sessão \/codex_chat: 2026-02-21T10:00:00\.000Z/u);
+  assert.match(reply, /Última atividade \/codex_chat: 2026-02-21T10:03:00\.000Z/u);
+  assert.match(reply, /Aguardando Codex \/codex_chat: sim/u);
+  assert.match(reply, /Aguardando Codex \/codex_chat desde: 2026-02-21T10:02:00\.000Z/u);
+  assert.match(reply, /Último stream Codex \/codex_chat: stdout/u);
+  assert.match(reply, /Preview da última saída Codex \/codex_chat: resposta parcial do codex/u);
+});
+
+test("status inclui ultimo encerramento de /codex_chat quando sessao esta inativa (CA-07)", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      codexChatSession: null,
+      lastCodexChatSessionClosure: {
+        reason: "command-handoff",
+        closedAt: new Date("2026-02-21T10:05:00.000Z"),
+        chatId: "42",
+        sessionId: 12,
+        phase: "waiting-user",
+        message: "Sessao /codex_chat cancelada.",
+        activeProjectSnapshot: cloneProject(defaultActiveProject),
+        triggeringCommand: "run_all",
+      },
+    }),
+  );
+
+  assert.match(reply, /Sessão \/codex_chat: inativa/u);
+  assert.match(reply, /Último encerramento \/codex_chat: troca de comando em 2026-02-21T10:05:00\.000Z/u);
+  assert.match(reply, /Fase no encerramento \/codex_chat: waiting-user/u);
+  assert.match(reply, /Projeto no encerramento \/codex_chat: codex-flow-runner/u);
+  assert.match(reply, /Comando que encerrou \/codex_chat: \/run_all/u);
 });
 
 test("status informa ausencia de evento notificado", () => {

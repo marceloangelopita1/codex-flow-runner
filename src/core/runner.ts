@@ -3,6 +3,7 @@ import path from "node:path";
 import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
 import {
+  CodexChatSessionClosureReason,
   CodexChatSessionPhase,
   PlanSpecSessionPhase,
   RunnerSlotKind,
@@ -265,6 +266,13 @@ export type CodexChatSessionCancelResult =
   | { status: "cancelled"; message: string }
   | CodexChatSessionChatRejectedResult;
 
+export type CodexChatSessionCancelReason = "manual" | "command-handoff";
+
+export interface CodexChatSessionCancelOptions {
+  reason?: CodexChatSessionCancelReason;
+  triggeringCommand?: string;
+}
+
 export type PlanSpecCallbackIgnoredReason =
   | "inactive-session"
   | "concurrency"
@@ -378,6 +386,17 @@ export class TicketRunner {
                   lastCodexActivityAt: new Date(this.state.codexChatSession.lastCodexActivityAt),
                 }
               : {}),
+          },
+        }
+      : {}),
+    ...(this.state.lastCodexChatSessionClosure
+      ? {
+          lastCodexChatSessionClosure: {
+            ...this.state.lastCodexChatSessionClosure,
+            closedAt: new Date(this.state.lastCodexChatSessionClosure.closedAt),
+            activeProjectSnapshot: {
+              ...this.state.lastCodexChatSessionClosure.activeProjectSnapshot,
+            },
           },
         }
       : {}),
@@ -760,6 +779,13 @@ export class TicketRunner {
         "codex-chat-waiting-user",
         "Sessao /codex_chat iniciada e aguardando mensagem do operador",
       );
+      this.logger.info("Lifecycle /codex_chat: session-started", {
+        chatId,
+        sessionId,
+        phase: "waiting-user",
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
 
       return {
         status: "started",
@@ -808,6 +834,14 @@ export class TicketRunner {
         "codex-chat-waiting-codex",
         "Mensagem enviada ao Codex na sessao /codex_chat",
       );
+      this.logger.info("Lifecycle /codex_chat: input-forwarded", {
+        chatId,
+        sessionId: session.id,
+        phase: "waiting-codex",
+        inputLength: normalizedInput.length,
+        activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+        activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+      });
 
       void pendingSend.catch((error) => {
         void this.handleCodexChatSessionFailure(session.id, error);
@@ -827,16 +861,22 @@ export class TicketRunner {
     }
   };
 
-  cancelCodexChatSession = async (chatId: string): Promise<CodexChatSessionCancelResult> => {
+  cancelCodexChatSession = async (
+    chatId: string,
+    options: CodexChatSessionCancelOptions = {},
+  ): Promise<CodexChatSessionCancelResult> => {
     const session = this.resolveCodexChatSessionForChat(chatId);
     if ("status" in session) {
       return session;
     }
 
+    const reason = options.reason ?? "manual";
     await this.finalizeCodexChatSession(session.id, {
       mode: "cancel",
       phase: "idle",
       message: CODEX_CHAT_CANCELLED_MESSAGE,
+      closureReason: reason === "command-handoff" ? "command-handoff" : "manual",
+      triggeringCommand: options.triggeringCommand,
     });
 
     return {
@@ -1248,6 +1288,7 @@ export class TicketRunner {
     }
 
     const now = this.now();
+    const previousPhase = codexChatSession.phase;
     codexChatSession.phase = phase;
     codexChatSession.lastActivityAt = now;
     if (phase === "waiting-codex") {
@@ -1262,10 +1303,20 @@ export class TicketRunner {
     const slot = this.activeSlots.get(activeSession.slotKey);
     if (slot) {
       this.touchSlot(slot, runnerPhase, message);
-      return;
+    } else {
+      this.touch(runnerPhase, message);
     }
 
-    this.touch(runnerPhase, message);
+    this.logger.info("Lifecycle /codex_chat: phase-transition", {
+      chatId: activeSession.chatId,
+      sessionId: activeSession.id,
+      previousPhase,
+      phase,
+      reason: message,
+      waitingCodexSinceAt: codexChatSession.waitingCodexSinceAt?.toISOString() ?? null,
+      activeProjectName: codexChatSession.activeProjectSnapshot.name,
+      activeProjectPath: codexChatSession.activeProjectSnapshot.path,
+    });
   }
 
   private refreshCodexChatTimeout(sessionId: number): void {
@@ -1308,6 +1359,7 @@ export class TicketRunner {
       phase: "idle",
       message: CODEX_CHAT_TIMEOUT_MESSAGE,
       notifyMessage: CODEX_CHAT_TIMEOUT_MESSAGE,
+      closureReason: "timeout",
     });
   }
 
@@ -1331,6 +1383,13 @@ export class TicketRunner {
         codexChatSession.lastCodexStream = event.activity.source;
         codexChatSession.lastCodexPreview = preview;
       }
+      this.logger.info("Lifecycle /codex_chat: codex-activity", {
+        chatId: activeSession.chatId,
+        sessionId,
+        source: event.activity.source,
+        bytes: event.activity.bytes,
+        preview,
+      });
       return;
     }
 
@@ -1341,6 +1400,14 @@ export class TicketRunner {
         "Sessao /codex_chat aguardando nova mensagem do operador",
       );
     }
+    this.logger.info("Lifecycle /codex_chat: output-forwarded", {
+      chatId: activeSession.chatId,
+      sessionId,
+      outputLength: event.text.length,
+      phase: this.state.codexChatSession?.phase,
+      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+    });
     await this.emitCodexChatOutput(activeSession.chatId, event);
   }
 
@@ -1363,6 +1430,7 @@ export class TicketRunner {
       mode: "cancel",
       phase: "error",
       message: "Falha na sessao /codex_chat",
+      closureReason: "failure",
     });
     await this.emitCodexChatFailure(activeSession.chatId, details);
   }
@@ -1381,6 +1449,7 @@ export class TicketRunner {
         mode: "closed",
         phase: "idle",
         message: CODEX_CHAT_CANCELLED_MESSAGE,
+        closureReason: "manual",
       });
       return;
     }
@@ -1396,6 +1465,7 @@ export class TicketRunner {
       mode: "closed",
       phase: "error",
       message,
+      closureReason: "unexpected-close",
     });
     await this.emitCodexChatFailure(activeSession.chatId, message);
   }
@@ -1406,8 +1476,10 @@ export class TicketRunner {
       mode: "cancel" | "closed";
       phase: RunnerState["phase"];
       message: string;
+      closureReason: CodexChatSessionClosureReason;
       notifyMessage?: string;
       releaseSlot?: boolean;
+      triggeringCommand?: string;
     },
   ): Promise<void> {
     const activeSession = this.activeCodexChatSession;
@@ -1418,6 +1490,21 @@ export class TicketRunner {
     if (activeSession.timeoutHandle) {
       this.clearTimer(activeSession.timeoutHandle);
     }
+
+    const codexChatSession = this.state.codexChatSession;
+    const closedAt = this.now();
+    this.state.lastCodexChatSessionClosure = {
+      reason: options.closureReason,
+      closedAt,
+      chatId: activeSession.chatId,
+      sessionId: codexChatSession?.sessionId ?? activeSession.id,
+      phase: codexChatSession?.phase ?? null,
+      message: options.message,
+      activeProjectSnapshot: {
+        ...(codexChatSession?.activeProjectSnapshot ?? activeSession.project),
+      },
+      triggeringCommand: options.triggeringCommand ?? null,
+    };
 
     this.activeCodexChatSession = null;
     this.state.codexChatSession = null;
@@ -1447,6 +1534,17 @@ export class TicketRunner {
     } else {
       this.touch(options.phase, options.message);
     }
+
+    this.logger.info("Lifecycle /codex_chat: session-finalized", {
+      chatId: activeSession.chatId,
+      sessionId: this.state.lastCodexChatSessionClosure?.sessionId ?? sessionId,
+      reason: options.closureReason,
+      phase: this.state.lastCodexChatSessionClosure?.phase ?? null,
+      triggeringCommand: options.triggeringCommand ?? null,
+      message: options.message,
+      activeProjectName: this.state.lastCodexChatSessionClosure?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.lastCodexChatSessionClosure?.activeProjectSnapshot.path,
+    });
 
     if (options.notifyMessage) {
       await this.emitCodexChatLifecycleMessage(activeSession.chatId, options.notifyMessage);
@@ -2334,6 +2432,7 @@ export class TicketRunner {
         mode: "cancel",
         phase: "idle",
         message: "Desligamento solicitado",
+        closureReason: "shutdown",
       });
     }
 

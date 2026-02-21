@@ -5,6 +5,7 @@ import {
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
 import type {
+  CodexChatSessionCancelOptions,
   CodexChatSessionCancelResult,
   CodexChatSessionInputResult,
   CodexChatSessionStartResult,
@@ -43,6 +44,7 @@ interface BotControls {
   ) => Promise<CodexChatSessionInputResult> | CodexChatSessionInputResult;
   cancelCodexChatSession: (
     chatId: string,
+    options?: CodexChatSessionCancelOptions,
   ) => Promise<CodexChatSessionCancelResult> | CodexChatSessionCancelResult;
   startPlanSpecSession: (
     chatId: string,
@@ -717,7 +719,10 @@ export class TelegramController {
     });
 
     try {
-      await this.controls.cancelCodexChatSession(chatId);
+      await this.controls.cancelCodexChatSession(chatId, {
+        reason: "command-handoff",
+        triggeringCommand: command,
+      });
     } catch (error) {
       this.logger.error("Falha ao encerrar sessao /codex_chat durante handoff de comando", {
         chatId,
@@ -3247,6 +3252,42 @@ export class TelegramController {
       }
     }
 
+    if (state.codexChatSession) {
+      lines.push(
+        `Fase /codex_chat: ${state.codexChatSession.phase}`,
+        `Projeto da sessão /codex_chat: ${state.codexChatSession.activeProjectSnapshot.name}`,
+        `Caminho do projeto da sessão /codex_chat: ${state.codexChatSession.activeProjectSnapshot.path}`,
+        `Início da sessão /codex_chat: ${state.codexChatSession.startedAt.toISOString()}`,
+        `Última atividade /codex_chat: ${state.codexChatSession.lastActivityAt.toISOString()}`,
+        `Aguardando Codex /codex_chat: ${state.codexChatSession.phase === "waiting-codex" ? "sim" : "nao"}`,
+        `Última atividade Codex /codex_chat: ${state.codexChatSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
+      );
+      if (state.codexChatSession.waitingCodexSinceAt) {
+        lines.push(
+          `Aguardando Codex /codex_chat desde: ${state.codexChatSession.waitingCodexSinceAt.toISOString()}`,
+        );
+      }
+      if (state.codexChatSession.lastCodexStream) {
+        lines.push(`Último stream Codex /codex_chat: ${state.codexChatSession.lastCodexStream}`);
+      }
+      if (state.codexChatSession.lastCodexPreview) {
+        lines.push(
+          `Preview da última saída Codex /codex_chat: ${state.codexChatSession.lastCodexPreview}`,
+        );
+      }
+    } else if (state.lastCodexChatSessionClosure) {
+      const closure = state.lastCodexChatSessionClosure;
+      lines.push(
+        `Último encerramento /codex_chat: ${this.renderCodexChatClosureReason(closure.reason)} em ${closure.closedAt.toISOString()}`,
+        `Fase no encerramento /codex_chat: ${closure.phase ?? "(desconhecida)"}`,
+        `Projeto no encerramento /codex_chat: ${closure.activeProjectSnapshot.name}`,
+        `Caminho no encerramento /codex_chat: ${closure.activeProjectSnapshot.path}`,
+      );
+      if (closure.triggeringCommand) {
+        lines.push(`Comando que encerrou /codex_chat: /${closure.triggeringCommand}`);
+      }
+    }
+
     if (!state.lastNotifiedEvent) {
       lines.push("Último evento notificado: nenhum");
       return lines.join("\n");
@@ -3272,6 +3313,28 @@ export class TelegramController {
     }
 
     return lines.join("\n");
+  }
+
+  private renderCodexChatClosureReason(
+    reason: NonNullable<RunnerState["lastCodexChatSessionClosure"]>["reason"],
+  ): string {
+    if (reason === "command-handoff") {
+      return "troca de comando";
+    }
+
+    if (reason === "unexpected-close") {
+      return "encerramento inesperado";
+    }
+
+    if (reason === "failure") {
+      return "falha";
+    }
+
+    if (reason === "shutdown") {
+      return "desligamento";
+    }
+
+    return reason;
   }
 
   private renderRunnerSlotCommand(kind: RunnerSlotKind): string {

@@ -40,11 +40,17 @@ import {
 } from "./runner.js";
 
 class SpyLogger extends Logger {
+  public readonly infos: Array<{ message: string; context?: Record<string, unknown> }> = [];
+  public readonly warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
   public readonly errors: Array<{ message: string; context?: Record<string, unknown> }> = [];
 
-  override info(): void {}
+  override info(message: string, context?: Record<string, unknown>): void {
+    this.infos.push({ message, context });
+  }
 
-  override warn(): void {}
+  override warn(message: string, context?: Record<string, unknown>): void {
+    this.warnings.push({ message, context });
+  }
 
   override error(message: string, context?: Record<string, unknown>): void {
     this.errors.push({ message, context });
@@ -1961,7 +1967,7 @@ test("cancelPlanSpecSession encerra sessao ativa e limpa estado associado", asyn
   assert.equal(runner.getState().phase, "idle");
 });
 
-test("startCodexChatSession inicia sessao unica global com snapshot de projeto", async () => {
+test("startCodexChatSession inicia sessao unica global com snapshot de projeto (CA-01, CA-09)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const roundDependencies = createRoundDependencies({
@@ -1986,9 +1992,14 @@ test("startCodexChatSession inicia sessao unica global com snapshot de projeto",
   assert.equal(state.codexChatSession?.phase, "waiting-user");
   assert.equal(state.codexChatSession?.activeProjectSnapshot.name, activeProjectA.name);
   assert.equal(state.codexChatSession?.activeProjectSnapshot.path, activeProjectA.path);
+  assert.equal(state.lastCodexChatSessionClosure, null);
+  assert.equal(
+    logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: session-started"),
+    true,
+  );
 });
 
-test("startCodexChatSession bloqueia inicio quando /plan_spec estiver ativo", async () => {
+test("startCodexChatSession bloqueia inicio quando /plan_spec estiver ativo (CA-08)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const roundDependencies = createRoundDependencies({
@@ -2010,7 +2021,7 @@ test("startCodexChatSession bloqueia inicio quando /plan_spec estiver ativo", as
   assert.equal(codex.freeChatSessionStartCalls, 0);
 });
 
-test("submitCodexChatInput encaminha mensagem e retorna para espera do operador apos saida", async () => {
+test("submitCodexChatInput encaminha mensagem e retorna para espera do operador apos saida (CA-03)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const outputs: string[] = [];
@@ -2053,6 +2064,14 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
   assert.equal(state.codexChatSession?.phase, "waiting-user");
   assert.equal(state.codexChatSession?.lastCodexStream, "stdout");
   assert.equal(state.codexChatSession?.lastCodexPreview, "resposta parcial");
+  assert.equal(
+    logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: phase-transition"),
+    true,
+  );
+  assert.equal(
+    logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: output-forwarded"),
+    true,
+  );
 });
 
 test("submitCodexChatInput diferencia chat incorreto e sessao inativa", async () => {
@@ -2076,9 +2095,44 @@ test("submitCodexChatInput diferencia chat incorreto e sessao inativa", async ()
   assert.equal(cancelResult.status, "cancelled");
   assert.equal(inactiveResult.status, "inactive");
   assert.match(inactiveResult.message, /Nenhuma sessão \/codex_chat ativa/u);
+  assert.equal(runner.getState().lastCodexChatSessionClosure?.reason, "manual");
+  assert.equal(
+    logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: session-finalized"),
+    true,
+  );
 });
 
-test("sessao /codex_chat expira por timeout de inatividade e notifica operador", async () => {
+test("cancelCodexChatSession registra motivo de troca de comando quando sinalizado (CA-07)", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startCodexChatSession("42");
+
+  const cancelResult = await runner.cancelCodexChatSession("42", {
+    reason: "command-handoff",
+    triggeringCommand: "run_all",
+  });
+
+  assert.equal(cancelResult.status, "cancelled");
+  assert.equal(runner.getState().lastCodexChatSessionClosure?.reason, "command-handoff");
+  assert.equal(runner.getState().lastCodexChatSessionClosure?.triggeringCommand, "run_all");
+  assert.equal(
+    logger.infos.some(
+      (entry) =>
+        entry.message === "Lifecycle /codex_chat: session-finalized" &&
+        entry.context?.reason === "command-handoff",
+    ),
+    true,
+  );
+});
+
+test("sessao /codex_chat expira por timeout de inatividade e notifica operador (CA-06)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
@@ -2108,9 +2162,22 @@ test("sessao /codex_chat expira por timeout de inatividade e notifica operador",
   assert.equal(codex.lastFreeChatSession?.cancelCalls, 1);
   assert.equal(runner.getState().codexChatSession, null);
   assert.equal(runner.getState().phase, "idle");
+  assert.equal(runner.getState().lastCodexChatSessionClosure?.reason, "timeout");
   assert.equal(lifecycleMessages.length, 1);
   assert.equal(lifecycleMessages[0]?.chatId, "42");
   assert.match(lifecycleMessages[0]?.message ?? "", /inatividade de 10 minutos/u);
+  assert.equal(
+    logger.warnings.some((entry) => entry.message === "Sessao /codex_chat expirada por inatividade"),
+    true,
+  );
+  assert.equal(
+    logger.infos.some(
+      (entry) =>
+        entry.message === "Lifecycle /codex_chat: session-finalized" &&
+        entry.context?.reason === "timeout",
+    ),
+    true,
+  );
 });
 
 test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec (CA-11)", async () => {

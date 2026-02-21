@@ -69,6 +69,11 @@ Pré-requisito operacional:
 - `/run-all` → alias legado compatível para `/run_all`
 - `/specs` → lista specs elegíveis (`Status: approved` + `Spec treatment: pending`) do projeto ativo
 - `/run_specs <arquivo>` → executa triagem da spec informada (aceita `<arquivo>.md` ou `docs/specs/<arquivo>.md`)
+- `/codex_chat` → inicia conversa livre com Codex no projeto ativo
+- `/codex-chat` → alias legado compatível para `/codex_chat`
+- `/plan_spec` → inicia sessão interativa de planejamento de spec
+- `/plan_spec_status` → mostra diagnóstico detalhado da sessão `/plan_spec`
+- `/plan_spec_cancel` → encerra manualmente a sessão `/plan_spec`
 - `/status` → mostra estado atual
 - `/pause` → pausa processamento
 - `/resume` → retoma processamento

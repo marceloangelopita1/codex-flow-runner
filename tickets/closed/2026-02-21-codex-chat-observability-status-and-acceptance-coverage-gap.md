@@ -1,14 +1,14 @@
 # [TICKET] Observabilidade, status operacional e cobertura de aceitacao para /codex_chat estao ausentes
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S2
 - Created at (UTC): 2026-02-21 00:06Z
 - Reporter: codex
 - Owner: mapita
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+- Parent ticket (optional): tickets/closed/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Request ID: N/A
@@ -19,7 +19,8 @@
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
   - README.md
-  - tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+  - tickets/closed/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+  - ExecPlan: execplans/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md
 
 ## Context
 - Workflow area: `src/core/runner.ts`, `src/integrations/telegram-bot.ts`, `README.md`, suites de teste
@@ -80,9 +81,10 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto como P2 para executar apos base funcional P0/P1 e consolidar fechamento de rastreabilidade da spec.
+- 2026-02-21 - ExecPlan validado como `GO` com criterios atendidos e validacoes verdes (`npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts`, `npm run check`, `npm test`, `npm run build`).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 00:58Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
