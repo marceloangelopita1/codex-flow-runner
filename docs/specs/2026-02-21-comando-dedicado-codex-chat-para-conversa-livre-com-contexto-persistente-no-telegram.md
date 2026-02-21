@@ -6,10 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-21 00:02Z
-- Last reviewed at (UTC): 2026-02-21 00:02Z
+- Last reviewed at (UTC): 2026-02-21 00:11Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+  - tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
+  - tickets/open/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -67,11 +69,21 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Nenhum item implementado nesta etapa de materializacao da spec.
+  - Nenhum RF/CA de `/codex_chat` esta concluido no codigo atual.
+- Itens parcialmente atendidos:
+  - Existe base de sessao global interativa, roteamento de texto livre, timeout e telemetria para `/plan_spec`, que pode ser reaproveitada como referencia arquitetural (`src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`).
 - Pendencias em aberto:
-  - Implementar RF-01 ate RF-12 e validar CA-01 ate CA-10 em ciclo de execucao dedicado.
+  - [P0/S1] Implementar backend dedicado de sessao `/codex_chat` (runner + codex-client), incluindo sessao unica global, conversa sem `/plan`, timeout de 10 minutos e bloqueio contra `/plan_spec` ativo (RF-03, RF-04, RF-05, RF-06, RF-08, RF-09, RF-11; CA-03, CA-05, CA-06, CA-08, CA-09, CA-10) em `tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md`.
+  - [P1/S2] Implementar camada Telegram do `/codex_chat` com alias `/codex-chat`, roteamento de texto livre, botao de encerramento manual e encerramento por troca de comando na mesma mensagem (RF-01, RF-02, RF-07, RF-10; CA-01, CA-02, CA-04, CA-05, CA-07) em `tickets/open/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md`.
+  - [P2/S2] Completar observabilidade/status/documentacao e cobertura automatizada de aceitacao para o fluxo `/codex_chat` (RF-12 + rastreabilidade CA-01..CA-10) em `tickets/open/2026-02-21-codex-chat-observability-status-and-acceptance-coverage-gap.md`.
 - Evidencias de validacao:
+  - Validacao final da triagem executada em 2026-02-21 00:11Z, mantendo `Status: approved` e `Spec treatment: pending` devido a 3 gaps rastreados em `tickets/open/`.
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - src/types/state.ts
+  - src/core/runner.ts
+  - src/integrations/codex-client.ts
+  - src/integrations/telegram-bot.ts
+  - src/main.ts
 
 ## Riscos e impacto
 - Risco funcional: mistura de contexto entre comandos se o encerramento por troca de comando nao for atomico.
@@ -86,3 +98,5 @@
 
 ## Historico de atualizacao
 - 2026-02-21 00:02Z - Versao inicial da spec criada com `Status: approved` e `Spec treatment: pending`.
+- 2026-02-21 00:06Z - Revisao de gaps concluida com abertura de 3 tickets em `tickets/open/` priorizados em fila sequencial P0 -> P1 -> P2.
+- 2026-02-21 00:11Z - Validacao final da triagem concluida, mantendo `Status: approved` e `Spec treatment: pending` com rastreabilidade nos tickets abertos.
