@@ -158,6 +158,12 @@ interface CodexAuthStatusRequest {
   env: NodeJS.ProcessEnv;
 }
 
+interface CodexExecJsonCommandRequest {
+  cwd: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+}
+
 interface CodexInteractiveSessionRequest {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -173,6 +179,7 @@ type InteractiveCodexProcess = ChildProcessWithoutNullStreams;
 interface CodexClientDependencies {
   loadPromptTemplate: (filePath: string) => Promise<string>;
   runCodexCommand: (request: CodexCommandRequest) => Promise<CodexCommandResult>;
+  runCodexExecJsonCommand: (request: CodexExecJsonCommandRequest) => Promise<CodexCommandResult>;
   runCodexAuthStatusCommand: (request: CodexAuthStatusRequest) => Promise<CodexCommandResult>;
   resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
   spawnCodexInteractiveProcess: (request: CodexInteractiveSessionRequest) => InteractiveCodexProcess;
@@ -235,6 +242,7 @@ const CODEX_COLOR_NEVER_ARGS = [
   "--color",
   "never",
 ] as const;
+const CODEX_JSON_OUTPUT_ARGS = ["--json"] as const;
 const INTERACTIVE_PSEUDO_TTY_COLUMNS = 120;
 const INTERACTIVE_PSEUDO_TTY_ROWS = 40;
 const SCRIPT_PSEUDO_TTY_ARGS = [
@@ -261,6 +269,26 @@ export const buildNonInteractiveCodexArgs = (): string[] => [
 export const buildInteractiveCodexArgs = (): string[] => [
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_APPROVAL_NEVER_ARGS,
+];
+
+const buildFreeChatExecStartArgs = (prompt: string): string[] => [
+  ...CODEX_APPROVAL_NEVER_ARGS,
+  "exec",
+  ...CODEX_EXEC_ONLY_ARGS,
+  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
+  ...CODEX_JSON_OUTPUT_ARGS,
+  prompt,
+];
+
+const buildFreeChatExecResumeArgs = (threadId: string, prompt: string): string[] => [
+  ...CODEX_APPROVAL_NEVER_ARGS,
+  "exec",
+  "resume",
+  ...CODEX_EXEC_ONLY_ARGS,
+  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
+  ...CODEX_JSON_OUTPUT_ARGS,
+  threadId,
+  prompt,
 ];
 
 export const buildInteractiveCodexSpawnRequest = (): CodexInteractiveSpawnRequest => {
@@ -349,6 +377,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     this.dependencies = {
       loadPromptTemplate: (filePath: string) => fs.readFile(filePath, "utf8"),
       runCodexCommand: runCodexCommand,
+      runCodexExecJsonCommand: runCodexExecJsonCommand,
       runCodexAuthStatusCommand: runCodexAuthStatusCommand,
       resolvePlanDirectoryName: resolvePlanDirectoryName,
       spawnCodexInteractiveProcess: spawnCodexInteractiveProcess,
@@ -495,23 +524,18 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   }
 
   async startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession> {
-    const spawnRequest = buildInteractiveCodexSpawnRequest();
-    this.logger.info("Iniciando sessao interativa de chat livre via Codex CLI", {
+    this.logger.info("Iniciando sessao de chat livre via Codex CLI exec/resume", {
       repoPath: this.repoPath,
       mode: "free-chat",
-      interactiveTranscriptPath: spawnRequest.args[spawnRequest.args.length - 1],
-      interactiveVerboseLogs: isInteractiveVerboseLogsEnabled(),
     });
 
     try {
-      const childProcess = this.dependencies.spawnCodexInteractiveProcess({
-        cwd: this.repoPath,
-        env: {
-          ...process.env,
-        },
-      });
-
-      return new CodexInteractiveFreeChatSession(childProcess, request, this.logger);
+      return new CodexExecResumeFreeChatSession(
+        this.repoPath,
+        request,
+        this.logger,
+        this.dependencies.runCodexExecJsonCommand,
+      );
     } catch (error) {
       throw new CodexChatSessionError("start", errorMessage(error));
     }
@@ -1022,52 +1046,26 @@ class CodexInteractivePlanSession implements PlanSpecSession {
   }
 }
 
-class CodexInteractiveFreeChatSession implements CodexChatSession {
-  private promptReadyProbeBuffer = "";
+class CodexExecResumeFreeChatSession implements CodexChatSession {
   private closed = false;
   private cancelled = false;
   private failureNotified = false;
-  private trustPromptHandled = false;
-  private promptReadyDetected = false;
-  private promptReadyFallbackArmed = false;
-  private promptReadyFallbackHandle: ReturnType<typeof setTimeout> | null = null;
-  private pendingInputsFlushInFlight = false;
+  private threadId: string | null = null;
   private writePipeline: Promise<void> = Promise.resolve();
-  private pendingTurnCompletions = 0;
-  private readonly pendingInputs: Array<{
-    value: string;
-    phase: "start" | "input";
-    resolve: () => void;
-    reject: (error: unknown) => void;
-  }> = [];
 
   constructor(
-    private readonly process: InteractiveCodexProcess,
+    private readonly repoPath: string,
     private readonly request: CodexChatSessionStartRequest,
     private readonly logger: Logger,
+    private readonly runCodexExecJsonCommand: (
+      request: CodexExecJsonCommandRequest,
+    ) => Promise<CodexCommandResult>,
   ) {
-    this.process.stdout.on("data", (chunk: Buffer | string) => {
-      this.handleStdoutChunk(chunk.toString());
-    });
-    this.process.stderr.on("data", (chunk: Buffer | string) => {
-      this.handleStderrChunk(chunk.toString());
-    });
-    this.process.on("error", (error) => {
-      this.notifyFailure("runtime", errorMessage(error));
-    });
-    this.process.on("close", (code) => {
-      this.handleClose(code);
-    });
-
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
-      this.pendingInputs.push({
-        value: initialUserInput,
-        phase: "start",
-        resolve: () => undefined,
-        reject: () => undefined,
+      void this.sendUserInput(initialUserInput).catch((error) => {
+        this.notifyFailure("start", errorMessage(error));
       });
-      this.schedulePromptReadyFallback();
     }
   }
 
@@ -1081,31 +1079,9 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
       throw new CodexChatSessionError("input", "A sessao interativa ja foi encerrada.");
     }
 
-    if (!this.isInputReady()) {
-      const pending = new Promise<void>((resolve, reject) => {
-        this.pendingInputs.push({
-          value: normalized,
-          phase: "input",
-          resolve,
-          reject,
-        });
-      });
-
-      this.logger.info("Input de /codex_chat enfileirado aguardando prompt interativo", {
-        promptReadyDetected: this.promptReadyDetected,
-        pendingInputs: this.pendingInputs.length,
-      });
-      this.schedulePromptReadyFallback();
-      if (this.promptReadyDetected) {
-        void this.flushPendingInputs().catch((error) => {
-          this.rejectPendingInputs(error);
-          this.notifyFailure("input", errorMessage(error));
-        });
-      }
-      return pending;
-    }
-
-    await this.sendInteractiveInput(normalized, "input");
+    await this.enqueueWriteOperation(async () => {
+      await this.executeTurn(normalized);
+    });
   }
 
   async cancel(): Promise<void> {
@@ -1114,223 +1090,79 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     }
 
     this.cancelled = true;
-    this.process.stdin.end();
-    this.process.kill("SIGTERM");
-  }
-
-  private handleStdoutChunk(chunk: string): void {
-    if (!chunk) {
-      return;
-    }
-
-    this.emitActivityObservation("stdout", chunk);
-    const promptReadyObserved = this.consumePromptReadySignal(chunk);
-
-    if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
-      this.trustPromptHandled = true;
-      this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
-      this.write(`yes${INTERACTIVE_CONFIRM_KEY}`, "start");
-    }
-
-    if (!this.promptReadyDetected && promptReadyObserved) {
-      this.promptReadyDetected = true;
-      this.clearPromptReadyFallback();
-    }
-
-    if (this.isInputReady()) {
-      void this.flushPendingInputs().catch((error) => {
-        this.rejectPendingInputs(error);
-        this.notifyFailure("input", errorMessage(error));
-      });
-    }
-
-    const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (sanitized && isPlanSpecRawOutputMeaningful(sanitized)) {
-      this.emitEvent({
-        type: "raw-sanitized",
-        text: sanitized,
-      });
-    }
-
-    if (promptReadyObserved && this.pendingTurnCompletions > 0) {
-      this.pendingTurnCompletions -= 1;
-      this.emitEvent({
-        type: "turn-complete",
-      });
-    }
-  }
-
-  private handleStderrChunk(chunk: string): void {
-    this.emitActivityObservation("stderr", chunk);
-    const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
-      return;
-    }
-
-    this.logger.warn("Sessao interativa do Codex retornou stderr", {
-      stderr: limit(sanitized),
+    this.closed = true;
+    this.notifyClose({
+      exitCode: null,
+      cancelled: true,
     });
+  }
+
+  private async executeTurn(prompt: string): Promise<void> {
+    const args = this.threadId
+      ? buildFreeChatExecResumeArgs(this.threadId, prompt)
+      : buildFreeChatExecStartArgs(prompt);
+    this.logVerbose("Sessao /codex_chat executando codex exec", {
+      hasThreadId: Boolean(this.threadId),
+      promptLength: prompt.length,
+    });
+
+    let result: CodexCommandResult;
+    try {
+      result = await this.runCodexExecJsonCommand({
+        cwd: this.repoPath,
+        args,
+        env: {
+          ...process.env,
+        },
+      });
+    } catch (error) {
+      this.notifyFailure("runtime", errorMessage(error));
+      throw error;
+    }
+
+    if (this.closed) {
+      return;
+    }
+
+    const parsed = parseCodexExecJsonTranscript(result.stdout, result.stderr);
+    this.emitActivityObservation("stdout", result.stdout);
+    this.emitActivityObservation("stderr", result.stderr);
+
+    const previousThreadId = this.threadId;
+    if (parsed.threadId) {
+      this.threadId = parsed.threadId;
+    }
+
+    if (!this.threadId) {
+      const details = "Codex exec nao retornou thread_id para manter contexto de /codex_chat.";
+      this.notifyFailure("runtime", details);
+      throw new CodexChatSessionError(
+        "runtime",
+        details,
+      );
+    }
+
+    if (previousThreadId && parsed.threadId && parsed.threadId !== previousThreadId) {
+      this.logger.warn("Sessao /codex_chat recebeu thread_id diferente durante resume", {
+        previousThreadId,
+        nextThreadId: parsed.threadId,
+      });
+    }
+
+    const finalMessage = parsed.agentMessage;
+    if (!finalMessage) {
+      const details =
+        "Codex exec nao retornou agent_message no modo --json para manter resposta deterministica de /codex_chat.";
+      this.notifyFailure("runtime", details);
+      throw new CodexChatSessionError("runtime", details);
+    }
+
     this.emitEvent({
       type: "raw-sanitized",
-      text: sanitized,
+      text: finalMessage,
     });
-  }
-
-  private handleClose(code: number | null): void {
-    this.closed = true;
-    this.promptReadyProbeBuffer = "";
-    this.clearPromptReadyFallback();
-    this.rejectPendingInputs(
-      new Error("Sessao interativa encerrada antes de concluir mensagens pendentes."),
-    );
-    this.logVerbose("Sessao interativa /codex_chat encerrada", {
-      exitCode: code,
-      cancelled: this.cancelled,
-    });
-
-    if (!this.cancelled && code !== 0) {
-      this.notifyFailure(
-        "runtime",
-        `sessao interativa terminou com codigo ${String(code)} sem fallback nao interativo`,
-      );
-    }
-
-    if (this.request.callbacks.onClose) {
-      try {
-        this.request.callbacks.onClose({
-          exitCode: code,
-          cancelled: this.cancelled,
-        });
-      } catch (error) {
-        this.logger.warn("Falha ao executar callback onClose da sessao interativa", {
-          error: errorMessage(error),
-        });
-      }
-    }
-  }
-
-  private schedulePromptReadyFallback(): void {
-    if (this.closed || this.isInputReady()) {
-      return;
-    }
-
-    if (this.promptReadyFallbackHandle) {
-      return;
-    }
-
-    this.promptReadyFallbackHandle = setTimeout(() => {
-      this.promptReadyFallbackHandle = null;
-      if (this.closed || this.isInputReady()) {
-        return;
-      }
-
-      this.promptReadyFallbackArmed = true;
-      this.logger.warn(
-        "Prompt interativo nao detectado no tempo esperado; liberando fila de /codex_chat por fallback",
-        {
-          fallbackDelayMs: INTERACTIVE_BOOTSTRAP_FALLBACK_MS,
-          pendingInputs: this.pendingInputs.length,
-        },
-      );
-      void this.flushPendingInputs().catch((error) => {
-        this.rejectPendingInputs(error);
-        this.notifyFailure("input", errorMessage(error));
-      });
-    }, INTERACTIVE_BOOTSTRAP_FALLBACK_MS);
-    this.promptReadyFallbackHandle.unref?.();
-  }
-
-  private clearPromptReadyFallback(): void {
-    if (!this.promptReadyFallbackHandle) {
-      return;
-    }
-
-    clearTimeout(this.promptReadyFallbackHandle);
-    this.promptReadyFallbackHandle = null;
-  }
-
-  private isInputReady(): boolean {
-    return this.promptReadyDetected || this.promptReadyFallbackArmed;
-  }
-
-  private consumePromptReadySignal(chunk: string): boolean {
-    this.promptReadyProbeBuffer = appendInteractivePromptProbeBuffer(
-      this.promptReadyProbeBuffer,
-      chunk,
-    );
-    if (!isInteractivePromptReady(this.promptReadyProbeBuffer)) {
-      return false;
-    }
-
-    this.promptReadyProbeBuffer = "";
-    return true;
-  }
-
-  private async flushPendingInputs(): Promise<void> {
-    if (this.pendingInputsFlushInFlight) {
-      return;
-    }
-
-    this.pendingInputsFlushInFlight = true;
-    try {
-      while (this.pendingInputs.length > 0) {
-        const next = this.pendingInputs.shift();
-        if (!next) {
-          continue;
-        }
-
-        try {
-          await this.sendInteractiveInput(next.value, next.phase);
-          next.resolve();
-        } catch (error) {
-          next.reject(error);
-          throw error;
-        }
-      }
-    } finally {
-      this.pendingInputsFlushInFlight = false;
-    }
-  }
-
-  private rejectPendingInputs(error: unknown): void {
-    while (this.pendingInputs.length > 0) {
-      const next = this.pendingInputs.shift();
-      next?.reject(error);
-    }
-  }
-
-  private emitActivityObservation(source: "stdout" | "stderr", chunk: string): void {
-    const preview = this.buildActivityPreview(chunk);
     this.emitEvent({
-      type: "activity",
-      activity: {
-        source,
-        bytes: chunk.length,
-        preview,
-      },
-    });
-  }
-
-  private buildActivityPreview(chunk: string): string {
-    const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
-      return "";
-    }
-
-    return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
-  }
-
-  private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {
-    return this.enqueueWriteOperation(async () => {
-      this.pendingTurnCompletions += 1;
-      try {
-        this.write(`${value}${INTERACTIVE_SUBMIT_SEQUENCE}`, phase);
-        await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
-        this.write(INTERACTIVE_QUEUE_KEY, phase);
-      } catch (error) {
-        this.pendingTurnCompletions = Math.max(0, this.pendingTurnCompletions - 1);
-        throw error;
-      }
+      type: "turn-complete",
     });
   }
 
@@ -1340,13 +1172,35 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     return scheduled;
   }
 
-  private wait(delayMs: number): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(resolve, delayMs);
+  private emitActivityObservation(source: "stdout" | "stderr", chunk: string): void {
+    if (!chunk) {
+      return;
+    }
+
+    this.emitEvent({
+      type: "activity",
+      activity: {
+        source,
+        bytes: chunk.length,
+        preview: this.buildActivityPreview(chunk),
+      },
     });
   }
 
+  private buildActivityPreview(chunk: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized) {
+      return "";
+    }
+
+    return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
+  }
+
   private emitEvent(event: CodexChatSessionEvent): void {
+    if (this.closed && event.type !== "activity") {
+      return;
+    }
+
     try {
       this.request.callbacks.onEvent(event);
     } catch (error) {
@@ -1373,17 +1227,17 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     }
   }
 
-  private write(value: string, phase: "start" | "input"): void {
+  private notifyClose(result: CodexChatSessionCloseResult): void {
+    if (!this.request.callbacks.onClose) {
+      return;
+    }
+
     try {
-      this.logVerbose("Sessao interativa /codex_chat enviou input para Codex", {
-        phase,
-        bytes: value.length,
-        preview: limit(value.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n")),
-      });
-      this.process.stdin.write(value);
+      this.request.callbacks.onClose(result);
     } catch (error) {
-      this.notifyFailure(phase, errorMessage(error));
-      throw new CodexChatSessionError(phase, errorMessage(error));
+      this.logger.warn("Falha ao executar callback onClose da sessao interativa", {
+        error: errorMessage(error),
+      });
     }
   }
 
@@ -1396,58 +1250,136 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
   }
 }
 
+interface CodexExecJsonTranscript {
+  threadId: string | null;
+  agentMessage: string | null;
+}
+
+const parseCodexExecJsonTranscript = (
+  stdout: string,
+  stderr: string,
+): CodexExecJsonTranscript => {
+  let threadId: string | null = null;
+  let agentMessage: string | null = null;
+  const lines = `${stdout}\n${stderr}`.split(/\r?\n/gu);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const event = tryParseJsonObject(trimmed);
+    if (!event) {
+      continue;
+    }
+
+    const eventType = safeString((event as { type?: unknown }).type);
+    if (eventType === "thread.started") {
+      const candidateThreadId = safeString((event as { thread_id?: unknown }).thread_id);
+      if (candidateThreadId) {
+        threadId = candidateThreadId;
+      }
+      continue;
+    }
+
+    if (eventType !== "item.completed") {
+      continue;
+    }
+
+    const item = (event as { item?: unknown }).item;
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const itemType = safeString((item as { type?: unknown }).type);
+    if (itemType !== "agent_message") {
+      continue;
+    }
+
+    const itemText = safeString((item as { text?: unknown }).text);
+    if (!itemText) {
+      continue;
+    }
+
+    const sanitized = sanitizePlanSpecRawOutput(itemText).trim();
+    agentMessage = sanitized || itemText.trim();
+  }
+
+  return {
+    threadId,
+    agentMessage,
+  };
+};
+
+const tryParseJsonObject = (value: string): Record<string, unknown> | null => {
+  if (!value.startsWith("{")) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const safeString = (value: unknown): string => {
+  return typeof value === "string" ? value : "";
+};
+
 export const isTicketFlowStage = (stage: CodexFlowStage): stage is TicketFlowStage =>
   stage === "plan" || stage === "implement" || stage === "close-and-version";
 
 const runCodexCommand = async (request: CodexCommandRequest): Promise<CodexCommandResult> => {
-  const args = buildNonInteractiveCodexArgs();
+  return runCodexCliCommand({
+    cwd: request.cwd,
+    env: request.env,
+    args: buildNonInteractiveCodexArgs(),
+    stdin: request.prompt,
+    commandName: "codex exec",
+  });
+};
 
-  return new Promise<CodexCommandResult>((resolve, reject) => {
-    const child = spawn("codex", args, {
-      cwd: request.cwd,
-      env: request.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (error) => {
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
-      }
-
-      reject(new Error(`codex exec terminou com codigo ${String(code)}: ${limit(stderr || stdout)}`));
-    });
-
-    child.stdin.write(request.prompt);
-    child.stdin.end();
+const runCodexExecJsonCommand = async (
+  request: CodexExecJsonCommandRequest,
+): Promise<CodexCommandResult> => {
+  return runCodexCliCommand({
+    cwd: request.cwd,
+    env: request.env,
+    args: request.args,
+    commandName: "codex exec",
   });
 };
 
 const runCodexAuthStatusCommand = async (
   request: CodexAuthStatusRequest,
 ): Promise<CodexCommandResult> => {
-  const args = ["login", "status"];
+  return runCodexCliCommand({
+    cwd: request.cwd,
+    env: request.env,
+    args: ["login", "status"],
+    commandName: "codex login status",
+  });
+};
 
+const runCodexCliCommand = async (params: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  args: string[];
+  commandName: string;
+  stdin?: string;
+}): Promise<CodexCommandResult> => {
   return new Promise<CodexCommandResult>((resolve, reject) => {
-    const child = spawn("codex", args, {
-      cwd: request.cwd,
-      env: request.env,
-      stdio: ["ignore", "pipe", "pipe"],
+    const child = spawn("codex", params.args, {
+      cwd: params.cwd,
+      env: params.env,
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
@@ -1473,10 +1405,15 @@ const runCodexAuthStatusCommand = async (
 
       reject(
         new Error(
-          `codex login status terminou com codigo ${String(code)}: ${limit(stderr || stdout)}`,
+          `${params.commandName} terminou com codigo ${String(code)}: ${limit(stderr || stdout)}`,
         ),
       );
     });
+
+    if (typeof params.stdin === "string") {
+      child.stdin.write(params.stdin);
+    }
+    child.stdin.end();
   });
 };
 

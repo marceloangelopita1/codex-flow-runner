@@ -538,21 +538,48 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   await session.cancel();
 });
 
-test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input livre (CA-10)", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-  const rawEvents: string[] = [];
+test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_id", async () => {
+  const events: Array<{ type: string; text?: string }> = [];
+  const capturedArgs: string[][] = [];
+  const threadId = "019c7f32-4dda-71a0-a33f-00b65eca7c2b";
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+    runCodexExecJsonCommand: async (request) => {
+      capturedArgs.push([...request.args]);
+
+      const isResume = request.args.includes("resume");
+      if (!isResume) {
+        return {
+          stdout: [
+            `{"type":"thread.started","thread_id":"${threadId}"}`,
+            '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**analisando**"}}',
+            '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Primeira resposta"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+          ].join("\n"),
+          stderr: "",
+        };
+      }
+
+      return {
+        stdout: [
+          `{"type":"thread.started","thread_id":"${threadId}"}`,
+          '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Segunda resposta"}}',
+          '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+        ].join("\n"),
+        stderr: "2026-02-21T07:55:36Z WARN codex_core::state_db: fallback\n",
+      };
+    },
   });
 
   const session = await client.startFreeChatSession({
     callbacks: {
       onEvent: (event) => {
         if (event.type === "raw-sanitized") {
-          rawEvents.push(event.text);
+          events.push({ type: event.type, text: event.text });
+          return;
         }
+
+        events.push({ type: event.type });
       },
       onFailure: (error) => {
         throw error;
@@ -560,77 +587,75 @@ test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input l
     },
   });
 
-  const pendingSend = session.sendUserInput("resposta em texto livre");
-  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
-  await pendingSend;
-  await waitForInteractiveWrites();
+  await session.sendUserInput("primeira mensagem");
+  await session.sendUserInput("segunda mensagem");
 
-  const freeChatWrite = interactiveProcess.stdinWrites.find((value) =>
-    value.includes("resposta em texto livre"),
-  );
-  assert.ok(freeChatWrite);
-  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), false);
-  assert.doesNotMatch(freeChatWrite ?? "", /\[\[PLAN_SPEC_|Brief do operador/u);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 1, true);
+  const rawMessages = events.filter((event) => event.type === "raw-sanitized").map((event) => event.text);
+  const turnCompletions = events.filter((event) => event.type === "turn-complete");
+  assert.deepEqual(rawMessages, ["Primeira resposta", "Segunda resposta"]);
+  assert.equal(turnCompletions.length, 2);
 
-  interactiveProcess.stderr.write("\u001b[31mErro chat livre\u001b[0m\n");
-  assert.equal(rawEvents.length, 1);
-  assert.equal(rawEvents[0], "Erro chat livre");
+  assert.equal(capturedArgs.length, 2);
+  assert.equal(capturedArgs[0]?.includes("resume"), false);
+  assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("/plan"), false);
 
-  await session.cancel();
-});
-
-test("startFreeChatSession emite turn-complete quando prompt retorna apos input", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-  const eventTypes: string[] = [];
-
-  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
-  });
-
-  const session = await client.startFreeChatSession({
-    callbacks: {
-      onEvent: (event) => {
-        eventTypes.push(event.type);
-      },
-      onFailure: (error) => {
-        throw error;
-      },
-    },
-  });
-
-  const pendingSend = session.sendUserInput("resposta em texto livre");
-  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
-  await pendingSend;
-  await waitForInteractiveWrites();
-
-  interactiveProcess.stdout.write("Resumo final em andamento\n");
-  interactiveProcess.stdout.write("for shortcuts 99% context left\n");
-  await waitForInteractiveWrites();
-
-  assert.equal(eventTypes.includes("turn-complete"), true);
+  assert.equal(capturedArgs[1]?.includes("resume"), true);
+  const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
+  assert.equal(resumeThreadIdIndex >= 0, true);
 
   await session.cancel();
 });
 
-test("falha da sessao livre retorna hint de retry para /codex_chat", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
+test("startFreeChatSession falha quando codex exec --json nao retorna agent_message", async () => {
   const failures: CodexChatSessionError[] = [];
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        '{"type":"thread.started","thread_id":"thread-sem-mensagem"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"analisando"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+      ].join("\n"),
+      stderr: "WARN codex_core::state_db: fallback\n",
+    }),
   });
 
-  await client.startFreeChatSession({
+  const session = await client.startFreeChatSession({
     callbacks: {
       onEvent: () => undefined,
       onFailure: (error) => failures.push(error),
     },
   });
 
-  interactiveProcess.emitClose(1);
+  await assert.rejects(
+    () => session.sendUserInput("mensagem sem agent_message"),
+    /nao retornou agent_message/u,
+  );
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /nao retornou agent_message/u);
+
+  await session.cancel();
+});
+
+test("falha da sessao livre retorna hint de retry para /codex_chat", async () => {
+  const failures: CodexChatSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexExecJsonCommand: async () => {
+      throw new Error("codex exec terminou com codigo 1: unauthorized");
+    },
+  });
+
+  const session = await client.startFreeChatSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+  await assert.rejects(() => session.sendUserInput("falhar"), /codex exec terminou com codigo 1/u);
 
   assert.equal(failures.length, 1);
   assert.equal(failures[0]?.phase, "runtime");
