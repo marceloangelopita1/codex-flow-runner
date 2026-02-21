@@ -12,7 +12,6 @@ Estabelecer um rito recorrente e verificavel para avaliar a saude nao funcional 
 ## Nao escopo
 - Implementar refatoracoes tecnicas nesta rodada de check-up.
 - Alterar algoritmo de consumo da fila sequencial (`P0 -> P1 -> P2`) em `src/integrations/ticket-queue.ts`.
-- Consolidar plano de melhoria continua e trilha periodica completa (RF-09, CA-04, CA-05), tratado em ticket dedicado.
 - Alterar o fluxo sequencial do runner.
 
 ## Responsaveis e pre-condicoes
@@ -164,14 +163,60 @@ Estabelecer um rito recorrente e verificavel para avaliar a saude nao funcional 
   - checklist com itens `ok` e `ajuste necessario`;
   - lista de artefatos gerados.
 
+## Plano de melhoria continua
+### Ordem sequencial do backlog e responsavel por etapa
+| Etapa | Regra operacional | Responsavel primario | Saida obrigatoria |
+| --- | --- | --- | --- |
+| `P0` | Resolver todos os itens `P0` antes de iniciar `P1` | owner do projeto ativo | ticket fechado em `tickets/closed/` + execplan atualizado |
+| `P1` | Iniciar somente quando nao houver `P0` pendente | owner do ticket com apoio do maintainer do modulo afetado | rastreabilidade `ticket -> execplan -> spec` atualizada |
+| `P2` | Executar apenas quando `P0` e `P1` da rodada estiverem sem bloqueio | owner do projeto ou delegado formal no ticket | backlog remanescente priorizado para proxima revisao periodica |
+
+- Regra fixa: o fluxo permanece sequencial (`P0 -> P1 -> P2`) e sem paralelizacao de tickets.
+- Toda etapa deve registrar dono explicito (`Responsavel`) no ticket ou no registro da revisao periodica.
+
+### Entradas e saidas por ciclo
+- Entradas minimas:
+  - estado atual de `tickets/open/` e `tickets/closed/`;
+  - historico mais recente em `docs/checkups/history/`;
+  - status vivo da spec de origem.
+- Saidas minimas:
+  - backlog ordenado por prioridade com justificativa objetiva;
+  - decisao por item (`executar agora`, `postergar`, `reclassificar`);
+  - links atualizados para ticket, execplan e spec.
+
+### Criterio de reavaliacao
+- Cadencia minima: uma revisao periodica a cada 30 dias corridos por projeto.
+- Gatilhos extraordinarios: qualquer condicao listada em `## Gatilhos extraordinarios` antecipa a revisao periodica.
+- Regra de recategorizacao:
+  - recalcular `score` do item ao fim de cada rodada ou quando houver gatilho extraordinario;
+  - se o novo `score` mudar de faixa (`P0/P1/P2`), atualizar `Priority` do ticket e reordenar a fila sequencial;
+  - se o `score` variar `>= 5` pontos sem mudar de faixa, manter prioridade e registrar justificativa na rodada.
+
+### Trilha auditavel da revisao periodica
+- Local oficial: `docs/checkups/history/`.
+- Convencao de nome: `YYYY-MM-DD-revisao-periodica-checkup-nao-funcional.md`.
+- Campos obrigatorios por registro:
+  - `Data (UTC)`;
+  - `Responsavel`;
+  - `Gatilho`;
+  - `itens avaliados` (com prioridade/score quando aplicavel);
+  - `decisoes` da rodada;
+  - links para `ticket`, `execplan` e `spec`.
+- Evidencia minima:
+  - referencia ao comando/artefato usado para validar status da rodada;
+  - lista do backlog revisado e acao definida por item;
+  - rastreabilidade cruzada com a spec de origem.
+
 ## Rastreabilidade desta versao
 - Spec de origem: `docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md`
-- Ticket desta entrega: `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
-- ExecPlan desta entrega: `execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
-- Ticket anterior desta trilha: `tickets/closed/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
-- ExecPlan anterior desta trilha: `execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
+- Ticket desta entrega: `tickets/closed/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md`
+- ExecPlan desta entrega: `execplans/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md`
+- Ticket anterior desta trilha: `tickets/closed/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
+- ExecPlan anterior desta trilha: `execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
 
 ## Historico de atualizacao
 - 2026-02-21 08:51Z - Versao inicial do guia operacional criada com periodicidade minima, gatilhos extraordinarios e checklist dos cinco eixos.
 - 2026-02-21 08:56Z - Rastreabilidade atualizada apos fechamento do ticket da entrega e move para `tickets/closed/`.
 - 2026-02-21 09:02Z - Matriz objetiva de risco/divida tecnica, formula de score e regra de mapeamento para `P0/P1/P2` adicionadas com regras de desempate.
+- 2026-02-21 09:12Z - Plano de melhoria continua consolidado com ordem sequencial, criterio de reavaliacao e trilha auditavel de revisao periodica.
+- 2026-02-21 09:17Z - Ticket da entrega de melhoria continua fechado e rastreabilidade atualizada para `tickets/closed/`.

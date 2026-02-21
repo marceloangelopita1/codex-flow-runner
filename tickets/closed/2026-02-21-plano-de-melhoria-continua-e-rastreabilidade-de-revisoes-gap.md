@@ -1,7 +1,7 @@
 # [TICKET] Plano de melhoria continua e trilha auditavel de revisoes periodicas ainda nao foram materializados
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S3
 - Created at (UTC): 2026-02-21 08:42Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -78,9 +78,10 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto para materializar governanca continua e auditabilidade periodica da spec de check-up.
+- 2026-02-21 - ExecPlan validado como `GO`; criterios de fechamento atendidos com plano de melhoria continua, reavaliacao objetiva, trilha auditavel e atualizacao da spec para CA-04/CA-05.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 09:17Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

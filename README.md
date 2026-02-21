@@ -125,13 +125,14 @@ Notas operacionais:
 
 ## Documentacao operacional
 
-Este repositorio agora possui cinco documentos canonicos para evolucao operacional:
+Este repositorio agora possui seis documentos canonicos para evolucao operacional:
 
 - `EXTERNAL_PROMPTS.md`: padrao para requests/responses/decisions de IA externa.
 - `INTERNAL_TICKETS.md`: ciclo oficial de abertura, triagem e fechamento de tickets internos.
 - `PLANS.md`: padrao de ExecPlan para criacao de planos em `execplans/`.
 - `SPECS.md`: padrao de especificacoes funcionais/jornadas em `docs/specs/`, com status vivo de atendimento.
 - `docs/checkups/checkup-nao-funcional.md`: rito operacional do check-up nao funcional (periodicidade minima, gatilhos extraordinarios e checklist dos 5 eixos).
+- `docs/checkups/history/`: registros versionados de revisao periodica para trilha auditavel do check-up nao funcional.
 
 Estruturas associadas:
 

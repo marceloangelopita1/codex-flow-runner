@@ -7,7 +7,7 @@ Registrar um ciclo real de aplicacao da matriz objetiva de risco/divida tecnica 
 - Data (UTC): 2026-02-21 09:02Z
 - Responsavel: mapita
 - Gatilho: fechamento do gap de matriz e priorizacao objetiva (RF-07/RF-08, CA-02/CA-03)
-- Ticket foco desta rodada: `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
+- Ticket foco desta rodada: `tickets/closed/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
 - ExecPlan foco desta rodada: `execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
 
 ## Metodo aplicado
@@ -22,14 +22,14 @@ Registrar um ciclo real de aplicacao da matriz objetiva de risco/divida tecnica 
 ## Itens avaliados no backlog derivado
 | Item | Tipo | Severidade | Frequencia | Custo de atraso | Risco operacional | Score | Priority resultante |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md` | Gap de governanca de priorizacao | 3 | 4 | 4 | 3 | 35 | `P1` |
-| `tickets/open/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md` | Gap de governanca de melhoria continua | 2 | 3 | 2 | 2 | 22 | `P2` |
+| `tickets/closed/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md` | Gap de governanca de priorizacao | 3 | 4 | 4 | 3 | 35 | `P1` |
+| `tickets/closed/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md` | Gap de governanca de melhoria continua | 2 | 3 | 2 | 2 | 22 | `P2` |
 
 ## Justificativas objetivas
-- `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`:
+- `tickets/closed/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`:
   - frequencia recorrente e custo de atraso alto porque sem criterio unico a triagem de refatoracoes criticas fica subjetiva;
   - risco operacional moderado por afetar consistencia de backlog e previsibilidade do ciclo.
-- `tickets/open/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md`:
+- `tickets/closed/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md`:
   - impacto mais gradual e de governanca, com menor custo de atraso imediato;
   - permanece relevante para CA-04/CA-05, mas sem gatilho de criticidade `P0/P1` nesta rodada.
 
@@ -40,5 +40,5 @@ Registrar um ciclo real de aplicacao da matriz objetiva de risco/divida tecnica 
 ## Rastreabilidade
 - Spec de origem: `docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md`
 - Guia operacional: `docs/checkups/checkup-nao-funcional.md`
-- Ticket da entrega: `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
+- Ticket da entrega: `tickets/closed/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
 - ExecPlan da entrega: `execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
