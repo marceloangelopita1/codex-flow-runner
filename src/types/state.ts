@@ -14,6 +14,8 @@ export type RunnerPhase =
   | "plan-spec-waiting-codex"
   | "plan-spec-waiting-user"
   | "plan-spec-awaiting-final-action"
+  | "codex-chat-waiting-user"
+  | "codex-chat-waiting-codex"
   | "paused"
   | "error";
 
@@ -38,12 +40,29 @@ export interface PlanSpecSessionState {
   activeProjectSnapshot: ProjectRef;
 }
 
+export type CodexChatSessionPhase = "waiting-user" | "waiting-codex";
+
+export type CodexChatCodexStream = "stdout" | "stderr";
+
+export interface CodexChatSessionState {
+  sessionId?: number;
+  chatId: string;
+  phase: CodexChatSessionPhase;
+  startedAt: Date;
+  lastActivityAt: Date;
+  waitingCodexSinceAt: Date | null;
+  lastCodexActivityAt: Date | null;
+  lastCodexStream: CodexChatCodexStream | null;
+  lastCodexPreview: string | null;
+  activeProjectSnapshot: ProjectRef;
+}
+
 export interface RunnerLastNotifiedEvent {
   summary: TicketFinalSummary;
   delivery: TicketNotificationDelivery;
 }
 
-export type RunnerSlotKind = "run-all" | "run-specs" | "plan-spec";
+export type RunnerSlotKind = "run-all" | "run-specs" | "plan-spec" | "codex-chat";
 
 export interface RunnerActiveSlotState {
   project: ProjectRef;
@@ -69,6 +88,7 @@ export interface RunnerState {
   capacity: RunnerCapacitySnapshot;
   activeSlots: RunnerActiveSlotState[];
   planSpecSession: PlanSpecSessionState | null;
+  codexChatSession: CodexChatSessionState | null;
   phase: RunnerPhase;
   lastMessage: string;
   updatedAt: Date;
@@ -90,6 +110,7 @@ export const createInitialState = (
   },
   activeSlots: [],
   planSpecSession: null,
+  codexChatSession: null,
   phase: "idle",
   lastMessage: "Runner inicializado",
   updatedAt: new Date(),

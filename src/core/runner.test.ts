@@ -6,6 +6,11 @@ import test from "node:test";
 import { AppEnv } from "../config/env.js";
 import {
   CodexAuthenticationError,
+  CodexChatSession,
+  CodexChatSessionCloseResult,
+  CodexChatSessionError,
+  CodexChatSessionEvent,
+  CodexChatSessionStartRequest,
   CodexPlanSessionError,
   CodexStageExecutionError,
   CodexStageResult,
@@ -55,7 +60,9 @@ class StubCodexClient implements CodexTicketFlowClient {
   }> = [];
   public authChecks = 0;
   public planSessionStartCalls = 0;
+  public freeChatSessionStartCalls = 0;
   public lastPlanSession: StubPlanSession | null = null;
+  public lastFreeChatSession: StubCodexChatSession | null = null;
 
   constructor(
     private readonly shouldFail?: (
@@ -71,6 +78,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     ) => void,
     private readonly failPlanSessionStart = false,
     private readonly onSpecStageRun?: (stage: SpecFlowStage, spec: SpecRef) => Promise<void> | void,
+    private readonly failFreeChatSessionStart = false,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -131,6 +139,17 @@ class StubCodexClient implements CodexTicketFlowClient {
     this.lastPlanSession = session;
     return session;
   }
+
+  async startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession> {
+    this.freeChatSessionStartCalls += 1;
+    if (this.failFreeChatSessionStart) {
+      throw new CodexChatSessionError("start", "falha simulada");
+    }
+
+    const session = new StubCodexChatSession(request);
+    this.lastFreeChatSession = session;
+    return session;
+  }
 }
 
 class StubPlanSession implements PlanSpecSession {
@@ -181,6 +200,44 @@ class StubPlanSession implements PlanSpecSession {
   }
 
   close(result: PlanSpecSessionCloseResult): void {
+    this.request.callbacks.onClose?.(result);
+  }
+}
+
+class StubCodexChatSession implements CodexChatSession {
+  public readonly sentInputs: string[] = [];
+  public cancelCalls = 0;
+
+  constructor(private readonly request: CodexChatSessionStartRequest) {}
+
+  async sendUserInput(input: string): Promise<void> {
+    this.sentInputs.push(input);
+  }
+
+  async cancel(): Promise<void> {
+    this.cancelCalls += 1;
+    this.request.callbacks.onClose?.({
+      exitCode: null,
+      cancelled: true,
+    });
+  }
+
+  emitEvent(event: CodexChatSessionEvent): void {
+    this.request.callbacks.onEvent(event);
+  }
+
+  emitRawOutput(text: string): void {
+    this.emitEvent({
+      type: "raw-sanitized",
+      text,
+    });
+  }
+
+  fail(details: string): void {
+    this.request.callbacks.onFailure(new CodexChatSessionError("runtime", details));
+  }
+
+  close(result: CodexChatSessionCloseResult): void {
     this.request.callbacks.onClose?.(result);
   }
 }
@@ -355,6 +412,22 @@ const waitForPlanSpecSessionToClose = async (
   }
 
   assert.fail("sessao /plan_spec nao encerrou dentro do timeout esperado");
+};
+
+const waitForCodexChatSessionToClose = async (
+  runner: TicketRunner,
+  timeoutMs = 2000,
+): Promise<void> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!runner.getState().codexChatSession) {
+      return;
+    }
+
+    await sleep(5);
+  }
+
+  assert.fail("sessao /codex_chat nao encerrou dentro do timeout esperado");
 };
 
 const createTempProjectRoot = async (): Promise<string> =>
@@ -1886,6 +1959,158 @@ test("cancelPlanSpecSession encerra sessao ativa e limpa estado associado", asyn
   assert.equal(codex.lastPlanSession?.cancelCalls, 1);
   assert.equal(runner.getState().planSpecSession, null);
   assert.equal(runner.getState().phase, "idle");
+});
+
+test("startCodexChatSession inicia sessao unica global com snapshot de projeto", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const firstStart = await runner.startCodexChatSession("42");
+  const secondStart = await runner.startCodexChatSession("42");
+
+  assert.equal(firstStart.status, "started");
+  assert.equal(secondStart.status, "already-active");
+  assert.equal(codex.freeChatSessionStartCalls, 1);
+  assert.equal(codex.authChecks, 1);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "codex-chat-waiting-user");
+  assert.equal(state.codexChatSession?.chatId, "42");
+  assert.equal(state.codexChatSession?.phase, "waiting-user");
+  assert.equal(state.codexChatSession?.activeProjectSnapshot.name, activeProjectA.name);
+  assert.equal(state.codexChatSession?.activeProjectSnapshot.path, activeProjectA.path);
+});
+
+test("startCodexChatSession bloqueia inicio quando /plan_spec estiver ativo", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startPlanSpecSession("42");
+
+  const result = await runner.startCodexChatSession("42");
+
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") {
+    assert.equal(result.reason, "plan-spec-active");
+    assert.match(result.message, /sessao \/plan_spec ativa/u);
+  }
+  assert.equal(codex.freeChatSessionStartCalls, 0);
+});
+
+test("submitCodexChatInput encaminha mensagem e retorna para espera do operador apos saida", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const outputs: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatEventHandlers: {
+        onOutput: (_chatId, event) => {
+          outputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+  await runner.startCodexChatSession("42");
+
+  const inputResult = await runner.submitCodexChatInput("42", "Como melhorar este modulo?");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 42,
+      preview: "resposta parcial",
+    },
+  });
+  codex.lastFreeChatSession?.emitRawOutput("Resposta final do Codex");
+  await sleep(0);
+
+  assert.equal(inputResult.status, "accepted");
+  assert.deepEqual(codex.lastFreeChatSession?.sentInputs, ["Como melhorar este modulo?"]);
+  assert.deepEqual(outputs, ["Resposta final do Codex"]);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "codex-chat-waiting-user");
+  assert.equal(state.codexChatSession?.phase, "waiting-user");
+  assert.equal(state.codexChatSession?.lastCodexStream, "stdout");
+  assert.equal(state.codexChatSession?.lastCodexPreview, "resposta parcial");
+});
+
+test("submitCodexChatInput diferencia chat incorreto e sessao inativa", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startCodexChatSession("42");
+
+  const wrongChatResult = await runner.submitCodexChatInput("99", "mensagem fora do chat da sessao");
+  const cancelResult = await runner.cancelCodexChatSession("42");
+  const inactiveResult = await runner.submitCodexChatInput("42", "mensagem apos cancelamento");
+
+  assert.equal(wrongChatResult.status, "ignored-chat");
+  assert.match(wrongChatResult.message, /outro chat/u);
+  assert.equal(cancelResult.status, "cancelled");
+  assert.equal(inactiveResult.status, "inactive");
+  assert.match(inactiveResult.message, /Nenhuma sessão \/codex_chat ativa/u);
+});
+
+test("sessao /codex_chat expira por timeout de inatividade e notifica operador", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatSessionTimeoutMs: 20,
+      codexChatEventHandlers: {
+        onOutput: async () => undefined,
+        onFailure: async () => undefined,
+        onLifecycleMessage: async (chatId, message) => {
+          lifecycleMessages.push({ chatId, message });
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.startCodexChatSession("42");
+  assert.equal(startResult.status, "started");
+  await waitForCodexChatSessionToClose(runner, 1000);
+
+  assert.equal(codex.lastFreeChatSession?.cancelCalls, 1);
+  assert.equal(runner.getState().codexChatSession, null);
+  assert.equal(runner.getState().phase, "idle");
+  assert.equal(lifecycleMessages.length, 1);
+  assert.equal(lifecycleMessages[0]?.chatId, "42");
+  assert.match(lifecycleMessages[0]?.message ?? "", /inatividade de 10 minutos/u);
 });
 
 test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec (CA-11)", async () => {

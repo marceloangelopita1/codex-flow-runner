@@ -1,7 +1,7 @@
 # [TICKET] Fluxo core de sessao /codex_chat ainda nao existe (runner + codex-client)
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-21 00:06Z
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - ExecPlan: execplans/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
   - INTERNAL_TICKETS.md
   - SPECS.md
 
@@ -84,9 +85,10 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto a partir da revisao da spec `2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram`.
+- 2026-02-21 - ExecPlan validado como `GO` com criterios de fechamento atendidos e validacoes verdes (`npx tsx --test src/core/runner.test.ts src/integrations/codex-client.test.ts`, `npm run check`, `npm test`, `npm run build`).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 00:27Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

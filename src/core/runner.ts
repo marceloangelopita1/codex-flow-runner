@@ -3,6 +3,7 @@ import path from "node:path";
 import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
 import {
+  CodexChatSessionPhase,
   PlanSpecSessionPhase,
   RunnerSlotKind,
   RunnerState,
@@ -16,6 +17,10 @@ import {
 import { Logger } from "./logger.js";
 import {
   CodexAuthenticationError,
+  CodexChatSession,
+  CodexChatSessionCloseResult,
+  CodexChatSessionError,
+  CodexChatSessionEvent,
   CodexPlanSessionError,
   CodexStageResult,
   CodexStageExecutionError,
@@ -52,13 +57,24 @@ export interface PlanSpecEventHandlers {
   onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
 }
 
+export interface CodexChatEventHandlers {
+  onOutput: (
+    chatId: string,
+    event: Extract<CodexChatSessionEvent, { type: "raw-sanitized" }>,
+  ) => Promise<void> | void;
+  onFailure: (chatId: string, details: string) => Promise<void> | void;
+  onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
+}
+
 export interface TicketRunnerOptions {
   planSpecSessionTimeoutMs?: number;
+  codexChatSessionTimeoutMs?: number;
   now?: () => Date;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
   specPlanningTraceStoreFactory?: (projectPath: string) => SpecPlanningTraceStore;
   planSpecEventHandlers?: PlanSpecEventHandlers;
+  codexChatEventHandlers?: CodexChatEventHandlers;
 }
 
 interface ActivePlanSpecSession {
@@ -75,6 +91,16 @@ interface ActivePlanSpecSession {
   lastHeartbeatLifecycleMessageAt: Date | null;
   lastRawOutputForwardAt: Date | null;
   suppressedRawOutputCount: number;
+}
+
+interface ActiveCodexChatSession {
+  id: number;
+  chatId: string;
+  project: ProjectRef;
+  slotKey: string;
+  codexClient: CodexTicketFlowClient;
+  session: CodexChatSession;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
 }
 
 interface ActiveRunnerSlot {
@@ -104,14 +130,33 @@ type PlanSpecSessionChatRejectedResult =
       message: string;
     };
 
+type CodexChatSessionChatRejectedResult =
+  | {
+      status: "inactive";
+      message: string;
+    }
+  | {
+      status: "ignored-chat";
+      message: string;
+    };
+
 const RUNNER_SLOT_LIMIT = 5;
 const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const CODEX_CHAT_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 const PLAN_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /plan_spec ativa no momento.";
 const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
   "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
 const PLAN_SPEC_TIMEOUT_MESSAGE =
   "Sessao /plan_spec encerrada por inatividade de 30 minutos.";
 const PLAN_SPEC_CANCELLED_MESSAGE = "Sessao /plan_spec cancelada.";
+const CODEX_CHAT_INACTIVE_MESSAGE = "Nenhuma sessão /codex_chat ativa no momento.";
+const CODEX_CHAT_CHAT_MISMATCH_MESSAGE =
+  "Sessão /codex_chat em andamento em outro chat. Use o chat que iniciou a sessão.";
+const CODEX_CHAT_TIMEOUT_MESSAGE =
+  "Sessao /codex_chat encerrada por inatividade de 10 minutos.";
+const CODEX_CHAT_CANCELLED_MESSAGE = "Sessao /codex_chat cancelada.";
+const CODEX_CHAT_PLAN_SPEC_BLOCKED_MESSAGE =
+  "Nao e possivel iniciar /codex_chat enquanto houver sessao /plan_spec ativa. Encerre a sessao /plan_spec atual e tente novamente.";
 const PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS = 30 * 1000;
 const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
 const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
@@ -195,6 +240,31 @@ export type PlanSpecSessionCancelResult =
   | { status: "cancelled"; message: string }
   | PlanSpecSessionChatRejectedResult;
 
+export type CodexChatSessionStartResult =
+  | { status: "started"; message: string }
+  | { status: "already-active"; message: string }
+  | {
+      status: "blocked";
+      reason:
+        | "plan-spec-active"
+        | "active-project-unavailable"
+        | "codex-auth-missing"
+        | "project-slot-busy"
+        | "runner-capacity-full";
+      message: string;
+      activeProjects?: ProjectRef[];
+    }
+  | { status: "failed"; message: string };
+
+export type CodexChatSessionInputResult =
+  | { status: "accepted"; message: string }
+  | { status: "ignored-empty"; message: string }
+  | CodexChatSessionChatRejectedResult;
+
+export type CodexChatSessionCancelResult =
+  | { status: "cancelled"; message: string }
+  | CodexChatSessionChatRejectedResult;
+
 export type PlanSpecCallbackIgnoredReason =
   | "inactive-session"
   | "concurrency"
@@ -218,10 +288,14 @@ export class TicketRunner {
   private readonly setTimer: typeof setTimeout;
   private readonly clearTimer: typeof clearTimeout;
   private readonly planSpecSessionTimeoutMs: number;
+  private readonly codexChatSessionTimeoutMs: number;
   private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
+  private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
+  private activeCodexChatSession: ActiveCodexChatSession | null = null;
   private nextPlanSpecSessionId = 1;
+  private nextCodexChatSessionId = 1;
 
   constructor(
     private readonly env: AppEnv,
@@ -243,10 +317,13 @@ export class TicketRunner {
     this.clearTimer = options.clearTimer ?? clearTimeout;
     this.planSpecSessionTimeoutMs =
       options.planSpecSessionTimeoutMs ?? PLAN_SPEC_SESSION_TIMEOUT_MS;
+    this.codexChatSessionTimeoutMs =
+      options.codexChatSessionTimeoutMs ?? CODEX_CHAT_SESSION_TIMEOUT_MS;
     this.specPlanningTraceStoreFactory =
       options.specPlanningTraceStoreFactory ??
       ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
     this.planSpecEventHandlers = options.planSpecEventHandlers;
+    this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -279,6 +356,26 @@ export class TicketRunner {
             ...(this.state.planSpecSession.lastCodexActivityAt
               ? {
                   lastCodexActivityAt: new Date(this.state.planSpecSession.lastCodexActivityAt),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    ...(this.state.codexChatSession
+      ? {
+          codexChatSession: {
+            ...this.state.codexChatSession,
+            activeProjectSnapshot: { ...this.state.codexChatSession.activeProjectSnapshot },
+            startedAt: new Date(this.state.codexChatSession.startedAt),
+            lastActivityAt: new Date(this.state.codexChatSession.lastActivityAt),
+            ...(this.state.codexChatSession.waitingCodexSinceAt
+              ? {
+                  waitingCodexSinceAt: new Date(this.state.codexChatSession.waitingCodexSinceAt),
+                }
+              : {}),
+            ...(this.state.codexChatSession.lastCodexActivityAt
+              ? {
+                  lastCodexActivityAt: new Date(this.state.codexChatSession.lastCodexActivityAt),
                 }
               : {}),
           },
@@ -533,6 +630,218 @@ export class TicketRunner {
     return {
       status: "cancelled",
       message: PLAN_SPEC_CANCELLED_MESSAGE,
+    };
+  };
+
+  startCodexChatSession = async (chatId: string): Promise<CodexChatSessionStartResult> => {
+    this.logger.info("Solicitacao de inicio de sessao /codex_chat recebida", {
+      chatId,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+    });
+
+    if (this.isCodexChatSessionActive()) {
+      return {
+        status: "already-active",
+        message: "Ja existe uma sessao /codex_chat em andamento nesta instancia.",
+      };
+    }
+
+    if (this.isPlanSpecSessionActive()) {
+      return {
+        status: "blocked",
+        reason: "plan-spec-active",
+        message: CODEX_CHAT_PLAN_SPEC_BLOCKED_MESSAGE,
+      };
+    }
+
+    let roundDependencies: RunnerRoundDependencies;
+    try {
+      roundDependencies = await this.resolveRoundDependencies();
+      this.state.activeProject = { ...roundDependencies.activeProject };
+      this.syncStateFromSlots();
+    } catch (error) {
+      const message = this.buildActiveProjectResolutionErrorMessage(error, "codex-chat");
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver projeto ativo para iniciar /codex_chat", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message,
+      };
+    }
+
+    const reservation = this.reserveSlot(roundDependencies, "codex-chat");
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
+
+    const slot = reservation.slot;
+    try {
+      await slot.codexClient.ensureAuthenticated();
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message =
+        error instanceof CodexAuthenticationError
+          ? error.message
+          : [
+              "Falha ao validar autenticacao do Codex CLI.",
+              "Execute `codex login` no mesmo usuario que roda o runner e tente novamente.",
+            ].join(" ");
+      this.touch("error", message);
+      this.logger.error("Falha de autenticacao do Codex CLI ao iniciar /codex_chat", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-auth-missing",
+        message,
+      };
+    }
+
+    const sessionId = this.nextCodexChatSessionId;
+    this.nextCodexChatSessionId += 1;
+
+    try {
+      const session = await slot.codexClient.startFreeChatSession({
+        callbacks: {
+          onEvent: (event) => {
+            void this.handleCodexChatSessionEvent(sessionId, event);
+          },
+          onFailure: (error) => {
+            void this.handleCodexChatSessionFailure(sessionId, error);
+          },
+          onClose: (result) => {
+            void this.handleCodexChatSessionClose(sessionId, result);
+          },
+        },
+      });
+
+      const now = this.now();
+      this.state.codexChatSession = {
+        sessionId,
+        chatId,
+        phase: "waiting-user",
+        startedAt: now,
+        lastActivityAt: now,
+        waitingCodexSinceAt: null,
+        lastCodexActivityAt: null,
+        lastCodexStream: null,
+        lastCodexPreview: null,
+        activeProjectSnapshot: { ...slot.project },
+      };
+      this.activeCodexChatSession = {
+        id: sessionId,
+        chatId,
+        project: { ...slot.project },
+        slotKey: slot.key,
+        codexClient: slot.codexClient,
+        session,
+        timeoutHandle: null,
+      };
+
+      slot.isStarting = false;
+      slot.isRunning = true;
+      slot.phase = "codex-chat-waiting-user";
+      this.syncStateFromSlots();
+
+      this.refreshCodexChatTimeout(sessionId);
+      this.touchSlot(
+        slot,
+        "codex-chat-waiting-user",
+        "Sessao /codex_chat iniciada e aguardando mensagem do operador",
+      );
+
+      return {
+        status: "started",
+        message: "Sessao /codex_chat iniciada. Envie a proxima mensagem para conversar com o Codex.",
+      };
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const details = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof CodexChatSessionError
+          ? error.message
+          : `Falha ao iniciar sessao /codex_chat: ${details}`;
+      this.touch("error", message);
+      this.logger.error("Falha ao iniciar sessao interativa /codex_chat", {
+        error: details,
+      });
+      await this.emitCodexChatFailure(chatId, message);
+      return {
+        status: "failed",
+        message,
+      };
+    }
+  };
+
+  submitCodexChatInput = async (
+    chatId: string,
+    input: string,
+  ): Promise<CodexChatSessionInputResult> => {
+    const session = this.resolveCodexChatSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    const normalizedInput = input.trim();
+    if (!normalizedInput) {
+      return {
+        status: "ignored-empty",
+        message: "Mensagem vazia ignorada na sessao /codex_chat.",
+      };
+    }
+
+    try {
+      const pendingSend = session.session.sendUserInput(normalizedInput);
+      this.setCodexChatPhase(
+        "waiting-codex",
+        "codex-chat-waiting-codex",
+        "Mensagem enviada ao Codex na sessao /codex_chat",
+      );
+
+      void pendingSend.catch((error) => {
+        void this.handleCodexChatSessionFailure(session.id, error);
+      });
+
+      return {
+        status: "accepted",
+        message: "Mensagem encaminhada para a sessao /codex_chat.",
+      };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      await this.handleCodexChatSessionFailure(session.id, error);
+      return {
+        status: "inactive",
+        message: `Falha ao encaminhar mensagem para a sessao /codex_chat: ${details}`,
+      };
+    }
+  };
+
+  cancelCodexChatSession = async (chatId: string): Promise<CodexChatSessionCancelResult> => {
+    const session = this.resolveCodexChatSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    await this.finalizeCodexChatSession(session.id, {
+      mode: "cancel",
+      phase: "idle",
+      message: CODEX_CHAT_CANCELLED_MESSAGE,
+    });
+
+    return {
+      status: "cancelled",
+      message: CODEX_CHAT_CANCELLED_MESSAGE,
     };
   };
 
@@ -901,6 +1210,292 @@ export class TicketRunner {
     }
 
     return this.activePlanSpecSession;
+  }
+
+  private isCodexChatSessionActive(): boolean {
+    return Boolean(this.activeCodexChatSession && this.state.codexChatSession);
+  }
+
+  private resolveCodexChatSessionForChat(
+    chatId: string,
+  ): ActiveCodexChatSession | CodexChatSessionChatRejectedResult {
+    if (!this.activeCodexChatSession || !this.state.codexChatSession) {
+      return {
+        status: "inactive",
+        message: CODEX_CHAT_INACTIVE_MESSAGE,
+      };
+    }
+
+    if (this.activeCodexChatSession.chatId !== chatId) {
+      return {
+        status: "ignored-chat",
+        message: CODEX_CHAT_CHAT_MISMATCH_MESSAGE,
+      };
+    }
+
+    return this.activeCodexChatSession;
+  }
+
+  private setCodexChatPhase(
+    phase: CodexChatSessionPhase,
+    runnerPhase: RunnerState["phase"],
+    message: string,
+  ): void {
+    const codexChatSession = this.state.codexChatSession;
+    const activeSession = this.activeCodexChatSession;
+    if (!codexChatSession || !activeSession) {
+      return;
+    }
+
+    const now = this.now();
+    codexChatSession.phase = phase;
+    codexChatSession.lastActivityAt = now;
+    if (phase === "waiting-codex") {
+      if (!codexChatSession.waitingCodexSinceAt) {
+        codexChatSession.waitingCodexSinceAt = now;
+      }
+    } else {
+      codexChatSession.waitingCodexSinceAt = null;
+    }
+    this.refreshCodexChatTimeout(activeSession.id);
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      this.touchSlot(slot, runnerPhase, message);
+      return;
+    }
+
+    this.touch(runnerPhase, message);
+  }
+
+  private refreshCodexChatTimeout(sessionId: number): void {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+
+    activeSession.timeoutHandle = this.setTimer(() => {
+      void this.handleCodexChatSessionTimeout(sessionId);
+    }, this.codexChatSessionTimeoutMs);
+    activeSession.timeoutHandle.unref?.();
+  }
+
+  private async handleCodexChatSessionTimeout(sessionId: number): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    this.logger.warn("Sessao /codex_chat expirada por inatividade", {
+      chatId: activeSession.chatId,
+      timeoutMs: this.codexChatSessionTimeoutMs,
+      phase: this.state.codexChatSession?.phase,
+      waitingCodexSinceAt: this.state.codexChatSession?.waitingCodexSinceAt?.toISOString() ?? null,
+      lastCodexActivityAt:
+        this.state.codexChatSession?.lastCodexActivityAt?.toISOString() ?? null,
+      lastCodexStream: this.state.codexChatSession?.lastCodexStream ?? null,
+      lastCodexPreview: this.state.codexChatSession?.lastCodexPreview ?? null,
+      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizeCodexChatSession(sessionId, {
+      mode: "cancel",
+      phase: "idle",
+      message: CODEX_CHAT_TIMEOUT_MESSAGE,
+      notifyMessage: CODEX_CHAT_TIMEOUT_MESSAGE,
+    });
+  }
+
+  private async handleCodexChatSessionEvent(
+    sessionId: number,
+    event: CodexChatSessionEvent,
+  ): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    const codexChatSession = this.state.codexChatSession;
+    if (!activeSession || !codexChatSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    codexChatSession.lastActivityAt = this.now();
+    this.refreshCodexChatTimeout(sessionId);
+
+    if (event.type === "activity") {
+      const preview = event.activity.preview.trim();
+      codexChatSession.lastCodexActivityAt = this.now();
+      if (preview.length > 0) {
+        codexChatSession.lastCodexStream = event.activity.source;
+        codexChatSession.lastCodexPreview = preview;
+      }
+      return;
+    }
+
+    if (codexChatSession.phase === "waiting-codex") {
+      this.setCodexChatPhase(
+        "waiting-user",
+        "codex-chat-waiting-user",
+        "Sessao /codex_chat aguardando nova mensagem do operador",
+      );
+    }
+    await this.emitCodexChatOutput(activeSession.chatId, event);
+  }
+
+  private async handleCodexChatSessionFailure(sessionId: number, error: unknown): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    const details = error instanceof Error ? error.message : String(error);
+    this.logger.error("Falha na sessao /codex_chat", {
+      chatId: activeSession.chatId,
+      error: details,
+      phase: this.state.codexChatSession?.phase,
+      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizeCodexChatSession(sessionId, {
+      mode: "cancel",
+      phase: "error",
+      message: "Falha na sessao /codex_chat",
+    });
+    await this.emitCodexChatFailure(activeSession.chatId, details);
+  }
+
+  private async handleCodexChatSessionClose(
+    sessionId: number,
+    result: CodexChatSessionCloseResult,
+  ): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (result.cancelled) {
+      await this.finalizeCodexChatSession(sessionId, {
+        mode: "closed",
+        phase: "idle",
+        message: CODEX_CHAT_CANCELLED_MESSAGE,
+      });
+      return;
+    }
+
+    const message = `Sessao /codex_chat encerrada inesperadamente (exit code: ${String(result.exitCode)}).`;
+    this.logger.warn("Sessao /codex_chat encerrada sem cancelamento explicito", {
+      chatId: activeSession.chatId,
+      exitCode: result.exitCode,
+      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+    });
+    await this.finalizeCodexChatSession(sessionId, {
+      mode: "closed",
+      phase: "error",
+      message,
+    });
+    await this.emitCodexChatFailure(activeSession.chatId, message);
+  }
+
+  private async finalizeCodexChatSession(
+    sessionId: number,
+    options: {
+      mode: "cancel" | "closed";
+      phase: RunnerState["phase"];
+      message: string;
+      notifyMessage?: string;
+      releaseSlot?: boolean;
+    },
+  ): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+
+    this.activeCodexChatSession = null;
+    this.state.codexChatSession = null;
+
+    if (options.mode === "cancel") {
+      try {
+        await activeSession.session.cancel();
+      } catch (error) {
+        this.logger.warn("Falha ao cancelar processo da sessao /codex_chat", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const shouldReleaseSlot = options.releaseSlot ?? true;
+    if (shouldReleaseSlot) {
+      this.releaseSlot(activeSession.slotKey);
+    }
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      slot.phase = options.phase;
+      slot.isStarting = false;
+      slot.isRunning = true;
+      this.syncStateFromSlots();
+      this.touchSlot(slot, options.phase, options.message);
+    } else {
+      this.touch(options.phase, options.message);
+    }
+
+    if (options.notifyMessage) {
+      await this.emitCodexChatLifecycleMessage(activeSession.chatId, options.notifyMessage);
+    }
+  }
+
+  private async emitCodexChatOutput(
+    chatId: string,
+    event: Extract<CodexChatSessionEvent, { type: "raw-sanitized" }>,
+  ): Promise<void> {
+    if (!this.codexChatEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.codexChatEventHandlers.onOutput(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar saida de /codex_chat para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitCodexChatFailure(chatId: string, details: string): Promise<void> {
+    if (!this.codexChatEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.codexChatEventHandlers.onFailure(chatId, details);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar erro de /codex_chat para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitCodexChatLifecycleMessage(chatId: string, message: string): Promise<void> {
+    if (!this.codexChatEventHandlers?.onLifecycleMessage) {
+      return;
+    }
+
+    try {
+      await this.codexChatEventHandlers.onLifecycleMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar mensagem de lifecycle de /codex_chat", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private setPlanSpecPhase(
@@ -1723,12 +2318,26 @@ export class TicketRunner {
       slot.isPaused = false;
     }
 
+    let hasInteractiveSession = false;
     if (this.activePlanSpecSession) {
+      hasInteractiveSession = true;
       void this.finalizePlanSpecSession(this.activePlanSpecSession.id, {
         mode: "cancel",
         phase: "idle",
         message: "Desligamento solicitado",
       });
+    }
+
+    if (this.activeCodexChatSession) {
+      hasInteractiveSession = true;
+      void this.finalizeCodexChatSession(this.activeCodexChatSession.id, {
+        mode: "cancel",
+        phase: "idle",
+        message: "Desligamento solicitado",
+      });
+    }
+
+    if (hasInteractiveSession) {
       return;
     }
 
@@ -2112,7 +2721,7 @@ export class TicketRunner {
     }
 
     const slot = this.activeSlots.get(this.buildSlotKey(activeProject));
-    if (!slot || slot.kind === "plan-spec") {
+    if (!slot || slot.kind === "plan-spec" || slot.kind === "codex-chat") {
       this.logger.info("Controle de runner ignorado: sem slot de execucao no projeto ativo", {
         action,
         activeProjectName: activeProject.name,
@@ -2152,7 +2761,9 @@ export class TicketRunner {
   }
 
   private getRunSlots(): ActiveRunnerSlot[] {
-    return Array.from(this.activeSlots.values()).filter((slot) => slot.kind !== "plan-spec");
+    return Array.from(this.activeSlots.values()).filter(
+      (slot) => slot.kind === "run-all" || slot.kind === "run-specs",
+    );
   }
 
   private getActiveProjects(): ProjectRef[] {
@@ -2172,6 +2783,10 @@ export class TicketRunner {
       return "/run_specs";
     }
 
+    if (kind === "codex-chat") {
+      return "/codex_chat";
+    }
+
     return "/plan_spec";
   }
 
@@ -2186,11 +2801,17 @@ export class TicketRunner {
 
   private buildActiveProjectResolutionErrorMessage(
     error: unknown,
-    source: "run-all" | "run-specs" | "plan-spec",
+    source: "run-all" | "run-specs" | "plan-spec" | "codex-chat",
   ): string {
     const details = error instanceof Error ? error.message : String(error);
     const command =
-      source === "run-all" ? "/run-all" : source === "run-specs" ? "/run_specs" : "/plan_spec";
+      source === "run-all"
+        ? "/run-all"
+        : source === "run-specs"
+          ? "/run_specs"
+          : source === "plan-spec"
+            ? "/plan_spec"
+            : "/codex_chat";
     return [
       `Falha ao resolver projeto ativo para rodada ${command}.`,
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
@@ -2218,7 +2839,8 @@ export class TicketRunner {
     }));
 
     this.state.isRunning = slots.some((slot) =>
-      slot.kind !== "plan-spec" && (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)),
+      (slot.kind === "run-all" || slot.kind === "run-specs") &&
+      (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)),
     );
 
     const activeProject = this.state.activeProject;
@@ -2233,7 +2855,11 @@ export class TicketRunner {
         this.state.isPaused = false;
         this.state.currentTicket = null;
         this.state.currentSpec = null;
-        if (!this.isPlanSpecSessionActive() && this.state.phase !== "error") {
+        if (
+          !this.isPlanSpecSessionActive() &&
+          !this.isCodexChatSessionActive() &&
+          this.state.phase !== "error"
+        ) {
           this.state.phase = "idle";
         }
       }

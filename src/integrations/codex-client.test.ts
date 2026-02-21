@@ -8,6 +8,7 @@ import {
   buildInteractiveCodexSpawnRequest,
   buildNonInteractiveCodexArgs,
   CodexAuthenticationError,
+  CodexChatSessionError,
   CodexCliTicketFlowClient,
   CodexPlanSessionError,
   CodexStageExecutionError,
@@ -535,6 +536,71 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
   assert.equal(rawEvents[0], "Erro interativo");
 
   await session.cancel();
+});
+
+test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input livre", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const rawEvents: string[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startFreeChatSession({
+    callbacks: {
+      onEvent: (event) => {
+        if (event.type === "raw-sanitized") {
+          rawEvents.push(event.text);
+        }
+      },
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  const pendingSend = session.sendUserInput("resposta em texto livre");
+  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
+  await pendingSend;
+  await waitForInteractiveWrites();
+
+  const freeChatWrite = interactiveProcess.stdinWrites.find((value) =>
+    value.includes("resposta em texto livre"),
+  );
+  assert.ok(freeChatWrite);
+  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), false);
+  assert.doesNotMatch(freeChatWrite ?? "", /\[\[PLAN_SPEC_|Brief do operador/u);
+  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 1, true);
+
+  interactiveProcess.stderr.write("\u001b[31mErro chat livre\u001b[0m\n");
+  assert.equal(rawEvents.length, 1);
+  assert.equal(rawEvents[0], "Erro chat livre");
+
+  await session.cancel();
+});
+
+test("falha da sessao livre retorna hint de retry para /codex_chat", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const failures: CodexChatSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  await client.startFreeChatSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+
+  interactiveProcess.emitClose(1);
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /Use \/codex_chat para tentar novamente/u);
 });
 
 test("startPlanSession emite telemetria de atividade para stdout/stderr", async () => {

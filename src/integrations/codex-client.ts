@@ -99,11 +99,49 @@ export interface PlanSpecSession {
   cancel(): Promise<void>;
 }
 
+export interface CodexChatSessionActivity {
+  source: "stdout" | "stderr";
+  bytes: number;
+  preview: string;
+}
+
+export type CodexChatSessionEvent =
+  | {
+      type: "raw-sanitized";
+      text: string;
+    }
+  | {
+      type: "activity";
+      activity: CodexChatSessionActivity;
+    };
+
+export interface CodexChatSessionCloseResult {
+  exitCode: number | null;
+  cancelled: boolean;
+}
+
+export interface CodexChatSessionCallbacks {
+  onEvent: (event: CodexChatSessionEvent) => void;
+  onFailure: (error: CodexChatSessionError) => void;
+  onClose?: (result: CodexChatSessionCloseResult) => void;
+}
+
+export interface CodexChatSessionStartRequest {
+  initialUserInput?: string;
+  callbacks: CodexChatSessionCallbacks;
+}
+
+export interface CodexChatSession {
+  sendUserInput(input: string): Promise<void>;
+  cancel(): Promise<void>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult>;
   runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult>;
   startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession>;
+  startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession>;
 }
 
 interface CodexCommandRequest {
@@ -152,7 +190,8 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_COMMAND = "/plan";
-const INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const PLAN_SPEC_INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const CODEX_CHAT_INTERACTIVE_RETRY_HINT = "Use /codex_chat para tentar novamente.";
 const INTERACTIVE_CONFIRM_KEY = "\r";
 const INTERACTIVE_SUBMIT_SEQUENCE = "\r\n";
 const INTERACTIVE_QUEUE_KEY = "\t";
@@ -272,11 +311,27 @@ export class CodexPlanSessionError extends Error {
     super(
       [
         "Falha na sessao interativa de planejamento no Codex CLI.",
-        INTERACTIVE_RETRY_HINT,
+        PLAN_SPEC_INTERACTIVE_RETRY_HINT,
         `Detalhes: ${details}`,
       ].join(" "),
     );
     this.name = "CodexPlanSessionError";
+  }
+}
+
+export class CodexChatSessionError extends Error {
+  constructor(
+    public readonly phase: "start" | "input" | "runtime",
+    details: string,
+  ) {
+    super(
+      [
+        "Falha na sessao interativa de conversa livre no Codex CLI.",
+        CODEX_CHAT_INTERACTIVE_RETRY_HINT,
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexChatSessionError";
   }
 }
 
@@ -433,6 +488,29 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       return new CodexInteractivePlanSession(childProcess, request, this.logger);
     } catch (error) {
       throw new CodexPlanSessionError("start", errorMessage(error));
+    }
+  }
+
+  async startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession> {
+    const spawnRequest = buildInteractiveCodexSpawnRequest();
+    this.logger.info("Iniciando sessao interativa de chat livre via Codex CLI", {
+      repoPath: this.repoPath,
+      mode: "free-chat",
+      interactiveTranscriptPath: spawnRequest.args[spawnRequest.args.length - 1],
+      interactiveVerboseLogs: isInteractiveVerboseLogsEnabled(),
+    });
+
+    try {
+      const childProcess = this.dependencies.spawnCodexInteractiveProcess({
+        cwd: this.repoPath,
+        env: {
+          ...process.env,
+        },
+      });
+
+      return new CodexInteractiveFreeChatSession(childProcess, request, this.logger);
+    } catch (error) {
+      throw new CodexChatSessionError("start", errorMessage(error));
     }
   }
 
@@ -930,6 +1008,358 @@ class CodexInteractivePlanSession implements PlanSpecSession {
 
     this.protocolPrimerInjected = true;
     return [PLAN_SPEC_PROTOCOL_PRIMER, "", `Brief do operador: ${input}`].join("\n");
+  }
+
+  private logVerbose(message: string, context: Record<string, unknown>): void {
+    if (!isInteractiveVerboseLogsEnabled()) {
+      return;
+    }
+
+    this.logger.info(message, context);
+  }
+}
+
+class CodexInteractiveFreeChatSession implements CodexChatSession {
+  private promptReadyProbeBuffer = "";
+  private closed = false;
+  private cancelled = false;
+  private failureNotified = false;
+  private trustPromptHandled = false;
+  private promptReadyDetected = false;
+  private promptReadyFallbackArmed = false;
+  private promptReadyFallbackHandle: ReturnType<typeof setTimeout> | null = null;
+  private pendingInputsFlushInFlight = false;
+  private writePipeline: Promise<void> = Promise.resolve();
+  private readonly pendingInputs: Array<{
+    value: string;
+    phase: "start" | "input";
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }> = [];
+
+  constructor(
+    private readonly process: InteractiveCodexProcess,
+    private readonly request: CodexChatSessionStartRequest,
+    private readonly logger: Logger,
+  ) {
+    this.process.stdout.on("data", (chunk: Buffer | string) => {
+      this.handleStdoutChunk(chunk.toString());
+    });
+    this.process.stderr.on("data", (chunk: Buffer | string) => {
+      this.handleStderrChunk(chunk.toString());
+    });
+    this.process.on("error", (error) => {
+      this.notifyFailure("runtime", errorMessage(error));
+    });
+    this.process.on("close", (code) => {
+      this.handleClose(code);
+    });
+
+    const initialUserInput = this.request.initialUserInput?.trim();
+    if (initialUserInput) {
+      this.pendingInputs.push({
+        value: initialUserInput,
+        phase: "start",
+        resolve: () => undefined,
+        reject: () => undefined,
+      });
+      this.schedulePromptReadyFallback();
+    }
+  }
+
+  async sendUserInput(input: string): Promise<void> {
+    const normalized = input.trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (this.closed) {
+      throw new CodexChatSessionError("input", "A sessao interativa ja foi encerrada.");
+    }
+
+    if (!this.isInputReady()) {
+      const pending = new Promise<void>((resolve, reject) => {
+        this.pendingInputs.push({
+          value: normalized,
+          phase: "input",
+          resolve,
+          reject,
+        });
+      });
+
+      this.logger.info("Input de /codex_chat enfileirado aguardando prompt interativo", {
+        promptReadyDetected: this.promptReadyDetected,
+        pendingInputs: this.pendingInputs.length,
+      });
+      this.schedulePromptReadyFallback();
+      if (this.promptReadyDetected) {
+        void this.flushPendingInputs().catch((error) => {
+          this.rejectPendingInputs(error);
+          this.notifyFailure("input", errorMessage(error));
+        });
+      }
+      return pending;
+    }
+
+    await this.sendInteractiveInput(normalized, "input");
+  }
+
+  async cancel(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+
+    this.cancelled = true;
+    this.process.stdin.end();
+    this.process.kill("SIGTERM");
+  }
+
+  private handleStdoutChunk(chunk: string): void {
+    if (!chunk) {
+      return;
+    }
+
+    this.emitActivityObservation("stdout", chunk);
+    this.promptReadyProbeBuffer = appendInteractivePromptProbeBuffer(
+      this.promptReadyProbeBuffer,
+      chunk,
+    );
+
+    if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
+      this.trustPromptHandled = true;
+      this.logger.info("Prompt de confianca de diretorio detectado e confirmado automaticamente");
+      this.write(`yes${INTERACTIVE_CONFIRM_KEY}`, "start");
+    }
+
+    if (!this.promptReadyDetected && isInteractivePromptReady(this.promptReadyProbeBuffer)) {
+      this.promptReadyDetected = true;
+      this.clearPromptReadyFallback();
+    }
+
+    if (this.isInputReady()) {
+      void this.flushPendingInputs().catch((error) => {
+        this.rejectPendingInputs(error);
+        this.notifyFailure("input", errorMessage(error));
+      });
+    }
+
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
+      return;
+    }
+
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: sanitized,
+    });
+  }
+
+  private handleStderrChunk(chunk: string): void {
+    this.emitActivityObservation("stderr", chunk);
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
+      return;
+    }
+
+    this.logger.warn("Sessao interativa do Codex retornou stderr", {
+      stderr: limit(sanitized),
+    });
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: sanitized,
+    });
+  }
+
+  private handleClose(code: number | null): void {
+    this.closed = true;
+    this.promptReadyProbeBuffer = "";
+    this.clearPromptReadyFallback();
+    this.rejectPendingInputs(
+      new Error("Sessao interativa encerrada antes de concluir mensagens pendentes."),
+    );
+    this.logVerbose("Sessao interativa /codex_chat encerrada", {
+      exitCode: code,
+      cancelled: this.cancelled,
+    });
+
+    if (!this.cancelled && code !== 0) {
+      this.notifyFailure(
+        "runtime",
+        `sessao interativa terminou com codigo ${String(code)} sem fallback nao interativo`,
+      );
+    }
+
+    if (this.request.callbacks.onClose) {
+      try {
+        this.request.callbacks.onClose({
+          exitCode: code,
+          cancelled: this.cancelled,
+        });
+      } catch (error) {
+        this.logger.warn("Falha ao executar callback onClose da sessao interativa", {
+          error: errorMessage(error),
+        });
+      }
+    }
+  }
+
+  private schedulePromptReadyFallback(): void {
+    if (this.closed || this.isInputReady()) {
+      return;
+    }
+
+    if (this.promptReadyFallbackHandle) {
+      return;
+    }
+
+    this.promptReadyFallbackHandle = setTimeout(() => {
+      this.promptReadyFallbackHandle = null;
+      if (this.closed || this.isInputReady()) {
+        return;
+      }
+
+      this.promptReadyFallbackArmed = true;
+      this.logger.warn(
+        "Prompt interativo nao detectado no tempo esperado; liberando fila de /codex_chat por fallback",
+        {
+          fallbackDelayMs: INTERACTIVE_BOOTSTRAP_FALLBACK_MS,
+          pendingInputs: this.pendingInputs.length,
+        },
+      );
+      void this.flushPendingInputs().catch((error) => {
+        this.rejectPendingInputs(error);
+        this.notifyFailure("input", errorMessage(error));
+      });
+    }, INTERACTIVE_BOOTSTRAP_FALLBACK_MS);
+    this.promptReadyFallbackHandle.unref?.();
+  }
+
+  private clearPromptReadyFallback(): void {
+    if (!this.promptReadyFallbackHandle) {
+      return;
+    }
+
+    clearTimeout(this.promptReadyFallbackHandle);
+    this.promptReadyFallbackHandle = null;
+  }
+
+  private isInputReady(): boolean {
+    return this.promptReadyDetected || this.promptReadyFallbackArmed;
+  }
+
+  private async flushPendingInputs(): Promise<void> {
+    if (this.pendingInputsFlushInFlight) {
+      return;
+    }
+
+    this.pendingInputsFlushInFlight = true;
+    try {
+      while (this.pendingInputs.length > 0) {
+        const next = this.pendingInputs.shift();
+        if (!next) {
+          continue;
+        }
+
+        try {
+          await this.sendInteractiveInput(next.value, next.phase);
+          next.resolve();
+        } catch (error) {
+          next.reject(error);
+          throw error;
+        }
+      }
+    } finally {
+      this.pendingInputsFlushInFlight = false;
+    }
+  }
+
+  private rejectPendingInputs(error: unknown): void {
+    while (this.pendingInputs.length > 0) {
+      const next = this.pendingInputs.shift();
+      next?.reject(error);
+    }
+  }
+
+  private emitActivityObservation(source: "stdout" | "stderr", chunk: string): void {
+    const preview = this.buildActivityPreview(chunk);
+    this.emitEvent({
+      type: "activity",
+      activity: {
+        source,
+        bytes: chunk.length,
+        preview,
+      },
+    });
+  }
+
+  private buildActivityPreview(chunk: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
+      return "";
+    }
+
+    return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
+  }
+
+  private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {
+    return this.enqueueWriteOperation(async () => {
+      this.write(`${value}${INTERACTIVE_SUBMIT_SEQUENCE}`, phase);
+      await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
+      this.write(INTERACTIVE_QUEUE_KEY, phase);
+    });
+  }
+
+  private enqueueWriteOperation(operation: () => Promise<void>): Promise<void> {
+    const scheduled = this.writePipeline.then(async () => operation());
+    this.writePipeline = scheduled.catch(() => undefined);
+    return scheduled;
+  }
+
+  private wait(delayMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+
+  private emitEvent(event: CodexChatSessionEvent): void {
+    try {
+      this.request.callbacks.onEvent(event);
+    } catch (error) {
+      this.logger.warn("Falha ao entregar evento da sessao interativa", {
+        eventType: event.type,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  private notifyFailure(phase: "start" | "input" | "runtime", details: string): void {
+    if (this.failureNotified) {
+      return;
+    }
+
+    this.failureNotified = true;
+    const error = new CodexChatSessionError(phase, details);
+    try {
+      this.request.callbacks.onFailure(error);
+    } catch (callbackError) {
+      this.logger.warn("Falha ao executar callback de erro da sessao interativa", {
+        error: errorMessage(callbackError),
+      });
+    }
+  }
+
+  private write(value: string, phase: "start" | "input"): void {
+    try {
+      this.logVerbose("Sessao interativa /codex_chat enviou input para Codex", {
+        phase,
+        bytes: value.length,
+        preview: limit(value.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n")),
+      });
+      this.process.stdin.write(value);
+    } catch (error) {
+      this.notifyFailure(phase, errorMessage(error));
+      throw new CodexChatSessionError(phase, errorMessage(error));
+    }
   }
 
   private logVerbose(message: string, context: Record<string, unknown>): void {
