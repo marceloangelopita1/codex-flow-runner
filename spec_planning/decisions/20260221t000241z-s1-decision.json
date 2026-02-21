@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 1,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md",
+  "specFileName": "2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md",
+  "specTitle": "Comando dedicado /codex_chat para conversa livre com contexto persistente no Telegram",
+  "specSummary": "Criar um novo fluxo conversacional dedicado com comando oficial /codex_chat e alias textual /codex-chat,\nseparado de /plan_spec, operando em modo chat livre (sem /plan automatico), com sessao unica global por instancia.\nEnquanto a sessao estiver ativa, toda mensagem de texto livre continua no mesmo contexto e cada envio deve retornar\nresposta do Codex quando pronta; a cada resposta, exibir botao para encerrar contexto manualmente. A sessao deve\nencerrar automaticamente apos 10 minutos de inatividade ou ao receber qualquer outro comando (encerrar e processar o\nnovo comando na mesma mensagem). Se houver sessao /plan_spec ativa, /codex_chat deve ser bloqueado com mensagem\nexplicita.",
+  "commitMessage": "feat(spec): add 2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md",
+  "recordedAtUtc": "2026-02-21T00:02:41.078Z"
+}
