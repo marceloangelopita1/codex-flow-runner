@@ -104,6 +104,7 @@ interface ActiveCodexChatSession {
   session: CodexChatSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   outputFlushHandle: ReturnType<typeof setTimeout> | null;
+  turnCompletionFlushArmed: boolean;
   pendingOutputText: string;
   pendingOutputChunks: number;
   lastCodexActivityLogAt: Date | null;
@@ -779,6 +780,7 @@ export class TicketRunner {
         session,
         timeoutHandle: null,
         outputFlushHandle: null,
+        turnCompletionFlushArmed: false,
         pendingOutputText: "",
         pendingOutputChunks: 0,
         lastCodexActivityLogAt: null,
@@ -1354,12 +1356,40 @@ export class TicketRunner {
     activeSession.timeoutHandle.unref?.();
   }
 
+  private scheduleCodexChatTurnCompletionFlush(sessionId: number): void {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId || !activeSession.turnCompletionFlushArmed) {
+      return;
+    }
+
+    if (activeSession.outputFlushHandle) {
+      this.clearTimer(activeSession.outputFlushHandle);
+      activeSession.outputFlushHandle = null;
+    }
+
+    activeSession.outputFlushHandle = this.setTimer(() => {
+      activeSession.outputFlushHandle = null;
+      void this.flushCodexChatOutput(sessionId, "turn-complete");
+    }, this.codexChatOutputFlushDelayMs);
+    activeSession.outputFlushHandle.unref?.();
+  }
+
+  private rescheduleCodexChatTurnCompletionFlushIfArmed(sessionId: number): void {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId || !activeSession.turnCompletionFlushArmed) {
+      return;
+    }
+
+    this.scheduleCodexChatTurnCompletionFlush(sessionId);
+  }
+
   private clearCodexChatOutputBuffer(activeSession: ActiveCodexChatSession): void {
     if (activeSession.outputFlushHandle) {
       this.clearTimer(activeSession.outputFlushHandle);
       activeSession.outputFlushHandle = null;
     }
 
+    activeSession.turnCompletionFlushArmed = false;
     activeSession.pendingOutputText = "";
     activeSession.pendingOutputChunks = 0;
   }
@@ -1392,13 +1422,6 @@ export class TicketRunner {
     const outputChunks = activeSession.pendingOutputChunks;
     this.clearCodexChatOutputBuffer(activeSession);
     if (!outputText) {
-      if (reason === "turn-complete" && codexChatSession.phase === "waiting-codex") {
-        this.setCodexChatPhase(
-          "waiting-user",
-          "codex-chat-waiting-user",
-          "Sessao /codex_chat aguardando nova mensagem do operador",
-        );
-      }
       return;
     }
 
@@ -1469,11 +1492,13 @@ export class TicketRunner {
 
     if (event.type === "activity") {
       this.recordCodexChatActivity(activeSession, codexChatSession, sessionId, event);
+      this.rescheduleCodexChatTurnCompletionFlushIfArmed(sessionId);
       return;
     }
 
     if (event.type === "turn-complete") {
-      await this.flushCodexChatOutput(sessionId, "turn-complete");
+      activeSession.turnCompletionFlushArmed = true;
+      this.scheduleCodexChatTurnCompletionFlush(sessionId);
       return;
     }
 
@@ -1482,6 +1507,7 @@ export class TicketRunner {
     }
 
     this.bufferCodexChatOutput(activeSession, event.text);
+    this.rescheduleCodexChatTurnCompletionFlushIfArmed(sessionId);
   }
 
   private async handleCodexChatSessionFailure(sessionId: number, error: unknown): Promise<void> {

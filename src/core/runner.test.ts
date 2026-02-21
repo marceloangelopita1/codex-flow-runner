@@ -2135,6 +2135,7 @@ test("submitCodexChatInput aguarda sinal de turno concluido para encaminhar said
   });
   const runner = createRunner(logger, roundDependencies, {
     runnerOptions: {
+      codexChatOutputFlushDelayMs: 5,
       codexChatEventHandlers: {
         onOutput: (_chatId, event) => {
           outputs.push(event.text);
@@ -2146,20 +2147,21 @@ test("submitCodexChatInput aguarda sinal de turno concluido para encaminhar said
   await runner.startCodexChatSession("42");
 
   const inputResult = await runner.submitCodexChatInput("42", "Quais foram os ultimos commits?");
-  codex.lastFreeChatSession?.emitRawOutput("• Vou verificar o historico Git local.");
-  await sleep(10);
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
+  await sleep(1);
 
   assert.equal(inputResult.status, "accepted");
   assert.equal(outputs.length, 0);
   assert.equal(runner.getState().codexChatSession?.phase, "waiting-codex");
 
+  codex.lastFreeChatSession?.emitRawOutput("• Vou verificar o historico Git local.");
   codex.lastFreeChatSession?.emitRawOutput("1. abc123 - resumo final");
-  codex.lastFreeChatSession?.emitEvent({
-    type: "turn-complete",
-  });
-  await sleep(10);
+  await sleep(20);
 
   assert.equal(outputs.length, 1);
+  assert.match(outputs[0] ?? "", /historico Git/u);
   assert.match(outputs[0] ?? "", /abc123/u);
   assert.equal(runner.getState().codexChatSession?.phase, "waiting-user");
 });
