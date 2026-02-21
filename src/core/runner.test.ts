@@ -2033,6 +2033,7 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
   });
   const runner = createRunner(logger, roundDependencies, {
     runnerOptions: {
+      codexChatOutputFlushDelayMs: 1,
       codexChatEventHandlers: {
         onOutput: (_chatId, event) => {
           outputs.push(event.text);
@@ -2053,7 +2054,7 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
     },
   });
   codex.lastFreeChatSession?.emitRawOutput("Resposta final do Codex");
-  await sleep(0);
+  await sleep(20);
 
   assert.equal(inputResult.status, "accepted");
   assert.deepEqual(codex.lastFreeChatSession?.sentInputs, ["Como melhorar este modulo?"]);
@@ -2072,6 +2073,48 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
     logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: output-forwarded"),
     true,
   );
+});
+
+test("submitCodexChatInput agrega chunks e encaminha uma unica resposta no /codex_chat", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const outputs: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatOutputFlushDelayMs: 5,
+      codexChatEventHandlers: {
+        onOutput: (_chatId, event) => {
+          outputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+  await runner.startCodexChatSession("42");
+
+  const inputResult = await runner.submitCodexChatInput("42", "Detalhe a mudanca");
+  codex.lastFreeChatSession?.emitRawOutput("Primeira parte");
+  codex.lastFreeChatSession?.emitRawOutput("Segunda parte");
+  codex.lastFreeChatSession?.emitRawOutput("Terceira parte");
+  await sleep(40);
+
+  assert.equal(inputResult.status, "accepted");
+  assert.equal(outputs.length, 1);
+  assert.match(outputs[0] ?? "", /Primeira parte/u);
+  assert.match(outputs[0] ?? "", /Segunda parte/u);
+  assert.match(outputs[0] ?? "", /Terceira parte/u);
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-user");
+  const forwardedLogs = logger.infos.filter(
+    (entry) => entry.message === "Lifecycle /codex_chat: output-forwarded",
+  );
+  assert.equal(forwardedLogs.length, 1);
+  assert.equal(forwardedLogs[0]?.context?.outputChunks, 3);
 });
 
 test("submitCodexChatInput diferencia chat incorreto e sessao inativa", async () => {

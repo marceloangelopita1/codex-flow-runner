@@ -70,6 +70,7 @@ export interface CodexChatEventHandlers {
 export interface TicketRunnerOptions {
   planSpecSessionTimeoutMs?: number;
   codexChatSessionTimeoutMs?: number;
+  codexChatOutputFlushDelayMs?: number;
   now?: () => Date;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
@@ -102,6 +103,9 @@ interface ActiveCodexChatSession {
   codexClient: CodexTicketFlowClient;
   session: CodexChatSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  outputFlushHandle: ReturnType<typeof setTimeout> | null;
+  pendingOutputText: string;
+  pendingOutputChunks: number;
 }
 
 interface ActiveRunnerSlot {
@@ -162,6 +166,7 @@ const PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS = 30 * 1000;
 const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
 const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 const PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS = 2 * 1000;
+const CODEX_CHAT_OUTPUT_FLUSH_DELAY_MS = 1200;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -297,6 +302,7 @@ export class TicketRunner {
   private readonly clearTimer: typeof clearTimeout;
   private readonly planSpecSessionTimeoutMs: number;
   private readonly codexChatSessionTimeoutMs: number;
+  private readonly codexChatOutputFlushDelayMs: number;
   private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
@@ -327,6 +333,8 @@ export class TicketRunner {
       options.planSpecSessionTimeoutMs ?? PLAN_SPEC_SESSION_TIMEOUT_MS;
     this.codexChatSessionTimeoutMs =
       options.codexChatSessionTimeoutMs ?? CODEX_CHAT_SESSION_TIMEOUT_MS;
+    this.codexChatOutputFlushDelayMs =
+      options.codexChatOutputFlushDelayMs ?? CODEX_CHAT_OUTPUT_FLUSH_DELAY_MS;
     this.specPlanningTraceStoreFactory =
       options.specPlanningTraceStoreFactory ??
       ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
@@ -766,6 +774,9 @@ export class TicketRunner {
         codexClient: slot.codexClient,
         session,
         timeoutHandle: null,
+        outputFlushHandle: null,
+        pendingOutputText: "",
+        pendingOutputChunks: 0,
       };
 
       slot.isStarting = false;
@@ -828,6 +839,7 @@ export class TicketRunner {
     }
 
     try {
+      await this.flushCodexChatOutput(session.id, "new-input");
       const pendingSend = session.session.sendUserInput(normalizedInput);
       this.setCodexChatPhase(
         "waiting-codex",
@@ -1335,6 +1347,87 @@ export class TicketRunner {
     activeSession.timeoutHandle.unref?.();
   }
 
+  private scheduleCodexChatOutputFlush(sessionId: number): void {
+    const activeSession = this.activeCodexChatSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.outputFlushHandle) {
+      this.clearTimer(activeSession.outputFlushHandle);
+    }
+
+    activeSession.outputFlushHandle = this.setTimer(() => {
+      void this.flushCodexChatOutput(sessionId, "debounce");
+    }, this.codexChatOutputFlushDelayMs);
+    activeSession.outputFlushHandle.unref?.();
+  }
+
+  private clearCodexChatOutputBuffer(activeSession: ActiveCodexChatSession): void {
+    if (activeSession.outputFlushHandle) {
+      this.clearTimer(activeSession.outputFlushHandle);
+      activeSession.outputFlushHandle = null;
+    }
+
+    activeSession.pendingOutputText = "";
+    activeSession.pendingOutputChunks = 0;
+  }
+
+  private bufferCodexChatOutput(activeSession: ActiveCodexChatSession, chunkText: string): void {
+    const normalized = chunkText.trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (activeSession.pendingOutputText.length === 0) {
+      activeSession.pendingOutputText = normalized;
+    } else {
+      activeSession.pendingOutputText = `${activeSession.pendingOutputText}\n${normalized}`;
+    }
+    activeSession.pendingOutputChunks += 1;
+  }
+
+  private async flushCodexChatOutput(
+    sessionId: number,
+    reason: "debounce" | "new-input",
+  ): Promise<void> {
+    const activeSession = this.activeCodexChatSession;
+    const codexChatSession = this.state.codexChatSession;
+    if (!activeSession || !codexChatSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    const outputText = activeSession.pendingOutputText.trim();
+    const outputChunks = activeSession.pendingOutputChunks;
+    this.clearCodexChatOutputBuffer(activeSession);
+    if (!outputText) {
+      return;
+    }
+
+    if (codexChatSession.phase === "waiting-codex") {
+      this.setCodexChatPhase(
+        "waiting-user",
+        "codex-chat-waiting-user",
+        "Sessao /codex_chat aguardando nova mensagem do operador",
+      );
+    }
+
+    this.logger.info("Lifecycle /codex_chat: output-forwarded", {
+      chatId: activeSession.chatId,
+      sessionId,
+      outputLength: outputText.length,
+      outputChunks,
+      flushReason: reason,
+      phase: this.state.codexChatSession?.phase,
+      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
+    });
+    await this.emitCodexChatOutput(activeSession.chatId, {
+      type: "raw-sanitized",
+      text: outputText,
+    });
+  }
+
   private async handleCodexChatSessionTimeout(sessionId: number): Promise<void> {
     const activeSession = this.activeCodexChatSession;
     if (!activeSession || activeSession.id !== sessionId) {
@@ -1393,22 +1486,20 @@ export class TicketRunner {
       return;
     }
 
-    if (codexChatSession.phase === "waiting-codex") {
-      this.setCodexChatPhase(
-        "waiting-user",
-        "codex-chat-waiting-user",
-        "Sessao /codex_chat aguardando nova mensagem do operador",
-      );
+    if (codexChatSession.phase !== "waiting-codex" && activeSession.pendingOutputChunks === 0) {
+      this.logger.info("Lifecycle /codex_chat: output-suppressed-outside-waiting-codex", {
+        chatId: activeSession.chatId,
+        sessionId,
+        outputLength: event.text.length,
+        phase: codexChatSession.phase,
+        activeProjectName: codexChatSession.activeProjectSnapshot.name,
+        activeProjectPath: codexChatSession.activeProjectSnapshot.path,
+      });
+      return;
     }
-    this.logger.info("Lifecycle /codex_chat: output-forwarded", {
-      chatId: activeSession.chatId,
-      sessionId,
-      outputLength: event.text.length,
-      phase: this.state.codexChatSession?.phase,
-      activeProjectName: this.state.codexChatSession?.activeProjectSnapshot.name,
-      activeProjectPath: this.state.codexChatSession?.activeProjectSnapshot.path,
-    });
-    await this.emitCodexChatOutput(activeSession.chatId, event);
+
+    this.bufferCodexChatOutput(activeSession, event.text);
+    this.scheduleCodexChatOutputFlush(sessionId);
   }
 
   private async handleCodexChatSessionFailure(sessionId: number, error: unknown): Promise<void> {
@@ -1490,6 +1581,7 @@ export class TicketRunner {
     if (activeSession.timeoutHandle) {
       this.clearTimer(activeSession.timeoutHandle);
     }
+    this.clearCodexChatOutputBuffer(activeSession);
 
     const codexChatSession = this.state.codexChatSession;
     const closedAt = this.now();
