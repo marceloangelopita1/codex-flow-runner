@@ -133,6 +133,37 @@ const bootstrap = async () => {
           await telegram.sendPlanSpecMessage(chatId, message);
         },
       },
+      codexChatEventHandlers: {
+        onOutput: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Saida de /codex_chat nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendCodexChatOutput(chatId, event.text);
+        },
+        onFailure: async (chatId, details) => {
+          if (!telegram) {
+            logger.warn("Falha de /codex_chat nao enviada: Telegram indisponivel", {
+              chatId,
+              details,
+            });
+            return;
+          }
+          await telegram.sendCodexChatFailure(chatId, details);
+        },
+        onLifecycleMessage: async (chatId, message) => {
+          if (!telegram) {
+            logger.warn("Mensagem de lifecycle de /codex_chat nao enviada: Telegram indisponivel", {
+              chatId,
+              message,
+            });
+            return;
+          }
+          await telegram.sendCodexChatMessage(chatId, message);
+        },
+      },
     },
   );
 
@@ -152,6 +183,9 @@ const bootstrap = async () => {
     {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
+      startCodexChatSession: runner.startCodexChatSession,
+      submitCodexChatInput: runner.submitCodexChatInput,
+      cancelCodexChatSession: runner.cancelCodexChatSession,
       startPlanSpecSession: runner.startPlanSpecSession,
       submitPlanSpecInput: runner.submitPlanSpecInput,
       cancelPlanSpecSession: runner.cancelPlanSpecSession,

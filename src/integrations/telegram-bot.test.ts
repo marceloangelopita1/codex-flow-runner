@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ProjectSelectionSnapshot } from "../core/project-selection.js";
-import { PlanSpecCallbackIgnoredReason, RunnerProjectControlResult } from "../core/runner.js";
+import {
+  CodexChatSessionCancelResult,
+  CodexChatSessionInputResult,
+  CodexChatSessionStartResult,
+  PlanSpecCallbackIgnoredReason,
+  RunnerProjectControlResult,
+} from "../core/runner.js";
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
@@ -68,10 +74,28 @@ const createPlanSpecSession = (
   ...value,
 });
 
+const createCodexChatSession = (
+  value: Partial<NonNullable<RunnerState["codexChatSession"]>> = {},
+): NonNullable<RunnerState["codexChatSession"]> => ({
+  sessionId: 7,
+  chatId: "42",
+  phase: "waiting-user",
+  startedAt: new Date("2026-02-21T10:00:00.000Z"),
+  lastActivityAt: new Date("2026-02-21T10:01:00.000Z"),
+  waitingCodexSinceAt: null,
+  lastCodexActivityAt: null,
+  lastCodexStream: null,
+  lastCodexPreview: null,
+  activeProjectSnapshot: cloneProject(defaultActiveProject),
+  ...value,
+});
+
 type ControlCommand =
   | "start"
   | "run_all"
   | "run-all"
+  | "codex_chat"
+  | "codex-chat"
   | "specs"
   | "run_specs"
   | "plan_spec"
@@ -100,6 +124,9 @@ interface ControllerOptions {
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
   runSpecsMessage?: string;
+  codexChatStartResult?: CodexChatSessionStartResult;
+  codexChatInputResult?: CodexChatSessionInputResult;
+  codexChatCancelResult?: CodexChatSessionCancelResult;
   planSpecStartResult?: {
     status: "started" | "already-active" | "blocked-running" | "blocked" | "failed";
     message: string;
@@ -175,6 +202,12 @@ const createController = (options: ControllerOptions = {}) => {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    codexChatStartCalls: 0,
+    codexChatStartChatIds: [] as string[],
+    codexChatInputCalls: 0,
+    codexChatInputCallsByChat: [] as { chatId: string; input: string }[],
+    codexChatCancelCalls: 0,
+    codexChatCancelChatIds: [] as string[],
     planSpecStartCalls: 0,
     planSpecStartChatIds: [] as string[],
     planSpecInputCalls: 0,
@@ -215,6 +248,42 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       return { status: "started" as const };
+    },
+    startCodexChatSession: (chatId: string) => {
+      controlState.codexChatStartCalls += 1;
+      controlState.codexChatStartChatIds.push(chatId);
+      if (options.codexChatStartResult) {
+        return options.codexChatStartResult;
+      }
+
+      return {
+        status: "started" as const,
+        message: "Sessao /codex_chat iniciada. Envie a proxima mensagem para conversar com o Codex.",
+      };
+    },
+    submitCodexChatInput: (chatId: string, input: string) => {
+      controlState.codexChatInputCalls += 1;
+      controlState.codexChatInputCallsByChat.push({ chatId, input });
+      if (options.codexChatInputResult) {
+        return options.codexChatInputResult;
+      }
+
+      return {
+        status: "accepted" as const,
+        message: "Mensagem encaminhada para a sessao /codex_chat.",
+      };
+    },
+    cancelCodexChatSession: (chatId: string) => {
+      controlState.codexChatCancelCalls += 1;
+      controlState.codexChatCancelChatIds.push(chatId);
+      if (options.codexChatCancelResult) {
+        return options.codexChatCancelResult;
+      }
+
+      return {
+        status: "cancelled" as const,
+        message: "Sessao /codex_chat cancelada.",
+      };
     },
     startPlanSpecSession: (chatId: string) => {
       controlState.planSpecStartCalls += 1;
@@ -483,6 +552,29 @@ const callBuildRunAllReply = async (
   return internalController.buildRunAllReply();
 };
 
+const callHandleRunAllCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+  command: "run_all" | "run-all" = "run_all",
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleRunAllCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+      sourceCommand: "run_all" | "run-all",
+    ) => Promise<void>;
+  };
+
+  await internalController.handleRunAllCommand(context, command);
+};
+
 const callBuildRunSpecsReply = async (
   controller: TelegramController,
   specFileName: string,
@@ -583,6 +675,112 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandleCodexChatCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+  command: "codex_chat" | "codex-chat" = "codex_chat",
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleCodexChatCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+      sourceCommand: "codex_chat" | "codex-chat",
+    ) => Promise<void>;
+  };
+
+  await internalController.handleCodexChatCommand(context, command);
+};
+
+const callHandleCodexChatTextMessage = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: {
+      text?: string;
+      entities?: Array<{ type: string; offset: number; length: number }>;
+    };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleCodexChatTextMessage: (value: {
+      chat: { id: number };
+      message?: {
+        text?: string;
+        entities?: Array<{ type: string; offset: number; length: number }>;
+      };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleCodexChatTextMessage(context);
+};
+
+const callHandleCodexChatCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: {
+      data?: string;
+      from?: { id: number };
+      message?: { message_id?: number };
+    };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleCodexChatCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: {
+        data?: string;
+        from?: { id: number };
+        message?: { message_id?: number };
+      };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleCodexChatCallbackQuery(context);
+};
+
+const callHandleCodexChatCommandHandoff = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: {
+      text?: string;
+      entities?: Array<{ type: string; offset: number; length: number }>;
+    };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+  next: () => Promise<void>,
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleCodexChatCommandHandoff: (
+      value: {
+        chat: { id: number };
+        message?: {
+          text?: string;
+          entities?: Array<{ type: string; offset: number; length: number }>;
+        };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+      next: () => Promise<void>,
+    ) => Promise<void>;
+  };
+
+  await internalController.handleCodexChatCommandHandoff(context, next);
 };
 
 const callHandlePauseCommand = async (
@@ -1112,6 +1310,8 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/specs/u);
   assert.match(reply, /\/run_specs/u);
+  assert.match(reply, /\/codex_chat/u);
+  assert.match(reply, /\/codex-chat/u);
   assert.match(reply, /\/plan_spec/u);
   assert.match(reply, /\/plan_spec_status/u);
   assert.match(reply, /\/plan_spec_cancel/u);
@@ -1185,6 +1385,200 @@ test("/run_specs retorna already-running quando runner ja esta ocupado", async (
   assert.equal(controlState.runSpecsCalls, 1);
   assert.equal(replies.length, 1);
   assert.equal(replies[0], "ℹ️ Runner já está em execução.");
+});
+
+test("/codex_chat e alias /codex-chat iniciam a mesma sessao (CA-01/CA-02)", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  const context = {
+    chat: { id: 42 },
+    message: { text: "/codex_chat" },
+    reply: async (text: string) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  };
+
+  await callHandleCodexChatCommand(controller, context, "codex_chat");
+  await callHandleCodexChatCommand(
+    controller,
+    {
+      ...context,
+      message: { text: "/codex-chat" },
+    },
+    "codex-chat",
+  );
+
+  assert.equal(controlState.codexChatStartCalls, 2);
+  assert.deepEqual(controlState.codexChatStartChatIds, ["42", "42"]);
+  assert.equal(replies.length, 2);
+  assert.match(replies[0] ?? "", /Sessao \/codex_chat iniciada/u);
+  assert.match(replies[1] ?? "", /Sessao \/codex_chat iniciada/u);
+});
+
+test("mensagem livre em sessao /codex_chat ativa e roteada para o runner (CA-03)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 17,
+          chatId: "42",
+          phase: "waiting-user",
+        }),
+      }),
+  });
+  const replies: string[] = [];
+
+  await callHandleCodexChatTextMessage(controller, {
+    chat: { id: 42 },
+    message: { text: "Quais passos para corrigir este bug?" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.codexChatInputCalls, 1);
+  assert.deepEqual(controlState.codexChatInputCallsByChat, [{
+    chatId: "42",
+    input: "Quais passos para corrigir este bug?",
+  }]);
+  assert.deepEqual(replies, ["✅ Mensagem enviada para a sessão /codex_chat."]);
+});
+
+test("saida de /codex_chat enviada ao Telegram inclui botao inline de encerramento (CA-04)", async () => {
+  const { controller } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 23,
+          chatId: "42",
+        }),
+      }),
+  });
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendCodexChatOutput("42", "Resposta saneada do Codex");
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.equal(sentMessages[0]?.text, "Resposta saneada do Codex");
+  assert.deepEqual(sentMessages[0]?.extra, {
+    reply_markup: {
+      inline_keyboard: [[{
+        text: "🛑 Encerrar /codex_chat",
+        callback_data: "codex-chat:close:23",
+      }]],
+    },
+  });
+});
+
+test("callback de encerramento manual fecha sessao ativa e confirma no chat (CA-05)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 31,
+          chatId: "42",
+        }),
+      }),
+    codexChatCancelResult: {
+      status: "cancelled",
+      message: "Sessao /codex_chat cancelada.",
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const answers: Array<string | undefined> = [];
+
+  await callHandleCodexChatCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "codex-chat:close:31",
+      from: { id: 42 },
+      message: { message_id: 911 },
+    },
+    answerCbQuery: async (text?: string) => {
+      answers.push(text);
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.codexChatCancelCalls, 1);
+  assert.deepEqual(controlState.codexChatCancelChatIds, ["42"]);
+  assert.deepEqual(answers, ["Sessão /codex_chat encerrada."]);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.equal(sentMessages[0]?.text, "✅ Sessao /codex_chat cancelada.");
+});
+
+test("callback stale de /codex_chat nao fecha sessao nova (CA-05)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 89,
+          chatId: "42",
+        }),
+      }),
+  });
+  const sentMessages = mockSendMessage(controller);
+  const answers: Array<string | undefined> = [];
+
+  await callHandleCodexChatCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "codex-chat:close:31",
+      from: { id: 42 },
+      message: { message_id: 912 },
+    },
+    answerCbQuery: async (text?: string) => {
+      answers.push(text);
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.codexChatCancelCalls, 0);
+  assert.deepEqual(answers, ["Sessão /codex_chat expirada ou substituída."]);
+  assert.equal(sentMessages.length, 0);
+});
+
+test("handoff por comando encerra /codex_chat e executa novo comando no mesmo update (CA-07)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 50,
+          chatId: "42",
+        }),
+      }),
+  });
+  const replies: string[] = [];
+  const context = {
+    chat: { id: 42 },
+    message: {
+      text: "/run_all",
+      entities: [{
+        type: "bot_command",
+        offset: 0,
+        length: 8,
+      }],
+    },
+    reply: async (text: string) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  };
+
+  await callHandleCodexChatCommandHandoff(controller, context, async () => {
+    await callHandleRunAllCommand(controller, context, "run_all");
+  });
+
+  assert.equal(controlState.codexChatCancelCalls, 1);
+  assert.equal(controlState.runAllCalls, 1);
+  assert.deepEqual(replies, ["▶️ Runner iniciado via /run_all."]);
 });
 
 test("/plan_spec inicia sessao e solicita brief inicial (CA-01)", async () => {

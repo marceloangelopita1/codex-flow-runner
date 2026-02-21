@@ -1,14 +1,14 @@
 # [TICKET] Entrada Telegram de /codex_chat (com alias) e UX de encerramento manual ainda nao existem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-21 00:06Z
 - Reporter: codex
 - Owner: mapita
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+- Parent ticket (optional): tickets/closed/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Request ID: N/A
@@ -18,7 +18,8 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
-  - tickets/open/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+  - tickets/closed/2026-02-21-codex-chat-core-session-lifecycle-and-free-chat-backend-gap.md
+  - ExecPlan: execplans/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md
   - INTERNAL_TICKETS.md
 
 ## Context
@@ -84,9 +85,10 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto apos revisao da spec de `/codex_chat` com priorizacao P1 por depender do backend core P0.
+- 2026-02-21 - ExecPlan validado como `GO` com criterios atendidos e validacoes verdes (`npm run check`, `npm test`, `npm run build`).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 00:43Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-codex-chat-telegram-command-alias-and-manual-close-ux-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

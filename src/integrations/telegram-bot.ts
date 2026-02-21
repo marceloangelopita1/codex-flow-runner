@@ -5,6 +5,9 @@ import {
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
 import type {
+  CodexChatSessionCancelResult,
+  CodexChatSessionInputResult,
+  CodexChatSessionStartResult,
   PlanSpecCallbackIgnoredReason,
   PlanSpecCallbackResult,
   PlanSpecSessionCancelResult,
@@ -31,6 +34,16 @@ import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
+  startCodexChatSession: (
+    chatId: string,
+  ) => Promise<CodexChatSessionStartResult> | CodexChatSessionStartResult;
+  submitCodexChatInput: (
+    chatId: string,
+    input: string,
+  ) => Promise<CodexChatSessionInputResult> | CodexChatSessionInputResult;
+  cancelCodexChatSession: (
+    chatId: string,
+  ) => Promise<CodexChatSessionCancelResult> | CodexChatSessionCancelResult;
   startPlanSpecSession: (
     chatId: string,
   ) => Promise<PlanSpecSessionStartResult> | PlanSpecSessionStartResult;
@@ -172,6 +185,15 @@ type ParsedPlanSpecCallbackData =
       status: "invalid";
     };
 
+type ParsedCodexChatCallbackData =
+  | {
+      status: "close";
+      sessionId: number;
+    }
+  | {
+      status: "invalid";
+    };
+
 type ParsedSpecsCallbackData =
   | {
       status: "page";
@@ -293,6 +315,8 @@ const PROJECTS_CALLBACK_SELECT_PREFIX = "projects:select:";
 const PLAN_SPEC_CALLBACK_PREFIX = "plan-spec:";
 const PLAN_SPEC_CALLBACK_QUESTION_PREFIX = "plan-spec:question:";
 const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
+const CODEX_CHAT_CALLBACK_PREFIX = "codex-chat:";
+const CODEX_CHAT_CALLBACK_CLOSE_PREFIX = "codex-chat:close:";
 const PLAN_SPEC_CALLBACK_INVALID_REPLY = "Ação de planejamento inválida.";
 const PLAN_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão de planejamento inativa.";
 const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
@@ -307,6 +331,16 @@ const PLAN_SPEC_RAW_OUTPUT_REPLY_PREFIX = "🧩 Saída não parseável do Codex 
 const PLAN_SPEC_STATUS_INACTIVE_REPLY = "ℹ️ Nenhuma sessão /plan_spec ativa no momento.";
 const PLAN_SPEC_INPUT_BRIEF_ACCEPTED_REPLY = "✅ Brief inicial recebido. Aguarde a resposta do Codex.";
 const PLAN_SPEC_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /plan_spec.";
+const CODEX_CHAT_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /codex_chat.";
+const CODEX_CHAT_STATUS_INACTIVE_REPLY = "ℹ️ Nenhuma sessão /codex_chat ativa no momento.";
+const CODEX_CHAT_CALLBACK_INVALID_REPLY = "Ação de /codex_chat inválida.";
+const CODEX_CHAT_CALLBACK_STALE_REPLY = "Sessão /codex_chat expirada ou substituída.";
+const CODEX_CHAT_CALLBACK_ACCEPTED_REPLY = "Sessão /codex_chat encerrada.";
+const CODEX_CHAT_CALLBACK_FAILED_REPLY = "Falha ao encerrar /codex_chat.";
+const CODEX_CHAT_CLOSE_BUTTON_LABEL = "🛑 Encerrar /codex_chat";
+const CODEX_CHAT_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa /codex_chat:";
+const CODEX_CHAT_FLOW_FAILED_RETRY_SUFFIX = "Use /codex_chat para tentar novamente.";
+const CODEX_CHAT_EMPTY_OUTPUT_REPLY = "ℹ️ O Codex não retornou conteúdo nesta resposta.";
 const SELECT_PROJECT_USAGE_REPLY =
   "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
 const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
@@ -320,6 +354,7 @@ const PROJECTS_CALLBACK_STALE_REPLY =
   "A lista de projetos mudou. Atualize com /projects e tente novamente.";
 const PROJECTS_CALLBACK_UNAUTHORIZED_REPLY = "Acesso não autorizado.";
 const RUN_ALL_LEGACY_PATTERN = /^\/run-all(?:@[^\s]+)?(?:\s+.*)?$/u;
+const CODEX_CHAT_LEGACY_PATTERN = /^\/codex-chat(?:@[^\s]+)?(?:\s+.*)?$/u;
 const SELECT_PROJECT_LEGACY_PATTERN = /^\/select-project(?:@[^\s]+)?(?:\s+.*)?$/u;
 const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
 const BOT_COMMAND_ENTITY_TYPE = "bot_command";
@@ -335,6 +370,7 @@ const START_REPLY_LINES = [
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
+  "/codex_chat - inicia conversa livre com Codex (alias legado: /codex-chat)",
   "/plan_spec - inicia sessão interativa de planejamento de spec",
   "/plan_spec_status - mostra status detalhado da sessão /plan_spec",
   "/plan_spec_cancel - cancela a sessão /plan_spec ativa",
@@ -445,6 +481,22 @@ export class TelegramController {
     await this.bot.telegram.sendMessage(chatId, message);
   }
 
+  async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {
+    const state = this.getState();
+    const session = state.codexChatSession;
+    const sessionId = session && session.chatId === chatId ? (session.sessionId ?? null) : null;
+    const rendered = this.buildCodexChatOutputReply(rawOutput, sessionId);
+    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+  }
+
+  async sendCodexChatFailure(chatId: string, details?: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, this.buildCodexChatInteractiveFailureReply(details));
+  }
+
+  async sendCodexChatMessage(chatId: string, message: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, message);
+  }
+
   private registerHandlers(): void {
     this.bot.catch((error, ctx) => {
       this.logger.error("Falha nao tratada ao processar update do Telegram", {
@@ -457,6 +509,10 @@ export class TelegramController {
     this.bot.use(async (ctx, next) => {
       this.logIncomingUpdate(ctx as unknown as IncomingUpdateContext);
       await next();
+    });
+
+    this.bot.use(async (ctx, next) => {
+      await this.handleCodexChatCommandHandoff(ctx as unknown as CommandContext, next);
     });
 
     this.bot.command("start", async (ctx) => {
@@ -487,6 +543,14 @@ export class TelegramController {
 
     this.bot.command("run_specs", async (ctx) => {
       await this.handleRunSpecsCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("codex_chat", async (ctx) => {
+      await this.handleCodexChatCommand(ctx as unknown as CommandContext, "codex_chat");
+    });
+
+    this.bot.hears(CODEX_CHAT_LEGACY_PATTERN, async (ctx) => {
+      await this.handleCodexChatCommand(ctx as unknown as CommandContext, "codex-chat");
     });
 
     this.bot.command("plan_spec", async (ctx) => {
@@ -537,6 +601,7 @@ export class TelegramController {
     });
 
     this.bot.on("text", async (ctx) => {
+      await this.handleCodexChatTextMessage(ctx as unknown as CommandContext);
       await this.handlePlanSpecTextMessage(ctx as unknown as CommandContext);
     });
 
@@ -617,8 +682,166 @@ export class TelegramController {
       return;
     }
 
+    if (callbackData.startsWith(CODEX_CHAT_CALLBACK_PREFIX)) {
+      await this.handleCodexChatCallbackQuery(ctx);
+      return;
+    }
+
     if (callbackData.startsWith(PLAN_SPEC_CALLBACK_PREFIX)) {
       await this.handlePlanSpecCallbackQuery(ctx);
+    }
+  }
+
+  private async handleCodexChatCommandHandoff(
+    ctx: CommandContext,
+    next: () => Promise<void>,
+  ): Promise<void> {
+    const command = this.parseCommandNameFromMessage(ctx.message);
+    if (!command) {
+      await next();
+      return;
+    }
+
+    const state = this.getState();
+    const session = state.codexChatSession;
+    const chatId = ctx.chat.id.toString();
+    if (!session || session.chatId !== chatId || this.isCodexChatEntryCommand(command)) {
+      await next();
+      return;
+    }
+
+    this.logger.info("Sessao /codex_chat encerrada por troca de comando no mesmo update", {
+      chatId,
+      previousSessionId: session.sessionId ?? null,
+      nextCommand: command,
+    });
+
+    try {
+      await this.controls.cancelCodexChatSession(chatId);
+    } catch (error) {
+      this.logger.error("Falha ao encerrar sessao /codex_chat durante handoff de comando", {
+        chatId,
+        nextCommand: command,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    await next();
+  }
+
+  private async handleCodexChatCommand(
+    ctx: CommandContext,
+    command: "codex_chat" | "codex-chat",
+  ): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /codex_chat recebido via Telegram", {
+      chatId,
+      command,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command,
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.startCodexChatSession(chatId);
+    this.captureNotificationChat(chatId);
+    await ctx.reply(this.buildCodexChatStartReply(result));
+  }
+
+  private async handleCodexChatTextMessage(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    const stateBeforeInput = this.getState();
+    const activeSession = stateBeforeInput.codexChatSession;
+    if (!activeSession || activeSession.chatId !== chatId) {
+      return;
+    }
+
+    const messageText = (ctx.message?.text ?? "").trim();
+    if (!messageText || this.parseCommandNameFromMessage(ctx.message)) {
+      return;
+    }
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "codex_chat",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.submitCodexChatInput(chatId, messageText);
+    if (result.status === "accepted") {
+      await ctx.reply(CODEX_CHAT_INPUT_ACCEPTED_REPLY);
+      return;
+    }
+
+    if (result.status === "ignored-empty") {
+      return;
+    }
+
+    await ctx.reply(this.buildCodexChatInputReply(result));
+  }
+
+  private async handleCodexChatCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(CODEX_CHAT_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseCodexChatCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, CODEX_CHAT_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    const state = this.getState();
+    const session = state.codexChatSession;
+    if (!session || session.chatId !== chatId) {
+      await this.safeAnswerCallbackQuery(ctx, CODEX_CHAT_STATUS_INACTIVE_REPLY);
+      return;
+    }
+
+    if (typeof session.sessionId !== "number" || session.sessionId !== parsed.sessionId) {
+      await this.safeAnswerCallbackQuery(ctx, CODEX_CHAT_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    try {
+      const result = await this.controls.cancelCodexChatSession(chatId);
+      await this.safeAnswerCallbackQuery(ctx, this.buildCodexChatCancelCallbackToast(result));
+      if (result.status === "cancelled") {
+        await this.sendCodexChatCallbackChatMessage(chatId, this.buildCodexChatCancelReply(result));
+      }
+    } catch (error) {
+      this.logger.error("Falha ao encerrar sessao /codex_chat via callback", {
+        chatId,
+        callbackData,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, CODEX_CHAT_CALLBACK_FAILED_REPLY);
     }
   }
 
@@ -1486,6 +1709,179 @@ export class TelegramController {
     }
 
     return value;
+  }
+
+  private parseCommandNameFromMessage(
+    message?: {
+      text?: string;
+      entities?: Array<{
+        type: string;
+        offset: number;
+        length: number;
+      }>;
+    },
+  ): string | null {
+    const token = this.extractCommandTokenFromMessage(message);
+    if (!token) {
+      return null;
+    }
+
+    const tokenWithoutSlash = token.startsWith("/") ? token.slice(1) : token;
+    const commandName = tokenWithoutSlash.split("@", 2)[0]?.trim().toLowerCase();
+    if (!commandName) {
+      return null;
+    }
+
+    return commandName;
+  }
+
+  private extractCommandTokenFromMessage(
+    message?: {
+      text?: string;
+      entities?: Array<{
+        type: string;
+        offset: number;
+        length: number;
+      }>;
+    },
+  ): string | null {
+    const messageText = message?.text;
+    if (!messageText) {
+      return null;
+    }
+
+    const commandEntity = message.entities?.find(
+      (entity) => entity.type === BOT_COMMAND_ENTITY_TYPE && entity.offset === 0,
+    );
+    if (commandEntity && commandEntity.length > 0) {
+      const tokenFromEntity = messageText.slice(0, commandEntity.length).trim();
+      if (tokenFromEntity.startsWith("/") && tokenFromEntity.length > 1) {
+        return tokenFromEntity;
+      }
+    }
+
+    const normalizedText = messageText.trimStart();
+    if (!normalizedText.startsWith("/")) {
+      return null;
+    }
+
+    const fallbackToken = normalizedText.split(/\s+/u, 1)[0]?.trim() ?? "";
+    if (!fallbackToken.startsWith("/") || fallbackToken.length <= 1) {
+      return null;
+    }
+
+    return fallbackToken;
+  }
+
+  private isCodexChatEntryCommand(command: string): boolean {
+    return command === "codex_chat" || command === "codex-chat";
+  }
+
+  private parseCodexChatCallbackData(callbackData: string): ParsedCodexChatCallbackData {
+    if (!callbackData.startsWith(CODEX_CHAT_CALLBACK_CLOSE_PREFIX)) {
+      return { status: "invalid" };
+    }
+
+    const rawSessionId = callbackData.slice(CODEX_CHAT_CALLBACK_CLOSE_PREFIX.length).trim();
+    const sessionId = Number.parseInt(rawSessionId, 10);
+    if (!Number.isFinite(sessionId) || sessionId < 1) {
+      return { status: "invalid" };
+    }
+
+    return {
+      status: "close",
+      sessionId,
+    };
+  }
+
+  private buildCodexChatCloseCallbackData(sessionId: number): string {
+    return `${CODEX_CHAT_CALLBACK_CLOSE_PREFIX}${String(sessionId)}`;
+  }
+
+  private buildCodexChatOutputReply(
+    rawOutput: string,
+    sessionId: number | null,
+  ): { text: string; extra?: ReplyOptions } {
+    const text = rawOutput.trim() || CODEX_CHAT_EMPTY_OUTPUT_REPLY;
+    if (typeof sessionId !== "number") {
+      return { text };
+    }
+
+    return {
+      text,
+      extra: {
+        reply_markup: {
+          inline_keyboard: [[{
+            text: CODEX_CHAT_CLOSE_BUTTON_LABEL,
+            callback_data: this.buildCodexChatCloseCallbackData(sessionId),
+          }]],
+        },
+      },
+    };
+  }
+
+  private buildCodexChatStartReply(result: CodexChatSessionStartResult): string {
+    if (result.status === "started") {
+      return `💬 ${result.message}`;
+    }
+
+    if (result.status === "already-active") {
+      return `ℹ️ ${result.message}`;
+    }
+
+    if (result.status === "blocked") {
+      return `❌ ${result.message}`;
+    }
+
+    return this.buildCodexChatInteractiveFailureReply(result.message);
+  }
+
+  private buildCodexChatInputReply(
+    result: Exclude<CodexChatSessionInputResult, {
+      status: "accepted";
+    }>,
+  ): string {
+    if (result.status === "ignored-empty") {
+      return "";
+    }
+
+    if (result.status === "inactive") {
+      return CODEX_CHAT_STATUS_INACTIVE_REPLY;
+    }
+
+    return `ℹ️ ${result.message}`;
+  }
+
+  private buildCodexChatCancelReply(result: CodexChatSessionCancelResult): string {
+    if (result.status === "cancelled") {
+      return `✅ ${result.message}`;
+    }
+
+    if (result.status === "inactive") {
+      return CODEX_CHAT_STATUS_INACTIVE_REPLY;
+    }
+
+    return `ℹ️ ${result.message}`;
+  }
+
+  private buildCodexChatCancelCallbackToast(result: CodexChatSessionCancelResult): string {
+    if (result.status === "cancelled") {
+      return CODEX_CHAT_CALLBACK_ACCEPTED_REPLY;
+    }
+
+    if (result.status === "inactive") {
+      return CODEX_CHAT_STATUS_INACTIVE_REPLY;
+    }
+
+    return result.message;
+  }
+
+  private buildCodexChatInteractiveFailureReply(details?: string): string {
+    return [
+      CODEX_CHAT_FLOW_FAILED_REPLY_PREFIX,
+      details?.trim() || "não foi possível interpretar a sessão atual.",
+      CODEX_CHAT_FLOW_FAILED_RETRY_SUFFIX,
+    ].join(" ");
   }
 
   private buildSelectProjectReply(result: ProjectSelectionControlResult): string {
@@ -2503,6 +2899,21 @@ export class TelegramController {
     }
   }
 
+  private async sendCodexChatCallbackChatMessage(chatId: string, message: string): Promise<void> {
+    if (!chatId || chatId === "unknown") {
+      return;
+    }
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar confirmação de callback de /codex_chat no chat", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async safeAnswerCallbackQuery(ctx: CallbackContext, message?: string): Promise<void> {
     try {
       await ctx.answerCbQuery(message);
@@ -2739,12 +3150,7 @@ export class TelegramController {
     const chatId = this.resolveContextChatId(ctx.chat);
     const messageText = ctx.message?.text;
     const callbackUserId = this.resolveCallbackUserId(ctx.callbackQuery);
-    const commandEntity = ctx.message?.entities?.find(
-      (entity) => entity.type === BOT_COMMAND_ENTITY_TYPE && entity.offset === 0,
-    );
-    const command = commandEntity && messageText
-      ? messageText.slice(0, commandEntity.length)
-      : undefined;
+    const command = this.extractCommandTokenFromMessage(ctx.message) ?? undefined;
 
     this.logger.info("Update recebido do Telegram", {
       updateType: ctx.updateType ?? "unknown",
@@ -2802,6 +3208,7 @@ export class TelegramController {
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
+      `Sessão /codex_chat: ${state.codexChatSession ? "ativa" : "inativa"}`,
       `Última mensagem: ${state.lastMessage}`,
       `Atualizado em: ${state.updatedAt.toISOString()}`,
     ];
@@ -2874,6 +3281,10 @@ export class TelegramController {
 
     if (kind === "run-specs") {
       return "/run_specs";
+    }
+
+    if (kind === "codex-chat") {
+      return "/codex_chat";
     }
 
     return "/plan_spec";
