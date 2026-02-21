@@ -6,10 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-21 08:39Z
-- Last reviewed at (UTC): 2026-02-21 08:39Z
+- Last reviewed at (UTC): 2026-02-21 08:46Z
 - Source: technical-evolution
 - Related tickets:
-  - A definir
+  - tickets/open/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md
+  - tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md
+  - tickets/open/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -53,13 +55,29 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
+- Matriz RF:
+  - Atendidos: RF-10.
+  - Parcialmente atendidos: RF-07, RF-08, RF-09.
+  - Nao atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06.
+- Matriz CA:
+  - Atendidos: nenhum.
+  - Parcialmente atendidos: CA-03, CA-04, CA-05.
+  - Nao atendidos: CA-01, CA-02.
 - Itens atendidos:
-  - Escopo da avaliacao nao funcional consolidado com objetivo, jornada, requisitos e criterios de aceitacao observaveis.
+  - Escopo da avaliacao nao funcional consolidado com objetivo, jornada, requisitos e criterios observaveis.
+  - Regra sequencial de consumo do backlog ja esta padronizada em `P0 -> P1 -> P2`, com fallback por nome.
+  - Regra de derivacao `spec -> ticket/execplan` e rastreabilidade obrigatoria ja esta documentada.
 - Pendencias em aberto:
-  - Derivar tickets e/ou execplans a partir do primeiro ciclo formal de check-up tecnico.
-  - Executar backlog priorizado e atualizar evidencias nesta spec conforme entregas.
+  - Definir periodicidade minima, gatilhos extraordinarios e checklist operacional dos 5 eixos do check-up (ticket `tickets/open/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`).
+  - Publicar matriz de classificacao de risco/divida tecnica e criterio objetivo de priorizacao com mapeamento para `P0/P1/P2` (ticket `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`).
+  - Consolidar plano de melhoria continua com criterio de reavaliacao e trilha auditavel de revisoes periodicas (ticket `tickets/open/2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap.md`).
 - Evidencias de validacao:
   - docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md
+  - INTERNAL_TICKETS.md
+  - SPECS.md
+  - README.md
+  - src/integrations/ticket-queue.ts
+  - src/integrations/ticket-queue.test.ts
 
 ## Riscos e impacto
 - Risco funcional: sem check-up recorrente, fragilidades nao funcionais podem evoluir para regressao de comportamento e aumento de incidentes.
@@ -71,3 +89,5 @@
 
 ## Historico de atualizacao
 - 2026-02-21 08:39Z - Versao inicial da spec criada com `Status: approved` e `Spec treatment: pending`.
+- 2026-02-21 08:42Z - Revisao de gaps concluida com matriz RF/CA atualizada e abertura de 3 tickets em `tickets/open/`.
+- 2026-02-21 08:46Z - Validacao final da triagem concluida, mantendo `Status: approved` e `Spec treatment: pending` devido a 3 gaps rastreados em `tickets/open/`.
