@@ -1,7 +1,7 @@
 # [TICKET] /plan_spec ainda depende de TTY interativo; migrar para codex exec/resume --json deterministico
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-21 08:19Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional): N/A
-- Parent execplan (optional): N/A
+- Parent execplan (optional): execplans/2026-02-21-plan-spec-migration-from-tty-to-codex-exec-resume-json-gap.md
 - Parent commit (optional): N/A
 - Request ID: N/A
 - Related artifacts:
@@ -21,6 +21,7 @@
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
   - INTERNAL_TICKETS.md
   - PLANS.md
+  - execplans/2026-02-21-plan-spec-migration-from-tty-to-codex-exec-resume-json-gap.md
 
 ## Context
 - Workflow area: `src/integrations/codex-client.ts`, `src/integrations/plan-spec-parser.ts`, `src/core/runner.ts`, `src/integrations/telegram-bot.ts`
@@ -91,9 +92,10 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Ticket aberto apos validacao da migracao deterministica de `/codex_chat` para `codex exec/resume --json` e identificacao de gap equivalente em `/plan_spec`.
+- 2026-02-21 - ExecPlan validado como `GO` com criterios atendidos e validacoes verdes (`npm test`, `npm run check`, `npm run build`, checagens de ausencia de legado pseudo-TTY).
 
 ## Closure
-- Closed at (UTC): N/A
-- Closure reason: N/A
-- Related PR/commit/execplan: N/A
+- Closed at (UTC): 2026-02-21 08:35Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-plan-spec-migration-from-tty-to-codex-exec-resume-json-gap.md (commit: mesmo changeset de fechamento)
 - Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

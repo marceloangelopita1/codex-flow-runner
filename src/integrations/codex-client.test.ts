@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import {
-  buildInteractiveCodexArgs,
-  buildInteractiveCodexSpawnRequest,
   buildNonInteractiveCodexArgs,
   CodexAuthenticationError,
   CodexChatSessionError,
@@ -42,68 +38,6 @@ const plannedSpec = {
     responsePath: "spec_planning/responses/20260219t220400z-s1-materialize.md",
     decisionPath: "spec_planning/decisions/20260219t220400z-s1-decision.json",
   },
-};
-
-class FakeInteractiveProcess {
-  public readonly stdout = new PassThrough();
-  public readonly stderr = new PassThrough();
-  public readonly stdinWrites: string[] = [];
-  public readonly killedSignals: string[] = [];
-  public stdinEnded = false;
-  private readonly lifecycle = new EventEmitter();
-
-  public readonly stdin = {
-    write: (chunk: string) => {
-      this.stdinWrites.push(chunk);
-      return true;
-    },
-    end: () => {
-      this.stdinEnded = true;
-    },
-  };
-
-  on(event: "close" | "error", listener: (...args: unknown[]) => void): this {
-    this.lifecycle.on(event, listener);
-    return this;
-  }
-
-  emitClose(code: number | null): void {
-    this.lifecycle.emit("close", code);
-  }
-
-  emitError(error: Error): void {
-    this.lifecycle.emit("error", error);
-  }
-
-  kill(signal?: NodeJS.Signals): boolean {
-    this.killedSignals.push(signal ?? "SIGTERM");
-    this.emitClose(null);
-    return true;
-  }
-}
-
-const waitForInteractiveWrites = async (): Promise<void> => {
-  await new Promise((resolve) => {
-    setTimeout(resolve, 250);
-  });
-};
-
-const waitForCondition = async (
-  predicate: () => boolean,
-  timeoutMs: number,
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (predicate()) {
-      return true;
-    }
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
-  }
-
-  return predicate();
 };
 
 test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", async () => {
@@ -172,52 +106,6 @@ test("args nao interativos usam full access explicito por chamada", () => {
     "-",
   ]);
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
-});
-
-test("args interativos usam full access sem flags exclusivas de codex exec", () => {
-  const args = buildInteractiveCodexArgs();
-
-  assert.deepEqual(args, [
-    "-s",
-    "danger-full-access",
-    "-a",
-    "never",
-  ]);
-  assert.equal(args.includes("--skip-git-repo-check"), false);
-  assert.equal(args.includes("--color"), false);
-  assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
-});
-
-test("spawn interativo usa script para garantir pseudo-tty", () => {
-  const request = buildInteractiveCodexSpawnRequest();
-
-  assert.equal(request.command, "script");
-  assert.deepEqual(request.args, [
-    "--quiet",
-    "--return",
-    "--flush",
-    "--echo",
-    "never",
-    "--command",
-    "sh -lc 'stty cols 120 rows 40; exec codex -s danger-full-access -a never'",
-    "/dev/null",
-  ]);
-});
-
-test("spawn interativo permite configurar arquivo de transcript via env", () => {
-  const previous = process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH;
-  process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH = "/tmp/codex-plan-spec.tty.log";
-
-  try {
-    const request = buildInteractiveCodexSpawnRequest();
-    assert.equal(request.args[request.args.length - 1], "/tmp/codex-plan-spec.tty.log");
-  } finally {
-    if (previous === undefined) {
-      delete process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH;
-    } else {
-      process.env.CODEX_INTERACTIVE_SCRIPT_LOG_PATH = previous;
-    }
-  }
 });
 
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
@@ -442,17 +330,38 @@ test("runStage falhando encapsula erro com stage e ticket", async () => {
   );
 });
 
-test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parseada", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
+test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", async () => {
   const events: Array<{ type: string; payload?: unknown }> = [];
+  const capturedArgs: string[][] = [];
+  const threadId = "019c7f32-4dda-71a0-a33f-00b65eca7c2b";
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+    runCodexExecJsonCommand: async (request) => {
+      capturedArgs.push([...request.args]);
+      const isResume = request.args.includes("resume");
+      if (!isResume) {
+        return {
+          stdout: [
+            `{"type":"thread.started","thread_id":"${threadId}"}`,
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"[[PLAN_SPEC_QUESTION]]\\nPergunta: Qual escopo devemos priorizar?\\nOpcoes:\\n- [api] API\\n- [bot] Bot Telegram\\n[[/PLAN_SPEC_QUESTION]]"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+          ].join("\n"),
+          stderr: "",
+        };
+      }
+
+      return {
+        stdout: [
+          `{"type":"thread.started","thread_id":"${threadId}"}`,
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: Plano final\\nResumo: Implementar migracao para exec resume json.\\nAcoes:\\n- Criar spec\\n- Refinar\\n- Cancelar\\n[[/PLAN_SPEC_FINAL]]"}}',
+          '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+        ].join("\n"),
+        stderr: "",
+      };
+    },
   });
 
   const session = await client.startPlanSession({
-    initialUserInput: "brief inicial da spec",
     callbacks: {
       onEvent: (event) => events.push({ type: event.type, payload: event }),
       onFailure: (error) => {
@@ -461,49 +370,52 @@ test("startPlanSession envia /plan, auto-confirma trust e emite pergunta parsead
     },
   });
 
-  assert.equal(interactiveProcess.stdinWrites.length, 0);
+  await session.sendUserInput("brief inicial da spec");
+  await session.sendUserInput("refine com mais detalhes");
 
-  interactiveProcess.stdout.write("Do you trust this directory? (yes/no)\n");
-  assert.equal(interactiveProcess.stdinWrites.includes("yes\r"), true);
+  assert.equal(capturedArgs.length, 2);
+  assert.equal(capturedArgs[0]?.includes("resume"), false);
+  assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("/plan"), false);
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Brief do operador: brief inicial/u);
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
 
-  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
-  await waitForInteractiveWrites();
-
-  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), true);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
-  const initialBriefWrite = interactiveProcess.stdinWrites.find((value) =>
-    value.includes("Brief do operador: brief inicial da spec"),
-  );
-  assert.match(initialBriefWrite ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
-
-  interactiveProcess.stdout.write(
-    [
-      "[[PLAN_SPEC_QUESTION]]",
-      "Pergunta: Qual escopo devemos priorizar?",
-      "Opcoes:",
-      "- [api] API",
-      "- [bot] Bot Telegram",
-      "[[/PLAN_SPEC_QUESTION]]",
-    ].join("\n"),
-  );
+  assert.equal(capturedArgs[1]?.includes("resume"), true);
+  const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
+  assert.equal(resumeThreadIdIndex >= 0, true);
+  assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "refine com mais detalhes");
 
   const questionEvent = events.find((event) => event.type === "question");
   assert.ok(questionEvent);
   assert.deepEqual(
-    (questionEvent?.payload as { question: { options: Array<{ value: string }> } }).question.options,
+    (questionEvent?.payload as { question: { options: Array<{ value: string; label: string }> } }).question
+      .options,
     [{ value: "api", label: "API" }, { value: "bot", label: "Bot Telegram" }],
+  );
+
+  const finalEvent = events.find((event) => event.type === "final");
+  assert.ok(finalEvent);
+  assert.equal(
+    (finalEvent?.payload as { final: { title: string } }).final.title,
+    "Plano final",
   );
 
   await session.cancel();
 });
 
-test("startPlanSession aceita input livre e repassa stderr como raw saneado", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
+test("startPlanSession repassa saida nao parseavel como raw e emite atividade stdout/stderr", async () => {
   const rawEvents: string[] = [];
+  const activities: Array<{ source: string; bytes: number; preview: string }> = [];
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        '{"type":"thread.started","thread_id":"thread-plan-spec-1"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Resposta livre sem bloco estruturado"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+      ].join("\n"),
+      stderr: "\u001b[33mWARN de runtime\u001b[0m\n",
+    }),
   });
 
   const session = await client.startPlanSession({
@@ -511,29 +423,86 @@ test("startPlanSession aceita input livre e repassa stderr como raw saneado", as
       onEvent: (event) => {
         if (event.type === "raw-sanitized") {
           rawEvents.push(event.text);
+          return;
+        }
+
+        if (event.type === "activity") {
+          activities.push({
+            source: event.activity.source,
+            bytes: event.activity.bytes,
+            preview: event.activity.preview,
+          });
         }
       },
-      onFailure: () => undefined,
+      onFailure: (error) => {
+        throw error;
+      },
     },
   });
 
-  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
-  await waitForInteractiveWrites();
+  await session.sendUserInput("entrada livre");
 
-  await session.sendUserInput("resposta em texto livre");
-  const firstInputWrite = interactiveProcess.stdinWrites.find((value) =>
-    value.includes("Brief do operador: resposta em texto livre"),
-  );
-  assert.match(firstInputWrite ?? "", /\[\[PLAN_SPEC_FINAL\]\]/u);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 2, true);
+  assert.deepEqual(rawEvents, ["Resposta livre sem bloco estruturado"]);
+  assert.equal(activities.some((activity) => activity.source === "stdout"), true);
+  assert.equal(activities.some((activity) => activity.source === "stderr"), true);
+  assert.equal(activities.every((activity) => activity.bytes > 0), true);
 
-  await session.sendUserInput("segunda resposta");
-  assert.equal(interactiveProcess.stdinWrites.includes("segunda resposta\r\n"), true);
-  assert.equal(interactiveProcess.stdinWrites.filter((value) => value === "\t").length >= 3, true);
+  await session.cancel();
+});
 
-  interactiveProcess.stderr.write("\u001b[31mErro interativo\u001b[0m\n");
-  assert.equal(rawEvents.length, 1);
-  assert.equal(rawEvents[0], "Erro interativo");
+test("startPlanSession falha quando codex exec --json nao retorna thread_id", async () => {
+  const failures: CodexPlanSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: X\\nResumo: Y\\nAcoes:\\n- Criar spec\\n[[/PLAN_SPEC_FINAL]]"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+
+  await assert.rejects(() => session.sendUserInput("mensagem"), /nao retornou thread_id/u);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /nao retornou thread_id/u);
+
+  await session.cancel();
+});
+
+test("startPlanSession falha quando codex exec --json nao retorna agent_message", async () => {
+  const failures: CodexPlanSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        '{"type":"thread.started","thread_id":"thread-plan-spec-sem-msg"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"analisando"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  const session = await client.startPlanSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+
+  await assert.rejects(() => session.sendUserInput("mensagem"), /nao retornou agent_message/u);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /nao retornou agent_message/u);
 
   await session.cancel();
 });
@@ -662,119 +631,28 @@ test("falha da sessao livre retorna hint de retry para /codex_chat", async () =>
   assert.match(failures[0]?.message ?? "", /Use \/codex_chat para tentar novamente/u);
 });
 
-test("startPlanSession emite telemetria de atividade para stdout/stderr", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-  const activities: Array<{ source: string; bytes: number; preview: string }> = [];
-
-  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
-  });
-
-  const session = await client.startPlanSession({
-    callbacks: {
-      onEvent: (event) => {
-        if (event.type === "activity") {
-          activities.push({
-            source: event.activity.source,
-            bytes: event.activity.bytes,
-            preview: event.activity.preview,
-          });
-        }
-      },
-      onFailure: () => undefined,
-    },
-  });
-
-  interactiveProcess.stdout.write("saida parcial do codex\n");
-  interactiveProcess.stderr.write("erro parcial do codex\n");
-
-  assert.equal(activities.length >= 2, true);
-  assert.equal(activities.some((activity) => activity.source === "stdout"), true);
-  assert.equal(activities.some((activity) => activity.source === "stderr"), true);
-  assert.equal(activities.every((activity) => activity.bytes > 0), true);
-
-  await session.cancel();
-});
-
-test("startPlanSession aplica fallback de bootstrap quando prompt pronto nao e detectado", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-
-  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
-  });
-
-  const session = await client.startPlanSession({
-    callbacks: {
-      onEvent: () => undefined,
-      onFailure: (error) => {
-        throw error;
-      },
-    },
-  });
-
-  const pendingInput = session.sendUserInput("brief sem prompt detectado");
-  await new Promise((resolve) => {
-    setTimeout(resolve, 2200);
-  });
-  await pendingInput;
-
-  assert.equal(interactiveProcess.stdinWrites.includes("/plan\r\n"), true);
-  const briefWrite = interactiveProcess.stdinWrites.find((value) =>
-    value.includes("Brief do operador: brief sem prompt detectado"),
-  );
-  assert.ok(briefWrite);
-
-  await session.cancel();
-});
-
-test("startPlanSession detecta prompt interativo mesmo quando frase de readiness chega em chunks fragmentados", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-
-  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
-  });
-
-  const session = await client.startPlanSession({
-    callbacks: {
-      onEvent: () => undefined,
-      onFailure: (error) => {
-        throw error;
-      },
-    },
-  });
-
-  const pendingInput = session.sendUserInput("brief com prompt fragmentado");
-  interactiveProcess.stdout.write("Explain this codebase? for shor");
-  interactiveProcess.stdout.write("tcuts 100% context left\n");
-
-  const planWriteObserved = await waitForCondition(
-    () => interactiveProcess.stdinWrites.includes("/plan\r\n"),
-    700,
-  );
-  assert.equal(planWriteObserved, true);
-
-  await pendingInput;
-  await session.cancel();
-});
-
 test("sendUserInput apos encerramento da sessao retorna erro de input", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
+  const closes: Array<{ exitCode: number | null; cancelled: boolean }> = [];
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        '{"type":"thread.started","thread_id":"thread-plan-spec-fechada"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"resposta inicial"}}',
+      ].join("\n"),
+      stderr: "",
+    }),
   });
 
   const session = await client.startPlanSession({
     callbacks: {
       onEvent: () => undefined,
       onFailure: () => undefined,
+      onClose: (result) => closes.push(result),
     },
   });
-  interactiveProcess.emitClose(0);
+
+  await session.cancel();
 
   await assert.rejects(
     () => session.sendUserInput("nova mensagem"),
@@ -785,10 +663,12 @@ test("sendUserInput apos encerramento da sessao retorna erro de input", async ()
       return true;
     },
   );
+
+  assert.equal(closes.length, 1);
+  assert.equal(closes[0]?.cancelled, true);
 });
 
 test("falha da sessao interativa retorna erro acionavel sem fallback batch (CA-19)", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
   let batchCalls = 0;
   const failures: CodexPlanSessionError[] = [];
 
@@ -797,49 +677,21 @@ test("falha da sessao interativa retorna erro acionavel sem fallback batch (CA-1
       batchCalls += 1;
       return { stdout: "nao deveria executar", stderr: "" };
     },
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
-  });
-
-  await client.startPlanSession({
-    callbacks: {
-      onEvent: () => undefined,
-      onFailure: (error) => failures.push(error),
+    runCodexExecJsonCommand: async () => {
+      throw new Error("codex exec terminou com codigo 1: unauthorized");
     },
-  });
-
-  interactiveProcess.emitClose(1);
-
-  assert.equal(batchCalls, 0);
-  assert.equal(failures.length, 1);
-  assert.equal(failures[0]?.phase, "runtime");
-  assert.match(failures[0]?.message ?? "", /Use \/plan_spec para tentar novamente/u);
-  assert.match(failures[0]?.message ?? "", /sem fallback nao interativo/u);
-});
-
-test("cancelamento de sessao interativa encerra processo e notifica fechamento", async () => {
-  const interactiveProcess = new FakeInteractiveProcess();
-  const closes: Array<{ exitCode: number | null; cancelled: boolean }> = [];
-  const failures: CodexPlanSessionError[] = [];
-
-  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
-    spawnCodexInteractiveProcess: () =>
-      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
   });
 
   const session = await client.startPlanSession({
     callbacks: {
       onEvent: () => undefined,
       onFailure: (error) => failures.push(error),
-      onClose: (result) => closes.push(result),
     },
   });
 
-  await session.cancel();
-
-  assert.equal(interactiveProcess.stdinEnded, true);
-  assert.deepEqual(interactiveProcess.killedSignals, ["SIGTERM"]);
-  assert.equal(closes.length, 1);
-  assert.equal(closes[0]?.cancelled, true);
-  assert.equal(failures.length, 0);
+  await assert.rejects(() => session.sendUserInput("falhar"), /codex exec terminou com codigo 1/u);
+  assert.equal(batchCalls, 0);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /Use \/plan_spec para tentar novamente/u);
 });

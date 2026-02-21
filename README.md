@@ -71,7 +71,7 @@ Pré-requisito operacional:
 - `/run_specs <arquivo>` → executa triagem da spec informada (aceita `<arquivo>.md` ou `docs/specs/<arquivo>.md`)
 - `/codex_chat` → inicia conversa livre com Codex no projeto ativo
 - `/codex-chat` → alias legado compatível para `/codex_chat`
-- `/plan_spec` → inicia sessão interativa de planejamento de spec
+- `/plan_spec` → inicia sessão de planejamento de spec (backend `codex exec/resume --json`)
 - `/plan_spec_status` → mostra diagnóstico detalhado da sessão `/plan_spec`
 - `/plan_spec_cancel` → encerra manualmente a sessão `/plan_spec`
 - `/status` → mostra estado atual
@@ -120,9 +120,8 @@ Passo a passo da service:
 Notas operacionais:
 - Execute `codex login` no mesmo usuário configurado na unit antes de subir o serviço.
 - Se o `codex` estiver fora do PATH padrão do `systemd`, adicione explicitamente o diretório na linha `Environment=PATH=...`.
-- Para depuração da sessão interativa `/plan_spec`, você pode habilitar:
-  - `CODEX_INTERACTIVE_VERBOSE_LOGS=1` para logs detalhados de stdin/stdout da sessão.
-  - `CODEX_INTERACTIVE_SCRIPT_LOG_PATH=/tmp/codex-plan-spec.tty.log` para salvar transcript bruto do pseudo-TTY e acompanhar com `tail -f`.
+- Para depuração da sessão `/plan_spec`, você pode habilitar:
+  - `CODEX_INTERACTIVE_VERBOSE_LOGS=1` para logs detalhados dos turnos `codex exec/resume --json`.
 
 ## Documentacao operacional
 
