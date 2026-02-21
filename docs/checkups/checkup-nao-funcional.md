@@ -11,7 +11,8 @@ Estabelecer um rito recorrente e verificavel para avaliar a saude nao funcional 
 
 ## Nao escopo
 - Implementar refatoracoes tecnicas nesta rodada de check-up.
-- Substituir o processo de priorizacao e matriz de risco em tickets dedicados.
+- Alterar algoritmo de consumo da fila sequencial (`P0 -> P1 -> P2`) em `src/integrations/ticket-queue.ts`.
+- Consolidar plano de melhoria continua e trilha periodica completa (RF-09, CA-04, CA-05), tratado em ticket dedicado.
 - Alterar o fluxo sequencial do runner.
 
 ## Responsaveis e pre-condicoes
@@ -110,9 +111,53 @@ Estabelecer um rito recorrente e verificavel para avaliar a saude nao funcional 
   - Evidencia esperada: links para artefatos atualizados na rodada.
   - Saida minima: trilha auditavel completa do ciclo.
 
+## Matriz objetiva de classificacao de risco e divida tecnica
+- Aplicar esta matriz quando um achado do check-up gerar backlog de refatoracao critica (ticket ou execplan).
+- Escala padrao para cada eixo: `1` (menor impacto) ate `5` (maior impacto).
+
+| Eixo | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- |
+| Severidade | Impacto local sem efeito no fluxo principal | Impacto limitado, com contorno simples | Impacto moderado em modulo critico ou manutencao | Alto impacto tecnico, risco de regressao relevante | Bloqueio de entrega ou potencial de incidente grave |
+| Frequencia | Raro (`<= 1` ocorrencia por trimestre) | Ocasional (aprox. mensal) | Recorrente (aprox. quinzenal) | Recorrente (aprox. semanal) | Muito recorrente (diario ou em toda rodada) |
+| Custo de atraso | Pode esperar mais de 90 dias sem efeito relevante | Pode esperar entre 60 e 90 dias com impacto baixo | Adiar 30-60 dias aumenta retrabalho e risco de acumulacao | Adiar 7-30 dias compromete previsibilidade de entrega | Adiar ate 7 dias eleva risco operacional ou de atraso grave |
+| Risco operacional | Sem impacto operacional perceptivel | Impacto operacional local, com contencao facil | Aumenta chance de falha operacional ou perda de diagnostico | Alta chance de incidente, rollback ou interrupcao parcial | Incidente quase certo, indisponibilidade ou perda de confiabilidade |
+
+### Formula de score
+- Calculo obrigatorio:
+  - `score = (severidade * 3) + (frequencia * 2) + (custo_de_atraso * 3) + (risco_operacional * 2)`
+- Faixa de score: `10` a `50`.
+- Registro minimo para rastreabilidade:
+  - valores dos 4 eixos;
+  - score final;
+  - prioridade resultante (`P0`, `P1` ou `P2`);
+  - justificativa objetiva com evidencia.
+
+## Mapeamento de score para prioridade operacional
+- Objetivo: converter classificacao objetiva em `Priority` sem alterar o consumo sequencial atual da fila.
+
+| Regra | Prioridade resultante |
+| --- | --- |
+| `score >= 40` | `P0` |
+| `score` entre `26` e `39` | `P1` |
+| `score` entre `10` e `25` | `P2` |
+| Guardrail: `severidade = 5` e (`custo_de_atraso >= 4` ou `risco_operacional >= 4`) | `P0` (mesmo com score abaixo de 40) |
+
+### Regras para casos limite e desempate
+1. Aplicar primeiro o guardrail de risco extremo.
+2. Sem guardrail, aplicar a faixa de score.
+3. Se dois itens permanecerem no mesmo nivel de prioridade para a rodada:
+   - priorizar maior `custo_de_atraso`;
+   - depois maior `severidade`;
+   - persistindo empate, usar fallback deterministico por nome de arquivo do ticket.
+
+### Exemplos curtos
+- Exemplo A: `severidade=3`, `frequencia=4`, `custo_de_atraso=4`, `risco_operacional=3` -> `score=35` -> `P1`.
+- Exemplo B: `severidade=5`, `frequencia=2`, `custo_de_atraso=4`, `risco_operacional=4` -> `score=41` e guardrail ativo -> `P0`.
+
 ## Saidas obrigatorias da rodada
 - Atualizacao de status na spec de origem com impacto observado no ciclo.
 - Abertura ou atualizacao de ticket/execplan para cada achado que exigir acao posterior.
+- Registro da classificacao objetiva dos itens de refatoracao critica (4 eixos, score e prioridade).
 - Registro resumido da rodada contendo:
   - data e responsavel;
   - gatilho da execucao (`periodicidade minima` ou `gatilho extraordinario`);
@@ -121,9 +166,12 @@ Estabelecer um rito recorrente e verificavel para avaliar a saude nao funcional 
 
 ## Rastreabilidade desta versao
 - Spec de origem: `docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md`
-- Ticket desta entrega: `tickets/closed/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
-- ExecPlan desta entrega: `execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
+- Ticket desta entrega: `tickets/open/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
+- ExecPlan desta entrega: `execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md`
+- Ticket anterior desta trilha: `tickets/closed/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
+- ExecPlan anterior desta trilha: `execplans/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md`
 
 ## Historico de atualizacao
 - 2026-02-21 08:51Z - Versao inicial do guia operacional criada com periodicidade minima, gatilhos extraordinarios e checklist dos cinco eixos.
 - 2026-02-21 08:56Z - Rastreabilidade atualizada apos fechamento do ticket da entrega e move para `tickets/closed/`.
+- 2026-02-21 09:02Z - Matriz objetiva de risco/divida tecnica, formula de score e regra de mapeamento para `P0/P1/P2` adicionadas com regras de desempate.

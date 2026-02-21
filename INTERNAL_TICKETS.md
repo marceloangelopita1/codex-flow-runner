@@ -59,6 +59,38 @@ Closure/commit rule:
   - `S2`: medium impact.
   - `S3`: low impact.
 
+## Objective matrix for critical refactoring backlog
+- Scope:
+  - Mandatory for tickets created from non-functional check-up findings that represent technical debt/refactoring.
+  - Optional for other ticket types.
+- Source of truth:
+  - `docs/checkups/checkup-nao-funcional.md` defines dimensions, examples, and traceability expectations.
+- Dimensions (`1` to `5` each):
+  - `severidade`
+  - `frequencia`
+  - `custo_de_atraso`
+  - `risco_operacional`
+- Weighted score formula:
+  - `score = (severidade * 3) + (frequencia * 2) + (custo_de_atraso * 3) + (risco_operacional * 2)`
+  - score range: `10..50`.
+- Priority mapping:
+  - `P0`: `score >= 40`.
+  - `P1`: `score` between `26` and `39`.
+  - `P2`: `score` between `10` and `25`.
+  - Guardrail: force `P0` when `severidade = 5` and (`custo_de_atraso >= 4` or `risco_operacional >= 4`).
+- Tie-break for same-level candidates during triage:
+  - higher `custo_de_atraso`;
+  - then higher `severidade`;
+  - then deterministic fallback by ticket file name.
+- Traceability requirements when matrix applies:
+  - record the four dimension values;
+  - record the final `score`;
+  - record resulting `Priority`;
+  - add objective rationale with evidence links.
+- Compatibility note:
+  - This matrix defines how `Priority` is assigned before queueing.
+  - Runtime queue behavior remains unchanged in `src/integrations/ticket-queue.ts` (`P0 -> P1 -> P2`, tie fallback by name).
+
 ## Required fields (minimum quality bar)
 Every ticket must include:
 - Problem summary (what happened).

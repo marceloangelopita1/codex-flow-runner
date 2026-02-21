@@ -1,7 +1,7 @@
 # [TICKET] Matriz de risco e criterio de priorizacao de refatoracoes criticas ainda nao foram definidos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-21 08:42Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -76,9 +76,10 @@ Nao obrigatorio. Escopo de implementacao sera detalhado em ExecPlan.
 
 ## Decision log
 - 2026-02-21 - Gap aberto para fechar lacuna entre prioridade operacional existente e matriz de priorizacao exigida pela spec.
+- 2026-02-21 - ExecPlan validado como `GO`; criterios de fechamento atendidos com matriz objetiva, mapeamento para `P0/P1/P2`, aplicacao piloto e rastreabilidade na spec.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-21 09:07Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-21-matriz-de-risco-e-priorizacao-de-refatoracoes-gap.md (commit: mesmo changeset de fechamento)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

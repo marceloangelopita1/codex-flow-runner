@@ -18,6 +18,16 @@
   - Log file:
 - Related docs/execplans:
 
+## Classificacao de risco (check-up nao funcional, quando aplicavel)
+- Matriz aplicavel: nao | sim
+- Severidade (1-5):
+- Frequencia (1-5):
+- Custo de atraso (1-5):
+- Risco operacional (1-5):
+- Score ponderado (10-50):
+- Prioridade resultante (`P0` | `P1` | `P2`):
+- Justificativa objetiva (evidencias e impacto):
+
 ## Context
 - Workflow area:
 - Scenario:
