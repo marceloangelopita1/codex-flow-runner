@@ -113,6 +113,9 @@ export type CodexChatSessionEvent =
   | {
       type: "activity";
       activity: CodexChatSessionActivity;
+    }
+  | {
+      type: "turn-complete";
     };
 
 export interface CodexChatSessionCloseResult {
@@ -1030,6 +1033,7 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
   private promptReadyFallbackHandle: ReturnType<typeof setTimeout> | null = null;
   private pendingInputsFlushInFlight = false;
   private writePipeline: Promise<void> = Promise.resolve();
+  private pendingTurnCompletions = 0;
   private readonly pendingInputs: Array<{
     value: string;
     phase: "start" | "input";
@@ -1120,10 +1124,7 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     }
 
     this.emitActivityObservation("stdout", chunk);
-    this.promptReadyProbeBuffer = appendInteractivePromptProbeBuffer(
-      this.promptReadyProbeBuffer,
-      chunk,
-    );
+    const promptReadyObserved = this.consumePromptReadySignal(chunk);
 
     if (!this.trustPromptHandled && isDirectoryTrustPrompt(chunk)) {
       this.trustPromptHandled = true;
@@ -1131,7 +1132,7 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
       this.write(`yes${INTERACTIVE_CONFIRM_KEY}`, "start");
     }
 
-    if (!this.promptReadyDetected && isInteractivePromptReady(this.promptReadyProbeBuffer)) {
+    if (!this.promptReadyDetected && promptReadyObserved) {
       this.promptReadyDetected = true;
       this.clearPromptReadyFallback();
     }
@@ -1144,14 +1145,19 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     }
 
     const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
-      return;
+    if (sanitized && isPlanSpecRawOutputMeaningful(sanitized)) {
+      this.emitEvent({
+        type: "raw-sanitized",
+        text: sanitized,
+      });
     }
 
-    this.emitEvent({
-      type: "raw-sanitized",
-      text: sanitized,
-    });
+    if (promptReadyObserved && this.pendingTurnCompletions > 0) {
+      this.pendingTurnCompletions -= 1;
+      this.emitEvent({
+        type: "turn-complete",
+      });
+    }
   }
 
   private handleStderrChunk(chunk: string): void {
@@ -1247,6 +1253,19 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
     return this.promptReadyDetected || this.promptReadyFallbackArmed;
   }
 
+  private consumePromptReadySignal(chunk: string): boolean {
+    this.promptReadyProbeBuffer = appendInteractivePromptProbeBuffer(
+      this.promptReadyProbeBuffer,
+      chunk,
+    );
+    if (!isInteractivePromptReady(this.promptReadyProbeBuffer)) {
+      return false;
+    }
+
+    this.promptReadyProbeBuffer = "";
+    return true;
+  }
+
   private async flushPendingInputs(): Promise<void> {
     if (this.pendingInputsFlushInFlight) {
       return;
@@ -1303,9 +1322,15 @@ class CodexInteractiveFreeChatSession implements CodexChatSession {
 
   private sendInteractiveInput(value: string, phase: "start" | "input"): Promise<void> {
     return this.enqueueWriteOperation(async () => {
-      this.write(`${value}${INTERACTIVE_SUBMIT_SEQUENCE}`, phase);
-      await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
-      this.write(INTERACTIVE_QUEUE_KEY, phase);
+      this.pendingTurnCompletions += 1;
+      try {
+        this.write(`${value}${INTERACTIVE_SUBMIT_SEQUENCE}`, phase);
+        await this.wait(INTERACTIVE_QUEUE_DELAY_MS);
+        this.write(INTERACTIVE_QUEUE_KEY, phase);
+      } catch (error) {
+        this.pendingTurnCompletions = Math.max(0, this.pendingTurnCompletions - 1);
+        throw error;
+      }
     });
   }
 

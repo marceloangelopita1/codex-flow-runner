@@ -2054,6 +2054,9 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
     },
   });
   codex.lastFreeChatSession?.emitRawOutput("Resposta final do Codex");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
   await sleep(20);
 
   assert.equal(inputResult.status, "accepted");
@@ -2102,6 +2105,9 @@ test("submitCodexChatInput agrega chunks e encaminha uma unica resposta no /code
   codex.lastFreeChatSession?.emitRawOutput("Primeira parte");
   codex.lastFreeChatSession?.emitRawOutput("Segunda parte");
   codex.lastFreeChatSession?.emitRawOutput("Terceira parte");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
   await sleep(40);
 
   assert.equal(inputResult.status, "accepted");
@@ -2115,6 +2121,47 @@ test("submitCodexChatInput agrega chunks e encaminha uma unica resposta no /code
   );
   assert.equal(forwardedLogs.length, 1);
   assert.equal(forwardedLogs[0]?.context?.outputChunks, 3);
+});
+
+test("submitCodexChatInput aguarda sinal de turno concluido para encaminhar saida no /codex_chat", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const outputs: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatEventHandlers: {
+        onOutput: (_chatId, event) => {
+          outputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+  await runner.startCodexChatSession("42");
+
+  const inputResult = await runner.submitCodexChatInput("42", "Quais foram os ultimos commits?");
+  codex.lastFreeChatSession?.emitRawOutput("• Vou verificar o historico Git local.");
+  await sleep(10);
+
+  assert.equal(inputResult.status, "accepted");
+  assert.equal(outputs.length, 0);
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-codex");
+
+  codex.lastFreeChatSession?.emitRawOutput("1. abc123 - resumo final");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
+  await sleep(10);
+
+  assert.equal(outputs.length, 1);
+  assert.match(outputs[0] ?? "", /abc123/u);
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-user");
 });
 
 test("sessao /codex_chat limita log de atividade do Codex e ignora preview vazio", async () => {

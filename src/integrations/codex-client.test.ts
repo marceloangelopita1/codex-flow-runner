@@ -580,6 +580,40 @@ test("startFreeChatSession nao envia /plan nem primer PLAN_SPEC e aceita input l
   await session.cancel();
 });
 
+test("startFreeChatSession emite turn-complete quando prompt retorna apos input", async () => {
+  const interactiveProcess = new FakeInteractiveProcess();
+  const eventTypes: string[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    spawnCodexInteractiveProcess: () =>
+      interactiveProcess as unknown as import("node:child_process").ChildProcessWithoutNullStreams,
+  });
+
+  const session = await client.startFreeChatSession({
+    callbacks: {
+      onEvent: (event) => {
+        eventTypes.push(event.type);
+      },
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  const pendingSend = session.sendUserInput("resposta em texto livre");
+  interactiveProcess.stdout.write("Explain this codebase? for shortcuts 100% context left\n");
+  await pendingSend;
+  await waitForInteractiveWrites();
+
+  interactiveProcess.stdout.write("Resumo final em andamento\n");
+  interactiveProcess.stdout.write("for shortcuts 99% context left\n");
+  await waitForInteractiveWrites();
+
+  assert.equal(eventTypes.includes("turn-complete"), true);
+
+  await session.cancel();
+});
+
 test("falha da sessao livre retorna hint de retry para /codex_chat", async () => {
   const interactiveProcess = new FakeInteractiveProcess();
   const failures: CodexChatSessionError[] = [];
