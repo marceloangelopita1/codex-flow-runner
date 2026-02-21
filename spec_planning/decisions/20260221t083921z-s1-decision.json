@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 1,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md",
+  "specFileName": "2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md",
+  "specTitle": "Check-up Não Funcional de Código e Documentação para Refatorações Críticas",
+  "specSummary": "Criar uma spec não funcional para instituir um check-up técnico periódico no projeto, cobrindo qualidade de código, arquitetura, testes, observabilidade e documentação operacional; mapear riscos críticos e dívida técnica; definir critérios objetivos de prioridade para refatorações; e consolidar um plano de melhoria contínua alinhado a boas práticas e ao fluxo sequencial de execução.",
+  "commitMessage": "feat(spec): add 2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas.md",
+  "recordedAtUtc": "2026-02-21T08:39:21.966Z"
+}
