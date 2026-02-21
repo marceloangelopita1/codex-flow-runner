@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 2,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-02-21-usabilidade-do-bot-no-telegram-com-icones-semanticos-e-resumos-de-status.md",
+  "specFileName": "2026-02-21-usabilidade-do-bot-no-telegram-com-icones-semanticos-e-resumos-de-status.md",
+  "specTitle": "Usabilidade do Bot no Telegram com Ícones Semânticos e Resumos de Status",
+  "specSummary": "Definir uma especificação funcional para padronizar mensagens do bot com ícones por tipo de ação e resultado, junto de textos curtos e consistentes para status (início, progresso, bloqueio, conclusão e erro), melhorando leitura rápida, clareza operacional e acompanhamento do fluxo sequencial.",
+  "commitMessage": "feat(spec): add 2026-02-21-usabilidade-do-bot-no-telegram-com-icones-semanticos-e-resumos-de-status.md",
+  "recordedAtUtc": "2026-02-21T16:50:14.771Z"
+}
