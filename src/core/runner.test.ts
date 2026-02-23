@@ -443,6 +443,39 @@ const cleanupTempProjectRoot = async (rootPath: string): Promise<void> => {
   await fs.rm(rootPath, { recursive: true, force: true });
 };
 
+const writeTicketMetadataFile = async (
+  projectRoot: string,
+  options: {
+    directory: "open" | "closed";
+    ticketName: string;
+    status: "open" | "closed";
+    parentTicketPath?: string;
+    closureReason?: string;
+    priority?: "P0" | "P1" | "P2";
+  },
+): Promise<string> => {
+  const ticketPath = path.join(projectRoot, "tickets", options.directory, options.ticketName);
+  const lines = [
+    `# [TICKET] ${options.ticketName}`,
+    "",
+    "## Metadata",
+    `- Status: ${options.status}`,
+    `- Priority: ${options.priority ?? "P0"}`,
+    `- Parent ticket (optional): ${options.parentTicketPath ?? ""}`,
+    `- Closure reason: ${options.closureReason ?? ""}`,
+    "",
+  ];
+  await fs.mkdir(path.dirname(ticketPath), { recursive: true });
+  await fs.writeFile(ticketPath, `${lines.join("\n")}\n`, "utf8");
+  return ticketPath;
+};
+
+const buildTicketRef = (projectRoot: string, ticketName: string): TicketRef => ({
+  name: ticketName,
+  openPath: path.join(projectRoot, "tickets", "open", ticketName),
+  closedPath: path.join(projectRoot, "tickets", "closed", ticketName),
+});
+
 const createSpecFileContent = (title: string, summary: string): string =>
   [
     `# [SPEC] ${title}`,
@@ -704,6 +737,166 @@ test("requestRunAll encerra rodada ao atingir limite maximo de tickets", async (
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.ticket, ticketA.name);
   assert.equal(summaries[0]?.status, "success");
+});
+
+test("requestRunAll permite processar ticket com ate 3 recuperacoes de NO_GO na linhagem", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const rootPath = await createTempProjectRoot();
+
+  try {
+    const rootTicketName = "2026-02-23-no-go-root.md";
+    const recoveryOneName = "2026-02-23-no-go-recovery-1.md";
+    const recoveryTwoName = "2026-02-23-no-go-recovery-2.md";
+    const currentTicketName = "2026-02-23-no-go-recovery-3.md";
+
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: rootTicketName,
+      status: "closed",
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: recoveryOneName,
+      status: "closed",
+      parentTicketPath: `tickets/closed/${rootTicketName}`,
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: recoveryTwoName,
+      status: "closed",
+      parentTicketPath: `tickets/closed/${recoveryOneName}`,
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "open",
+      ticketName: currentTicketName,
+      status: "open",
+      parentTicketPath: `tickets/closed/${recoveryTwoName}`,
+    });
+
+    const currentTicket = buildTicketRef(rootPath, currentTicketName);
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? currentTicket : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: { name: "lineage-project", path: rootPath },
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies);
+    const request = await runner.requestRunAll();
+    assert.deepEqual(request, { status: "started" });
+
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.ticketName}:${value.stage}`),
+      [
+        `${currentTicketName}:plan`,
+        `${currentTicketName}:implement`,
+        `${currentTicketName}:close-and-version`,
+      ],
+    );
+    assert.equal(gitVersioning.syncChecks, 1);
+    const state = runner.getState();
+    assert.equal(state.phase, "idle");
+    assert.match(state.lastMessage, /nenhum ticket aberto restante/u);
+  } finally {
+    await cleanupTempProjectRoot(rootPath);
+  }
+});
+
+test("requestRunAll interrompe rodada quando ticket excede limite de 3 recuperacoes de NO_GO", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const rootPath = await createTempProjectRoot();
+
+  try {
+    const rootTicketName = "2026-02-23-no-go-root.md";
+    const recoveryOneName = "2026-02-23-no-go-recovery-1.md";
+    const recoveryTwoName = "2026-02-23-no-go-recovery-2.md";
+    const recoveryThreeName = "2026-02-23-no-go-recovery-3.md";
+    const currentTicketName = "2026-02-23-no-go-recovery-4.md";
+
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: rootTicketName,
+      status: "closed",
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: recoveryOneName,
+      status: "closed",
+      parentTicketPath: `tickets/closed/${rootTicketName}`,
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: recoveryTwoName,
+      status: "closed",
+      parentTicketPath: `tickets/closed/${recoveryOneName}`,
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "closed",
+      ticketName: recoveryThreeName,
+      status: "closed",
+      parentTicketPath: `tickets/closed/${recoveryTwoName}`,
+      closureReason: "split-follow-up",
+    });
+    await writeTicketMetadataFile(rootPath, {
+      directory: "open",
+      ticketName: currentTicketName,
+      status: "open",
+      parentTicketPath: `tickets/closed/${recoveryThreeName}`,
+    });
+
+    const currentTicket = buildTicketRef(rootPath, currentTicketName);
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => currentTicket,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: { name: "lineage-project", path: rootPath },
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies);
+    const request = await runner.requestRunAll();
+    assert.deepEqual(request, { status: "started" });
+
+    await waitForRunnerToStop(runner);
+
+    assert.equal(codex.calls.length, 0);
+    assert.equal(gitVersioning.syncChecks, 0);
+    const state = runner.getState();
+    assert.equal(state.phase, "error");
+    assert.match(state.lastMessage, /tarefa nao finalizada/u);
+    assert.match(state.lastMessage, /limite: 3/u);
+    assert.equal(
+      logger.errors.some((entry) => entry.message === "Limite de recuperacoes de NO_GO excedido para ticket"),
+      true,
+    );
+  } finally {
+    await cleanupTempProjectRoot(rootPath);
+  }
 });
 
 test("syncActiveProject atualiza estado quando runner esta inativo", () => {

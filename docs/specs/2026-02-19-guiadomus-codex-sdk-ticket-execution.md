@@ -41,8 +41,9 @@
 - RF-05: o fluxo deve realizar `push` automatico apos commit de fechamento de cada ticket.
 - RF-06: a rodada deve parar no primeiro erro, mantendo rastreabilidade do ticket que falhou.
 - RF-07: runner deve ser compativel com repositorios que usam `plans/` ou `execplans/`, sem exigir migracao manual previa.
-- RF-08: quando o fechamento resultar em `NO_GO`, o ticket atual deve ser encerrado com `Closure reason: split-follow-up` e um novo ticket de follow-up deve ser criado em `tickets/open/` no mesmo commit/push.
+- RF-08: quando o fechamento resultar em `NO_GO` tecnico, o ticket atual deve ser encerrado com `Closure reason: split-follow-up` e um novo ticket de follow-up deve ser criado em `tickets/open/` no mesmo commit/push.
 - RF-09: cada comando `/run-all` deve respeitar limite maximo de tickets por rodada (`RUN_ALL_MAX_TICKETS_PER_ROUND`, padrao `20`) e encerrar de forma controlada ao atingir o limite.
+- RF-10: quando a implementacao estiver correta e a unica pendencia for validacao manual externa ao agente (ex.: Telegram real), o fechamento deve ser `GO` (`Closure reason: fixed`) com registro explicito da validacao manual pendente no ticket fechado, sem gerar follow-up automatico.
 
 ## Nao-escopo
 - Execucao paralela de tickets.
@@ -55,8 +56,9 @@
 - [x] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
 - [x] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
 - [x] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
-- [x] CA-06 - Em `NO_GO` no fechamento, o ticket atual e fechado em `tickets/closed/` com `split-follow-up` e o follow-up e criado em `tickets/open/` no mesmo ciclo de versionamento.
+- [x] CA-06 - Em `NO_GO` tecnico no fechamento, o ticket atual e fechado em `tickets/closed/` com `split-follow-up` e o follow-up e criado em `tickets/open/` no mesmo ciclo de versionamento.
 - [x] CA-07 - Ao atingir o limite configurado de tickets por rodada, `/run-all` encerra em estado `idle` sem erro tecnico, exigindo novo comando para continuar o backlog.
+- [x] CA-08 - Em pendencia exclusiva de validacao manual externa ao agente, o ticket fecha como `fixed` com anotacao de validacao manual pendente e sem follow-up automatico.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
@@ -75,7 +77,8 @@
   - Suite automatizada cobre rodada finita, fail-fast entre tickets e validacao de push/sincronismo em `git-client`.
   - `/run-all` agora executa preflight de autenticacao do Codex CLI e bloqueia inicio da rodada com mensagem acionavel quando a sessao nao existe.
   - Integracao com Codex CLI deixou de injetar `CODEX_API_KEY`/`OPENAI_API_KEY`; autenticacao passa a depender da sessao do usuario (`codex login`).
-  - Fluxo de fechamento passou a suportar handoff `NO_GO` com `split-follow-up`: fecha o ticket atual e cria ticket de continuidade no mesmo commit/push.
+  - Fluxo de fechamento passou a suportar handoff `NO_GO` tecnico com `split-follow-up`: fecha o ticket atual e cria ticket de continuidade no mesmo commit/push.
+  - Bloqueio exclusivamente operacional de validacao manual externa nao força `NO_GO`: fechamento pode ser `fixed` com pendencia manual registrada no ticket.
   - `/run-all` passou a respeitar limite maximo de tickets por rodada via `RUN_ALL_MAX_TICKETS_PER_ROUND` (padrao `20`), encerrando de forma controlada ao atingir o teto.
 - Pendencias em aberto:
   - Nenhuma pendencia funcional aberta nesta spec.
@@ -129,3 +132,4 @@
 - 2026-02-19 12:43Z - Ticket de rodada fail-fast/push obrigatorio encerrado com move para `tickets/closed/` no mesmo commit da solucao.
 - 2026-02-19 16:05Z - Fluxo migrado para autenticacao login-only do Codex CLI, com preflight de `/run-all`, remocao de injecao de API key e testes/documentacao atualizados.
 - 2026-02-20 17:08Z - Fluxo ajustado para handoff `NO_GO` com `split-follow-up` no fechamento e limite de tickets por rodada (`RUN_ALL_MAX_TICKETS_PER_ROUND`, padrao 20).
+- 2026-02-23 15:16Z - Regra de fechamento refinada: pendencia exclusiva de validacao manual externa ao agente nao bloqueia `GO`; ticket fecha como `fixed` com anotacao de validacao manual pendente, sem gerar cadeia de `split-follow-up`.

@@ -47,6 +47,8 @@ Regras de bootstrap multi-projeto:
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
 - cada comando `/run_all` processa no maximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada; ao atingir o limite, a rodada e encerrada de forma controlada.
+- indisponibilidade de validacao manual externa ao agente (ex.: Telegram real indisponivel) nao deve, sozinha, forcar `NO_GO`; nesse caso, o fechamento pode ser `GO` com anotacao explicita de validacao manual pendente.
+- para uma mesma cadeia de `NO_GO` (`Closure reason: split-follow-up` + `Parent ticket`), o runner aceita no maximo 3 recuperacoes; ao exceder esse limite, a rodada para em erro e a tarefa permanece nao finalizada no backlog.
 
 Pré-requisito operacional:
 - `codex` instalado e disponível no PATH (ex.: `npm i -g @openai/codex`).

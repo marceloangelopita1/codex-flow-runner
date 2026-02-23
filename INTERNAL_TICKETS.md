@@ -45,6 +45,13 @@ Closure/commit rule:
   - closure of the current ticket in `tickets/closed/`;
   - creation of the new follow-up ticket in `tickets/open/`;
   - explicit linkage between parent and follow-up (ticket path/name, related execplan, and commit context).
+- Classification guard (`GO` vs `NO_GO`):
+  - Use `NO_GO` only when there is objective technical/functional evidence that the delivery is not valid in the current cycle.
+  - If implementation is considered correct and the only blocker is external manual validation (outside AI reach), close as success (`Closure reason: fixed`) and record manual validation pending in the closed ticket.
+  - External manual validation pending alone is not a reason to force `split-follow-up`.
+- Runtime guard for repeated `NO_GO`:
+  - the runner accepts at most 3 follow-up recoveries in the same lineage (`Parent ticket` chain with ancestors closed as `split-follow-up`);
+  - when the lineage exceeds this limit, `/run-all` must stop immediately with error status and keep the ticket open as not finished work.
 
 ## Priority and severity
 - Priority (`P0`, `P1`, `P2`):

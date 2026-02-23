@@ -149,9 +149,29 @@ type CodexChatSessionChatRejectedResult =
       message: string;
     };
 
+interface TicketLineageMetadata {
+  status: string | null;
+  parentTicketPath: string | null;
+  closureReason: string | null;
+}
+
+interface TicketNoGoRecoveryContext {
+  rootTicketName: string;
+  splitFollowUpRecoveries: number;
+  lineageDepth: number;
+  ancestryCycleDetected: boolean;
+}
+
+interface ResolvedTicketContent {
+  path: string;
+  content: string;
+}
+
 const RUNNER_SLOT_LIMIT = 5;
 const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_CHAT_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_NO_GO_RECOVERIES_PER_TICKET = 3;
+const MAX_TICKET_PARENT_CHAIN_DEPTH = 100;
 const PLAN_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /plan_spec ativa no momento.";
 const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
   "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
@@ -172,6 +192,10 @@ const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 const PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS = 2 * 1000;
 const CODEX_CHAT_OUTPUT_FLUSH_DELAY_MS = 1200;
 const CODEX_CHAT_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
+const TICKET_STATUS_METADATA_PATTERN = /^\s*-\s*Status\s*:\s*(.+?)\s*$/imu;
+const TICKET_PARENT_METADATA_PATTERN =
+  /^\s*-\s*Parent ticket(?:\s*\(optional\))?\s*:\s*(.+?)\s*$/imu;
+const TICKET_CLOSURE_REASON_METADATA_PATTERN = /^\s*-\s*Closure reason\s*:\s*(.+?)\s*$/imu;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -2465,6 +2489,160 @@ export class TicketRunner {
     return path.join(projectPath, ...relativePath.split("/"));
   }
 
+  private normalizeTicketMetadataValue(rawValue: string | undefined): string | null {
+    if (!rawValue) {
+      return null;
+    }
+
+    const normalized = rawValue.trim().replace(/^`|`$/gu, "");
+    if (!normalized) {
+      return null;
+    }
+
+    if (/^(?:n\/a|na|none|null|-)$/iu.test(normalized)) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private normalizeTicketReference(rawValue: string | null): string | null {
+    if (!rawValue) {
+      return null;
+    }
+
+    const normalized = rawValue.trim().replace(/^`|`$/gu, "");
+    if (!normalized) {
+      return null;
+    }
+
+    if (/^(?:n\/a|na|none|null|pendente|a definir|-)\.?$/iu.test(normalized)) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  private parseTicketLineageMetadata(ticketContent: string): TicketLineageMetadata {
+    const status = this.normalizeTicketMetadataValue(
+      ticketContent.match(TICKET_STATUS_METADATA_PATTERN)?.[1],
+    );
+    const parentTicketPath = this.normalizeTicketReference(
+      this.normalizeTicketMetadataValue(ticketContent.match(TICKET_PARENT_METADATA_PATTERN)?.[1]),
+    );
+    const closureReason = this.normalizeTicketMetadataValue(
+      ticketContent.match(TICKET_CLOSURE_REASON_METADATA_PATTERN)?.[1],
+    );
+
+    return {
+      status: status?.toLowerCase() ?? null,
+      parentTicketPath,
+      closureReason: closureReason?.toLowerCase() ?? null,
+    };
+  }
+
+  private isSplitFollowUpClosure(metadata: TicketLineageMetadata): boolean {
+    return metadata.status === "closed" && metadata.closureReason === "split-follow-up";
+  }
+
+  private resolveTicketReferenceCandidates(projectPath: string, reference: string): string[] {
+    const normalizedReference = reference.replace(/\\/gu, "/").trim();
+    const ticketFileName = path.basename(normalizedReference);
+    const candidates = new Set<string>();
+
+    if (path.isAbsolute(normalizedReference)) {
+      candidates.add(normalizedReference);
+    } else {
+      candidates.add(path.join(projectPath, ...normalizedReference.split("/")));
+    }
+
+    if (ticketFileName) {
+      candidates.add(path.join(projectPath, "tickets", "closed", ticketFileName));
+      candidates.add(path.join(projectPath, "tickets", "open", ticketFileName));
+    }
+
+    return [...candidates];
+  }
+
+  private async resolveTicketReference(
+    projectPath: string,
+    reference: string,
+  ): Promise<ResolvedTicketContent | null> {
+    for (const candidatePath of this.resolveTicketReferenceCandidates(projectPath, reference)) {
+      try {
+        const content = await fs.readFile(candidatePath, "utf8");
+        return {
+          path: candidatePath,
+          content,
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    return null;
+  }
+
+  private async evaluateNoGoRecoveryContext(
+    slot: ActiveRunnerSlot,
+    ticket: TicketRef,
+  ): Promise<TicketNoGoRecoveryContext> {
+    let currentTicketContent = "";
+    try {
+      currentTicketContent = await fs.readFile(ticket.openPath, "utf8");
+    } catch {
+      return {
+        rootTicketName: ticket.name,
+        splitFollowUpRecoveries: 0,
+        lineageDepth: 0,
+        ancestryCycleDetected: false,
+      };
+    }
+
+    const currentMetadata = this.parseTicketLineageMetadata(currentTicketContent);
+    let parentReference = currentMetadata.parentTicketPath;
+    let rootTicketName = ticket.name;
+    let splitFollowUpRecoveries = 0;
+    let lineageDepth = 0;
+    let ancestryCycleDetected = false;
+    const visitedParents = new Set<string>();
+
+    while (parentReference && lineageDepth < MAX_TICKET_PARENT_CHAIN_DEPTH) {
+      const resolvedParent = await this.resolveTicketReference(slot.project.path, parentReference);
+      if (!resolvedParent) {
+        rootTicketName = path.basename(parentReference);
+        break;
+      }
+
+      const normalizedParentPath = path.normalize(resolvedParent.path);
+      if (visitedParents.has(normalizedParentPath)) {
+        ancestryCycleDetected = true;
+        break;
+      }
+
+      visitedParents.add(normalizedParentPath);
+      rootTicketName = path.basename(resolvedParent.path);
+      const parentMetadata = this.parseTicketLineageMetadata(resolvedParent.content);
+      if (this.isSplitFollowUpClosure(parentMetadata)) {
+        splitFollowUpRecoveries += 1;
+      }
+
+      parentReference = parentMetadata.parentTicketPath;
+      lineageDepth += 1;
+    }
+
+    return {
+      rootTicketName,
+      splitFollowUpRecoveries,
+      lineageDepth,
+      ancestryCycleDetected,
+    };
+  }
+
   private async runForever(slot: ActiveRunnerSlot): Promise<void> {
     const roundStartedAt = Date.now();
     this.logger.info("Preparando estrutura da rodada /run-all", {
@@ -2533,6 +2711,36 @@ export class TicketRunner {
         this.logger.error("Falha de fechamento detectada no ticket da rodada", {
           ticket: ticket.name,
           reason: "ticket reaberto/nao movido apos close-and-version",
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        return;
+      }
+
+      const noGoRecoveryContext = await this.evaluateNoGoRecoveryContext(slot, ticket);
+      if (noGoRecoveryContext.ancestryCycleDetected) {
+        this.logger.warn("Ciclo detectado na cadeia de Parent ticket durante analise de NO_GO", {
+          ticket: ticket.name,
+          rootTicketName: noGoRecoveryContext.rootTicketName,
+          lineageDepth: noGoRecoveryContext.lineageDepth,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+      }
+
+      if (noGoRecoveryContext.splitFollowUpRecoveries > MAX_NO_GO_RECOVERIES_PER_TICKET) {
+        slot.isRunning = false;
+        this.touchSlot(
+          slot,
+          "error",
+          `Rodada /run-all interrompida: tarefa nao finalizada para ${ticket.name} apos ${noGoRecoveryContext.splitFollowUpRecoveries} recuperacoes de NO_GO (limite: ${MAX_NO_GO_RECOVERIES_PER_TICKET}).`,
+        );
+        this.logger.error("Limite de recuperacoes de NO_GO excedido para ticket", {
+          ticket: ticket.name,
+          rootTicketName: noGoRecoveryContext.rootTicketName,
+          splitFollowUpRecoveries: noGoRecoveryContext.splitFollowUpRecoveries,
+          maxNoGoRecoveriesPerTicket: MAX_NO_GO_RECOVERIES_PER_TICKET,
+          lineageDepth: noGoRecoveryContext.lineageDepth,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
