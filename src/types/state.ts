@@ -82,7 +82,7 @@ export interface RunnerLastNotifiedEvent {
   delivery: TicketNotificationDelivery;
 }
 
-export type RunnerSlotKind = "run-all" | "run-specs" | "plan-spec" | "codex-chat";
+export type RunnerSlotKind = "run-all" | "run-specs" | "run-ticket" | "plan-spec" | "codex-chat";
 
 export interface RunnerActiveSlotState {
   project: ProjectRef;

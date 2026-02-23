@@ -162,6 +162,26 @@ interface TicketNoGoRecoveryContext {
   ancestryCycleDetected: boolean;
 }
 
+type SelectedTicketValidationResult =
+  | {
+      status: "valid";
+      ticketFileName: string;
+    }
+  | {
+      status: "invalid";
+      message: string;
+    };
+
+type SelectedTicketResolutionResult =
+  | {
+      status: "resolved";
+      ticket: TicketRef;
+    }
+  | {
+      status: "not-found";
+      message: string;
+    };
+
 interface ResolvedTicketContent {
   path: string;
   content: string;
@@ -193,6 +213,7 @@ const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 const PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS = 2 * 1000;
 const CODEX_CHAT_OUTPUT_FLUSH_DELAY_MS = 1200;
 const CODEX_CHAT_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
+const TICKET_FILE_NAME_PATTERN = /^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$/u;
 const TICKET_STATUS_METADATA_PATTERN = /^\s*-\s*Status\s*:\s*(.+?)\s*$/imu;
 const TICKET_PARENT_METADATA_PATTERN =
   /^\s*-\s*Parent ticket(?:\s*\(optional\))?\s*:\s*(.+?)\s*$/imu;
@@ -230,6 +251,26 @@ export type RunAllRequestResult =
 export type RunSpecsRequestResult =
   | { status: "started" }
   | { status: "already-running" }
+  | RunnerRequestBlockedResult;
+
+export type RunSelectedTicketRequestResult =
+  | { status: "started" }
+  | RunnerRequestBlockedResult
+  | {
+      status: "ticket-nao-encontrado";
+      message: string;
+    }
+  | {
+      status: "ticket-invalido";
+      message: string;
+    };
+
+type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
+
+type RunSlotStartPreflightResult =
+  | {
+      slot: ActiveRunnerSlot;
+    }
   | RunnerRequestBlockedResult;
 
 export type SyncActiveProjectResult =
@@ -1221,10 +1262,6 @@ export class TicketRunner {
     try {
       const preflightOutcome = await this.prepareRunSlotStart("run-all");
       if ("status" in preflightOutcome) {
-        if (preflightOutcome.status === "already-running") {
-          return preflightOutcome;
-        }
-
         return preflightOutcome;
       }
 
@@ -1267,10 +1304,6 @@ export class TicketRunner {
     try {
       const preflightOutcome = await this.prepareRunSlotStart("run-specs");
       if ("status" in preflightOutcome) {
-        if (preflightOutcome.status === "already-running") {
-          return preflightOutcome;
-        }
-
         return preflightOutcome;
       }
 
@@ -1284,6 +1317,99 @@ export class TicketRunner {
         activeProjectPath: slot.project.path,
       });
 
+      return { status: "started" };
+    } finally {
+      this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
+    }
+  };
+
+  requestRunSelectedTicket = async (ticketInput: string): Promise<RunSelectedTicketRequestResult> => {
+    const normalizedTicket = this.normalizeSelectedTicketFileName(ticketInput);
+    if (normalizedTicket.status === "invalid") {
+      this.logger.warn("Solicitacao de execucao unitaria rejeitada por ticket invalido", {
+        command: "run-ticket",
+        ticketInput,
+        message: normalizedTicket.message,
+      });
+      return {
+        status: "ticket-invalido",
+        message: normalizedTicket.message,
+      };
+    }
+
+    const ticketFileName = normalizedTicket.ticketFileName;
+    this.logger.info("Solicitacao de execucao unitaria de ticket recebida", {
+      command: "run-ticket",
+      ticketFileName,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      isPaused: this.state.isPaused,
+      currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+    });
+
+    this.startRequestsInFlight += 1;
+    try {
+      const preflightOutcome = await this.prepareRunSlotStart("run-ticket");
+      if ("status" in preflightOutcome) {
+        return preflightOutcome;
+      }
+
+      const { slot } = preflightOutcome;
+      let ticketResolution: SelectedTicketResolutionResult;
+      try {
+        ticketResolution = await this.resolveSelectedOpenTicket(slot.project.path, ticketFileName);
+      } catch (error) {
+        this.releaseSlot(slot.key);
+        const details = error instanceof Error ? error.message : String(error);
+        const message = [
+          `Falha ao validar ticket selecionado ${ticketFileName}.`,
+          "Verifique permissao/leitura em tickets/open/ e tente novamente.",
+          `Detalhes: ${details}`,
+        ].join(" ");
+        this.touch("error", message);
+        this.logger.error("Falha ao validar ticket selecionado antes da execucao unitaria", {
+          command: "run-ticket",
+          ticketFileName,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+          error: details,
+        });
+        return {
+          status: "blocked",
+          reason: "active-project-unavailable",
+          message,
+        };
+      }
+
+      if (ticketResolution.status === "not-found") {
+        this.releaseSlot(slot.key);
+        this.touch("idle", ticketResolution.message);
+        this.logger.warn("Execucao unitaria bloqueada: ticket selecionado nao encontrado", {
+          command: "run-ticket",
+          ticketFileName,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        return {
+          status: "ticket-nao-encontrado",
+          message: ticketResolution.message,
+        };
+      }
+
+      const selectedTicket = ticketResolution.ticket;
+      this.startRunSlotLoop(slot, () => this.runSelectedTicketOnce(slot, selectedTicket));
+      this.logger.info("Execucao unitaria do ticket selecionado agendada no loop principal", {
+        command: "run-ticket",
+        ticketFileName: selectedTicket.name,
+        ticketOpenPath: selectedTicket.openPath,
+        ticketClosedPath: selectedTicket.closedPath,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
       return { status: "started" };
     } finally {
       this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
@@ -2275,9 +2401,10 @@ export class TicketRunner {
   }
 
   private async prepareRunSlotStart(
-    source: "run-all" | "run-specs",
-  ): Promise<{ slot: ActiveRunnerSlot } | RunAllRequestResult | RunSpecsRequestResult> {
-    const command = source === "run-all" ? "/run-all" : "/run_specs";
+    source: RunSlotPreflightSource,
+  ): Promise<RunSlotStartPreflightResult> {
+    const command =
+      source === "run-all" ? "/run-all" : source === "run-specs" ? "/run_specs" : "/run_ticket";
 
     let roundDependencies: RunnerRoundDependencies;
     try {
@@ -2431,6 +2558,40 @@ export class TicketRunner {
     return trimmed;
   }
 
+  private normalizeSelectedTicketFileName(ticketInput: string): SelectedTicketValidationResult {
+    const trimmed = ticketInput.trim();
+    if (!trimmed) {
+      return {
+        status: "invalid",
+        message:
+          "Formato invalido para ticket selecionado. Use apenas <yyyy-mm-dd-slug.md> ou tickets/open/<arquivo.md>.",
+      };
+    }
+
+    const normalizedSeparators = trimmed.replace(/\\/gu, "/");
+    const withoutOpenPrefix = normalizedSeparators.startsWith("tickets/open/")
+      ? normalizedSeparators.slice("tickets/open/".length)
+      : normalizedSeparators;
+
+    if (
+      !withoutOpenPrefix ||
+      withoutOpenPrefix.includes("/") ||
+      withoutOpenPrefix.includes("..") ||
+      !TICKET_FILE_NAME_PATTERN.test(withoutOpenPrefix)
+    ) {
+      return {
+        status: "invalid",
+        message:
+          "Formato invalido para ticket selecionado. Use apenas <yyyy-mm-dd-slug.md> ou tickets/open/<arquivo.md>.",
+      };
+    }
+
+    return {
+      status: "valid",
+      ticketFileName: withoutOpenPrefix,
+    };
+  }
+
   private resolveSpecPath(specFileName: string): string {
     if (specFileName.startsWith("docs/specs/")) {
       return specFileName;
@@ -2487,6 +2648,37 @@ export class TicketRunner {
 
       const details = error instanceof Error ? error.message : String(error);
       throw new Error(`Falha ao validar colisao de arquivo da spec: ${details}`);
+    }
+  }
+
+  private async resolveSelectedOpenTicket(
+    projectPath: string,
+    ticketFileName: string,
+  ): Promise<SelectedTicketResolutionResult> {
+    const ticket: TicketRef = {
+      name: ticketFileName,
+      openPath: this.resolveProjectRelativePath(projectPath, `tickets/open/${ticketFileName}`),
+      closedPath: this.resolveProjectRelativePath(projectPath, `tickets/closed/${ticketFileName}`),
+    };
+
+    try {
+      await fs.access(ticket.openPath);
+      return {
+        status: "resolved",
+        ticket,
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return {
+          status: "not-found",
+          message: [
+            `Ticket selecionado nao encontrado em tickets/open/: ${ticketFileName}.`,
+            "Atualize a lista de tickets e tente novamente.",
+          ].join(" "),
+        };
+      }
+
+      throw error;
     }
   }
 
@@ -2789,6 +2981,39 @@ export class TicketRunner {
         return;
       }
     }
+  }
+
+  private async runSelectedTicketOnce(slot: ActiveRunnerSlot, ticket: TicketRef): Promise<void> {
+    const startedAt = Date.now();
+    this.touchSlot(slot, "select-ticket", `Execucao manual iniciada para ${ticket.name}`);
+    this.logger.info("Execucao manual de ticket selecionado iniciada", {
+      ticket: ticket.name,
+      openPath: ticket.openPath,
+      closedPath: ticket.closedPath,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
+    });
+
+    const succeeded = await this.processTicketInSlot(slot, ticket);
+    if (!succeeded) {
+      slot.isRunning = false;
+      this.logger.warn("Execucao manual de ticket selecionado finalizada com falha", {
+        ticket: ticket.name,
+        durationMs: Date.now() - startedAt,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return;
+    }
+
+    slot.isRunning = false;
+    this.touchSlot(slot, "idle", `Execucao manual finalizada para ${ticket.name}`);
+    this.logger.info("Execucao manual de ticket selecionado concluida com sucesso", {
+      ticket: ticket.name,
+      durationMs: Date.now() - startedAt,
+      activeProjectName: slot.project.name,
+      activeProjectPath: slot.project.path,
+    });
   }
 
   shutdown(): void {
@@ -3279,6 +3504,10 @@ export class TicketRunner {
       return "/run_specs";
     }
 
+    if (kind === "run-ticket") {
+      return "/run_ticket";
+    }
+
     if (kind === "codex-chat") {
       return "/codex_chat";
     }
@@ -3287,7 +3516,7 @@ export class TicketRunner {
   }
 
   private isTicketSlotKind(kind: RunnerSlotKind): boolean {
-    return kind === "run-all" || kind === "run-specs";
+    return kind === "run-all" || kind === "run-specs" || kind === "run-ticket";
   }
 
   private buildTicketLockActiveMessage(
@@ -3313,7 +3542,7 @@ export class TicketRunner {
 
   private buildActiveProjectResolutionErrorMessage(
     error: unknown,
-    source: "run-all" | "run-specs" | "plan-spec" | "codex-chat",
+    source: "run-all" | "run-specs" | "run-ticket" | "plan-spec" | "codex-chat",
   ): string {
     const details = error instanceof Error ? error.message : String(error);
     const command =
@@ -3321,9 +3550,11 @@ export class TicketRunner {
         ? "/run-all"
         : source === "run-specs"
           ? "/run_specs"
-          : source === "plan-spec"
-            ? "/plan_spec"
-            : "/codex_chat";
+          : source === "run-ticket"
+            ? "/run_ticket"
+            : source === "plan-spec"
+              ? "/plan_spec"
+              : "/codex_chat";
     return [
       `Falha ao resolver projeto ativo para rodada ${command}.`,
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",

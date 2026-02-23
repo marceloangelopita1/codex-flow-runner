@@ -183,6 +183,7 @@ const bootstrap = async () => {
     {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
+      runSelectedTicket: runner.requestRunSelectedTicket,
       startCodexChatSession: runner.startCodexChatSession,
       submitCodexChatInput: runner.submitCodexChatInput,
       cancelCodexChatSession: runner.cancelCodexChatSession,

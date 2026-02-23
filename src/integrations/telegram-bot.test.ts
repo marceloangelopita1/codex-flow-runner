@@ -7,6 +7,7 @@ import {
   CodexChatSessionInputResult,
   CodexChatSessionStartResult,
   PlanSpecCallbackIgnoredReason,
+  RunSelectedTicketRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
@@ -135,6 +136,7 @@ interface ControllerOptions {
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
   runSpecsMessage?: string;
+  runSelectedTicketResult?: RunSelectedTicketRequestResult;
   codexChatStartResult?: CodexChatSessionStartResult;
   codexChatInputResult?: CodexChatSessionInputResult;
   codexChatCancelResult?: CodexChatSessionCancelResult;
@@ -213,6 +215,8 @@ const createController = (options: ControllerOptions = {}) => {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    runSelectedTicketCalls: 0,
+    runSelectedTicketArgs: [] as string[],
     codexChatStartCalls: 0,
     codexChatStartChatIds: [] as string[],
     codexChatInputCalls: 0,
@@ -367,6 +371,15 @@ const createController = (options: ControllerOptions = {}) => {
             options.runSpecsMessage ??
             "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
         };
+      }
+
+      return { status: "started" as const };
+    },
+    runSelectedTicket: (ticketFileName: string) => {
+      controlState.runSelectedTicketCalls += 1;
+      controlState.runSelectedTicketArgs.push(ticketFileName);
+      if (options.runSelectedTicketResult) {
+        return options.runSelectedTicketResult;
       }
 
       return { status: "started" as const };
@@ -944,6 +957,52 @@ const callHandleSpecsCallbackQuery = async (
   };
 
   await internalController.handleSpecsCallbackQuery(context);
+};
+
+const callCreateImplementTicketCallbackData = (
+  controller: TelegramController,
+  chatId: string,
+  ticketFileName: string,
+  messageId: number | null = null,
+): string => {
+  const internalController = controller as unknown as {
+    createImplementTicketCallbackData: (
+      chatId: string,
+      ticketFileName: string,
+      messageId?: number | null,
+    ) => string;
+  };
+
+  return internalController.createImplementTicketCallbackData(chatId, ticketFileName, messageId);
+};
+
+const callHandleTicketRunCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: {
+      data?: string;
+      from?: { id: number };
+      message?: { message_id?: number };
+    };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTicketRunCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: {
+        data?: string;
+        from?: { id: number };
+        message?: { message_id?: number };
+      };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleTicketRunCallbackQuery(context);
 };
 
 const callHandleProjectsCallbackQuery = async (
@@ -2445,6 +2504,142 @@ test("callback de /specs respeita concorrencia e e idempotente em clique repetid
   assert.match(sentMessages[0]?.text ?? "", /Runner já está em execução/u);
 });
 
+test("callback de Implementar este ticket inicia execucao unitaria e trava contexto", async () => {
+  const { controller, controlState } = createController();
+  const sentMessages = mockSendMessage(controller);
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+  const ticketFileName = "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+  const callbackData = callCreateImplementTicketCallbackData(controller, "42", ticketFileName, 901);
+
+  await callHandleTicketRunCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: callbackData,
+      from: { id: 42 },
+      message: { message_id: 901 },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.runSelectedTicketCalls, 1);
+  assert.deepEqual(controlState.runSelectedTicketArgs, [ticketFileName]);
+  assert.deepEqual(answers, ["Execução do ticket iniciada."]);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Ação: Implementar este ticket/u);
+  assert.match(edits[0]?.text ?? "", /Botão travado/u);
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Execução iniciada para o ticket 2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria\.md/u,
+  );
+});
+
+test("callback de Implementar este ticket traduz bloqueio de concorrencia", async () => {
+  const { controller, controlState } = createController({
+    runSelectedTicketResult: {
+      status: "blocked",
+      reason: "ticket-lock-active",
+      message:
+        "Nao e possivel iniciar /run_ticket: lock global de ticket ativo por /run_all no projeto alpha-project.",
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const answers: string[] = [];
+  const ticketFileName = "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+  const callbackData = callCreateImplementTicketCallbackData(controller, "42", ticketFileName, 902);
+
+  await callHandleTicketRunCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: callbackData,
+      from: { id: 42 },
+      message: { message_id: 902 },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.runSelectedTicketCalls, 1);
+  assert.deepEqual(answers, ["Execução bloqueada."]);
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /lock global de ticket ativo/u);
+});
+
+test("callback de Implementar este ticket informa ticket removido sem iniciar execucao", async () => {
+  const { controller, controlState } = createController({
+    runSelectedTicketResult: {
+      status: "ticket-nao-encontrado",
+      message:
+        "Ticket selecionado nao encontrado em tickets/open/: 2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md.",
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const answers: string[] = [];
+  const ticketFileName = "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+  const callbackData = callCreateImplementTicketCallbackData(controller, "42", ticketFileName, 903);
+
+  await callHandleTicketRunCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: callbackData,
+      from: { id: 42 },
+      message: { message_id: 903 },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.runSelectedTicketCalls, 1);
+  assert.deepEqual(answers, ["Ticket não encontrado."]);
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket selecionado nao encontrado/u);
+});
+
+test("callback de Implementar este ticket e idempotente em clique repetido", async () => {
+  const { controller, controlState } = createController();
+  const answers: string[] = [];
+  const ticketFileName = "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+  const callbackData = callCreateImplementTicketCallbackData(controller, "42", ticketFileName, 904);
+
+  const callbackContext = {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: callbackData,
+      from: { id: 42 },
+      message: { message_id: 904 },
+    },
+    answerCbQuery: async (text?: string) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  };
+
+  await callHandleTicketRunCallbackQuery(controller, callbackContext);
+  await callHandleTicketRunCallbackQuery(controller, callbackContext);
+
+  assert.equal(controlState.runSelectedTicketCalls, 1);
+  assert.deepEqual(answers, [
+    "Execução do ticket iniciada.",
+    "Ação já processada. Atualize a lista de tickets.",
+  ]);
+});
+
 test("/run_specs bloqueia spec inexistente sem iniciar runner (CA-03)", async () => {
   const { controller, controlState } = createController({
     runSpecsValidationResult: {
@@ -3530,6 +3725,39 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   assert.match(reply, /Caminho notificado: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /ExecPlan notificado: execplans\/2026-02-19-flow-a\.md/u);
   assert.match(reply, /Commit\/Push notificado: abc123@origin\/main/u);
+});
+
+test("status renderiza slot de execucao unitaria com comando /run_ticket", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      isRunning: true,
+      capacity: {
+        limit: 5,
+        used: 1,
+      },
+      ticketCapacity: {
+        limit: 1,
+        used: 1,
+        isLocked: true,
+      },
+      activeSlots: [
+        {
+          project: cloneProject(defaultActiveProject),
+          kind: "run-ticket",
+          phase: "implement",
+          currentTicket: "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md",
+          currentSpec: null,
+          isPaused: false,
+          startedAt: new Date("2026-02-23T16:45:00.000Z"),
+        },
+      ],
+    }),
+  );
+
+  assert.match(reply, /Slots ativos:/u);
+  assert.match(reply, /\/run_ticket/u);
 });
 
 test("status inclui bloco detalhado de /codex_chat quando sessao esta ativa (CA-06)", () => {

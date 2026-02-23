@@ -1,15 +1,15 @@
 # [TICKET] Acao "Implementar este ticket" e execucao unitaria do ticket selecionado ainda nao existem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-23 16:14Z
 - Reporter: codex
 - Owner: mapita
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
-- Parent execplan (optional):
+- Parent ticket (optional): tickets/closed/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
+- Parent execplan (optional): execplans/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram.md
+  - execplans/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md
   - INTERNAL_TICKETS.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -88,9 +89,21 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-23 - Gap aberto a partir de triagem da spec `2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram`.
+- 2026-02-23 - Execucao validada contra o ExecPlan com resultado `GO` por evidencia objetiva de testes e checks automatizados.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-02-23 16:57Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md`
+  - Commit: registrado no commit de fechamento deste ciclo.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Closure validation (GO):
+  - [x] API publica para execucao unitaria de ticket selecionado exposta no runner.
+  - [x] validacao defensiva de nome/path e retorno funcional para ticket inexistente/removido.
+  - [x] callback "Implementar este ticket" integrado com contexto seguro e idempotencia.
+  - [x] lock global de ticket preservado no fluxo manual, com mensagens de bloqueio coerentes.
+  - [x] observabilidade de execucao manual refletida em logs e status (`/run_ticket`).
+  - [x] pipeline oficial mantida (`plan -> implement -> close-and-version`) sem varrer backlog em execucao unitaria.
+  - [x] validacao automatizada executada: `npx tsx --test src/core/runner.test.ts`, `npx tsx --test src/integrations/telegram-bot.test.ts`, `npm run check && npm run build`.
+- Manual validation pending: nao.

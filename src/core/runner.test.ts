@@ -678,6 +678,186 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
 });
 
+test("requestRunSelectedTicket executa somente o ticket selecionado sem varrer backlog", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const rootPath = await createTempProjectRoot();
+
+  try {
+    const ticketName = "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+    await writeTicketMetadataFile(rootPath, {
+      directory: "open",
+      ticketName,
+      status: "open",
+    });
+
+    let ensureStructureCalls = 0;
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => {
+        ensureStructureCalls += 1;
+      },
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return ticketA;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: { name: "manual-ticket-project", path: rootPath },
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies);
+    const request = await runner.requestRunSelectedTicket(ticketName);
+    assert.deepEqual(request, { status: "started" });
+
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.ticketName}:${value.stage}`),
+      [`${ticketName}:plan`, `${ticketName}:implement`, `${ticketName}:close-and-version`],
+    );
+    assert.equal(ensureStructureCalls, 0);
+    assert.equal(nextTicketCalls, 0);
+    assert.equal(gitVersioning.syncChecks, 1);
+
+    const state = runner.getState();
+    assert.equal(state.phase, "idle");
+    assert.equal(state.isRunning, false);
+    assert.equal(state.currentTicket, null);
+  } finally {
+    await cleanupTempProjectRoot(rootPath);
+  }
+});
+
+test("requestRunSelectedTicket bloqueia input invalido sem reservar slot", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  let resolveCalls = 0;
+  const runner = createRunner(logger, roundDependencies, {
+    resolveRoundDependencies: async () => {
+      resolveCalls += 1;
+      return roundDependencies;
+    },
+  });
+
+  const result = await runner.requestRunSelectedTicket("../fora-do-escopo.md");
+
+  assert.equal(result.status, "ticket-invalido");
+  if (result.status === "ticket-invalido") {
+    assert.match(result.message, /Formato invalido para ticket selecionado/u);
+  }
+  assert.equal(resolveCalls, 0);
+  assert.equal(codex.authChecks, 0);
+  assert.equal(runner.getState().isRunning, false);
+  assert.equal(runner.getState().ticketCapacity.used, 0);
+});
+
+test("requestRunSelectedTicket retorna erro funcional quando ticket nao existe mais", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const rootPath = await createTempProjectRoot();
+
+  try {
+    const missingTicketName =
+      "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md";
+    const roundDependencies = createRoundDependencies({
+      activeProject: { name: "manual-ticket-project", path: rootPath },
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies);
+
+    const request = await runner.requestRunSelectedTicket(missingTicketName);
+
+    assert.equal(request.status, "ticket-nao-encontrado");
+    if (request.status === "ticket-nao-encontrado") {
+      assert.match(request.message, /Ticket selecionado nao encontrado em tickets\/open\//u);
+    }
+    assert.equal(codex.authChecks, 1);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(runner.getState().isRunning, false);
+    assert.equal(runner.getState().ticketCapacity.used, 0);
+  } finally {
+    await cleanupTempProjectRoot(rootPath);
+  }
+});
+
+test("requestRunSelectedTicket respeita lock global quando /run_all esta ativo em outro projeto", async () => {
+  const logger = new SpyLogger();
+  const codexA = new StubCodexClient();
+  const codexB = new StubCodexClient();
+
+  let releaseWait: () => void = () => undefined;
+  const waitForRelease = new Promise<TicketRef | null>((resolve) => {
+    releaseWait = () => resolve(null);
+  });
+  let nextTicketCalls = 0;
+  const queueA: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+      return waitForRelease;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: queueA,
+    codexClient: codexA,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: defaultQueue,
+    codexClient: codexB,
+    gitVersioning: new StubGitVersioning(),
+  });
+
+  let currentProject: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
+
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
+
+  currentProject = "beta";
+  const runTicketResult = await runner.requestRunSelectedTicket(
+    "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md",
+  );
+  assert.equal(runTicketResult.status, "blocked");
+  if (runTicketResult.status === "blocked") {
+    assert.equal(runTicketResult.reason, "ticket-lock-active");
+    assert.match(
+      runTicketResult.message,
+      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
+    );
+  }
+
+  assert.equal(codexA.authChecks, 1);
+  assert.equal(codexB.authChecks, 0);
+
+  releaseWait();
+  await waitForRunnerToStop(runner);
+});
+
 test("requestRunAll encerra rodada ao atingir limite maximo de tickets", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
