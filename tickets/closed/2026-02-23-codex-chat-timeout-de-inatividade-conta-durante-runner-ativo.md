@@ -1,7 +1,7 @@
 # [TICKET] Timeout de inatividade em `/codex_chat` conta durante runner ativo
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-23 15:47Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: production-observation
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-23-codex-chat-timeout-de-inatividade-conta-durante-runner-ativo.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - execplans/2026-02-23-codex-chat-timeout-de-inatividade-conta-durante-runner-ativo.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -75,9 +76,16 @@ O timeout de 10 minutos deve ser contabilizado somente como inatividade apos uma
 
 ## Decision log
 - 2026-02-23 15:47Z - Ticket aberto para corrigir contabilizacao de timeout de inatividade em `/codex_chat`.
+- 2026-02-23 15:58Z - ExecPlan validado com `npm run check && npm test && npm run build` verde; criterios tecnicos atendidos.
+- 2026-02-23 15:58Z - Classificacao final `GO`: entrega tecnica concluida; validacao manual externa no Telegram permanece pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-23 15:58Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-02-23-codex-chat-timeout-de-inatividade-conta-durante-runner-ativo.md`; commit de fechamento/versionamento neste ciclo (hash registrado no log final); PR N/A.
+- Manual validation pending (external):
+  - Entrega tecnica concluida: timeout de 10 minutos passa a contar apenas em `waiting-user`; durante `waiting-codex` o timer de inatividade do operador fica pausado.
+  - Validacao manual necessaria: executar `/codex_chat` real no Telegram e comprovar (com timestamps) ausencia de timeout durante processamento longo, seguido de timeout apenas apos retorno para espera do operador.
+  - Como executar: iniciar `/codex_chat` -> enviar prompt longo -> confirmar fase `waiting-codex` sem expiracao -> apos resposta final, aguardar 10 minutos sem nova entrada e confirmar expiracao por inatividade.
+  - Responsavel operacional: operador humano do bot (owner `mapita`) em ambiente Telegram real.
 - Follow-up ticket (required when `Closure reason: split-follow-up`):

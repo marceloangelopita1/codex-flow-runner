@@ -2485,6 +2485,110 @@ test("cancelCodexChatSession registra motivo de troca de comando quando sinaliza
   );
 });
 
+test("sessao /codex_chat nao expira por timeout enquanto estiver em waiting-codex", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatSessionTimeoutMs: 20,
+      codexChatEventHandlers: {
+        onOutput: async () => undefined,
+        onFailure: async () => undefined,
+        onLifecycleMessage: async (chatId, message) => {
+          lifecycleMessages.push({ chatId, message });
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.startCodexChatSession("42");
+  assert.equal(startResult.status, "started");
+
+  const inputResult = await runner.submitCodexChatInput("42", "prompt longo");
+  assert.equal(inputResult.status, "accepted");
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-codex");
+  assert.equal(runner.getState().codexChatSession?.userInactivitySinceAt, null);
+
+  await sleep(50);
+
+  assert.equal(codex.lastFreeChatSession?.cancelCalls, 0);
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-codex");
+  assert.equal(runner.getState().lastCodexChatSessionClosure, null);
+  assert.equal(lifecycleMessages.length, 0);
+  assert.equal(
+    logger.warnings.some((entry) => entry.message === "Sessao /codex_chat expirada por inatividade"),
+    false,
+  );
+});
+
+test("sessao /codex_chat volta a expirar por inatividade apos retornar para waiting-user", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const outputs: string[] = [];
+  const lifecycleMessages: Array<{ chatId: string; message: string }> = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatSessionTimeoutMs: 40,
+      codexChatOutputFlushDelayMs: 1,
+      codexChatEventHandlers: {
+        onOutput: async (_chatId, event) => {
+          outputs.push(event.text);
+        },
+        onFailure: async () => undefined,
+        onLifecycleMessage: async (chatId, message) => {
+          lifecycleMessages.push({ chatId, message });
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.startCodexChatSession("42");
+  assert.equal(startResult.status, "started");
+  assert.match(
+    runner.getState().codexChatSession?.userInactivitySinceAt?.toISOString() ?? "",
+    /^\d{4}-\d{2}-\d{2}T/u,
+  );
+
+  const inputResult = await runner.submitCodexChatInput("42", "responda com detalhes");
+  assert.equal(inputResult.status, "accepted");
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-codex");
+  assert.equal(runner.getState().codexChatSession?.userInactivitySinceAt, null);
+
+  codex.lastFreeChatSession?.emitRawOutput("resposta final");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
+  await sleep(10);
+
+  assert.deepEqual(outputs, ["resposta final"]);
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-user");
+  assert.match(
+    runner.getState().codexChatSession?.userInactivitySinceAt?.toISOString() ?? "",
+    /^\d{4}-\d{2}-\d{2}T/u,
+  );
+
+  await waitForCodexChatSessionToClose(runner, 1000);
+
+  assert.equal(codex.lastFreeChatSession?.cancelCalls, 1);
+  assert.equal(runner.getState().codexChatSession, null);
+  assert.equal(runner.getState().lastCodexChatSessionClosure?.reason, "timeout");
+  assert.equal(lifecycleMessages.length, 1);
+  assert.equal(lifecycleMessages[0]?.chatId, "42");
+});
+
 test("sessao /codex_chat expira por timeout de inatividade e notifica operador (CA-06)", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();

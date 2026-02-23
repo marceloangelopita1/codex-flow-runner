@@ -59,6 +59,7 @@ export interface CodexChatSessionState {
   startedAt: Date;
   lastActivityAt: Date;
   waitingCodexSinceAt: Date | null;
+  userInactivitySinceAt: Date | null;
   lastCodexActivityAt: Date | null;
   lastCodexStream: CodexChatCodexStream | null;
   lastCodexPreview: string | null;

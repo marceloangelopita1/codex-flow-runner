@@ -3370,8 +3370,16 @@ export class TelegramController {
         `Início da sessão /codex_chat: ${state.codexChatSession.startedAt.toISOString()}`,
         `Última atividade /codex_chat: ${state.codexChatSession.lastActivityAt.toISOString()}`,
         `Aguardando Codex /codex_chat: ${state.codexChatSession.phase === "waiting-codex" ? "sim" : "nao"}`,
+        `Inatividade do operador /codex_chat: ${state.codexChatSession.userInactivitySinceAt ? "ativa" : "pausada"}`,
         `Última atividade Codex /codex_chat: ${state.codexChatSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
       );
+      if (state.codexChatSession.userInactivitySinceAt) {
+        lines.push(
+          `Inatividade do operador /codex_chat desde: ${state.codexChatSession.userInactivitySinceAt.toISOString()}`,
+        );
+      } else {
+        lines.push("Inatividade do operador /codex_chat pausada durante processamento do Codex.");
+      }
       if (state.codexChatSession.waitingCodexSinceAt) {
         lines.push(
           `Aguardando Codex /codex_chat desde: ${state.codexChatSession.waitingCodexSinceAt.toISOString()}`,

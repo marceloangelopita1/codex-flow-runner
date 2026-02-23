@@ -418,6 +418,13 @@ export class TicketRunner {
                   waitingCodexSinceAt: new Date(this.state.codexChatSession.waitingCodexSinceAt),
                 }
               : {}),
+            ...(this.state.codexChatSession.userInactivitySinceAt
+              ? {
+                  userInactivitySinceAt: new Date(
+                    this.state.codexChatSession.userInactivitySinceAt,
+                  ),
+                }
+              : {}),
             ...(this.state.codexChatSession.lastCodexActivityAt
               ? {
                   lastCodexActivityAt: new Date(this.state.codexChatSession.lastCodexActivityAt),
@@ -790,6 +797,7 @@ export class TicketRunner {
         startedAt: now,
         lastActivityAt: now,
         waitingCodexSinceAt: null,
+        userInactivitySinceAt: now,
         lastCodexActivityAt: null,
         lastCodexStream: null,
         lastCodexPreview: null,
@@ -827,6 +835,7 @@ export class TicketRunner {
         chatId,
         sessionId,
         phase: "waiting-user",
+        userInactivitySinceAt: now.toISOString(),
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
@@ -1340,8 +1349,10 @@ export class TicketRunner {
       if (!codexChatSession.waitingCodexSinceAt) {
         codexChatSession.waitingCodexSinceAt = now;
       }
+      codexChatSession.userInactivitySinceAt = null;
     } else {
       codexChatSession.waitingCodexSinceAt = null;
+      codexChatSession.userInactivitySinceAt = now;
     }
     this.refreshCodexChatTimeout(activeSession.id);
 
@@ -1359,6 +1370,7 @@ export class TicketRunner {
       phase,
       reason: message,
       waitingCodexSinceAt: codexChatSession.waitingCodexSinceAt?.toISOString() ?? null,
+      userInactivitySinceAt: codexChatSession.userInactivitySinceAt?.toISOString() ?? null,
       activeProjectName: codexChatSession.activeProjectSnapshot.name,
       activeProjectPath: codexChatSession.activeProjectSnapshot.path,
     });
@@ -1366,12 +1378,18 @@ export class TicketRunner {
 
   private refreshCodexChatTimeout(sessionId: number): void {
     const activeSession = this.activeCodexChatSession;
-    if (!activeSession || activeSession.id !== sessionId) {
+    const codexChatSession = this.state.codexChatSession;
+    if (!activeSession || !codexChatSession || activeSession.id !== sessionId) {
       return;
     }
 
     if (activeSession.timeoutHandle) {
       this.clearTimer(activeSession.timeoutHandle);
+      activeSession.timeoutHandle = null;
+    }
+
+    if (codexChatSession.phase !== "waiting-user") {
+      return;
     }
 
     activeSession.timeoutHandle = this.setTimer(() => {
@@ -1484,6 +1502,8 @@ export class TicketRunner {
       timeoutMs: this.codexChatSessionTimeoutMs,
       phase: this.state.codexChatSession?.phase,
       waitingCodexSinceAt: this.state.codexChatSession?.waitingCodexSinceAt?.toISOString() ?? null,
+      userInactivitySinceAt:
+        this.state.codexChatSession?.userInactivitySinceAt?.toISOString() ?? null,
       lastCodexActivityAt:
         this.state.codexChatSession?.lastCodexActivityAt?.toISOString() ?? null,
       lastCodexStream: this.state.codexChatSession?.lastCodexStream ?? null,
@@ -1512,7 +1532,6 @@ export class TicketRunner {
     }
 
     codexChatSession.lastActivityAt = this.now();
-    this.refreshCodexChatTimeout(sessionId);
 
     if (event.type === "activity") {
       this.recordCodexChatActivity(activeSession, codexChatSession, sessionId, event);
@@ -1657,6 +1676,7 @@ export class TicketRunner {
 
     if (activeSession.timeoutHandle) {
       this.clearTimer(activeSession.timeoutHandle);
+      activeSession.timeoutHandle = null;
     }
     this.clearCodexChatOutputBuffer(activeSession);
 

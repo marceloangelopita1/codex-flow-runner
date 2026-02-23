@@ -88,6 +88,7 @@ const createCodexChatSession = (
   startedAt: new Date("2026-02-21T10:00:00.000Z"),
   lastActivityAt: new Date("2026-02-21T10:01:00.000Z"),
   waitingCodexSinceAt: null,
+  userInactivitySinceAt: new Date("2026-02-21T10:01:00.000Z"),
   lastCodexActivityAt: null,
   lastCodexStream: null,
   lastCodexPreview: null,
@@ -3530,6 +3531,7 @@ test("status inclui bloco detalhado de /codex_chat quando sessao esta ativa (CA-
         startedAt: new Date("2026-02-21T10:00:00.000Z"),
         lastActivityAt: new Date("2026-02-21T10:03:00.000Z"),
         waitingCodexSinceAt: new Date("2026-02-21T10:02:00.000Z"),
+        userInactivitySinceAt: null,
         lastCodexActivityAt: new Date("2026-02-21T10:02:30.000Z"),
         lastCodexStream: "stdout",
         lastCodexPreview: "resposta parcial do codex",
@@ -3544,9 +3546,33 @@ test("status inclui bloco detalhado de /codex_chat quando sessao esta ativa (CA-
   assert.match(reply, /Início da sessão \/codex_chat: 2026-02-21T10:00:00\.000Z/u);
   assert.match(reply, /Última atividade \/codex_chat: 2026-02-21T10:03:00\.000Z/u);
   assert.match(reply, /Aguardando Codex \/codex_chat: sim/u);
+  assert.match(reply, /Inatividade do operador \/codex_chat: pausada/u);
+  assert.match(
+    reply,
+    /Inatividade do operador \/codex_chat pausada durante processamento do Codex\./u,
+  );
   assert.match(reply, /Aguardando Codex \/codex_chat desde: 2026-02-21T10:02:00\.000Z/u);
   assert.match(reply, /Último stream Codex \/codex_chat: stdout/u);
   assert.match(reply, /Preview da última saída Codex \/codex_chat: resposta parcial do codex/u);
+});
+
+test("status explicita janela ativa de inatividade do operador em /codex_chat", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      codexChatSession: createCodexChatSession({
+        phase: "waiting-user",
+        userInactivitySinceAt: new Date("2026-02-21T10:04:00.000Z"),
+      }),
+    }),
+  );
+
+  assert.match(reply, /Inatividade do operador \/codex_chat: ativa/u);
+  assert.match(
+    reply,
+    /Inatividade do operador \/codex_chat desde: 2026-02-21T10:04:00\.000Z/u,
+  );
 });
 
 test("status inclui ultimo encerramento de /codex_chat quando sessao esta inativa (CA-07)", () => {
