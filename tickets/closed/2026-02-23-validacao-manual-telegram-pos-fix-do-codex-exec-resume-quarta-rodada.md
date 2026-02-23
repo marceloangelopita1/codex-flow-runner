@@ -1,7 +1,7 @@
 # [TICKET] Validacao manual em Telegram do fix de `codex exec resume` para `/codex_chat` e `/plan_spec` (quarta rodada)
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-23 13:34Z
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-quarta-rodada.md
   - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-terceira-rodada.md
   - tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-terceira-rodada.md
 
@@ -52,9 +53,44 @@ Aceite manual completo em Telegram real para ambos os fluxos interativos, com se
 6. Registrar evidencias UTC e consolidar gate `GO/NO_GO` no ticket.
 
 ## Evidence (inherited baseline)
+- Janela UTC desta execucao: `2026-02-23 13:37Z` ate `2026-02-23 13:38Z`.
+- `printenv TELEGRAM_ALLOWED_CHAT_ID` retornou chat autorizado configurado (`1314750680`).
+- `systemctl status codex-flow-runner --no-pager` retornou `Unit codex-flow-runner.service could not be found.`
+- `ps -eo pid,lstart,cmd | rg -n "tsx src/main.ts|node .*dist/main.js"` confirmou runner manual ativo via `tsx src/main.ts`.
+- Preflight de cliente Telegram de usuario: `telegram-cli=MISSING`, `tg=MISSING`, `tdl=MISSING`, `telethon=MISSING`.
 - `codex exec resume --help` segue exibindo uso sem `-s/--sandbox` no subcomando `resume`.
 - `npm run test -- src/integrations/codex-client.test.ts` permanece verde (`# pass 229`, `# fail 0`).
-- Bloqueio da terceira rodada foi operacional, sem indicio novo de regressao funcional.
+- Nao houve indicio novo de regressao funcional; bloqueio desta rodada permanece operacional.
+
+## Execution log (UTC) - quarta rodada
+- Janela executada: `2026-02-23 13:37Z` ate `2026-02-23 13:38Z`.
+- Passos concluido do ExecPlan:
+  - Preflight operacional local (`date -u`, `printenv TELEGRAM_ALLOWED_CHAT_ID`, `systemctl status`, fallback de processo manual em `ps`).
+  - Reconfirmacao do contrato `codex exec resume --help` sem `-s/--sandbox`.
+  - Baseline tecnico com `npm run test -- src/integrations/codex-client.test.ts` (`# tests 229`, `# pass 229`, `# fail 0`).
+  - Registro de fim da janela UTC.
+- Passos bloqueados do ExecPlan:
+  - Validacao manual no Telegram (`/status`, `/codex_chat` em 2 turnos, `/plan_spec` em 2 turnos, `/plan_spec_status` e limpeza) nao executada por ausencia de cliente Telegram de usuario no host.
+  - Correlacao por `journalctl -u codex-flow-runner` indisponivel por ausencia da unit `codex-flow-runner.service` (`STEP15_SKIPPED=unit codex-flow-runner.service not found`).
+
+## Gate desta execucao
+- Resultado: `NO_GO` (fechado com `split-follow-up`).
+- Motivos objetivos:
+  - sem cliente Telegram de usuario no host para executar os passos manuais obrigatorios do aceite;
+  - sem unit `systemd` para trilha por `journalctl -u` nesta janela.
+- Conclusao tecnica parcial:
+  - o fix de `codex exec resume` continua estavel em help/testes locais;
+  - o aceite manual ponta-a-ponta em Telegram real continua pendente.
+
+## Validacao dos criterios do ExecPlan nesta execucao
+- [ ] `/codex_chat` aprovado manualmente em dois turnos no mesmo contexto.
+  - Evidencia desta execucao: bloqueado por indisponibilidade de cliente Telegram de usuario no host.
+- [ ] `/plan_spec` aprovado manualmente em dois turnos (brief inicial + refinamento).
+  - Evidencia desta execucao: bloqueado pelo mesmo impedimento operacional.
+- [x] Evidencias objetivas de preflight e baseline tecnico registradas com timestamps UTC.
+  - Evidencia desta execucao: secao `Evidence` e `Execution log (UTC)`.
+- [x] Gate final explicito `GO/NO_GO` registrado para a janela executada.
+  - Evidencia desta execucao: secao `Gate desta execucao` com resultado `NO_GO`.
 
 ## Validation checklist (must pass for `GO`)
 - [ ] `/codex_chat` validado manualmente em dois turnos no Telegram real sem parser error.
@@ -77,9 +113,15 @@ Aceite manual completo em Telegram real para ambos os fluxos interativos, com se
 - 2026-02-23 13:34Z - Ticket criado como follow-up `P0` apos fechamento `split-follow-up` da terceira rodada.
   - Motivo: bloqueios operacionais impediram aceite manual obrigatorio no Telegram real.
   - Vinculos: ticket pai, execplan da terceira rodada e commit de fechamento no mesmo changeset.
+- 2026-02-23 13:38Z - ExecPlan da quarta rodada executado parcialmente com gate `NO_GO` nesta janela.
+  - Motivo: ambiente segue sem cliente Telegram de usuario e sem unit `codex-flow-runner.service`, impedindo os passos manuais obrigatorios.
+  - Impacto: rodada encerrou sem aceite manual e exigiu abertura de follow-up para continuidade.
+- 2026-02-23 13:40Z - Fechamento aplicado como `split-follow-up`.
+  - Motivo: criterios obrigatorios do ExecPlan continuam sem aceite manual em Telegram real por bloqueio operacional (sem cliente Telegram de usuario e sem unit `codex-flow-runner.service`).
+  - Pendencias principais transferidas para: `tickets/open/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-quinta-rodada.md`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-23 13:40Z
+- Closure reason: split-follow-up
+- Related PR/commit/execplan: execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-quarta-rodada.md (commit: mesmo changeset de fechamento split-follow-up desta quarta rodada)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/open/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-quinta-rodada.md
