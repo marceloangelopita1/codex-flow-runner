@@ -1,21 +1,21 @@
-# [TICKET] Follow-up `P0` da validacao manual Telegram apos `NO_GO` da decima rodada (decima primeira rodada)
+# [TICKET] Follow-up `P0` da validacao manual Telegram apos `NO_GO` da decima primeira rodada (decima segunda rodada)
 
 ## Metadata
 - Status: open
 - Priority: P0
 - Severity: S1
-- Created at (UTC): 2026-02-23 14:28Z
+- Created at (UTC): 2026-02-23 14:36Z
 - Reporter: codex
 - Owner: mapita
 - Source: local-run
-- Parent ticket (optional): tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-rodada.md
-- Parent execplan (optional): execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-rodada.md
-- Parent commit (optional): mesmo changeset de fechamento split-follow-up da decima rodada
+- Parent ticket (optional): tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-primeira-rodada.md
+- Parent execplan (optional): execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-primeira-rodada.md
+- Parent commit (optional): mesmo changeset de fechamento split-follow-up da decima primeira rodada
 - Request ID: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
-  - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-rodada.md
-  - tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-rodada.md
+  - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-primeira-rodada.md
+  - tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-decima-primeira-rodada.md
 
 ## Context
 - Objetivo deste follow-up: concluir o aceite manual ponta-a-ponta em Telegram real para `/codex_chat` e `/plan_spec`.
@@ -49,8 +49,8 @@
 - Risco de regressao: medio ate evidencia ponta-a-ponta.
 
 ## Decision log
-- 2026-02-23 14:28Z - Follow-up criado com prioridade `P0`.
-  - Motivo: bloqueio operacional da decima rodada impede aceite final em Telegram real.
+- 2026-02-23 14:36Z - Follow-up criado com prioridade `P0`.
+  - Motivo: bloqueio operacional da decima primeira rodada impede aceite final em Telegram real.
   - Vinculos: ticket pai fechado, execplan pai e commit de fechamento no mesmo changeset.
 
 ## Closure
