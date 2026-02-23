@@ -1,24 +1,24 @@
-# [TICKET] Validacao manual em Telegram do fix de `codex exec resume` para `/codex_chat` e `/plan_spec` (setima rodada)
+# [TICKET] Validacao manual em Telegram do fix de `codex exec resume` para `/codex_chat` e `/plan_spec` (oitava rodada)
 
 ## Metadata
 - Status: open
 - Priority: P0
 - Severity: S1
-- Created at (UTC): 2026-02-23 13:58Z
+- Created at (UTC): 2026-02-23 14:05Z
 - Reporter: codex
 - Owner: mapita
 - Source: local-run
-- Parent ticket (optional): tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-sexta-rodada.md
-- Parent execplan (optional): execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-sexta-rodada.md
-- Parent commit (optional): mesmo changeset de fechamento split-follow-up da sexta rodada
+- Parent ticket (optional): tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-setima-rodada.md
+- Parent execplan (optional): execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-setima-rodada.md
+- Parent commit (optional): mesmo changeset de fechamento split-follow-up da setima rodada
 - Request ID: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
-  - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-sexta-rodada.md
-  - tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-sexta-rodada.md
+  - execplans/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-setima-rodada.md
+  - tickets/closed/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume-setima-rodada.md
 
 ## Problem statement
-A sexta rodada encerrou com `NO_GO` por bloqueio operacional real: host sem cliente Telegram de usuario para executar comandos manuais no chat autorizado e sem unit `codex-flow-runner.service` para correlacao via `journalctl -u`.
+A setima rodada encerrou com `NO_GO` por bloqueio operacional real: host sem cliente Telegram de usuario para executar comandos manuais no chat autorizado e sem unit `codex-flow-runner.service` para correlacao via `journalctl -u`.
 
 ## Pendencias principais
 - Validar `/codex_chat` em dois turnos no mesmo contexto sem `unexpected argument '-s'`.
@@ -26,8 +26,8 @@ A sexta rodada encerrou com `NO_GO` por bloqueio operacional real: host sem clie
 - Registrar `/status` antes e depois dos fluxos e `/plan_spec_status` ao final.
 - Consolidar evidencias objetivas com janela UTC e saidas observaveis.
 
-## Evidencias herdadas da sexta rodada
-- Janela UTC anterior: `2026-02-23 13:55Z` ate `2026-02-23 13:55Z`.
+## Evidencias herdadas da setima rodada
+- Janela UTC anterior: `2026-02-23 14:02Z` ate `2026-02-23 14:03Z`.
 - `TELEGRAM_ALLOWED_CHAT_ID` configurado (`1314750680`).
 - `codex exec resume --help` sem `-s/--sandbox`.
 - `npm run test -- src/integrations/codex-client.test.ts` verde (`# pass 229`, `# fail 0`).
@@ -52,7 +52,7 @@ A sexta rodada encerrou com `NO_GO` por bloqueio operacional real: host sem clie
 - Risco de regressao: medio enquanto nao houver evidencia manual ponta-a-ponta.
 
 ## Decision log
-- 2026-02-23 13:58Z - Ticket criado como follow-up `P0` apos fechamento `split-follow-up` da sexta rodada.
+- 2026-02-23 14:05Z - Ticket criado como follow-up `P0` apos fechamento `split-follow-up` da setima rodada.
   - Motivo: bloqueio operacional persistente impediu aceite manual obrigatorio no Telegram real.
   - Vinculos: ticket pai, execplan pai e commit de fechamento no mesmo changeset.
 
