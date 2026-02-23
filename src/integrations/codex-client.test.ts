@@ -376,11 +376,16 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(capturedArgs.length, 2);
   assert.equal(capturedArgs[0]?.includes("resume"), false);
   assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("-s"), true);
+  assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Brief do operador: brief inicial/u);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
 
   assert.equal(capturedArgs[1]?.includes("resume"), true);
+  assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(capturedArgs[1]?.includes("-s"), false);
+  assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
   assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "refine com mais detalhes");
@@ -567,9 +572,14 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
   assert.equal(capturedArgs.length, 2);
   assert.equal(capturedArgs[0]?.includes("resume"), false);
   assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("-s"), true);
+  assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
 
   assert.equal(capturedArgs[1]?.includes("resume"), true);
+  assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(capturedArgs[1]?.includes("-s"), false);
+  assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
 

@@ -1,7 +1,7 @@
 # [TICKET] Segunda interacao de /codex_chat falha por uso invalido de `-s` em `codex exec resume`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-23 12:01Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: production-observation
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-23-codex-exec-resume-flag-sandbox-incompativel-em-sessoes-interativas.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -87,9 +87,13 @@ A segunda (e demais) interacoes de sessoes `/codex_chat` e `/plan_spec` devem us
 
 ## Decision log
 - 2026-02-23 - Ticket aberto a partir de incidente em producao no Telegram com reproducao local no `codex-cli 0.104.0`.
+- 2026-02-23 - Validacao de fechamento classificada como `NO_GO`.
+  - Evidencias atendidas: ajuste de contrato de args aplicado em `src/integrations/codex-client.ts`, cobertura automatizada adicionada em `src/integrations/codex-client.test.ts`, suites verdes (`npx tsx --test src/integrations/codex-client.test.ts`, `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm run check`, `npm run build`) e execucao real local de `codex exec` + `codex exec resume` sem `unexpected argument '-s'`.
+  - Motivo do `NO_GO`: criterio de aceite operacional do ExecPlan para validacao manual em Telegram (`/codex_chat` e `/plan_spec`, segundo turno em ambiente real) permaneceu pendente neste ciclo.
+  - Pendencias principais: executar validacao manual ponta-a-ponta no bot Telegram e anexar evidencia operacional de ausencia de parser error no segundo turno para os dois fluxos.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-23 12:11Z
+- Closure reason: split-follow-up
+- Related PR/commit/execplan: execplans/2026-02-23-codex-exec-resume-flag-sandbox-incompativel-em-sessoes-interativas.md (commit: mesmo changeset de fechamento com split-follow-up)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/open/2026-02-23-validacao-manual-telegram-pos-fix-do-codex-exec-resume.md

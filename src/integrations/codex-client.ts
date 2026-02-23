@@ -217,6 +217,7 @@ const CODEX_SANDBOX_FULL_ACCESS_ARGS = [
   "-s",
   "danger-full-access",
 ];
+const CODEX_RESUME_FULL_ACCESS_ARGS = ["--dangerously-bypass-approvals-and-sandbox"] as const;
 const CODEX_EXEC_ONLY_ARGS = ["--skip-git-repo-check"] as const;
 const CODEX_COLOR_NEVER_ARGS = [
   "--color",
@@ -257,7 +258,7 @@ const buildFreeChatExecResumeArgs = (threadId: string, prompt: string): string[]
   "exec",
   "resume",
   ...CODEX_EXEC_ONLY_ARGS,
-  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
+  ...CODEX_RESUME_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
   threadId,
   prompt,
@@ -268,7 +269,7 @@ const buildPlanSpecExecResumeArgs = (threadId: string, prompt: string): string[]
   "exec",
   "resume",
   ...CODEX_EXEC_ONLY_ARGS,
-  ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
+  ...CODEX_RESUME_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
   threadId,
   prompt,
