@@ -940,83 +940,62 @@ test("syncActiveProject permite troca enquanto runner inicia rodada em outro pro
   assert.equal(state.activeProject?.path, activeProjectB.path);
 });
 
-test("requestPause e requestResume atuam apenas no slot do projeto ativo", async () => {
+test("requestPause e requestResume controlam o slot de ticket do projeto ativo", async () => {
   const logger = new SpyLogger();
 
-  const createBlockingQueue = () => {
-    let releaseWait: (() => void) | null = null;
-    const waitForRelease = new Promise<TicketRef | null>((resolve) => {
-      releaseWait = () => resolve(null);
-    });
-
-    return {
-      queue: {
-        ensureStructure: async () => undefined,
-        nextOpenTicket: async () => waitForRelease,
-        closeTicket: async () => undefined,
-      } satisfies TicketQueue,
-      release: () => {
-        releaseWait?.();
-      },
-    };
+  let releaseWait: () => void = () => undefined;
+  const waitForRelease = new Promise<TicketRef | null>((resolve) => {
+    releaseWait = () => resolve(null);
+  });
+  let nextTicketCalls = 0;
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+      return waitForRelease;
+    },
+    closeTicket: async () => undefined,
   };
 
-  const alphaQueue = createBlockingQueue();
-  const betaQueue = createBlockingQueue();
-  const roundDependenciesA = createRoundDependencies({
+  const roundDependencies = createRoundDependencies({
     activeProject: activeProjectA,
-    queue: alphaQueue.queue,
+    queue,
     codexClient: new StubCodexClient(),
     gitVersioning: new StubGitVersioning(),
   });
-  const roundDependenciesB = createRoundDependencies({
-    activeProject: activeProjectB,
-    queue: betaQueue.queue,
-    codexClient: new StubCodexClient(),
-    gitVersioning: new StubGitVersioning(),
-  });
+  const runner = createRunner(logger, roundDependencies);
 
-  let currentProject: "alpha" | "beta" = "alpha";
-  const runner = createRunner(logger, roundDependenciesA, {
-    resolveRoundDependencies: async () =>
-      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
-  });
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
 
-  const runAlphaResult = await runner.requestRunAll();
-  currentProject = "beta";
-  const runBetaResult = await runner.requestRunAll();
-  assert.deepEqual(runAlphaResult, { status: "started" });
-  assert.deepEqual(runBetaResult, { status: "started" });
-
-  assert.deepEqual(runner.syncActiveProject(activeProjectB), { status: "updated" });
   const pauseResult = runner.requestPause();
   assert.deepEqual(pauseResult, {
     status: "applied",
     action: "pause",
-    project: activeProjectB,
+    project: activeProjectA,
     isPaused: true,
   });
+
   const pausedState = runner.getState();
-  const pausedAlphaSlot = pausedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
-  const pausedBetaSlot = pausedState.activeSlots.find((slot) => slot.project.name === activeProjectB.name);
-  assert.equal(pausedAlphaSlot?.isPaused, false);
-  assert.equal(pausedBetaSlot?.isPaused, true);
+  const pausedSlot = pausedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
+  assert.equal(pausedSlot?.isPaused, true);
 
   const resumeResult = runner.requestResume();
   assert.deepEqual(resumeResult, {
     status: "applied",
     action: "resume",
-    project: activeProjectB,
+    project: activeProjectA,
     isPaused: false,
   });
-  const resumedState = runner.getState();
-  const resumedAlphaSlot = resumedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
-  const resumedBetaSlot = resumedState.activeSlots.find((slot) => slot.project.name === activeProjectB.name);
-  assert.equal(resumedAlphaSlot?.isPaused, false);
-  assert.equal(resumedBetaSlot?.isPaused, false);
 
-  alphaQueue.release();
-  betaQueue.release();
+  const resumedState = runner.getState();
+  const resumedSlot = resumedState.activeSlots.find((slot) => slot.project.name === activeProjectA.name);
+  assert.equal(resumedSlot?.isPaused, false);
+
+  releaseWait();
   await waitForRunnerToStop(runner);
 });
 
@@ -1390,7 +1369,7 @@ test("requestRunSpecs evita corrida durante preflight de autenticacao", async ()
   assert.equal(resolveCalls, 2);
 });
 
-test("requestRunAll aceita execucoes paralelas em projetos distintos (CA-01)", async () => {
+test("requestRunAll aplica lock global e bloqueia segundo inicio em projeto distinto (RF-11)", async () => {
   const logger = new SpyLogger();
   const codexA = new StubCodexClient();
   const codexB = new StubCodexClient();
@@ -1439,84 +1418,165 @@ test("requestRunAll aceita execucoes paralelas em projetos distintos (CA-01)", a
   const [runAlphaResult, runBetaResult] = await Promise.all([runAlphaPromise, runBetaPromise]);
 
   assert.deepEqual(runAlphaResult, { status: "started" });
-  assert.deepEqual(runBetaResult, { status: "started" });
+  assert.equal(runBetaResult.status, "blocked");
+  if (runBetaResult.status === "blocked") {
+    assert.equal(runBetaResult.reason, "ticket-lock-active");
+    assert.match(
+      runBetaResult.message,
+      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
+    );
+  }
 
   await waitForRunnerToStop(runner);
   assert.equal(codexA.authChecks, 1);
-  assert.equal(codexB.authChecks, 1);
+  assert.equal(codexB.authChecks, 0);
+  assert.equal(nextTicketCallsA, 2);
+  assert.equal(nextTicketCallsB, 0);
 });
 
-test("requestRunAll bloqueia no sexto projeto com capacidade cheia e aceita apos liberar vaga (CA-03, CA-04)", async () => {
+test("requestRunSpecs respeita lock global quando /run_all estiver ativo em outro projeto", async () => {
+  const logger = new SpyLogger();
+  const codexA = new StubCodexClient();
+  const codexB = new StubCodexClient();
+
+  let releaseWait: () => void = () => undefined;
+  const waitForRelease = new Promise<TicketRef | null>((resolve) => {
+    releaseWait = () => resolve(null);
+  });
+  let nextTicketCalls = 0;
+  const queueA: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        return ticketA;
+      }
+      return waitForRelease;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: queueA,
+    codexClient: codexA,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: defaultQueue,
+    codexClient: codexB,
+    gitVersioning: new StubGitVersioning(),
+  });
+
+  let currentProject: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
+
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
+
+  currentProject = "beta";
+  const runSpecsResult = await runner.requestRunSpecs(specFileName);
+  assert.equal(runSpecsResult.status, "blocked");
+  if (runSpecsResult.status === "blocked") {
+    assert.equal(runSpecsResult.reason, "ticket-lock-active");
+    assert.match(
+      runSpecsResult.message,
+      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
+    );
+  }
+
+  assert.equal(codexA.authChecks, 1);
+  assert.equal(codexB.authChecks, 0);
+
+  releaseWait();
+  await waitForRunnerToStop(runner);
+});
+
+test("requestRunAll libera lock global apos conclusao e permite nova execucao em outro projeto", async () => {
   const logger = new SpyLogger();
 
-  const createBlockingQueue = () => {
-    let releaseWait: (() => void) | null = null;
+  const createBlockingQueue = (ticket: TicketRef) => {
+    let releaseWait: () => void = () => undefined;
     const waitForRelease = new Promise<TicketRef | null>((resolve) => {
       releaseWait = () => {
         resolve(null);
       };
     });
 
+    let nextCalls = 0;
     return {
       queue: {
         ensureStructure: async () => undefined,
-        nextOpenTicket: async () => waitForRelease,
+        nextOpenTicket: async () => {
+          nextCalls += 1;
+          if (nextCalls === 1) {
+            return ticket;
+          }
+          return waitForRelease;
+        },
         closeTicket: async () => undefined,
       } satisfies TicketQueue,
       release: () => {
-        releaseWait?.();
+        releaseWait();
       },
     };
   };
 
-  const projects: ProjectRef[] = [
-    { name: "proj-1", path: "/tmp/projects/proj-1" },
-    { name: "proj-2", path: "/tmp/projects/proj-2" },
-    { name: "proj-3", path: "/tmp/projects/proj-3" },
-    { name: "proj-4", path: "/tmp/projects/proj-4" },
-    { name: "proj-5", path: "/tmp/projects/proj-5" },
-    { name: "proj-6", path: "/tmp/projects/proj-6" },
-  ];
-
-  const queueControls = projects.map(() => createBlockingQueue());
-  const dependencies = projects.map((project, index) =>
-    createRoundDependencies({
-      activeProject: project,
-      queue: queueControls[index].queue,
-      codexClient: new StubCodexClient(),
-      gitVersioning: new StubGitVersioning(),
-    }),
-  );
-
-  let activeProjectIndex = 0;
-  const runner = createRunner(logger, dependencies[0], {
-    resolveRoundDependencies: async () => dependencies[activeProjectIndex],
+  const alphaQueue = createBlockingQueue(ticketA);
+  const betaQueue = createBlockingQueue(ticketB);
+  const roundDependenciesA = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: alphaQueue.queue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const roundDependenciesB = createRoundDependencies({
+    activeProject: activeProjectB,
+    queue: betaQueue.queue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
   });
 
-  for (let index = 0; index < 5; index += 1) {
-    activeProjectIndex = index;
-    const result = await runner.requestRunAll();
-    assert.deepEqual(result, { status: "started" });
-  }
+  let currentProject: "alpha" | "beta" = "alpha";
+  const runner = createRunner(logger, roundDependenciesA, {
+    resolveRoundDependencies: async () =>
+      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
+  });
 
-  activeProjectIndex = 5;
+  const firstResult = await runner.requestRunAll();
+  assert.deepEqual(firstResult, { status: "started" });
+  assert.equal(runner.getState().ticketCapacity.limit, 1);
+  assert.equal(runner.getState().ticketCapacity.used, 1);
+  assert.equal(runner.getState().ticketCapacity.isLocked, true);
+
+  currentProject = "beta";
   const blockedResult = await runner.requestRunAll();
   assert.equal(blockedResult.status, "blocked");
   if (blockedResult.status === "blocked") {
-    assert.equal(blockedResult.reason, "runner-capacity-full");
-    assert.equal(blockedResult.activeProjects?.length, 5);
-    assert.match(blockedResult.message, /Capacidade maxima de 5 runners ativos atingida/u);
+    assert.equal(blockedResult.reason, "ticket-lock-active");
+    assert.match(
+      blockedResult.message,
+      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
+    );
   }
 
-  queueControls[0].release();
+  alphaQueue.release();
   await sleep(0);
+  await waitForRunnerToStop(runner);
+  assert.equal(runner.getState().ticketCapacity.limit, 1);
+  assert.equal(runner.getState().ticketCapacity.used, 0);
+  assert.equal(runner.getState().ticketCapacity.isLocked, false);
 
   const retryResult = await runner.requestRunAll();
   assert.deepEqual(retryResult, { status: "started" });
+  assert.equal(runner.getState().ticketCapacity.used, 1);
+  assert.equal(runner.getState().ticketCapacity.isLocked, true);
 
-  for (const control of queueControls) {
-    control.release();
-  }
+  betaQueue.release();
   await waitForRunnerToStop(runner);
 });
 

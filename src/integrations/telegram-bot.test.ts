@@ -53,6 +53,11 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
     limit: 5,
     used: 0,
   },
+  ticketCapacity: {
+    limit: 1,
+    used: 0,
+    isLocked: false,
+  },
   activeSlots: [],
   planSpecSession: null,
   phase: "idle",
@@ -3468,6 +3473,11 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
       limit: 5,
       used: 2,
     },
+    ticketCapacity: {
+      limit: 1,
+      used: 1,
+      isLocked: true,
+    },
     activeSlots: [
       {
         project: {
@@ -3510,6 +3520,7 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   assert.match(reply, /Projeto ativo: codex-flow-runner/u);
   assert.match(reply, /Caminho do projeto ativo: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /Runners ativos \(global\): 2\/5/u);
+  assert.match(reply, /Capacidade de tickets \(global\): 1\/1 \(lock ativo\)/u);
   assert.match(reply, /Slots ativos:/u);
   assert.match(reply, /1\. alpha-project \(\/run_all\)/u);
   assert.match(reply, /2\. beta-project \(\/run_specs\)/u);

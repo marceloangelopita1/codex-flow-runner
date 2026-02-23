@@ -1,7 +1,7 @@
 # [TICKET] Lock global de concorrencia ainda permite multiplos tickets em execucao no runner
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-23 16:14Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram.md
+  - execplans/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
   - INTERNAL_TICKETS.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -83,9 +84,19 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-23 - Gap aberto a partir de triagem da spec `2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram`.
+- 2026-02-23 - Execucao validada contra o ExecPlan com resultado `GO` por evidencia objetiva de testes e checks automatizados.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-02-23 16:34Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md`
+  - Commit: registrado no commit de fechamento deste ciclo.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Closure validation (GO):
+  - [x] lock global impede novo ticket quando ja existe ticket em execucao global.
+  - [x] motivo de bloqueio tipado e mensagem contextual para Telegram.
+  - [x] estado/capacidade inclui snapshot dedicado de ticket (`ticketCapacity`).
+  - [x] testes atualizados para bloquear paralelismo entre projetos e preservar fluxos nao-ticket.
+  - [x] validacao automatizada executada: `npx tsx --test src/core/runner.test.ts`, `npx tsx --test src/integrations/telegram-bot.test.ts`, `npm run check && npm run build`.
+- Manual validation pending: nao.
