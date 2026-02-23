@@ -1,7 +1,7 @@
 # [TICKET] Fluxo Telegram de "Tickets abertos" para listagem, selecao e leitura integral ainda nao existe
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-23 16:14Z
@@ -9,7 +9,7 @@
 - Owner: mapita
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A
 - Related docs/execplans:
   - docs/specs/2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram.md
+  - execplans/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md
   - INTERNAL_TICKETS.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -87,9 +88,24 @@ Nao obrigatorio. Detalhar em ExecPlan.
 
 ## Decision log
 - 2026-02-23 - Gap aberto a partir de triagem da spec `2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram`.
+- 2026-02-23 - Execucao validada contra o ExecPlan com resultado `GO` por evidencia objetiva de testes e checks automatizados.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-02-23 17:14Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md`
+  - Commit: registrado no commit de fechamento deste ciclo.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Closure validation (GO):
+  - [x] comando `/tickets_open` disponivel e documentado em `/start`.
+  - [x] listagem de `tickets/open/` com ordenacao deterministica, paginacao e callback context.
+  - [x] leitura integral com chunking ordenado para ticket longo.
+  - [x] erro funcional para ticket removido/inexistente entre listagem e selecao.
+  - [x] acao "Implementar este ticket" exibida apos leitura com callback `ticket-run:execute:*`.
+  - [x] validacao automatizada executada: `npx tsx --test src/integrations/ticket-queue.test.ts`, `npx tsx --test src/integrations/telegram-bot.test.ts`, `npm run check && npm run build`.
+- Manual validation pending: sim.
+  - Entrega tecnica concluida: o fluxo foi implementado e validado por testes automatizados.
+  - Validacao manual necessaria: executar o fluxo em bot Telegram real para confirmar UX ponta a ponta no ambiente operacional.
+  - Como validar: no chat autorizado, executar `/tickets_open`, selecionar um ticket longo, confirmar recebimento em partes ordenadas e acionar "Implementar este ticket".
+  - Responsavel operacional: `mapita` (owner do ticket).

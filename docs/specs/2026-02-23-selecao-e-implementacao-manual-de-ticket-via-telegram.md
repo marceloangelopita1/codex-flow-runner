@@ -2,20 +2,22 @@
 
 ## Metadata
 - Spec ID: 2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-23 16:08Z
-- Last reviewed at (UTC): 2026-02-23 16:34Z
+- Last reviewed at (UTC): 2026-02-23 17:14Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
-  - tickets/open/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md
-  - tickets/open/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md
+  - tickets/closed/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md
+  - tickets/closed/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md
 - Related execplans:
   - execplans/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md
+  - execplans/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md
+  - execplans/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md
 - Related commits:
-  - N/A (spec-only nesta etapa).
+  - commit: mesmo changeset de fechamento de `tickets/closed/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md`
 
 ## Objetivo e contexto
 - Problema que esta spec resolve: o bot ainda nao oferece um fluxo guiado para escolher manualmente um ticket aberto, inspecionar seu conteudo completo no chat e executar apenas esse ticket no loop sequencial.
@@ -53,44 +55,45 @@
 - Introduzir persistencia externa nova apenas para este fluxo (banco de dados, filas dedicadas).
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Ao acionar "Tickets abertos", o bot lista tickets de `tickets/open/`; se vazio, retorna mensagem explicita de nenhum ticket disponivel.
-- [ ] CA-02 - Ao selecionar um ticket valido, o bot envia todo o conteudo do arquivo no chat e respeita quebra em multiplas mensagens quando necessario.
-- [ ] CA-03 - Apos envio do conteudo, o bot exibe o botao "Implementar este ticket" para o ticket selecionado.
-- [ ] CA-04 - Se o ticket nao existir mais no momento da selecao/execucao, o bot retorna erro funcional claro sem iniciar o loop.
-- [ ] CA-05 - Se houver execucao em andamento, "Implementar este ticket" e recusado com mensagem de bloqueio e sem alterar estado de execucao atual.
-- [ ] CA-06 - Quando permitido, a acao "Implementar este ticket" inicia execucao sequencial apenas do ticket escolhido.
-- [ ] CA-07 - Durante a execucao manual, logs e status no bot refletem marcos principais (inicio, progresso por etapa, conclusao/erro).
-- [ ] CA-08 - Em sucesso, o ticket processado e movido de `tickets/open/` para `tickets/closed/` no mesmo commit de entrega.
+- [x] CA-01 - Ao acionar "Tickets abertos", o bot lista tickets de `tickets/open/`; se vazio, retorna mensagem explicita de nenhum ticket disponivel.
+- [x] CA-02 - Ao selecionar um ticket valido, o bot envia todo o conteudo do arquivo no chat e respeita quebra em multiplas mensagens quando necessario.
+- [x] CA-03 - Apos envio do conteudo, o bot exibe o botao "Implementar este ticket" para o ticket selecionado.
+- [x] CA-04 - Se o ticket nao existir mais no momento da selecao/execucao, o bot retorna erro funcional claro sem iniciar o loop.
+- [x] CA-05 - Se houver execucao em andamento, "Implementar este ticket" e recusado com mensagem de bloqueio e sem alterar estado de execucao atual.
+- [x] CA-06 - Quando permitido, a acao "Implementar este ticket" inicia execucao sequencial apenas do ticket escolhido.
+- [x] CA-07 - Durante a execucao manual, logs e status no bot refletem marcos principais (inicio, progresso por etapa, conclusao/erro).
+- [x] CA-08 - Em sucesso, o ticket processado e movido de `tickets/open/` para `tickets/closed/` no mesmo commit de entrega.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Matriz RF:
-  - Atendidos: RF-11.
-  - Parcialmente atendidos: RF-03, RF-07, RF-08, RF-10, RF-12, RF-13.
-  - Nao atendidos: RF-01, RF-02, RF-04, RF-05, RF-06, RF-09.
+  - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-11, RF-12, RF-13.
+  - Parcialmente atendidos: nenhum.
+  - Nao atendidos: nenhum.
 - Matriz CA:
-  - Atendidos: nenhum.
-  - Parcialmente atendidos: CA-05, CA-07, CA-08.
-  - Nao atendidos: CA-01, CA-02, CA-03, CA-04, CA-06.
+  - Atendidos: CA-01, CA-02, CA-03, CA-04, CA-05, CA-06, CA-07, CA-08.
+  - Parcialmente atendidos: nenhum.
+  - Nao atendidos: nenhum.
 - Itens atendidos:
-  - RF-11 implementado com lock global para fluxos de ticket (`/run_all` e `/run_specs`) no core, com motivo tipado de bloqueio e mensagem contextual do fluxo ativo (`src/core/runner.ts`, `src/core/runner.test.ts`).
-  - Estado do runner passou a expor snapshot dedicado de capacidade global de ticket (`ticketCapacity` com limite `1`, `used` e `isLocked`) para observabilidade explicita da trava global (`src/types/state.ts`, `src/core/runner.ts`).
-  - `/status` do Telegram passou a exibir capacidade global de ticket e lock ativo/inativo, com cobertura automatizada (`src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
-  - `FileSystemTicketQueue.nextOpenTicket()` ja aplica ordenacao deterministica com prioridade (`P0 -> P1 -> P2`) e fallback por nome, servindo como base para listagem de tickets abertos (`src/integrations/ticket-queue.ts`).
-  - O runner ja possui pipeline sequencial de etapas `plan -> implement -> close-and-version` com verificacao de sincronizacao git ao final, cobrindo parte da regra de fechamento (`src/core/runner.ts`).
-  - O bot ja possui resposta funcional para bloqueio de concorrencia em `/run-all` e `/run_specs`, base reaproveitavel para bloqueio da acao manual (`src/integrations/telegram-bot.ts`).
+  - Fluxo completo de `/tickets_open` entregue com listagem paginada, callback context por chat e controle de stale/idempotencia no Telegram (`src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
+  - `BotControls`/`main.ts` evoluidos para listar tickets abertos e ler conteudo do ticket selecionado no projeto ativo (`src/main.ts`, `src/integrations/telegram-bot.ts`).
+  - `FileSystemTicketQueue` evoluido com `listOpenTickets()` e `readOpenTicket()` nao destrutivos, com ordenacao deterministica e retorno funcional para arquivo ausente/invalido (`src/integrations/ticket-queue.ts`, `src/integrations/ticket-queue.test.ts`).
+  - Envio integral com chunking ordenado implementado para tickets longos, seguido de acao "Implementar este ticket" reaproveitando callback `ticket-run:execute:*` (`src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
+  - Lock global de ticket, execucao unitaria e fechamento no mesmo commit ja entregues no ticket irmao de execucao (`src/core/runner.ts`, `src/core/runner.test.ts`, `tickets/closed/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md`).
 - Pendencias em aberto:
-  - [P1/S2] Implementar fluxo Telegram de "Tickets abertos" (entrada UI/comando, listagem navegavel, selecao, leitura integral e chunking): `tickets/open/2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md`.
-  - [P1/S2] Implementar acao "Implementar este ticket" com execucao unitaria do ticket selecionado, validacao de inexistencia e bloqueio durante execucao em andamento: `tickets/open/2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md`.
-  - Validar CA-01..CA-08 com testes automatizados e evidencia operacional do bot apos implementacao.
+  - Nenhuma pendencia tecnica.
+  - Validacao manual externa pendente: confirmar UX em bot Telegram real no ambiente operacional.
 - Evidencias de validacao:
-  - docs/specs/2026-02-23-selecao-e-implementacao-manual-de-ticket-via-telegram.md
-  - src/integrations/telegram-bot.ts
-  - src/integrations/telegram-bot.test.ts
-  - src/core/runner.ts
-  - src/types/state.ts
-  - src/integrations/ticket-queue.ts
-  - src/core/runner.test.ts
+  - `npx tsx --test src/integrations/ticket-queue.test.ts`
+  - `npx tsx --test src/integrations/telegram-bot.test.ts`
+  - `npm run check && npm run build`
+  - `src/integrations/telegram-bot.ts`
+  - `src/integrations/telegram-bot.test.ts`
+  - `src/integrations/ticket-queue.ts`
+  - `src/integrations/ticket-queue.test.ts`
+  - `src/core/runner.ts`
+  - `src/core/runner.test.ts`
+  - `src/main.ts`
 
 ## Riscos e impacto
 - Risco funcional: selecao de ticket desatualizada pode gerar tentativa de execucao de arquivo removido.
@@ -107,3 +110,5 @@
 - 2026-02-23 16:18Z - Validacao final da triagem concluida, mantendo `Status: approved` e `Spec treatment: pending` devido a 3 gaps rastreados em `tickets/open/`.
 - 2026-02-23 16:30Z - RF-11 atualizado para atendido com lock global de ticket no runner, snapshot `ticketCapacity` no estado e exibicao no `/status` do Telegram, com cobertura de testes automatizados.
 - 2026-02-23 16:34Z - Ticket de lock global fechado com rastreabilidade para `tickets/closed/` e `execplans/2026-02-23-lock-global-sequencial-para-execucao-de-ticket-no-runner.md`.
+- 2026-02-23 16:57Z - Ticket de execucao unitaria "Implementar este ticket" fechado com cobertura automatizada e lock global preservado.
+- 2026-02-23 17:14Z - Ticket de fluxo `/tickets_open` fechado com resultado `GO`; CA-01..CA-08 atendidos, spec atualizada para `Status: attended` e `Spec treatment: done` com validacao manual externa pendente.

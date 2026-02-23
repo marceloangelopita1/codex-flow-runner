@@ -23,6 +23,21 @@ export interface TicketQueue {
   closeTicket(ticket: TicketRef): Promise<void>;
 }
 
+export type ReadOpenTicketResult =
+  | {
+      status: "found";
+      ticket: TicketRef;
+      content: string;
+    }
+  | {
+      status: "not-found";
+      ticketName: string;
+    }
+  | {
+      status: "invalid-name";
+      ticketName: string;
+    };
+
 interface TicketCandidate {
   name: string;
   priorityRank: number;
@@ -48,11 +63,59 @@ export class FileSystemTicketQueue implements TicketQueue {
   }
 
   async nextOpenTicket(): Promise<TicketRef | null> {
+    const candidates = await this.listPrioritizedOpenTicketCandidates();
+    const firstCandidate = candidates.at(0);
+    if (!firstCandidate) {
+      return null;
+    }
+
+    return this.buildTicketRef(firstCandidate.name);
+  }
+
+  async listOpenTickets(): Promise<TicketRef[]> {
+    const candidates = await this.listPrioritizedOpenTicketCandidates();
+    return candidates.map((candidate) => this.buildTicketRef(candidate.name));
+  }
+
+  async readOpenTicket(ticketName: string): Promise<ReadOpenTicketResult> {
+    const normalizedTicketName = ticketName.trim();
+    if (!this.isValidTicketName(normalizedTicketName)) {
+      return {
+        status: "invalid-name",
+        ticketName: normalizedTicketName,
+      };
+    }
+
+    const ticketPath = path.join(this.openDir, normalizedTicketName);
+    try {
+      const content = await fs.readFile(ticketPath, "utf8");
+      return {
+        status: "found",
+        ticket: this.buildTicketRef(normalizedTicketName),
+        content,
+      };
+    } catch (error) {
+      if (this.isNotFoundError(error)) {
+        return {
+          status: "not-found",
+          ticketName: normalizedTicketName,
+        };
+      }
+      throw error;
+    }
+  }
+
+  async closeTicket(ticket: TicketRef): Promise<void> {
+    await fs.mkdir(path.dirname(ticket.closedPath), { recursive: true });
+    await fs.rename(ticket.openPath, ticket.closedPath);
+  }
+
+  private async listPrioritizedOpenTicketCandidates(): Promise<TicketCandidate[]> {
     let files: string[] = [];
     try {
       files = await fs.readdir(this.openDir);
     } catch {
-      return null;
+      return [];
     }
 
     const candidates = files.filter((file) => file.endsWith(".md"));
@@ -63,29 +126,13 @@ export class FileSystemTicketQueue implements TicketQueue {
       })),
     );
 
-    const name = prioritizedCandidates
-      .sort((a, b) => {
-        const byPriority = a.priorityRank - b.priorityRank;
-        if (byPriority !== 0) {
-          return byPriority;
-        }
-        return a.name.localeCompare(b.name, "pt-BR");
-      })
-      .at(0)?.name;
-    if (!name) {
-      return null;
-    }
-
-    return {
-      name,
-      openPath: path.join(this.openDir, name),
-      closedPath: path.join(this.closedDir, name),
-    };
-  }
-
-  async closeTicket(ticket: TicketRef): Promise<void> {
-    await fs.mkdir(path.dirname(ticket.closedPath), { recursive: true });
-    await fs.rename(ticket.openPath, ticket.closedPath);
+    return prioritizedCandidates.sort((a, b) => {
+      const byPriority = a.priorityRank - b.priorityRank;
+      if (byPriority !== 0) {
+        return byPriority;
+      }
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
   }
 
   private async readPriorityRank(ticketName: string): Promise<number> {
@@ -105,5 +152,32 @@ export class FileSystemTicketQueue implements TicketQueue {
       return FALLBACK_PRIORITY_RANK;
     }
     return PRIORITY_RANK[priority] ?? FALLBACK_PRIORITY_RANK;
+  }
+
+  private buildTicketRef(ticketName: string): TicketRef {
+    return {
+      name: ticketName,
+      openPath: path.join(this.openDir, ticketName),
+      closedPath: path.join(this.closedDir, ticketName),
+    };
+  }
+
+  private isValidTicketName(ticketName: string): boolean {
+    return (
+      ticketName.length > 0 &&
+      ticketName.endsWith(".md") &&
+      !ticketName.includes("/") &&
+      !ticketName.includes("\\") &&
+      !ticketName.includes("..")
+    );
+  }
+
+  private isNotFoundError(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+    );
   }
 }

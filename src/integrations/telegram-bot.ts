@@ -61,6 +61,10 @@ interface BotControls {
     chatId: string,
   ) => Promise<PlanSpecSessionCancelResult> | PlanSpecSessionCancelResult;
   listEligibleSpecs: () => Promise<EligibleSpecRef[]> | EligibleSpecRef[];
+  listOpenTickets: () => Promise<OpenTicketRef[]> | OpenTicketRef[];
+  readOpenTicket: (
+    ticketFileName: string,
+  ) => Promise<OpenTicketReadResult> | OpenTicketReadResult;
   validateRunSpecsTarget: (
     specInput: string,
   ) => Promise<SpecEligibilityResult> | SpecEligibilityResult;
@@ -84,6 +88,25 @@ type ProjectSelectionControlResult =
   | ProjectSelectionResult
   | {
       status: "blocked-plan-spec";
+    };
+
+interface OpenTicketRef {
+  fileName: string;
+}
+
+type OpenTicketReadResult =
+  | {
+      status: "found";
+      ticket: OpenTicketRef;
+      content: string;
+    }
+  | {
+      status: "not-found";
+      ticketFileName: string;
+    }
+  | {
+      status: "invalid-name";
+      ticketFileName: string;
     };
 
 type AccessAttemptContext =
@@ -215,6 +238,21 @@ type ParsedSpecsCallbackData =
       status: "invalid";
     };
 
+type ParsedTicketsOpenCallbackData =
+  | {
+      status: "page";
+      contextId: string;
+      page: number;
+    }
+  | {
+      status: "select";
+      contextId: string;
+      ticketIndex: number;
+    }
+  | {
+      status: "invalid";
+    };
+
 type ParsedTicketRunCallbackData =
   | {
       status: "execute";
@@ -225,6 +263,11 @@ type ParsedTicketRunCallbackData =
     };
 
 interface SpecsCallbackContextState {
+  chatId: string;
+  consumed: boolean;
+}
+
+interface TicketsOpenCallbackContextState {
   chatId: string;
   consumed: boolean;
 }
@@ -290,7 +333,7 @@ type PlanSpecCallbackContextValidationResult<TContext> =
       reply: string;
     };
 
-type CallbackAuditFlow = "specs" | "plan-spec" | "run-ticket";
+type CallbackAuditFlow = "specs" | "tickets-open" | "plan-spec" | "run-ticket";
 type CallbackDecisionResult = "accepted" | "blocked" | "failed";
 type CallbackValidationResult = "passed" | "blocked";
 type CallbackBlockReason =
@@ -345,6 +388,27 @@ const SPECS_CALLBACK_SELECTION_BLOCKED_REPLY = "Triagem bloqueada.";
 const SPECS_CALLBACK_SELECTION_FAILED_REPLY =
   "❌ Falha ao processar seleção de spec. Use /specs para tentar novamente.";
 const SPECS_CALLBACK_LOCKED_HINT = "Botões travados. Use /specs para gerar uma nova lista.";
+const TICKETS_OPEN_EMPTY_REPLY = "ℹ️ Nenhum ticket aberto encontrado em tickets/open/.";
+const TICKETS_OPEN_LIST_FAILED_REPLY =
+  "❌ Falha ao listar tickets abertos. Verifique logs do runner e tente novamente.";
+const TICKETS_OPEN_PAGE_SIZE = 5;
+const TICKETS_OPEN_CALLBACK_PREFIX = "tickets-open:";
+const TICKETS_OPEN_CALLBACK_PAGE_PREFIX = "tickets-open:page:";
+const TICKETS_OPEN_CALLBACK_SELECT_PREFIX = "tickets-open:select:";
+const TICKETS_OPEN_CALLBACK_INVALID_REPLY = "Ação de ticket aberto inválida.";
+const TICKETS_OPEN_CALLBACK_STALE_REPLY =
+  "A lista de tickets abertos mudou. Use /tickets_open para atualizar.";
+const TICKETS_OPEN_CALLBACK_ALREADY_PROCESSED_REPLY =
+  "Seleção já processada. Use /tickets_open para atualizar.";
+const TICKETS_OPEN_CALLBACK_LOCKED_HINT = "Botões travados. Use /tickets_open para gerar uma nova lista.";
+const TICKETS_OPEN_SELECTION_FAILED_REPLY =
+  "❌ Falha ao processar seleção de ticket aberto. Use /tickets_open para tentar novamente.";
+const TICKETS_OPEN_TICKET_NOT_FOUND_REPLY =
+  "❌ Ticket selecionado nao encontrado em tickets/open/. Use /tickets_open para atualizar.";
+const TICKETS_OPEN_TICKET_INVALID_REPLY =
+  "❌ Ticket selecionado invalido. Use /tickets_open para atualizar.";
+const TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH = 3500;
+const IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL = "▶️ Implementar este ticket";
 const TICKET_RUN_CALLBACK_PREFIX = "ticket-run:";
 const TICKET_RUN_CALLBACK_EXECUTE_PREFIX = "ticket-run:execute:";
 const TICKET_RUN_CALLBACK_INVALID_REPLY = "Ação de ticket inválida.";
@@ -423,6 +487,7 @@ const START_REPLY_LINES = [
   "/start - mostra esta ajuda",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
+  "/tickets_open - lista tickets abertos para leitura e execução unitária",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
   "/codex_chat - inicia conversa livre com Codex (alias legado: /codex-chat)",
   "/plan_spec - inicia sessão interativa de planejamento de spec",
@@ -440,6 +505,8 @@ export class TelegramController {
   private notificationChatId: string | null;
   private specsCallbackContextCounter = 0;
   private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
+  private ticketsOpenCallbackContextCounter = 0;
+  private readonly ticketsOpenCallbackContexts = new Map<string, TicketsOpenCallbackContextState>();
   private ticketRunCallbackContextCounter = 0;
   private readonly ticketRunCallbackContexts = new Map<string, TicketRunCallbackContextState>();
   private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
@@ -711,6 +778,10 @@ export class TelegramController {
       await this.handleSpecsCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("tickets_open", async (ctx) => {
+      await this.handleTicketsOpenCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("run_specs", async (ctx) => {
       await this.handleRunSpecsCommand(ctx as unknown as CommandContext);
     });
@@ -844,6 +915,11 @@ export class TelegramController {
 
     if (callbackData.startsWith(SPECS_CALLBACK_PREFIX)) {
       await this.handleSpecsCallbackQuery(ctx);
+      return;
+    }
+
+    if (callbackData.startsWith(TICKETS_OPEN_CALLBACK_PREFIX)) {
+      await this.handleTicketsOpenCallbackQuery(ctx);
       return;
     }
 
@@ -1240,6 +1316,260 @@ export class TelegramController {
         error: error instanceof Error ? error.message : String(error),
       });
       await ctx.reply(SPECS_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleTicketsOpenCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /tickets_open recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "tickets_open",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      const tickets = await this.controls.listOpenTickets();
+      if (tickets.length === 0) {
+        await ctx.reply(TICKETS_OPEN_EMPTY_REPLY);
+        return;
+      }
+
+      const contextId = this.createTicketsOpenCallbackContext(chatId);
+      const rendered = this.buildTicketsOpenReply(tickets, contextId, 0);
+      await ctx.reply(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.error("Falha ao listar tickets abertos via comando /tickets_open", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(TICKETS_OPEN_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleTicketsOpenCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(TICKETS_OPEN_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    const userId = this.resolveCallbackUserId(ctx.callbackQuery);
+    let auditContext = this.createCallbackAuditContext({
+      flow: "tickets-open",
+      chatId,
+      callbackData,
+      action: "unknown",
+      userId,
+    });
+    this.logCallbackAttempt(auditContext);
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      this.logCallbackValidation(auditContext, "access", "blocked", "access-denied");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "access-denied",
+      });
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    this.logCallbackValidation(auditContext, "access", "passed");
+    const parsed = this.parseTicketsOpenCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      auditContext = {
+        ...auditContext,
+        action: "invalid",
+      };
+      this.logCallbackValidation(auditContext, "payload", "blocked", "invalid-action");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "invalid-action",
+      });
+      await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    auditContext = {
+      ...auditContext,
+      action: parsed.status,
+      contextId: parsed.contextId,
+    };
+    this.logCallbackValidation(auditContext, "payload", "passed");
+
+    const callbackContext = this.ticketsOpenCallbackContexts.get(parsed.contextId);
+    if (!callbackContext || callbackContext.chatId !== chatId) {
+      this.logCallbackValidation(auditContext, "context", "blocked", "stale");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "stale",
+      });
+      await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+      await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    this.logCallbackValidation(auditContext, "context", "passed");
+
+    if (callbackContext.consumed) {
+      this.logCallbackValidation(auditContext, "idempotency", "blocked", "stale");
+      this.logCallbackDecision(auditContext, {
+        result: "blocked",
+        blockReason: "stale",
+      });
+      await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_CALLBACK_ALREADY_PROCESSED_REPLY);
+      return;
+    }
+
+    if (parsed.status === "page") {
+      await this.renderTicketsOpenCallbackPage(ctx, chatId, parsed.contextId, parsed.page, auditContext);
+      return;
+    }
+
+    await this.handleTicketsOpenSelectionFromCallback(
+      ctx,
+      chatId,
+      parsed.contextId,
+      parsed.ticketIndex,
+      callbackContext,
+      auditContext,
+    );
+  }
+
+  private async renderTicketsOpenCallbackPage(
+    ctx: CallbackContext,
+    chatId: string,
+    contextId: string,
+    page: number,
+    auditContext: CallbackAuditContext,
+  ): Promise<void> {
+    try {
+      const tickets = await this.controls.listOpenTickets();
+      if (tickets.length === 0) {
+        this.logCallbackValidation(auditContext, "list-refresh", "blocked", "stale");
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: "stale",
+        });
+        this.ticketsOpenCallbackContexts.delete(contextId);
+        await ctx.editMessageText(TICKETS_OPEN_EMPTY_REPLY, {
+          reply_markup: {
+            inline_keyboard: [],
+          },
+        });
+        await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+        await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      this.logCallbackValidation(auditContext, "list-refresh", "passed");
+      const rendered = this.buildTicketsOpenReply(tickets, contextId, page);
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx);
+      this.logCallbackDecision(auditContext, {
+        result: "accepted",
+      });
+    } catch (error) {
+      this.logger.error("Falha ao paginar listagem de tickets abertos via callback", {
+        requestedPage: page,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.logCallbackDecision(auditContext, {
+        result: "failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_LIST_FAILED_REPLY);
+      await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleTicketsOpenSelectionFromCallback(
+    ctx: CallbackContext,
+    chatId: string,
+    contextId: string,
+    ticketIndex: number,
+    callbackContext: TicketsOpenCallbackContextState,
+    auditContext: CallbackAuditContext,
+  ): Promise<void> {
+    try {
+      const tickets = await this.controls.listOpenTickets();
+      const targetTicket = tickets[ticketIndex];
+      if (!targetTicket) {
+        this.logCallbackValidation(auditContext, "target-ticket", "blocked", "stale");
+        this.logCallbackDecision(auditContext, {
+          result: "blocked",
+          blockReason: "stale",
+        });
+        await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+        await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      const selectionAuditContext: CallbackAuditContext = {
+        ...auditContext,
+        ticketFileName: targetTicket.fileName,
+      };
+      this.logCallbackValidation(selectionAuditContext, "target-ticket", "passed");
+
+      callbackContext.consumed = true;
+      this.ticketsOpenCallbackContexts.set(contextId, callbackContext);
+
+      const readResult = await this.controls.readOpenTicket(targetTicket.fileName);
+      if (readResult.status === "not-found") {
+        this.logCallbackValidation(selectionAuditContext, "read-ticket", "blocked", "ticket-nao-encontrado");
+        this.logCallbackDecision(selectionAuditContext, {
+          result: "blocked",
+          blockReason: "ticket-nao-encontrado",
+        });
+        await this.safeAnswerCallbackQuery(ctx, TICKET_RUN_CALLBACK_NOT_FOUND_REPLY);
+        await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_TICKET_NOT_FOUND_REPLY);
+        return;
+      }
+
+      if (readResult.status === "invalid-name") {
+        this.logCallbackValidation(selectionAuditContext, "read-ticket", "blocked", "ticket-invalido");
+        this.logCallbackDecision(selectionAuditContext, {
+          result: "blocked",
+          blockReason: "ticket-invalido",
+        });
+        await this.safeAnswerCallbackQuery(ctx, TICKET_RUN_CALLBACK_INVALID_TICKET_REPLY);
+        await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_TICKET_INVALID_REPLY);
+        return;
+      }
+
+      this.logCallbackValidation(selectionAuditContext, "read-ticket", "passed");
+
+      await this.safeEditTicketsOpenCallbackSelectionMessage(ctx, readResult.ticket.fileName);
+      await this.sendTicketOpenContent(chatId, readResult.ticket.fileName, readResult.content);
+      await this.sendImplementSelectedTicketAction(chatId, readResult.ticket.fileName);
+      await this.safeAnswerCallbackQuery(ctx, "Ticket carregado.");
+      this.logCallbackDecision(selectionAuditContext, {
+        result: "accepted",
+      });
+    } catch (error) {
+      this.logger.error("Falha ao executar callback de selecao de ticket aberto", {
+        chatId,
+        ticketIndex,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.logCallbackDecision(auditContext, {
+        result: "failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, TICKETS_OPEN_SELECTION_FAILED_REPLY);
+      await this.sendTicketsOpenCallbackChatMessage(chatId, TICKETS_OPEN_SELECTION_FAILED_REPLY);
     }
   }
 
@@ -2313,6 +2643,107 @@ export class TelegramController {
     };
   }
 
+  private buildTicketsOpenReply(
+    tickets: OpenTicketRef[],
+    contextId: string,
+    requestedPage: number,
+  ): { text: string; extra: ReplyOptions } {
+    const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
+    const totalTickets = tickets.length;
+    const totalPages = Math.max(1, Math.ceil(totalTickets / TICKETS_OPEN_PAGE_SIZE));
+    const page = Math.min(Math.max(requestedPage, 0), totalPages - 1);
+    const start = page * TICKETS_OPEN_PAGE_SIZE;
+    const pageTickets = tickets.slice(start, start + TICKETS_OPEN_PAGE_SIZE);
+
+    const lines = [
+      "🗂️ Tickets abertos",
+      `Página ${page + 1}/${totalPages}`,
+      `Projeto ativo: ${activeProjectName}`,
+      "Diretório: tickets/open/",
+      "",
+    ];
+
+    for (const [index, ticket] of pageTickets.entries()) {
+      const absoluteIndex = start + index;
+      lines.push(`${absoluteIndex + 1}. ▫️ ${ticket.fileName}`);
+    }
+
+    lines.push(
+      "",
+      "Toque em um ticket para ler o conteúdo completo.",
+      'Após a leitura, use o botão "Implementar este ticket" para executar somente esse ticket.',
+    );
+
+    const inlineKeyboard: InlineKeyboardButton[][] = pageTickets.map((ticket, index) => {
+      const absoluteIndex = start + index;
+      return [
+        {
+          text: `🧾 ${ticket.fileName}`,
+          callback_data: this.buildTicketsOpenSelectCallbackData(contextId, absoluteIndex),
+        },
+      ];
+    });
+
+    const pageButtons: InlineKeyboardButton[] = [];
+    if (page > 0) {
+      pageButtons.push({
+        text: "⬅️ Anterior",
+        callback_data: this.buildTicketsOpenPageCallbackData(contextId, page - 1),
+      });
+    }
+
+    if (page < totalPages - 1) {
+      pageButtons.push({
+        text: "Próxima ➡️",
+        callback_data: this.buildTicketsOpenPageCallbackData(contextId, page + 1),
+      });
+    }
+
+    if (pageButtons.length > 0) {
+      inlineKeyboard.push(pageButtons);
+    }
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildLockedTicketsOpenReply(ticketFileName: string): { text: string; extra: ReplyOptions } {
+    const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
+    const lines = [
+      "🗂️ Tickets abertos",
+      `Projeto ativo: ${activeProjectName}`,
+      `✅ Selecionado: ${ticketFileName}`,
+      TICKETS_OPEN_CALLBACK_LOCKED_HINT,
+    ];
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [],
+        },
+      },
+    };
+  }
+
+  private buildImplementSelectedTicketReply(ticketFileName: string): string {
+    const activeProjectName = this.getState().activeProject?.name ?? "desconhecido";
+    return [
+      "🧾 Ticket selecionado",
+      `Projeto ativo: ${activeProjectName}`,
+      `Ticket: ${ticketFileName}`,
+      "",
+      "Ação disponível:",
+      'Toque em "Implementar este ticket" para iniciar execução unitária.',
+    ].join("\n");
+  }
+
   private buildLockedSpecsReply(
     selectedSpecFileName: string,
     outcomeReply: string,
@@ -2565,6 +2996,14 @@ export class TelegramController {
 
   private buildSpecsSelectCallbackData(contextId: string, specIndex: number): string {
     return `${SPECS_CALLBACK_SELECT_PREFIX}${contextId}:${specIndex}`;
+  }
+
+  private buildTicketsOpenPageCallbackData(contextId: string, page: number): string {
+    return `${TICKETS_OPEN_CALLBACK_PAGE_PREFIX}${contextId}:${page}`;
+  }
+
+  private buildTicketsOpenSelectCallbackData(contextId: string, ticketIndex: number): string {
+    return `${TICKETS_OPEN_CALLBACK_SELECT_PREFIX}${contextId}:${ticketIndex}`;
   }
 
   private buildTicketRunExecuteCallbackData(contextId: string): string {
@@ -2843,6 +3282,40 @@ export class TelegramController {
     return { status: "invalid" };
   }
 
+  private parseTicketsOpenCallbackData(callbackData: string): ParsedTicketsOpenCallbackData {
+    if (callbackData.startsWith(TICKETS_OPEN_CALLBACK_PAGE_PREFIX)) {
+      const payload = callbackData.slice(TICKETS_OPEN_CALLBACK_PAGE_PREFIX.length);
+      const [contextId, rawPage] = payload.split(":", 2);
+      const page = Number.parseInt(rawPage ?? "", 10);
+      if (!contextId || !Number.isFinite(page) || page < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "page",
+        contextId,
+        page,
+      };
+    }
+
+    if (callbackData.startsWith(TICKETS_OPEN_CALLBACK_SELECT_PREFIX)) {
+      const payload = callbackData.slice(TICKETS_OPEN_CALLBACK_SELECT_PREFIX.length);
+      const [contextId, rawIndex] = payload.split(":", 2);
+      const ticketIndex = Number.parseInt(rawIndex ?? "", 10);
+      if (!contextId || !Number.isFinite(ticketIndex) || ticketIndex < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "select",
+        contextId,
+        ticketIndex,
+      };
+    }
+
+    return { status: "invalid" };
+  }
+
   private parseTicketRunCallbackData(callbackData: string): ParsedTicketRunCallbackData {
     if (!callbackData.startsWith(TICKET_RUN_CALLBACK_EXECUTE_PREFIX)) {
       return { status: "invalid" };
@@ -2869,6 +3342,16 @@ export class TelegramController {
     return contextId;
   }
 
+  private createTicketsOpenCallbackContext(chatId: string): string {
+    this.invalidateTicketsOpenCallbackContextsForChat(chatId);
+    const contextId = this.nextTicketsOpenCallbackContextId();
+    this.ticketsOpenCallbackContexts.set(contextId, {
+      chatId,
+      consumed: false,
+    });
+    return contextId;
+  }
+
   private invalidateSpecsCallbackContextsForChat(chatId: string): void {
     for (const [contextId, context] of this.specsCallbackContexts.entries()) {
       if (context.chatId === chatId) {
@@ -2877,9 +3360,22 @@ export class TelegramController {
     }
   }
 
+  private invalidateTicketsOpenCallbackContextsForChat(chatId: string): void {
+    for (const [contextId, context] of this.ticketsOpenCallbackContexts.entries()) {
+      if (context.chatId === chatId) {
+        this.ticketsOpenCallbackContexts.delete(contextId);
+      }
+    }
+  }
+
   private nextSpecsCallbackContextId(): string {
     this.specsCallbackContextCounter += 1;
     return this.specsCallbackContextCounter.toString(36);
+  }
+
+  private nextTicketsOpenCallbackContextId(): string {
+    this.ticketsOpenCallbackContextCounter += 1;
+    return this.ticketsOpenCallbackContextCounter.toString(36);
   }
 
   private createTicketRunCallbackContext(
@@ -3231,6 +3727,22 @@ export class TelegramController {
     }
   }
 
+  private async safeEditTicketsOpenCallbackSelectionMessage(
+    ctx: CallbackContext,
+    ticketFileName: string,
+  ): Promise<void> {
+    const rendered = this.buildLockedTicketsOpenReply(ticketFileName);
+
+    try {
+      await ctx.editMessageText(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.warn("Falha ao editar mensagem de /tickets_open para destacar selecao", {
+        ticketFileName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async safeEditTicketRunCallbackSelectionMessage(
     ctx: CallbackContext,
     ticketFileName: string,
@@ -3286,6 +3798,69 @@ export class TelegramController {
     }
   }
 
+  private async sendTicketOpenContent(
+    chatId: string,
+    ticketFileName: string,
+    content: string,
+  ): Promise<void> {
+    const chunks = this.chunkTicketContent(content, TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH);
+    const totalChunks = chunks.length;
+
+    for (const [index, chunk] of chunks.entries()) {
+      const chunkHeader = totalChunks > 1 ? `Parte ${index + 1}/${totalChunks}` : "Parte única";
+      const message = [
+        `🧾 Ticket aberto: ${ticketFileName}`,
+        chunkHeader,
+        "",
+        chunk,
+      ].join("\n");
+      await this.bot.telegram.sendMessage(chatId, message);
+    }
+  }
+
+  private async sendImplementSelectedTicketAction(chatId: string, ticketFileName: string): Promise<void> {
+    const callbackData = this.createImplementTicketCallbackData(chatId, ticketFileName);
+    await this.bot.telegram.sendMessage(chatId, this.buildImplementSelectedTicketReply(ticketFileName), {
+      reply_markup: {
+        inline_keyboard: [[{
+          text: IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL,
+          callback_data: callbackData,
+        }]],
+      },
+    });
+  }
+
+  private chunkTicketContent(content: string, maxChunkLength: number): string[] {
+    const normalizedContent = content.replace(/\r\n/g, "\n");
+    const source = normalizedContent.length > 0 ? normalizedContent : "(arquivo vazio)";
+    if (source.length <= maxChunkLength) {
+      return [source];
+    }
+
+    const chunks: string[] = [];
+    let cursor = 0;
+    while (cursor < source.length) {
+      const maxEnd = Math.min(cursor + maxChunkLength, source.length);
+      let chunkEnd = maxEnd;
+
+      if (maxEnd < source.length) {
+        const breakAt = source.lastIndexOf("\n", maxEnd - 1);
+        if (breakAt >= cursor) {
+          chunkEnd = breakAt + 1;
+        }
+      }
+
+      if (chunkEnd <= cursor) {
+        chunkEnd = maxEnd;
+      }
+
+      chunks.push(source.slice(cursor, chunkEnd));
+      cursor = chunkEnd;
+    }
+
+    return chunks;
+  }
+
   private async sendSpecsCallbackChatMessage(chatId: string, message: string): Promise<void> {
     if (!chatId || chatId === "unknown") {
       return;
@@ -3295,6 +3870,21 @@ export class TelegramController {
       await this.bot.telegram.sendMessage(chatId, message);
     } catch (error) {
       this.logger.warn("Falha ao enviar confirmação de callback de /specs no chat", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async sendTicketsOpenCallbackChatMessage(chatId: string, message: string): Promise<void> {
+    if (!chatId || chatId === "unknown") {
+      return;
+    }
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar confirmação de callback de /tickets_open no chat", {
         chatId,
         error: error instanceof Error ? error.message : String(error),
       });

@@ -120,3 +120,70 @@ test("nextOpenTicket trata prioridade ausente como menor prioridade", async () =
     await cleanupTempRepo(repoPath);
   }
 });
+
+test("listOpenTickets retorna lista completa em ordem deterministica de prioridade e nome", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    await Promise.all([
+      writeOpenTicket(repoPath, "2026-02-19-z-sem-prioridade.md"),
+      writeOpenTicket(repoPath, "2026-02-19-c-p1.md", "P1"),
+      writeOpenTicket(repoPath, "2026-02-19-a-p0.md", "P0"),
+      writeOpenTicket(repoPath, "2026-02-19-b-p1.md", "P1"),
+    ]);
+
+    const listedTickets = await queue.listOpenTickets();
+    assert.deepEqual(
+      listedTickets.map((ticket) => ticket.name),
+      [
+        "2026-02-19-a-p0.md",
+        "2026-02-19-b-p1.md",
+        "2026-02-19-c-p1.md",
+        "2026-02-19-z-sem-prioridade.md",
+      ],
+    );
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
+test("readOpenTicket retorna conteudo completo quando ticket existe", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    const ticketName = "2026-02-19-ticket-longo.md";
+    await writeOpenTicket(repoPath, ticketName, "P1");
+
+    const result = await queue.readOpenTicket(ticketName);
+    assert.equal(result.status, "found");
+    if (result.status !== "found") {
+      return;
+    }
+
+    assert.equal(result.ticket.name, ticketName);
+    assert.match(result.content, /# \[TICKET\] 2026-02-19-ticket-longo\.md/u);
+    assert.match(result.content, /- Priority: P1/u);
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
+test("readOpenTicket retorna not-found para ticket ausente em tickets/open", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    const result = await queue.readOpenTicket("2026-02-19-inexistente.md");
+    assert.deepEqual(result, {
+      status: "not-found",
+      ticketName: "2026-02-19-inexistente.md",
+    });
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});

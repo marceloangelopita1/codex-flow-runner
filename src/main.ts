@@ -167,10 +167,10 @@ const bootstrap = async () => {
     },
   );
 
-  const resolveActiveProjectPathForSpecs = (): string => {
+  const resolveActiveProjectPath = (operation: "specs" | "tickets"): string => {
     const activeProject = runner.getState().activeProject;
     if (!activeProject) {
-      throw new Error("Projeto ativo indisponivel para operacoes de specs.");
+      throw new Error(`Projeto ativo indisponivel para operacoes de ${operation}.`);
     }
 
     return activeProject.path;
@@ -191,9 +191,34 @@ const bootstrap = async () => {
       submitPlanSpecInput: runner.submitPlanSpecInput,
       cancelPlanSpecSession: runner.cancelPlanSpecSession,
       listEligibleSpecs: () =>
-        specDiscovery.listEligibleSpecs(resolveActiveProjectPathForSpecs()),
+        specDiscovery.listEligibleSpecs(resolveActiveProjectPath("specs")),
       validateRunSpecsTarget: (specInput) =>
-        specDiscovery.validateSpecEligibility(resolveActiveProjectPathForSpecs(), specInput),
+        specDiscovery.validateSpecEligibility(resolveActiveProjectPath("specs"), specInput),
+      listOpenTickets: async () => {
+        const queue = new FileSystemTicketQueue(resolveActiveProjectPath("tickets"));
+        const tickets = await queue.listOpenTickets();
+        return tickets.map((ticket) => ({
+          fileName: ticket.name,
+        }));
+      },
+      readOpenTicket: async (ticketFileName) => {
+        const queue = new FileSystemTicketQueue(resolveActiveProjectPath("tickets"));
+        const result = await queue.readOpenTicket(ticketFileName);
+        if (result.status === "found") {
+          return {
+            status: "found" as const,
+            ticket: {
+              fileName: result.ticket.name,
+            },
+            content: result.content,
+          };
+        }
+
+        return {
+          status: result.status,
+          ticketFileName: result.ticketName,
+        };
+      },
       pause: runner.requestPause,
       resume: runner.requestResume,
       onPlanSpecQuestionOptionSelected: runner.handlePlanSpecQuestionOptionSelection,

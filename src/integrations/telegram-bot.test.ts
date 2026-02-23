@@ -109,6 +109,7 @@ type ControlCommand =
   | "codex_chat"
   | "codex-chat"
   | "specs"
+  | "tickets_open"
   | "run_specs"
   | "plan_spec"
   | "plan_spec_status"
@@ -128,6 +129,25 @@ type PlanSpecControlOutcome =
       status: "ignored";
       reason: PlanSpecCallbackIgnoredReason;
       message: string;
+    };
+
+interface OpenTicketRef {
+  fileName: string;
+}
+
+type OpenTicketReadResult =
+  | {
+      status: "found";
+      ticket: OpenTicketRef;
+      content: string;
+    }
+  | {
+      status: "not-found";
+      ticketFileName: string;
+    }
+  | {
+      status: "invalid-name";
+      ticketFileName: string;
     };
 
 interface ControllerOptions {
@@ -158,6 +178,9 @@ interface ControllerOptions {
   getState?: () => RunnerState;
   projectSnapshot?: ProjectSelectionSnapshot;
   eligibleSpecs?: EligibleSpecRef[];
+  openTickets?: OpenTicketRef[];
+  readOpenTicketResult?: OpenTicketReadResult;
+  readOpenTicketErrorMessage?: string;
   listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
   forceSelectBlockedPlanSpec?: boolean;
@@ -202,10 +225,20 @@ const cloneEligibleSpec = (spec: EligibleSpecRef): EligibleSpecRef => ({
   specPath: spec.specPath,
 });
 
+const cloneOpenTicket = (ticket: OpenTicketRef): OpenTicketRef => ({
+  fileName: ticket.fileName,
+});
+
 const createDefaultEligibleSpecs = (): EligibleSpecRef[] => [
   {
     fileName: "2026-02-19-approved-spec-triage-run-specs.md",
     specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+  },
+];
+
+const createDefaultOpenTickets = (): OpenTicketRef[] => [
+  {
+    fileName: "2026-02-23-fluxo-telegram-tickets-abertos-listagem-selecao-e-conteudo.md",
   },
 ];
 
@@ -215,6 +248,9 @@ const createController = (options: ControllerOptions = {}) => {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    listOpenTicketsCalls: 0,
+    readOpenTicketCalls: 0,
+    readOpenTicketArgs: [] as string[],
     runSelectedTicketCalls: 0,
     runSelectedTicketArgs: [] as string[],
     codexChatStartCalls: 0,
@@ -245,6 +281,8 @@ const createController = (options: ControllerOptions = {}) => {
   const mutableSnapshot = cloneSnapshot(options.projectSnapshot ?? createDefaultProjectSnapshot());
   const mutableEligibleSpecs = (options.eligibleSpecs ?? createDefaultEligibleSpecs())
     .map(cloneEligibleSpec);
+  const mutableOpenTickets = (options.openTickets ?? createDefaultOpenTickets())
+    .map(cloneOpenTicket);
 
   const controls = {
     runAll: () => {
@@ -391,6 +429,39 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       return mutableEligibleSpecs.map(cloneEligibleSpec);
+    },
+    listOpenTickets: () => {
+      controlState.listOpenTicketsCalls += 1;
+      return mutableOpenTickets.map(cloneOpenTicket);
+    },
+    readOpenTicket: (ticketFileName: string) => {
+      controlState.readOpenTicketCalls += 1;
+      controlState.readOpenTicketArgs.push(ticketFileName);
+      if (options.readOpenTicketErrorMessage) {
+        throw new Error(options.readOpenTicketErrorMessage);
+      }
+      if (options.readOpenTicketResult) {
+        return options.readOpenTicketResult;
+      }
+
+      const target = mutableOpenTickets.find((ticket) => ticket.fileName === ticketFileName);
+      if (!target) {
+        return {
+          status: "not-found" as const,
+          ticketFileName,
+        };
+      }
+
+      return {
+        status: "found" as const,
+        ticket: cloneOpenTicket(target),
+        content: [
+          `# [TICKET] ${target.fileName}`,
+          "",
+          "## Metadata",
+          "- Status: open",
+        ].join("\n"),
+      };
     },
     validateRunSpecsTarget: (specInput: string) => {
       controlState.validateRunSpecsTargetCalls += 1;
@@ -938,6 +1009,23 @@ const callHandleSpecsCommand = async (
   await internalController.handleSpecsCommand(context);
 };
 
+const callHandleTicketsOpenCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTicketsOpenCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleTicketsOpenCommand(context);
+};
+
 const callHandleSpecsCallbackQuery = async (
   controller: TelegramController,
   context: {
@@ -957,6 +1045,27 @@ const callHandleSpecsCallbackQuery = async (
   };
 
   await internalController.handleSpecsCallbackQuery(context);
+};
+
+const callHandleTicketsOpenCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string; from?: { id: number } };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTicketsOpenCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string; from?: { id: number } };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleTicketsOpenCallbackQuery(context);
 };
 
 const callCreateImplementTicketCallbackData = (
@@ -1485,6 +1594,7 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/specs/u);
+  assert.match(reply, /\/tickets_open/u);
   assert.match(reply, /\/run_specs/u);
   assert.match(reply, /\/codex_chat/u);
   assert.match(reply, /\/codex-chat/u);
@@ -2179,6 +2289,211 @@ test("/specs responde mensagem clara quando nao ha specs elegiveis", async () =>
   assert.match(replies[0] ?? "", /Nenhuma spec elegível/u);
 });
 
+test("/tickets_open lista tickets abertos com teclado inline paginado", async () => {
+  const { controller, controlState } = createController({
+    openTickets: [
+      { fileName: "2026-02-23-ticket-a.md" },
+      { fileName: "2026-02-23-ticket-b.md" },
+    ],
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listOpenTicketsCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /Tickets abertos/u);
+  assert.match(replies[0]?.text ?? "", /2026-02-23-ticket-a\.md/u);
+  assert.match(replies[0]?.text ?? "", /2026-02-23-ticket-b\.md/u);
+  const inlineKeyboard = (replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  assert.equal(inlineKeyboard?.length, 2);
+  assert.match(inlineKeyboard?.[0]?.[0]?.callback_data ?? "", /^tickets-open:select:[a-z0-9]+:0$/u);
+  assert.match(inlineKeyboard?.[1]?.[0]?.callback_data ?? "", /^tickets-open:select:[a-z0-9]+:1$/u);
+});
+
+test("/tickets_open responde mensagem clara quando nao ha tickets abertos", async () => {
+  const { controller } = createController({
+    openTickets: [],
+  });
+  const replies: string[] = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Nenhum ticket aberto encontrado em tickets/open/.");
+});
+
+test("/tickets_open suporta paginacao por callback sem perder contexto", async () => {
+  const { controller, controlState } = createController({
+    openTickets: [
+      { fileName: "2026-02-23-ticket-01.md" },
+      { fileName: "2026-02-23-ticket-02.md" },
+      { fileName: "2026-02-23-ticket-03.md" },
+      { fileName: "2026-02-23-ticket-04.md" },
+      { fileName: "2026-02-23-ticket-05.md" },
+      { fileName: "2026-02-23-ticket-06.md" },
+    ],
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const inlineKeyboard = (replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  const nextPageCallback = inlineKeyboard?.[5]?.[0]?.callback_data ?? "";
+
+  await callHandleTicketsOpenCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: nextPageCallback },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listOpenTicketsCalls, 2);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Página 2\/2/u);
+  assert.match(edits[0]?.text ?? "", /2026-02-23-ticket-06\.md/u);
+  assert.equal(answers.length, 1);
+});
+
+test("callback de /tickets_open envia conteudo completo em chunks e oferece botao de implementacao", async () => {
+  const ticketFileName = "2026-02-23-ticket-longo.md";
+  const longContent = `${"Linha de teste longa.\n".repeat(280)}\nFim.`;
+  const { controller, controlState } = createController({
+    openTickets: [{ fileName: ticketFileName }],
+    readOpenTicketResult: {
+      status: "found",
+      ticket: { fileName: ticketFileName },
+      content: longContent,
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleTicketsOpenCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData, from: { id: 42 } },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.readOpenTicketCalls, 1);
+  assert.deepEqual(controlState.readOpenTicketArgs, [ticketFileName]);
+  assert.equal(answers[0], "Ticket carregado.");
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Selecionado: 2026-02-23-ticket-longo\.md/u);
+  assert.ok(sentMessages.length >= 3);
+  assert.match(sentMessages[0]?.text ?? "", /Parte 1\//u);
+  const actionMessage = sentMessages[sentMessages.length - 1];
+  assert.match(actionMessage?.text ?? "", /Implementar este ticket/u);
+  const actionKeyboard = (actionMessage?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard;
+  assert.equal(actionKeyboard?.[0]?.[0]?.text, "▶️ Implementar este ticket");
+  assert.match(actionKeyboard?.[0]?.[0]?.callback_data ?? "", /^ticket-run:execute:[a-z0-9]+$/u);
+});
+
+test("callback de /tickets_open informa ticket removido entre lista e selecao", async () => {
+  const ticketFileName = "2026-02-23-ticket-removido.md";
+  const { controller, controlState } = createController({
+    openTickets: [{ fileName: ticketFileName }],
+    readOpenTicketResult: {
+      status: "not-found",
+      ticketFileName,
+    },
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleTicketsOpenCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.readOpenTicketCalls, 1);
+  assert.equal(controlState.runSelectedTicketCalls, 0);
+  assert.deepEqual(answers, ["Ticket não encontrado."]);
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket selecionado nao encontrado em tickets\/open\//u);
+});
+
 test("/specs suporta paginacao por callback sem perder contexto (CA-07)", async () => {
   const { controller, controlState } = createController({
     eligibleSpecs: [
@@ -2744,6 +3059,24 @@ test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /specs (CA-1
   assert.equal(logger.warnings.length, 1);
 });
 
+test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /tickets_open", async () => {
+  const { controller, controlState, logger } = createController({ allowedChatId: "42" });
+  const replies: string[] = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listOpenTicketsCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+});
+
 test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /run_specs (CA-11)", async () => {
   const { controller, controlState, logger } = createController({ allowedChatId: "42" });
   const replies: string[] = [];
@@ -2796,6 +3129,45 @@ test("com TELEGRAM_ALLOWED_CHAT_ID, callback de /specs em chat nao autorizado e 
   assert.equal(controlState.runSpecsCalls, 0);
   assert.equal(answers.length, 1);
   assert.equal(answers[0], "Acesso não autorizado.");
+  assert.equal(logger.warnings.length, 1);
+  assert.deepEqual(logger.warnings[0]?.context, {
+    chatId: "99",
+    eventType: "callback-query",
+    callbackData,
+  });
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, callback de /tickets_open em chat nao autorizado e bloqueado", async () => {
+  const { controller, controlState, logger } = createController({ allowedChatId: "42" });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleTicketsOpenCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleTicketsOpenCallbackQuery(controller, {
+    chat: { id: 99 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.readOpenTicketCalls, 0);
+  assert.deepEqual(answers, ["Acesso não autorizado."]);
   assert.equal(logger.warnings.length, 1);
   assert.deepEqual(logger.warnings[0]?.context, {
     chatId: "99",
