@@ -247,6 +247,16 @@ interface PlanSpecFinalCallbackContextState {
   actions: PlanSpecFinalActionState[];
 }
 
+interface TelegramApiErrorLike {
+  response?: {
+    error_code?: unknown;
+    description?: unknown;
+  };
+  on?: {
+    method?: unknown;
+  };
+}
+
 type PlanSpecCallbackContextValidationResult<TContext> =
   | {
       status: "passed";
@@ -362,6 +372,10 @@ const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
 const BOT_COMMAND_ENTITY_TYPE = "bot_command";
 const MAX_TEXT_PREVIEW_LENGTH = 160;
 const TELEGRAM_HANDLER_TIMEOUT_MS = 30 * 60 * 1000;
+const TELEGRAM_LONG_POLLING_CONFLICT_CODE = 409;
+const TELEGRAM_GET_UPDATES_METHOD = "getUpdates";
+const TELEGRAM_LONG_POLLING_CONFLICT_SNIPPET = "other getupdates request";
+const TELEGRAM_BOT_NOT_RUNNING_MESSAGE = "Bot is not running!";
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -390,6 +404,8 @@ export class TelegramController {
   private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
   private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
   private readonly planSpecFinalCallbackContexts = new Map<string, PlanSpecFinalCallbackContextState>();
+  private launchPromise: Promise<void> | null = null;
+  private isStopping = false;
 
   constructor(
     token: string,
@@ -406,13 +422,107 @@ export class TelegramController {
   }
 
   async start(): Promise<void> {
-    await this.bot.launch();
-    this.logger.info("Telegram bot iniciado em long polling");
+    if (this.launchPromise) {
+      this.logger.warn("Start do Telegram ignorado: long polling ja esta em execucao");
+      return;
+    }
+
+    this.isStopping = false;
+
+    const launchPromise = this.bot.launch({}, () => {
+      this.logger.info("Telegram bot iniciado em long polling");
+    });
+    this.launchPromise = launchPromise;
+
+    void launchPromise
+      .catch((error: unknown) => {
+        if (this.isStopping) {
+          return;
+        }
+
+        if (this.isLongPollingConflictError(error)) {
+          this.logger.warn(
+            "Conflito no long polling do Telegram: outra instancia do bot esta ativa para este token",
+            this.buildLongPollingConflictContext(error),
+          );
+          return;
+        }
+
+        this.logger.error("Falha no long polling do Telegram", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        if (this.launchPromise === launchPromise) {
+          this.launchPromise = null;
+        }
+      });
   }
 
   async stop(signal = "SIGTERM"): Promise<void> {
-    await this.bot.stop(signal as "SIGINT" | "SIGTERM");
+    this.isStopping = true;
+
+    try {
+      this.bot.stop(signal as "SIGINT" | "SIGTERM");
+    } catch (error) {
+      if (!this.isBotNotRunningError(error)) {
+        throw error;
+      }
+
+      this.logger.warn("Stop do Telegram ignorado: bot nao estava em execucao", {
+        signal,
+      });
+    }
+
+    if (this.launchPromise) {
+      await this.launchPromise.catch(() => undefined);
+    }
+
     this.logger.info("Telegram bot finalizado", { signal });
+  }
+
+  private isLongPollingConflictError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const maybeTelegramError = error as TelegramApiErrorLike;
+    const errorCode = maybeTelegramError.response?.error_code;
+    if (errorCode !== TELEGRAM_LONG_POLLING_CONFLICT_CODE) {
+      return false;
+    }
+
+    const method = maybeTelegramError.on?.method;
+    if (method === TELEGRAM_GET_UPDATES_METHOD) {
+      return true;
+    }
+
+    const description = maybeTelegramError.response?.description;
+    if (typeof description !== "string") {
+      return false;
+    }
+
+    return description.toLowerCase().includes(TELEGRAM_LONG_POLLING_CONFLICT_SNIPPET);
+  }
+
+  private buildLongPollingConflictContext(error: unknown): Record<string, unknown> {
+    if (!error || typeof error !== "object") {
+      return {};
+    }
+
+    const maybeTelegramError = error as TelegramApiErrorLike;
+    const description = maybeTelegramError.response?.description;
+    const method = maybeTelegramError.on?.method;
+
+    return {
+      errorCode: maybeTelegramError.response?.error_code,
+      method: typeof method === "string" ? method : undefined,
+      description: typeof description === "string" ? description : undefined,
+    };
+  }
+
+  private isBotNotRunningError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes(TELEGRAM_BOT_NOT_RUNNING_MESSAGE);
   }
 
   async sendTicketFinalSummary(summary: TicketFinalSummary): Promise<TicketNotificationDelivery | null> {

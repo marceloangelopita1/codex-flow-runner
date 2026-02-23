@@ -20,6 +20,7 @@ import { TelegramController } from "./telegram-bot.js";
 class SpyLogger extends Logger {
   public readonly infos: Array<{ message: string; context?: Record<string, unknown> }> = [];
   public readonly warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
+  public readonly errors: Array<{ message: string; context?: Record<string, unknown> }> = [];
 
   override info(message: string, context?: Record<string, unknown>): void {
     this.infos.push({ message, context });
@@ -29,7 +30,9 @@ class SpyLogger extends Logger {
     this.warnings.push({ message, context });
   }
 
-  override error(): void {}
+  override error(message: string, context?: Record<string, unknown>): void {
+    this.errors.push({ message, context });
+  }
 }
 
 const defaultActiveProject: ProjectRef = {
@@ -1093,6 +1096,110 @@ const createFailureSummary = (
   timestampUtc: "2026-02-19T15:00:00.000Z",
   errorMessage: "falha simulada",
   ...value,
+});
+
+const flushAsyncWork = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+const createTelegramLongPollingConflictError = (): Error & {
+  response: { error_code: number; description: string };
+  on: { method: string; payload: { timeout: number; offset: number } };
+} =>
+  Object.assign(new Error("409: Conflict"), {
+    response: {
+      error_code: 409,
+      description:
+        "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running",
+    },
+    on: {
+      method: "getUpdates",
+      payload: {
+        timeout: 50,
+        offset: 123,
+      },
+    },
+  });
+
+test("start inicia long polling sem bloquear enquanto loop estiver ativo", async () => {
+  const { controller, logger } = createController();
+  let launchCalls = 0;
+  const internalController = controller as unknown as {
+    bot: {
+      launch: (config?: unknown, onLaunch?: () => void) => Promise<void>;
+    };
+  };
+
+  internalController.bot.launch = (_config?: unknown, onLaunch?: () => void) => {
+    launchCalls += 1;
+    onLaunch?.();
+    return new Promise<void>(() => undefined);
+  };
+
+  await controller.start();
+
+  assert.equal(launchCalls, 1);
+  assert.equal(logger.infos.length, 1);
+  assert.equal(logger.infos[0]?.message, "Telegram bot iniciado em long polling");
+});
+
+test("start trata conflito 409 de getUpdates sem lancar erro fatal", async () => {
+  const { controller, logger } = createController();
+  let rejectLaunch: (reason?: unknown) => void = () => undefined;
+  const internalController = controller as unknown as {
+    bot: {
+      launch: (config?: unknown, onLaunch?: () => void) => Promise<void>;
+    };
+  };
+
+  internalController.bot.launch = () =>
+    new Promise<void>((_resolve, reject) => {
+      rejectLaunch = reject;
+    });
+
+  await controller.start();
+  rejectLaunch(createTelegramLongPollingConflictError());
+  await flushAsyncWork();
+
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(
+    logger.warnings[0]?.message,
+    "Conflito no long polling do Telegram: outra instancia do bot esta ativa para este token",
+  );
+  assert.deepEqual(logger.warnings[0]?.context, {
+    errorCode: 409,
+    method: "getUpdates",
+    description:
+      "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running",
+  });
+  assert.equal(logger.errors.length, 0);
+});
+
+test("stop nao falha quando bot nao estava em execucao", async () => {
+  const { controller, logger } = createController();
+  const internalController = controller as unknown as {
+    bot: {
+      launch: (config?: unknown, onLaunch?: () => void) => Promise<void>;
+      stop: (signal?: string) => void;
+    };
+  };
+
+  internalController.bot.launch = (_config?: unknown, onLaunch?: () => void) => {
+    onLaunch?.();
+    return Promise.resolve();
+  };
+
+  internalController.bot.stop = () => {
+    throw new Error("Bot is not running!");
+  };
+
+  await controller.start();
+  await controller.stop("SIGTERM");
+
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(logger.warnings[0]?.message, "Stop do Telegram ignorado: bot nao estava em execucao");
+  assert.equal(logger.infos.at(-1)?.message, "Telegram bot finalizado");
 });
 
 test("permite comando quando chat e autorizado no modo restrito", () => {
