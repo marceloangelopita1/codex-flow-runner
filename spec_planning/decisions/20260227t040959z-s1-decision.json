@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 1,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-02-27-escopo-de-concorrencia-por-projeto-em-runs-e-contexto-global-para-texto-livre-no-telegram.md",
+  "specFileName": "2026-02-27-escopo-de-concorrencia-por-projeto-em-runs-e-contexto-global-para-texto-livre-no-telegram.md",
+  "specTitle": "Escopo de concorrencia por projeto em runs e contexto global para texto livre no Telegram",
+  "specSummary": "Definir que `/run_all` e `/run_specs` usam lock por projeto (sem bloqueio cruzado entre projetos), mantendo sequencialidade no mesmo projeto, e que somente fluxos de texto livre (`/plan_spec` e `/codex_chat`) compartilham lock global unico com bloqueios, status e logs observaveis.",
+  "commitMessage": "feat(spec): add 2026-02-27-escopo-de-concorrencia-por-projeto-em-runs-e-contexto-global-para-texto-livre-no-telegram.md",
+  "recordedAtUtc": "2026-02-27T04:09:59.034Z"
+}
