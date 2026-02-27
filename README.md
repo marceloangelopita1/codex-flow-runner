@@ -83,6 +83,14 @@ Pré-requisito operacional:
 - `/select_project <nome>` → seleciona projeto ativo por nome (fallback textual)
 - `/select-project <nome>` → alias legado compatível para `/select_project`
 
+### Confiabilidade do resumo final por ticket
+
+- O envio de `sendTicketFinalSummary` usa retry bounded com `maxAttempts: 4`.
+- Falhas retentaveis: `429`, `5xx`, `ETIMEDOUT`, `ECONNRESET`, `EAI_AGAIN`, `ENETUNREACH`.
+- Backoff exponencial bounded: `1s`, `2s`, `4s`, com teto de `10s`; em `429`, `retry_after` do Telegram tem prioridade (tambem limitado ao teto).
+- O estado do runner preserva `lastNotifiedEvent` apenas para entrega confirmada e registra falha definitiva separadamente em `lastNotificationFailure`.
+- O `/status` exibe ambos os blocos: ultimo evento entregue e ultima falha definitiva de notificacao.
+
 ### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
 
 - `TELEGRAM_ALLOWED_CHAT_ID` e obrigatorio no bootstrap.

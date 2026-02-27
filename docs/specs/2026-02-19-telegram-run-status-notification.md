@@ -6,14 +6,16 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 15:09Z
+- Last reviewed at (UTC): 2026-02-27 00:00Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - tickets/open/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Related execplans:
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - execplans/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Related commits:
   - A definir
 
@@ -34,6 +36,8 @@
 - RF-03: em sucesso, mensagem deve incluir referencia de artefato de plano e identificador de commit/push.
 - RF-04: em falha, mensagem deve incluir ticket afetado e mensagem de erro objetiva para triagem.
 - RF-05: o comando `/status` deve refletir o estado mais recente da rodada e do ticket atual.
+- RF-06: o envio de resumo final deve aplicar retry bounded para falhas transitorias (`429`, `5xx`, `ETIMEDOUT`, `ECONNRESET`, `EAI_AGAIN`, `ENETUNREACH`).
+- RF-07: `/status` deve exibir separadamente o ultimo evento efetivamente entregue e a ultima falha definitiva de notificacao.
 
 ## Nao-escopo
 - Envio de mensagem por micro-etapa interna dentro de cada fase.
@@ -46,6 +50,8 @@
 - [x] CA-03 - Mensagens de resumo incluem campos minimos de rastreabilidade (ticket, status, fase final, timestamp UTC).
 - [x] CA-04 - Em rodada com multiplos tickets, cada ticket concluido gera seu proprio resumo final.
 - [x] CA-05 - `/status` apresenta informacao coerente com o ultimo evento notificado.
+- [x] CA-06 - Em falha transitoria, o envio do resumo final reexecuta tentativas com backoff bounded e metadados de tentativa.
+- [x] CA-07 - Em falha definitiva (nao retentavel ou exaustao de tentativas), o estado e logs registram contexto acionavel sem sobrescrever o ultimo evento entregue.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -59,8 +65,12 @@
   - O resumo final de sucesso agora inclui `execPlanPath` e identificador de commit/push (`commitPushId`, com detalhes de `commitHash` e `pushUpstream`).
   - O estado do runner passou a persistir `lastNotifiedEvent` somente apos entrega confirmada no Telegram, e `/status` agora reflete esse evento como fonte canonica.
   - A suite automatizada cobre explicitamente os contratos de rastreabilidade avancada em sucesso e coerencia de `/status` com o ultimo evento notificado.
+  - A entrega do resumo final agora aplica retry bounded (`maxAttempts: 4`) com backoff exponencial limitado (`1s`, `2s`, `4s`, teto `10s`) e prioriza `retry_after` quando Telegram responde `429`.
+  - O estado do runner passou a expor `lastNotificationFailure` com ticket, tentativas, timestamp da falha e classe/codigo de erro para diagnostico operacional.
+  - `/status` agora renderiza, em blocos separados, o ultimo evento entregue e a ultima falha definitiva de notificacao.
+  - A suite automatizada cobre transiente->sucesso, falha nao retentavel imediata e exaustao de tentativas retentaveis.
 - Pendencias em aberto:
-  - Nenhuma pendencia funcional em aberto para esta spec.
+  - Validacao manual em Telegram real para comprovar o comportamento de retry em condicao de falha transitoria controlada de rede/API.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/types/ticket-final-summary.ts
@@ -78,7 +88,8 @@
 ## Riscos e impacto
 - Risco funcional: duplicidade de mensagens ou falta de notificacao em falhas.
 - Risco operacional: operador sem visibilidade para saber em que ticket o fluxo parou.
-- Mitigacao: emissao unica por ticket ao fim do ciclo e cobertura de cenarios de erro.
+- Mitigacao: emissao unica por ticket ao fim do ciclo, retry bounded para transientes e cobertura automatizada de cenarios de erro.
+- Risco residual conhecido: timeout de transporte pode gerar ambiguidade rara de entrega (resposta perdida apos processamento remoto), fora do escopo de eliminacao total sem outbox persistente.
 
 ## Decisoes e trade-offs
 - 2026-02-19 - Notificacao apenas no resumo final por ticket - reduz ruído e mantem contexto util.
@@ -91,3 +102,4 @@
 - 2026-02-19 14:56Z - Ticket de emissao final por ticket movido para `tickets/closed/` apos validacao completa de testes e build.
 - 2026-02-19 15:09Z - Rastreabilidade avancada de sucesso e coerencia de `/status` com ultimo evento notificado implementadas e validadas por testes.
 - 2026-02-19 15:10Z - Ticket de rastreabilidade/coerencia movido para `tickets/closed/` apos validacao completa de testes, check e build.
+- 2026-02-27 - Politica de retry/backoff para notificacao final implementada com estado de falha definitiva em `/status`; validacao manual em Telegram real registrada como pendencia operacional.

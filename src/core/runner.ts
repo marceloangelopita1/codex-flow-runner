@@ -13,7 +13,9 @@ import {
 import {
   TicketFinalStage,
   TicketFinalSummary,
+  isTicketNotificationDispatchError,
   TicketNotificationDelivery,
+  TicketNotificationFailure,
 } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
 import {
@@ -493,6 +495,14 @@ export class TicketRunner {
           lastNotifiedEvent: {
             summary: { ...this.state.lastNotifiedEvent.summary },
             delivery: { ...this.state.lastNotifiedEvent.delivery },
+          },
+        }
+      : {}),
+    ...(this.state.lastNotificationFailure
+      ? {
+          lastNotificationFailure: {
+            summary: { ...this.state.lastNotificationFailure.summary },
+            failure: { ...this.state.lastNotificationFailure.failure },
           },
         }
       : {}),
@@ -3257,12 +3267,48 @@ export class TicketRunner {
       };
       this.state.updatedAt = new Date(delivery.deliveredAtUtc);
     } catch (error) {
+      const notificationFailure = this.buildNotificationFailureState(summary, error);
+      this.state.lastNotificationFailure = notificationFailure;
+      this.state.updatedAt = new Date(notificationFailure.failure.failedAtUtc);
       this.logger.error("Falha ao emitir resumo final de ticket", {
         ticket: summary.ticket,
         status: summary.status,
         error: error instanceof Error ? error.message : String(error),
+        attempts: notificationFailure.failure.attempts,
+        maxAttempts: notificationFailure.failure.maxAttempts,
+        errorCode: notificationFailure.failure.errorCode,
+        errorClass: notificationFailure.failure.errorClass,
+        retryable: notificationFailure.failure.retryable,
+        destinationChatId: notificationFailure.failure.destinationChatId,
       });
     }
+  }
+
+  private buildNotificationFailureState(
+    summary: TicketFinalSummary,
+    error: unknown,
+  ): NonNullable<RunnerState["lastNotificationFailure"]> {
+    if (isTicketNotificationDispatchError(error)) {
+      return {
+        summary: { ...summary },
+        failure: { ...error.failure },
+      };
+    }
+
+    const fallbackFailure: TicketNotificationFailure = {
+      channel: "telegram",
+      failedAtUtc: this.now().toISOString(),
+      attempts: 1,
+      maxAttempts: 1,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorClass: "non-retryable",
+      retryable: false,
+    };
+
+    return {
+      summary: { ...summary },
+      failure: fallbackFailure,
+    };
   }
 
   private async assertCloseAndVersion(slot: ActiveRunnerSlot, ticket: TicketRef): Promise<GitSyncEvidence> {

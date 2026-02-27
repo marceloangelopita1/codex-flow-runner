@@ -29,6 +29,7 @@ import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import { ProjectRef } from "../types/project.js";
 import {
   TicketFinalSummary,
+  TicketNotificationDispatchError,
   TicketNotificationDelivery,
 } from "../types/ticket-final-summary.js";
 import { Logger } from "./logger.js";
@@ -328,11 +329,29 @@ const cloneSpecRef = (spec: SpecRef): SpecRef => ({
     : {}),
 });
 
-const createSummaryCollector = (options: { failSend?: boolean } = {}) => {
+const createSummaryCollector = (
+  options: { failSend?: boolean; failSendWithDispatchError?: boolean } = {},
+) => {
   const summaries: TicketFinalSummary[] = [];
   const deliveries: TicketNotificationDelivery[] = [];
   const onTicketFinalized = (summary: TicketFinalSummary): TicketNotificationDelivery => {
     summaries.push(summary);
+    if (options.failSendWithDispatchError) {
+      throw new TicketNotificationDispatchError(
+        "falha definitiva simulada",
+        {
+          channel: "telegram",
+          destinationChatId: "42",
+          failedAtUtc: "2026-02-19T15:06:00.000Z",
+          attempts: 4,
+          maxAttempts: 4,
+          errorMessage: "Service Unavailable",
+          errorCode: "503",
+          errorClass: "telegram-server",
+          retryable: true,
+        },
+      );
+    }
     if (options.failSend) {
       throw new Error("falha ao enviar resumo");
     }
@@ -341,6 +360,8 @@ const createSummaryCollector = (options: { failSend?: boolean } = {}) => {
       channel: "telegram",
       destinationChatId: "42",
       deliveredAtUtc: "2026-02-19T15:05:00.000Z",
+      attempts: 1,
+      maxAttempts: 4,
     };
     deliveries.push(delivery);
     return delivery;
@@ -1994,7 +2015,7 @@ test("runner falha quando etapa plan nao retorna execPlanPath obrigatorio", asyn
   }
 });
 
-test("runner nao atualiza ultimo evento notificado quando envio do resumo falha", async () => {
+test("runner preserva ultimo evento entregue e registra falha definitiva quando envio do resumo falha", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const gitVersioning = new StubGitVersioning();
@@ -2012,8 +2033,92 @@ test("runner nao atualiza ultimo evento notificado quando envio do resumo falha"
   assert.equal(succeeded, true);
   assert.equal(summaries.length, 1);
   assert.equal(runner.getState().lastNotifiedEvent, null);
+  assert.equal(runner.getState().lastNotificationFailure?.summary.ticket, ticketA.name);
+  assert.equal(runner.getState().lastNotificationFailure?.failure.errorClass, "non-retryable");
+  assert.equal(runner.getState().lastNotificationFailure?.failure.attempts, 1);
   assert.equal(logger.errors.length, 1);
   assert.equal(logger.errors[0]?.message, "Falha ao emitir resumo final de ticket");
+});
+
+test("runner registra metadados de tentativa quando integracao reporta falha definitiva estruturada", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { summaries, onTicketFinalized } = createSummaryCollector({
+    failSendWithDispatchError: true,
+  });
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+
+  const succeeded = await callProcessTicket(runner, ticketA);
+  const state = runner.getState();
+
+  assert.equal(succeeded, true);
+  assert.equal(summaries.length, 1);
+  assert.equal(state.lastNotifiedEvent, null);
+  assert.equal(state.lastNotificationFailure?.summary.ticket, ticketA.name);
+  assert.equal(state.lastNotificationFailure?.failure.destinationChatId, "42");
+  assert.equal(state.lastNotificationFailure?.failure.attempts, 4);
+  assert.equal(state.lastNotificationFailure?.failure.maxAttempts, 4);
+  assert.equal(state.lastNotificationFailure?.failure.errorClass, "telegram-server");
+  assert.equal(state.lastNotificationFailure?.failure.errorCode, "503");
+  assert.equal(state.lastNotificationFailure?.failure.retryable, true);
+});
+
+test("runner mantém ultimo evento entregue ao registrar nova falha definitiva de notificacao", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  let callbackCalls = 0;
+  const onTicketFinalized = (summary: TicketFinalSummary): TicketNotificationDelivery => {
+    callbackCalls += 1;
+    if (callbackCalls === 1) {
+      return {
+        channel: "telegram",
+        destinationChatId: "42",
+        deliveredAtUtc: "2026-02-19T15:05:00.000Z",
+        attempts: 1,
+        maxAttempts: 4,
+      };
+    }
+
+    throw new TicketNotificationDispatchError(
+      "falha definitiva simulada no segundo envio",
+      {
+        channel: "telegram",
+        destinationChatId: "42",
+        failedAtUtc: "2026-02-19T15:06:00.000Z",
+        attempts: 4,
+        maxAttempts: 4,
+        errorMessage: "Service Unavailable",
+        errorCode: "503",
+        errorClass: "telegram-server",
+        retryable: true,
+      },
+    );
+  };
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+
+  const firstSucceeded = await callProcessTicket(runner, ticketA);
+  const secondSucceeded = await callProcessTicket(runner, ticketB);
+  const state = runner.getState();
+
+  assert.equal(firstSucceeded, true);
+  assert.equal(secondSucceeded, true);
+  assert.equal(callbackCalls, 2);
+  assert.equal(state.lastNotifiedEvent?.summary.ticket, ticketA.name);
+  assert.equal(state.lastNotificationFailure?.summary.ticket, ticketB.name);
 });
 
 test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", async () => {

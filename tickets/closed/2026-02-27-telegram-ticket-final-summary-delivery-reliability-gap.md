@@ -1,7 +1,7 @@
 # [TICKET] Entrega de resumo final por ticket no Telegram perde eventos em falhas transitorias
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-27 01:43Z
@@ -20,6 +20,7 @@
   - docs/specs/2026-02-19-telegram-run-status-notification.md
   - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
+  - execplans/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -91,9 +92,24 @@ Criar camada de dispatch de notificacoes com politica de retry para falhas trans
 
 ## Decision log
 - 2026-02-27 - Ticket aberto a partir de diagnostico de perda intermitente de notificacoes finais no Telegram em fechamento de ticket.
+- 2026-02-27 - Validacao do ExecPlan concluida com classificacao `GO`; implementacao tecnica concluida e evidenciada por testes/check/build.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-02-27 03:33Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md (commit de fechamento deste ticket)
 - Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Evidencia objetiva de aceite tecnico:
+  - `npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts` -> pass (`168/168`)
+  - `npm test` -> pass (`260/260`)
+  - `npm run check && npm run build` -> pass
+- Entrega tecnica concluida: retry/backoff bounded no envio final, estado de falha definitiva (`lastNotificationFailure`), `/status` com separacao entre ultimo evento entregue e ultima falha definitiva, cobertura automatizada e documentacao atualizadas.
+- Validacao manual externa ainda necessaria:
+  - Objetivo: comprovar no Telegram real que falha transitoria controlada (rede/API) resulta em reentrega do resumo final sem perda silenciosa.
+  - Como executar:
+    1. iniciar o runner no ambiente real com bot e chat autorizados;
+    2. fechar ticket elegivel forçando falha transitoria no primeiro envio (ex.: simular indisponibilidade curta de rede ou 429/5xx controlado);
+    3. confirmar que a mensagem final chega apos retentativa e que `/status` permanece coerente;
+    4. registrar evidencia operacional (timestamp/log/chat).
+  - Responsavel operacional: operador do bot Telegram em ambiente real (mapita/time de operacao).

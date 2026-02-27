@@ -1,4 +1,8 @@
-import { TicketFinalSummary, TicketNotificationDelivery } from "./ticket-final-summary.js";
+import {
+  TicketFinalSummary,
+  TicketNotificationDelivery,
+  TicketNotificationFailure,
+} from "./ticket-final-summary.js";
 import { ProjectRef } from "./project.js";
 
 export type RunnerPhase =
@@ -82,6 +86,11 @@ export interface RunnerLastNotifiedEvent {
   delivery: TicketNotificationDelivery;
 }
 
+export interface RunnerLastNotificationFailure {
+  summary: TicketFinalSummary;
+  failure: TicketNotificationFailure;
+}
+
 export type RunnerSlotKind = "run-all" | "run-specs" | "run-ticket" | "plan-spec" | "codex-chat";
 
 export interface RunnerActiveSlotState {
@@ -121,6 +130,7 @@ export interface RunnerState {
   lastMessage: string;
   updatedAt: Date;
   lastNotifiedEvent: RunnerLastNotifiedEvent | null;
+  lastNotificationFailure: RunnerLastNotificationFailure | null;
 }
 
 export const createInitialState = (
@@ -149,4 +159,5 @@ export const createInitialState = (
   lastMessage: "Runner inicializado",
   updatedAt: new Date(),
   lastNotifiedEvent: null,
+  lastNotificationFailure: null,
 });

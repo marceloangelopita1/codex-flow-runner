@@ -65,6 +65,7 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   lastMessage: "estado de teste",
   updatedAt: new Date("2026-02-19T00:00:00.000Z"),
   lastNotifiedEvent: null,
+  lastNotificationFailure: null,
   ...value,
   codexChatSession: value.codexChatSession ?? null,
   lastCodexChatSessionClosure: value.lastCodexChatSessionClosure ?? null,
@@ -713,6 +714,17 @@ const callBuildStatusReply = (controller: TelegramController, state: RunnerState
   return internalController.buildStatusReply(state);
 };
 
+const callSetTicketFinalSummaryRetryWait = (
+  controller: TelegramController,
+  wait: (delayMs: number) => Promise<void>,
+): void => {
+  const internalController = controller as unknown as {
+    waitForTicketFinalSummaryRetry: (delayMs: number) => Promise<void>;
+  };
+
+  internalController.waitForTicketFinalSummaryRetry = wait;
+};
+
 const callHandleProjectsCommand = async (
   controller: TelegramController,
   context: {
@@ -1294,6 +1306,41 @@ const createTelegramLongPollingConflictError = (): Error & {
         offset: 123,
       },
     },
+  });
+
+const createTelegramSendMessageError = (options: {
+  errorCode: number;
+  description: string;
+  retryAfterSeconds?: number;
+}): Error & {
+  response: {
+    error_code: number;
+    description: string;
+    parameters?: {
+      retry_after: number;
+    };
+  };
+} =>
+  Object.assign(new Error(`${options.errorCode}: ${options.description}`), {
+    response: {
+      error_code: options.errorCode,
+      description: options.description,
+      ...(typeof options.retryAfterSeconds === "number"
+        ? {
+            parameters: {
+              retry_after: options.retryAfterSeconds,
+            },
+          }
+        : {}),
+    },
+  });
+
+const createTransportError = (
+  code: string,
+  message = "falha de transporte simulada",
+): Error & { code: string } =>
+  Object.assign(new Error(message), {
+    code,
   });
 
 test("start inicia long polling sem bloquear enquanto loop estiver ativo", async () => {
@@ -3994,6 +4041,8 @@ test("envia resumo final para chat autorizado configurado", async () => {
   assert.equal(delivery?.channel, "telegram");
   assert.equal(delivery?.destinationChatId, "42");
   assert.match(delivery?.deliveredAtUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(delivery?.attempts, 1);
+  assert.equal(delivery?.maxAttempts, 4);
 });
 
 test("nao envia resumo final quando modo sem restricao nao tem chat de notificacao", async () => {
@@ -4029,6 +4078,156 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
   assert.equal(delivery?.destinationChatId, "99");
+});
+
+test("reenvia resumo final em falhas transitorias e entrega com metadados de tentativa", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const retryDelaysMs: number[] = [];
+  callSetTicketFinalSummaryRetryWait(controller, async (delayMs: number) => {
+    retryDelaysMs.push(delayMs);
+  });
+
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: (chatId: string, text: string, extra?: unknown) => Promise<unknown>;
+      };
+    };
+  };
+
+  let attempts = 0;
+  internalController.bot.telegram.sendMessage = async (chatId: string, text: string) => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw createTelegramSendMessageError({
+        errorCode: 429,
+        description: "Too Many Requests",
+        retryAfterSeconds: 3,
+      });
+    }
+    if (attempts === 2) {
+      throw createTransportError("EAI_AGAIN");
+    }
+
+    return Promise.resolve({ chatId, text, message_id: 100 + attempts });
+  };
+
+  const delivery = await controller.sendTicketFinalSummary(createSuccessSummary());
+
+  assert.equal(attempts, 3);
+  assert.deepEqual(retryDelaysMs, [3000, 2000]);
+  assert.equal(delivery?.destinationChatId, "42");
+  assert.equal(delivery?.attempts, 3);
+  assert.equal(delivery?.maxAttempts, 4);
+  assert.equal(
+    logger.warnings.filter(
+      (entry) => entry.message === "Falha transitoria ao enviar resumo final de ticket no Telegram",
+    ).length,
+    2,
+  );
+});
+
+test("falha nao retentavel encerra envio sem retries adicionais", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const retryDelaysMs: number[] = [];
+  callSetTicketFinalSummaryRetryWait(controller, async (delayMs: number) => {
+    retryDelaysMs.push(delayMs);
+  });
+
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: () => Promise<unknown>;
+      };
+    };
+  };
+
+  let attempts = 0;
+  internalController.bot.telegram.sendMessage = async () => {
+    attempts += 1;
+    throw createTelegramSendMessageError({
+      errorCode: 400,
+      description: "Bad Request",
+    });
+  };
+
+  let capturedError: unknown;
+  try {
+    await controller.sendTicketFinalSummary(createSuccessSummary());
+    assert.fail("envio deveria falhar em erro nao retentavel");
+  } catch (error) {
+    capturedError = error;
+  }
+
+  assert.equal(attempts, 1);
+  assert.deepEqual(retryDelaysMs, []);
+  assert.equal((capturedError as Error).name, "TicketNotificationDispatchError");
+  const failure = (capturedError as { failure?: Record<string, unknown> }).failure;
+  assert.equal(failure?.attempts, 1);
+  assert.equal(failure?.maxAttempts, 4);
+  assert.equal(failure?.retryable, false);
+  assert.equal(failure?.errorClass, "non-retryable");
+  assert.equal(failure?.errorCode, "400");
+  assert.equal(
+    logger.errors.filter(
+      (entry) => entry.message === "Falha definitiva ao enviar resumo final de ticket no Telegram",
+    ).length,
+    1,
+  );
+});
+
+test("encerra com falha definitiva apos exaurir tentativas retentaveis", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const retryDelaysMs: number[] = [];
+  callSetTicketFinalSummaryRetryWait(controller, async (delayMs: number) => {
+    retryDelaysMs.push(delayMs);
+  });
+
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: () => Promise<unknown>;
+      };
+    };
+  };
+
+  let attempts = 0;
+  internalController.bot.telegram.sendMessage = async () => {
+    attempts += 1;
+    throw createTelegramSendMessageError({
+      errorCode: 503,
+      description: "Service Unavailable",
+    });
+  };
+
+  let capturedError: unknown;
+  try {
+    await controller.sendTicketFinalSummary(createFailureSummary());
+    assert.fail("envio deveria falhar apos limite de tentativas");
+  } catch (error) {
+    capturedError = error;
+  }
+
+  assert.equal(attempts, 4);
+  assert.deepEqual(retryDelaysMs, [1000, 2000, 4000]);
+  const failure = (capturedError as { failure?: Record<string, unknown> }).failure;
+  assert.equal(failure?.attempts, 4);
+  assert.equal(failure?.maxAttempts, 4);
+  assert.equal(failure?.retryable, true);
+  assert.equal(failure?.errorClass, "telegram-server");
+  assert.equal(failure?.errorCode, "503");
+  assert.equal(
+    logger.warnings.filter(
+      (entry) => entry.message === "Falha transitoria ao enviar resumo final de ticket no Telegram",
+    ).length,
+    3,
+  );
+  assert.equal(
+    logger.errors.filter(
+      (entry) => entry.message === "Falha definitiva ao enviar resumo final de ticket no Telegram",
+    ).length,
+    1,
+  );
 });
 
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {
@@ -4097,6 +4296,49 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   assert.match(reply, /Caminho notificado: \/home\/mapita\/projetos\/codex-flow-runner/u);
   assert.match(reply, /ExecPlan notificado: execplans\/2026-02-19-flow-a\.md/u);
   assert.match(reply, /Commit\/Push notificado: abc123@origin\/main/u);
+  assert.match(reply, /Última falha de notificação: nenhuma/u);
+});
+
+test("status inclui falha definitiva de notificacao separada do ultimo evento entregue", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      lastNotifiedEvent: {
+        summary: createSuccessSummary(),
+        delivery: {
+          channel: "telegram",
+          destinationChatId: "42",
+          deliveredAtUtc: "2026-02-19T15:10:00.000Z",
+          attempts: 2,
+          maxAttempts: 4,
+        },
+      },
+      lastNotificationFailure: {
+        summary: createFailureSummary(),
+        failure: {
+          channel: "telegram",
+          destinationChatId: "42",
+          failedAtUtc: "2026-02-19T15:12:00.000Z",
+          attempts: 4,
+          maxAttempts: 4,
+          errorMessage: "Service Unavailable",
+          errorCode: "503",
+          errorClass: "telegram-server",
+          retryable: true,
+        },
+      },
+    }),
+  );
+
+  assert.match(reply, /Último evento notificado: 2026-02-19-flow-a\.md \(success\)/u);
+  assert.match(reply, /Tentativas até entrega: 2\/4/u);
+  assert.match(reply, /Última falha de notificação: 2026-02-19-flow-a\.md \(failure\)/u);
+  assert.match(reply, /Falha registrada em: 2026-02-19T15:12:00\.000Z/u);
+  assert.match(reply, /Tentativas até falha definitiva: 4\/4/u);
+  assert.match(reply, /Classe do erro de notificação: telegram-server/u);
+  assert.match(reply, /Código do erro de notificação: 503/u);
+  assert.match(reply, /Retentável: sim/u);
 });
 
 test("status renderiza slot de execucao unitaria com comando /run_ticket", () => {
@@ -4223,6 +4465,7 @@ test("status informa ausencia de evento notificado", () => {
   assert.match(reply, /Slots ativos: nenhum/u);
   assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: nenhum/u);
+  assert.match(reply, /Última falha de notificação: nenhuma/u);
 });
 
 test("status exibe spec atual durante triagem", () => {
