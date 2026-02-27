@@ -1,7 +1,7 @@
 # [TICKET] /run_all e /run_specs ainda usam lock global de ticket e bloqueiam projetos distintos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-02-27 04:16Z
@@ -19,6 +19,7 @@
 - Related docs/execplans:
   - docs/specs/2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre.md
   - docs/specs/2026-02-20-telegram-multi-project-parallel-runners.md
+  - execplans/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -92,9 +93,30 @@ O runner ainda aplica lock global de ticket para slots de run (`run-all`, `run-s
 
 ## Decision log
 - 2026-02-27 - Ticket aberto a partir de revisao de gaps da spec de concorrencia por projeto.
+- 2026-02-27 - Validacao do ExecPlan concluida com classificacao `GO`; entrega tecnica validada por testes, check e build.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-27 04:35Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md (commit de fechamento deste ticket)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Evidencia objetiva de aceite tecnico:
+  - `rg -n "ticket-lock-active|runner-capacity-full|ticketCapacity" src/core src/types src/integrations` -> sem ocorrencias.
+  - `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> pass (`175/175`).
+  - `npm test` -> pass (`269/269`).
+  - `npm run check && npm run build` -> pass.
+- Entrega tecnica concluida:
+  - lock global de ticket removido da admissao de runs (`run-all`, `run-specs`, `run-ticket`) em favor de bloqueio por projeto/capacidade global.
+  - taxonomia de capacidade global alinhada para `runner-capacity-maxed` no core e nos contratos de teste.
+  - estado publico do runner e `/status` atualizados sem `ticketCapacity` legado.
+  - rastreabilidade da spec de origem atualizada com matriz RF/CA e historico da entrega.
+- Validacao manual externa ainda necessaria:
+  - Entrega tecnica concluida: sim; pendencia remanescente e apenas operacional em ambiente Telegram real.
+  - Objetivo: confirmar no chat real o comportamento de concorrencia entre projetos e a renderizacao de `/status` apos a mudanca.
+  - Como executar:
+    1. iniciar o bot no ambiente real com chat autorizado e garantir capacidade global disponivel;
+    2. iniciar `/run_all` no projeto `alpha-project`;
+    3. trocar para `beta-project` e iniciar `/run_specs <spec-elegivel.md>`, confirmando inicio sem bloqueio global;
+    4. executar `/status` e validar ausencia de "Capacidade de tickets (global)" com slots ativos por projeto coerentes.
+  - Responsavel operacional: operador do bot Telegram em ambiente real (mapita/time de operacao).

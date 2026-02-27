@@ -108,12 +108,6 @@ export interface RunnerCapacitySnapshot {
   used: number;
 }
 
-export interface RunnerTicketCapacitySnapshot {
-  limit: number;
-  used: number;
-  isLocked: boolean;
-}
-
 export interface RunnerState {
   isRunning: boolean;
   isPaused: boolean;
@@ -121,7 +115,6 @@ export interface RunnerState {
   currentSpec: string | null;
   activeProject: ProjectRef | null;
   capacity: RunnerCapacitySnapshot;
-  ticketCapacity: RunnerTicketCapacitySnapshot;
   activeSlots: RunnerActiveSlotState[];
   planSpecSession: PlanSpecSessionState | null;
   codexChatSession: CodexChatSessionState | null;
@@ -145,11 +138,6 @@ export const createInitialState = (
   capacity: {
     limit: capacityLimit,
     used: 0,
-  },
-  ticketCapacity: {
-    limit: 1,
-    used: 0,
-    isLocked: false,
   },
   activeSlots: [],
   planSpecSession: null,

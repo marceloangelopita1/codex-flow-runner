@@ -4536,7 +4536,6 @@ export class TelegramController {
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
-      `Capacidade de tickets (global): ${state.ticketCapacity.used}/${state.ticketCapacity.limit} (${state.ticketCapacity.isLocked ? "lock ativo" : "lock livre"})`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Sessão /codex_chat: ${state.codexChatSession ? "ativa" : "inativa"}`,
       `Última mensagem: ${state.lastMessage}`,

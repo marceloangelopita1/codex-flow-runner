@@ -207,7 +207,6 @@ interface ResolvedTicketContent {
 }
 
 const RUNNER_SLOT_LIMIT = 5;
-const RUNNER_TICKET_SLOT_LIMIT = 1;
 const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_CHAT_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_NO_GO_RECOVERIES_PER_TICKET = 3;
@@ -252,8 +251,7 @@ type RunnerRequestBlockedReason =
   | "active-project-unavailable"
   | "plan-spec-active"
   | "project-slot-busy"
-  | "ticket-lock-active"
-  | "runner-capacity-full"
+  | "runner-capacity-maxed"
   | "shutdown-in-progress";
 
 type RunnerRequestBlockedResult = {
@@ -323,7 +321,7 @@ export type PlanSpecSessionStartResult =
         | "active-project-unavailable"
         | "codex-auth-missing"
         | "project-slot-busy"
-        | "runner-capacity-full"
+        | "runner-capacity-maxed"
         | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
@@ -349,7 +347,7 @@ export type CodexChatSessionStartResult =
         | "active-project-unavailable"
         | "codex-auth-missing"
         | "project-slot-busy"
-        | "runner-capacity-full"
+        | "runner-capacity-maxed"
         | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
@@ -463,7 +461,6 @@ export class TicketRunner {
   getState = (): RunnerState => ({
     ...this.state,
     capacity: { ...this.state.capacity },
-    ticketCapacity: { ...this.state.ticketCapacity },
     activeSlots: this.state.activeSlots.map((slot) => ({
       ...slot,
       project: { ...slot.project },
@@ -622,7 +619,7 @@ export class TicketRunner {
     const reservation = this.reserveSlot(roundDependencies, "plan-spec");
     if (reservation.status === "blocked") {
       const blockedReason =
-        reservation.reason === "plan-spec-active" || reservation.reason === "ticket-lock-active"
+        reservation.reason === "plan-spec-active"
           ? "project-slot-busy"
           : reservation.reason;
       return {
@@ -862,10 +859,7 @@ export class TicketRunner {
 
     const reservation = this.reserveSlot(roundDependencies, "codex-chat");
     if (reservation.status === "blocked") {
-      return {
-        ...reservation,
-        reason: reservation.reason === "ticket-lock-active" ? "project-slot-busy" : reservation.reason,
-      };
+      return reservation;
     }
 
     const slot = reservation.slot;
@@ -3684,23 +3678,12 @@ export class TicketRunner {
       };
     }
 
-    if (this.isTicketSlotKind(kind)) {
-      const activeTicketSlot = this.getActiveTicketSlot();
-      if (activeTicketSlot) {
-        return {
-          status: "blocked",
-          reason: "ticket-lock-active",
-          message: this.buildTicketLockActiveMessage(kind, activeTicketSlot),
-        };
-      }
-    }
-
     if (this.activeSlots.size >= RUNNER_SLOT_LIMIT) {
       const activeProjects = this.getActiveProjects();
       return {
         status: "blocked",
-        reason: "runner-capacity-full",
-        message: this.buildCapacityFullMessage(activeProjects),
+        reason: "runner-capacity-maxed",
+        message: this.buildCapacityMaxedMessage(activeProjects),
         activeProjects,
       };
     }
@@ -3813,13 +3796,6 @@ export class TicketRunner {
     return Array.from(this.activeSlots.values()).filter((slot) => this.isTicketSlotKind(slot.kind));
   }
 
-  private getActiveTicketSlot(): ActiveRunnerSlot | null {
-    const ticketSlots = this.getRunSlots().sort(
-      (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
-    );
-    return ticketSlots[0] ?? null;
-  }
-
   private getActiveProjects(): ProjectRef[] {
     return Array.from(this.activeSlots.values()).map((slot) => ({ ...slot.project }));
   }
@@ -3852,19 +3828,7 @@ export class TicketRunner {
     return kind === "run-all" || kind === "run-specs" || kind === "run-ticket";
   }
 
-  private buildTicketLockActiveMessage(
-    requestedKind: RunnerSlotKind,
-    activeTicketSlot: ActiveRunnerSlot,
-  ): string {
-    const requestedCommand = this.renderSlotCommand(requestedKind);
-    const activeCommand = this.renderSlotCommand(activeTicketSlot.kind);
-    return [
-      `Nao e possivel iniciar ${requestedCommand}: lock global de ticket ativo por ${activeCommand} no projeto ${activeTicketSlot.project.name}.`,
-      "Aguarde a conclusao da execucao atual e tente novamente.",
-    ].join(" ");
-  }
-
-  private buildCapacityFullMessage(activeProjects: ProjectRef[]): string {
+  private buildCapacityMaxedMessage(activeProjects: ProjectRef[]): string {
     const activeProjectNames = activeProjects.map((project) => project.name).join(", ");
     const suffix = activeProjectNames
       ? ` Projetos em execucao: ${activeProjectNames}.`
@@ -3911,16 +3875,10 @@ export class TicketRunner {
     const slots = Array.from(this.activeSlots.values()).sort(
       (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
     );
-    const ticketSlots = slots.filter((slot) => this.isTicketSlotKind(slot.kind));
 
     this.state.capacity = {
       limit: RUNNER_SLOT_LIMIT,
       used: slots.length,
-    };
-    this.state.ticketCapacity = {
-      limit: RUNNER_TICKET_SLOT_LIMIT,
-      used: ticketSlots.length,
-      isLocked: ticketSlots.length > 0,
     };
     this.state.activeSlots = slots.map((slot) => ({
       project: { ...slot.project },

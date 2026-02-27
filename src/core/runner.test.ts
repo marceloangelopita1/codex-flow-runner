@@ -925,7 +925,7 @@ test("requestRunSelectedTicket bloqueia input invalido sem reservar slot", async
   assert.equal(resolveCalls, 0);
   assert.equal(codex.authChecks, 0);
   assert.equal(runner.getState().isRunning, false);
-  assert.equal(runner.getState().ticketCapacity.used, 0);
+  assert.equal(runner.getState().capacity.used, 0);
 });
 
 test("requestRunSelectedTicket retorna erro funcional quando ticket nao existe mais", async () => {
@@ -953,13 +953,13 @@ test("requestRunSelectedTicket retorna erro funcional quando ticket nao existe m
     assert.equal(codex.authChecks, 1);
     assert.equal(codex.calls.length, 0);
     assert.equal(runner.getState().isRunning, false);
-    assert.equal(runner.getState().ticketCapacity.used, 0);
+    assert.equal(runner.getState().capacity.used, 0);
   } finally {
     await cleanupTempProjectRoot(rootPath);
   }
 });
 
-test("requestRunSelectedTicket respeita lock global quando /run_all esta ativo em outro projeto", async () => {
+test("requestRunSelectedTicket nao aplica lock global quando /run_all esta ativo em outro projeto", async () => {
   const logger = new SpyLogger();
   const codexA = new StubCodexClient();
   const codexB = new StubCodexClient();
@@ -1007,17 +1007,13 @@ test("requestRunSelectedTicket respeita lock global quando /run_all esta ativo e
   const runTicketResult = await runner.requestRunSelectedTicket(
     "2026-02-23-acao-implementar-ticket-selecionado-com-execucao-unitaria.md",
   );
-  assert.equal(runTicketResult.status, "blocked");
-  if (runTicketResult.status === "blocked") {
-    assert.equal(runTicketResult.reason, "ticket-lock-active");
-    assert.match(
-      runTicketResult.message,
-      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
-    );
+  assert.equal(runTicketResult.status, "ticket-nao-encontrado");
+  if (runTicketResult.status === "ticket-nao-encontrado") {
+    assert.match(runTicketResult.message, /Ticket selecionado nao encontrado em tickets\/open\//u);
   }
 
   assert.equal(codexA.authChecks, 1);
-  assert.equal(codexB.authChecks, 0);
+  assert.equal(codexB.authChecks, 1);
 
   releaseWait();
   await waitForRunnerToStop(runner);
@@ -1714,7 +1710,7 @@ test("requestRunSpecs evita corrida durante preflight de autenticacao", async ()
   assert.equal(resolveCalls, 2);
 });
 
-test("requestRunAll aplica lock global e bloqueia segundo inicio em projeto distinto (RF-11)", async () => {
+test("requestRunAll permite concorrencia entre projetos distintos (CA-01)", async () => {
   const logger = new SpyLogger();
   const codexA = new StubCodexClient();
   const codexB = new StubCodexClient();
@@ -1763,23 +1759,16 @@ test("requestRunAll aplica lock global e bloqueia segundo inicio em projeto dist
   const [runAlphaResult, runBetaResult] = await Promise.all([runAlphaPromise, runBetaPromise]);
 
   assert.deepEqual(runAlphaResult, { status: "started" });
-  assert.equal(runBetaResult.status, "blocked");
-  if (runBetaResult.status === "blocked") {
-    assert.equal(runBetaResult.reason, "ticket-lock-active");
-    assert.match(
-      runBetaResult.message,
-      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
-    );
-  }
+  assert.deepEqual(runBetaResult, { status: "started" });
 
   await waitForRunnerToStop(runner);
   assert.equal(codexA.authChecks, 1);
-  assert.equal(codexB.authChecks, 0);
+  assert.equal(codexB.authChecks, 1);
   assert.equal(nextTicketCallsA, 2);
-  assert.equal(nextTicketCallsB, 0);
+  assert.equal(nextTicketCallsB, 2);
 });
 
-test("requestRunSpecs respeita lock global quando /run_all estiver ativo em outro projeto", async () => {
+test("requestRunSpecs inicia em projeto distinto enquanto /run_all esta ativo", async () => {
   const logger = new SpyLogger();
   const codexA = new StubCodexClient();
   const codexB = new StubCodexClient();
@@ -1825,23 +1814,16 @@ test("requestRunSpecs respeita lock global quando /run_all estiver ativo em outr
 
   currentProject = "beta";
   const runSpecsResult = await runner.requestRunSpecs(specFileName);
-  assert.equal(runSpecsResult.status, "blocked");
-  if (runSpecsResult.status === "blocked") {
-    assert.equal(runSpecsResult.reason, "ticket-lock-active");
-    assert.match(
-      runSpecsResult.message,
-      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
-    );
-  }
+  assert.deepEqual(runSpecsResult, { status: "started" });
 
   assert.equal(codexA.authChecks, 1);
-  assert.equal(codexB.authChecks, 0);
+  assert.equal(codexB.authChecks, 1);
 
   releaseWait();
   await waitForRunnerToStop(runner);
 });
 
-test("requestRunAll libera lock global apos conclusao e permite nova execucao em outro projeto", async () => {
+test("requestRunAll bloqueia por capacidade global com runner-capacity-maxed", async () => {
   const logger = new SpyLogger();
 
   const createBlockingQueue = (ticket: TicketRef) => {
@@ -1871,57 +1853,67 @@ test("requestRunAll libera lock global apos conclusao e permite nova execucao em
     };
   };
 
-  const alphaQueue = createBlockingQueue(ticketA);
-  const betaQueue = createBlockingQueue(ticketB);
-  const roundDependenciesA = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue: alphaQueue.queue,
-    codexClient: new StubCodexClient(),
-    gitVersioning: new StubGitVersioning(),
-  });
-  const roundDependenciesB = createRoundDependencies({
-    activeProject: activeProjectB,
-    queue: betaQueue.queue,
-    codexClient: new StubCodexClient(),
-    gitVersioning: new StubGitVersioning(),
+  const projects: ProjectRef[] = Array.from({ length: 6 }, (_, index) => ({
+    name: `project-${index + 1}`,
+    path: `/tmp/projects/project-${index + 1}`,
+  }));
+  const blockers = projects.map((_project, index) =>
+    createBlockingQueue(index % 2 === 0 ? ticketA : ticketB),
+  );
+  const codexClients = projects.map(() => new StubCodexClient());
+  const roundDependenciesList = projects.map((project, index) =>
+    createRoundDependencies({
+      activeProject: project,
+      queue: blockers[index].queue,
+      codexClient: codexClients[index],
+      gitVersioning: new StubGitVersioning(),
+    }),
+  );
+
+  const initialRoundDependencies = roundDependenciesList[0];
+  if (!initialRoundDependencies) {
+    throw new Error("Nao foi possivel inicializar dependencias de teste para capacidade global.");
+  }
+
+  let currentProjectIndex = 0;
+  const runner = createRunner(logger, initialRoundDependencies, {
+    resolveRoundDependencies: async () => {
+      const dependencies = roundDependenciesList[currentProjectIndex];
+      if (!dependencies) {
+        throw new Error(`Dependencias nao encontradas para indice ${currentProjectIndex}`);
+      }
+      return dependencies;
+    },
   });
 
-  let currentProject: "alpha" | "beta" = "alpha";
-  const runner = createRunner(logger, roundDependenciesA, {
-    resolveRoundDependencies: async () =>
-      currentProject === "alpha" ? roundDependenciesA : roundDependenciesB,
-  });
+  for (let index = 0; index < 5; index += 1) {
+    currentProjectIndex = index;
+    const startResult = await runner.requestRunAll();
+    assert.deepEqual(startResult, { status: "started" });
+  }
 
-  const firstResult = await runner.requestRunAll();
-  assert.deepEqual(firstResult, { status: "started" });
-  assert.equal(runner.getState().ticketCapacity.limit, 1);
-  assert.equal(runner.getState().ticketCapacity.used, 1);
-  assert.equal(runner.getState().ticketCapacity.isLocked, true);
-
-  currentProject = "beta";
+  currentProjectIndex = 5;
   const blockedResult = await runner.requestRunAll();
   assert.equal(blockedResult.status, "blocked");
   if (blockedResult.status === "blocked") {
-    assert.equal(blockedResult.reason, "ticket-lock-active");
+    assert.equal(blockedResult.reason, "runner-capacity-maxed");
     assert.match(
       blockedResult.message,
-      /lock global de ticket ativo por \/run_all no projeto alpha-project/u,
+      /Capacidade maxima de 5 runners ativos atingida/u,
     );
+    const activeProjectNames = blockedResult.activeProjects?.map((project) => project.name) ?? [];
+    assert.deepEqual(activeProjectNames.sort(), projects.slice(0, 5).map((project) => project.name).sort());
   }
 
-  alphaQueue.release();
-  await sleep(0);
+  blockers.slice(0, 5).forEach((blocking) => {
+    blocking.release();
+  });
   await waitForRunnerToStop(runner);
-  assert.equal(runner.getState().ticketCapacity.limit, 1);
-  assert.equal(runner.getState().ticketCapacity.used, 0);
-  assert.equal(runner.getState().ticketCapacity.isLocked, false);
 
+  currentProjectIndex = 5;
   const retryResult = await runner.requestRunAll();
   assert.deepEqual(retryResult, { status: "started" });
-  assert.equal(runner.getState().ticketCapacity.used, 1);
-  assert.equal(runner.getState().ticketCapacity.isLocked, true);
-
-  betaQueue.release();
+  blockers[5]?.release();
   await waitForRunnerToStop(runner);
 });
 
