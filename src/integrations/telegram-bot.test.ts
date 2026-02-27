@@ -829,6 +829,31 @@ const callHandleCodexChatTextMessage = async (
   await internalController.handleCodexChatTextMessage(context);
 };
 
+const callHandleActiveFreeTextMessage = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: {
+      text?: string;
+      entities?: Array<{ type: string; offset: number; length: number }>;
+    };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleActiveFreeTextMessage: (value: {
+      chat: { id: number };
+      message?: {
+        text?: string;
+        entities?: Array<{ type: string; offset: number; length: number }>;
+      };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleActiveFreeTextMessage(context);
+};
+
 const callHandleCodexChatCallbackQuery = async (
   controller: TelegramController,
   context: {
@@ -1775,6 +1800,43 @@ test("mensagem livre em sessao /codex_chat ativa e roteada para o runner (CA-03)
   assert.deepEqual(replies, ["✅ Mensagem enviada para a sessão /codex_chat."]);
 });
 
+test("gate de texto livre roteia para uma unica sessao quando houver estado inconsistente (CA-06)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        planSpecSession: createPlanSpecSession({
+          chatId: "42",
+          phase: "waiting-user",
+        }),
+        codexChatSession: createCodexChatSession({
+          sessionId: 17,
+          chatId: "42",
+          phase: "waiting-user",
+        }),
+      }),
+  });
+  const replies: string[] = [];
+
+  await callHandleActiveFreeTextMessage(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "Quero continuar o planejamento sem enviar no chat livre do Codex.",
+    },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.planSpecInputCalls, 1);
+  assert.equal(controlState.codexChatInputCalls, 0);
+  assert.deepEqual(controlState.planSpecInputCallsByChat, [{
+    chatId: "42",
+    input: "Quero continuar o planejamento sem enviar no chat livre do Codex.",
+  }]);
+  assert.deepEqual(replies, ["✅ Mensagem enviada para a sessão /plan_spec."]);
+});
+
 test("saida de /codex_chat enviada ao Telegram inclui botao inline de encerramento (CA-04)", async () => {
   const { controller } = createController({
     getState: () =>
@@ -1911,6 +1973,50 @@ test("handoff por comando encerra /codex_chat e executa novo comando no mesmo up
   }]);
   assert.equal(controlState.runAllCalls, 1);
   assert.deepEqual(replies, ["▶️ Runner iniciado via /run_all."]);
+});
+
+test("handoff preserva /codex_chat quando comando seguinte for /plan_spec (CA-04)", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 51,
+          chatId: "42",
+        }),
+      }),
+    planSpecStartResult: {
+      status: "blocked",
+      message:
+        "Nao e possivel iniciar /plan_spec enquanto houver sessao global de texto livre ativa em /codex_chat. Encerre a sessao /codex_chat atual e tente novamente.",
+    },
+  });
+  const replies: string[] = [];
+  const context = {
+    chat: { id: 42 },
+    message: {
+      text: "/plan_spec",
+      entities: [{
+        type: "bot_command",
+        offset: 0,
+        length: 10,
+      }],
+    },
+    reply: async (text: string) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  };
+
+  await callHandleCodexChatCommandHandoff(controller, context, async () => {
+    await callHandlePlanSpecCommand(controller, context);
+  });
+
+  assert.equal(controlState.codexChatCancelCalls, 0);
+  assert.equal(controlState.planSpecStartCalls, 1);
+  assert.match(
+    replies[0] ?? "",
+    /sessao global de texto livre ativa em \/codex_chat/u,
+  );
 });
 
 test("/plan_spec inicia sessao e solicita brief inicial (CA-01)", async () => {

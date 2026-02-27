@@ -223,8 +223,6 @@ const CODEX_CHAT_CHAT_MISMATCH_MESSAGE =
 const CODEX_CHAT_TIMEOUT_MESSAGE =
   "Sessao /codex_chat encerrada por inatividade de 10 minutos.";
 const CODEX_CHAT_CANCELLED_MESSAGE = "Sessao /codex_chat cancelada.";
-const CODEX_CHAT_PLAN_SPEC_BLOCKED_MESSAGE =
-  "Nao e possivel iniciar /codex_chat enquanto houver sessao /plan_spec ativa. Encerre a sessao /plan_spec atual e tente novamente.";
 const PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS = 30 * 1000;
 const PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS = 2 * 60 * 1000;
 const PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
@@ -249,7 +247,7 @@ export type RunnerRoundDependenciesResolver = () => Promise<RunnerRoundDependenc
 type RunnerRequestBlockedReason =
   | "codex-auth-missing"
   | "active-project-unavailable"
-  | "plan-spec-active"
+  | "global-free-text-busy"
   | "project-slot-busy"
   | "runner-capacity-maxed"
   | "shutdown-in-progress";
@@ -320,6 +318,7 @@ export type PlanSpecSessionStartResult =
       reason:
         | "active-project-unavailable"
         | "codex-auth-missing"
+        | "global-free-text-busy"
         | "project-slot-busy"
         | "runner-capacity-maxed"
         | "shutdown-in-progress";
@@ -343,7 +342,7 @@ export type CodexChatSessionStartResult =
   | {
       status: "blocked";
       reason:
-        | "plan-spec-active"
+        | "global-free-text-busy"
         | "active-project-unavailable"
         | "codex-auth-missing"
         | "project-slot-busy"
@@ -578,6 +577,7 @@ export class TicketRunner {
       phase: this.state.phase,
       isRunning: this.state.isRunning,
       hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
@@ -592,6 +592,11 @@ export class TicketRunner {
         status: "already-active",
         message: "Ja existe uma sessao /plan_spec em andamento nesta instancia.",
       };
+    }
+
+    const globalFreeTextBusy = this.buildGlobalFreeTextBusyResult("/plan_spec");
+    if (globalFreeTextBusy) {
+      return globalFreeTextBusy;
     }
 
     let roundDependencies: RunnerRoundDependencies;
@@ -616,15 +621,16 @@ export class TicketRunner {
       return this.buildShutdownBlockedResult("/plan_spec");
     }
 
+    const globalFreeTextBusyAfterResolution = this.buildGlobalFreeTextBusyResult("/plan_spec");
+    if (globalFreeTextBusyAfterResolution) {
+      return globalFreeTextBusyAfterResolution;
+    }
+
     const reservation = this.reserveSlot(roundDependencies, "plan-spec");
     if (reservation.status === "blocked") {
-      const blockedReason =
-        reservation.reason === "plan-spec-active"
-          ? "project-slot-busy"
-          : reservation.reason;
       return {
         status: "blocked",
-        reason: blockedReason,
+        reason: reservation.reason,
         message: reservation.message,
         ...(reservation.activeProjects ? { activeProjects: reservation.activeProjects } : {}),
       };
@@ -827,12 +833,9 @@ export class TicketRunner {
       };
     }
 
-    if (this.isPlanSpecSessionActive()) {
-      return {
-        status: "blocked",
-        reason: "plan-spec-active",
-        message: CODEX_CHAT_PLAN_SPEC_BLOCKED_MESSAGE,
-      };
+    const globalFreeTextBusy = this.buildGlobalFreeTextBusyResult("/codex_chat");
+    if (globalFreeTextBusy) {
+      return globalFreeTextBusy;
     }
 
     let roundDependencies: RunnerRoundDependencies;
@@ -855,6 +858,11 @@ export class TicketRunner {
 
     if (this.isShuttingDown) {
       return this.buildShutdownBlockedResult("/codex_chat");
+    }
+
+    const globalFreeTextBusyAfterResolution = this.buildGlobalFreeTextBusyResult("/codex_chat");
+    if (globalFreeTextBusyAfterResolution) {
+      return globalFreeTextBusyAfterResolution;
     }
 
     const reservation = this.reserveSlot(roundDependencies, "codex-chat");
@@ -1487,6 +1495,43 @@ export class TicketRunner {
       this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
     }
   };
+
+  private buildGlobalFreeTextBusyResult(requestedCommand: "/plan_spec" | "/codex_chat"): {
+    status: "blocked";
+    reason: "global-free-text-busy";
+    message: string;
+  } | null {
+    const hasActivePlanSpecSession = this.isPlanSpecSessionActive();
+    const hasActiveCodexChatSession = this.isCodexChatSessionActive();
+    const activeCommand = hasActivePlanSpecSession
+      ? "/plan_spec"
+      : hasActiveCodexChatSession
+      ? "/codex_chat"
+      : null;
+
+    if (!activeCommand || activeCommand === requestedCommand) {
+      return null;
+    }
+
+    const message = [
+      `Nao e possivel iniciar ${requestedCommand} enquanto houver sessao global de texto livre ativa em ${activeCommand}.`,
+      `Encerre a sessao ${activeCommand} atual e tente novamente.`,
+    ].join(" ");
+    this.logger.warn("Solicitacao de sessao interativa bloqueada por lock global de texto livre", {
+      requestedCommand,
+      activeCommand,
+      hasActivePlanSpecSession,
+      hasActiveCodexChatSession,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+    });
+
+    return {
+      status: "blocked",
+      reason: "global-free-text-busy",
+      message,
+    };
+  }
 
   private isPlanSpecSessionActive(): boolean {
     return Boolean(this.activePlanSpecSession && this.state.planSpecSession);

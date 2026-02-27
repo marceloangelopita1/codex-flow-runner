@@ -1076,8 +1076,7 @@ export class TelegramController {
     });
 
     this.bot.on("text", async (ctx) => {
-      await this.handleCodexChatTextMessage(ctx as unknown as CommandContext);
-      await this.handlePlanSpecTextMessage(ctx as unknown as CommandContext);
+      await this.handleActiveFreeTextMessage(ctx as unknown as CommandContext);
     });
 
     this.bot.hears(UNKNOWN_COMMAND_PATTERN, async (ctx) => {
@@ -1190,7 +1189,12 @@ export class TelegramController {
     const state = this.getState();
     const session = state.codexChatSession;
     const chatId = ctx.chat.id.toString();
-    if (!session || session.chatId !== chatId || this.isCodexChatEntryCommand(command)) {
+    if (
+      !session ||
+      session.chatId !== chatId ||
+      this.isCodexChatEntryCommand(command) ||
+      this.isPlanSpecEntryCommand(command)
+    ) {
       await next();
       return;
     }
@@ -1242,6 +1246,24 @@ export class TelegramController {
     const result = await this.controls.startCodexChatSession(chatId);
     this.captureNotificationChat(chatId);
     await ctx.reply(this.buildCodexChatStartReply(result));
+  }
+
+  private async handleActiveFreeTextMessage(ctx: CommandContext): Promise<void> {
+    const messageText = (ctx.message?.text ?? "").trim();
+    if (!messageText || this.parseCommandNameFromMessage(ctx.message)) {
+      return;
+    }
+
+    const chatId = ctx.chat.id.toString();
+    const route = this.resolveActiveFreeTextRoute(this.getState(), chatId);
+    if (route === "plan-spec") {
+      await this.handlePlanSpecTextMessage(ctx);
+      return;
+    }
+
+    if (route === "codex-chat") {
+      await this.handleCodexChatTextMessage(ctx);
+    }
   }
 
   private async handleCodexChatTextMessage(ctx: CommandContext): Promise<void> {
@@ -2663,6 +2685,48 @@ export class TelegramController {
 
   private isCodexChatEntryCommand(command: string): boolean {
     return command === "codex_chat" || command === "codex-chat";
+  }
+
+  private isPlanSpecEntryCommand(command: string): boolean {
+    return command === "plan_spec";
+  }
+
+  private resolveActiveFreeTextRoute(
+    state: RunnerState,
+    chatId: string,
+  ): "plan-spec" | "codex-chat" | null {
+    const planSpecSession = state.planSpecSession;
+    const codexChatSession = state.codexChatSession;
+    if (!planSpecSession && !codexChatSession) {
+      return null;
+    }
+
+    if (planSpecSession && codexChatSession) {
+      this.logger.warn(
+        "Conflito de sessoes de texto livre detectado; roteamento unico sera aplicado",
+        {
+          chatId,
+          planSpecSessionChatId: planSpecSession.chatId,
+          planSpecSessionId: planSpecSession.sessionId ?? null,
+          codexChatSessionChatId: codexChatSession.chatId,
+          codexChatSessionId: codexChatSession.sessionId ?? null,
+        },
+      );
+    }
+
+    if (planSpecSession && planSpecSession.chatId === chatId) {
+      return "plan-spec";
+    }
+
+    if (codexChatSession && codexChatSession.chatId === chatId) {
+      return "codex-chat";
+    }
+
+    if (planSpecSession) {
+      return "plan-spec";
+    }
+
+    return "codex-chat";
   }
 
   private parseCodexChatCallbackData(callbackData: string): ParsedCodexChatCallbackData {

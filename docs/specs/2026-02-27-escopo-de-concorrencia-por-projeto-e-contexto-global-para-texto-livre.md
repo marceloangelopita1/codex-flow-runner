@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre
-- Status: partially_attended
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-27 04:09Z
-- Last reviewed at (UTC): 2026-02-27 05:55Z
+- Last reviewed at (UTC): 2026-02-27 04:48Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
@@ -51,31 +51,33 @@
 ## Criterios de aceitacao (observaveis)
 - [x] CA-01 - Com `alpha-project` em `/run_all`, iniciar `/run_specs` em `beta-project` e aceito e inicia sem bloqueio global.
 - [x] CA-02 - Com run ativo em `alpha-project`, nova tentativa de run em `alpha-project` retorna bloqueio `project-slot-busy`.
-- [ ] CA-03 - Com sessao `/plan_spec` ativa, tentativa de abrir `/codex_chat` retorna bloqueio `global-free-text-busy`.
-- [ ] CA-04 - Com sessao `/codex_chat` ativa, tentativa de abrir `/plan_spec` retorna bloqueio `global-free-text-busy`.
+- [x] CA-03 - Com sessao `/plan_spec` ativa, tentativa de abrir `/codex_chat` retorna bloqueio `global-free-text-busy`.
+- [x] CA-04 - Com sessao `/codex_chat` ativa, tentativa de abrir `/plan_spec` retorna bloqueio `global-free-text-busy`.
 - [x] CA-05 - Com sessao global de texto livre ativa, `/run_all` em projeto diferente continua iniciando quando houver capacidade de runner.
-- [ ] CA-06 - Mensagem de texto livre durante sessao ativa e roteada para a mesma sessao global, sem interferir em runs por projeto.
+- [x] CA-06 - Mensagem de texto livre durante sessao ativa e roteada para a mesma sessao global, sem interferir em runs por projeto.
 - [x] CA-07 - `/status` mostra painel de runners por projeto e estado da sessao global de texto livre no mesmo snapshot.
 - [x] CA-08 - Logs de bloqueio registram motivo taxonomico e contexto de projeto quando aplicavel.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: partially_attended
+- Estado geral: attended
 - Itens atendidos:
   - RF-01, RF-02, RF-03, RF-04, CA-01 e CA-02: runs de ticket agora seguem concorrencia por projeto, sem lock global de ticket, mantendo bloqueio intra-projeto por `project-slot-busy` (`src/core/runner.ts`, `reserveSlot`; testes em `src/core/runner.test.ts`).
   - RF-10 e CA-08 (dominio de runs): bloqueio de capacidade global alinhado para `runner-capacity-maxed`, incluindo contrato tipado e cobertura (`src/core/runner.ts`, `src/core/runner.test.ts`).
   - RF-09 e CA-07: `/status` segue coerente por projeto e remove semantica legada de lock global de ticket (`src/types/state.ts`, `src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
   - CA-05: sessao de texto livre pode coexistir com run em outro projeto (evidencia em teste `startPlanSpecSession pode coexistir com /run_all em outro projeto`).
-- Itens parcialmente atendidos:
-  - RF-05, RF-06, RF-08, CA-03, CA-04 e CA-06: ainda falta lock global unico e bidirecional de texto livre entre `/plan_spec` e `/codex_chat` com taxonomia `global-free-text-busy`.
-  - RF-10 e CA-08 (dominio de texto livre): motivos de bloqueio de texto livre ainda nao convergiram para `global-free-text-busy`.
+  - RF-05, RF-06, CA-03 e CA-04: lock global bidirecional de texto livre aplicado no runner com motivo unico `global-free-text-busy` para conflito entre `/plan_spec` e `/codex_chat` (`src/core/runner.ts`, `src/core/runner.test.ts`).
+  - RF-08 e CA-06: roteamento de texto livre no Telegram consolidado em gate unico por sessao ativa, evitando dupla entrega no mesmo update (`src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
+  - RF-10 (dominio de texto livre): taxonomia de bloqueio de sessoes interativas convergida para `global-free-text-busy` em contratos e testes (`src/core/runner.ts`, `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`).
 - Pendencias em aberto:
-  - Implementar lock global unico e bidirecional de texto livre (`/plan_spec` <-> `/codex_chat`) com motivo `global-free-text-busy` (RF-05, RF-06, RF-08, RF-10, CA-03, CA-04, CA-06, CA-08):
-    - `tickets/open/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md`
+  - Fechamento operacional do ticket `tickets/open/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md` (mover para `tickets/closed/` e versionar), fora do escopo desta etapa.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/core/runner.test.ts
   - src/integrations/telegram-bot.ts
   - src/integrations/telegram-bot.test.ts
+  - `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`
+  - `npm test`
+  - `npm run check && npm run build`
 
 ## Riscos e impacto
 - Risco funcional: combinacao incorreta de locks pode gerar corrida ou bloqueios indevidos entre projetos.
@@ -93,3 +95,4 @@
 - 2026-02-27 04:20Z - Validacao final da triagem concluida; mantido `Status: approved` com `Spec treatment: pending` devido a gaps rastreados nos tickets abertos relacionados.
 - 2026-02-27 05:55Z - Entrega tecnica do ticket de concorrencia de runs aplicada em workspace: removido lock global de ticket, taxonomia de capacidade migrada para `runner-capacity-maxed` e estado `/status` atualizado sem `ticketCapacity` legado.
 - 2026-02-27 04:35Z - Ticket de concorrencia de runs fechado em `tickets/closed/` com validacao automatizada concluida (tests/check/build) e rastreabilidade atualizada.
+- 2026-02-27 04:48Z - ExecPlan de lock global de texto livre executado no workspace: bloqueio bidirecional `/plan_spec` <-> `/codex_chat` com `global-free-text-busy`, gate unico de roteamento no Telegram, ajuste de handoff para `/plan_spec` e validacao verde em `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`.

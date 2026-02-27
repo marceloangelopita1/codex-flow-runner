@@ -1,7 +1,7 @@
 # [TICKET] /plan_spec e /codex_chat nao compartilham lock global unico com taxonomia unificada
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-27 04:16Z
@@ -20,6 +20,7 @@
   - docs/specs/2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre.md
   - docs/specs/2026-02-19-telegram-plan-spec-conversation.md
   - docs/specs/2026-02-21-comando-dedicado-codex-chat-para-conversa-livre-com-contexto-persistente-no-telegram.md
+  - execplans/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -95,9 +96,31 @@ A implementacao atual nao materializa um lock global unico de texto livre com mo
 
 ## Decision log
 - 2026-02-27 - Ticket aberto a partir de revisao de gaps da spec de lock global para texto livre.
+- 2026-02-27 - Validacao do ExecPlan concluida com classificacao `GO`; entrega tecnica confirmada por testes, check e build.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-27 04:51Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md (commit de fechamento deste ticket)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Evidencia objetiva de aceite tecnico:
+  - `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> pass (`178/178`).
+  - `npm test` -> pass (`272/272`).
+  - `npm run check && npm run build` -> pass.
+  - `rg -n "plan-spec-active" src/core src/integrations src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> sem ocorrencias.
+  - `rg -n "global-free-text-busy" src/core src/integrations src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> ocorrencias presentes em contratos de bloqueio e testes.
+- Entrega tecnica concluida:
+  - lock global bidirecional de texto livre aplicado no runner para `/plan_spec` e `/codex_chat` com motivo unico `global-free-text-busy`.
+  - roteamento de texto livre no Telegram consolidado com gate unico de sessao ativa, evitando dupla entrega no mesmo update.
+  - handoff de comando ajustado para preservar bloqueio esperado ao tentar `/plan_spec` durante `/codex_chat`.
+  - spec de concorrencia por projeto/contexto global atualizada para `Status: attended` com RF/CA deste ticket marcados como atendidos.
+- Validacao manual externa ainda necessaria:
+  - Entrega tecnica concluida: sim; pendencia remanescente e apenas operacional em ambiente Telegram real.
+  - Objetivo: confirmar no chat real o bloqueio bidirecional `global-free-text-busy` e o roteamento unico de texto livre por sessao ativa.
+  - Como executar:
+    1. iniciar o bot no ambiente real com chat autorizado e garantir que nao haja sessao interativa ativa;
+    2. iniciar `/codex_chat`, trocar para outro projeto e tentar `/plan_spec`, confirmando bloqueio `global-free-text-busy`;
+    3. encerrar a sessao, iniciar `/plan_spec` e tentar `/codex_chat`, confirmando bloqueio no sentido inverso;
+    4. durante uma sessao ativa, enviar texto livre e validar que apenas a sessao ativa recebe o input.
+  - Responsavel operacional: operador do bot Telegram em ambiente real (mapita/time de operacao).

@@ -2369,6 +2369,28 @@ test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", 
   assert.equal(state.planSpecSession?.activeProjectSnapshot.path, activeProjectA.path);
 });
 
+test("startPlanSpecSession bloqueia inicio quando /codex_chat estiver ativo (CA-04)", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startCodexChatSession("42");
+
+  const result = await runner.startPlanSpecSession("42");
+
+  assert.equal(result.status, "blocked");
+  if (result.status === "blocked") {
+    assert.equal(result.reason, "global-free-text-busy");
+    assert.match(result.message, /sessao global de texto livre ativa em \/codex_chat/u);
+  }
+  assert.equal(codex.planSessionStartCalls, 0);
+});
+
 test("startPlanSpecSession bloqueia inicio durante rodada em andamento", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient(undefined, true, false, 20);
@@ -2774,8 +2796,8 @@ test("startCodexChatSession bloqueia inicio quando /plan_spec estiver ativo (CA-
 
   assert.equal(result.status, "blocked");
   if (result.status === "blocked") {
-    assert.equal(result.reason, "plan-spec-active");
-    assert.match(result.message, /sessao \/plan_spec ativa/u);
+    assert.equal(result.reason, "global-free-text-busy");
+    assert.match(result.message, /sessao global de texto livre ativa em \/plan_spec/u);
   }
   assert.equal(codex.freeChatSessionStartCalls, 0);
 });
