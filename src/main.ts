@@ -164,6 +164,23 @@ const bootstrap = async () => {
           await telegram.sendCodexChatMessage(chatId, message);
         },
       },
+      runSpecsEventHandlers: {
+        onTriageMilestone: async (event) => {
+          if (!telegram) {
+            logger.warn(
+              "Milestone de triagem de /run_specs nao enviada: Telegram indisponivel",
+              {
+                specFileName: event.spec.fileName,
+                outcome: event.outcome,
+                finalStage: event.finalStage,
+              },
+            );
+            return;
+          }
+
+          await telegram.sendRunSpecsTriageMilestone(event);
+        },
+      },
     },
   );
 

@@ -69,6 +69,22 @@ export interface CodexChatEventHandlers {
   onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
 }
 
+export type RunSpecsTriageOutcome = "success" | "failure";
+
+export type RunSpecsTriageFinalStage = "spec-triage" | "spec-close-and-version" | "unknown";
+
+export interface RunSpecsTriageLifecycleEvent {
+  spec: SpecRef;
+  outcome: RunSpecsTriageOutcome;
+  finalStage: RunSpecsTriageFinalStage;
+  nextAction: string;
+  details?: string;
+}
+
+export interface RunSpecsEventHandlers {
+  onTriageMilestone: (event: RunSpecsTriageLifecycleEvent) => Promise<void> | void;
+}
+
 export interface TicketRunnerOptions {
   planSpecSessionTimeoutMs?: number;
   codexChatSessionTimeoutMs?: number;
@@ -79,6 +95,7 @@ export interface TicketRunnerOptions {
   specPlanningTraceStoreFactory?: (projectPath: string) => SpecPlanningTraceStore;
   planSpecEventHandlers?: PlanSpecEventHandlers;
   codexChatEventHandlers?: CodexChatEventHandlers;
+  runSpecsEventHandlers?: RunSpecsEventHandlers;
 }
 
 interface ActivePlanSpecSession {
@@ -380,6 +397,7 @@ export class TicketRunner {
   private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
+  private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
   private nextPlanSpecSessionId = 1;
@@ -414,6 +432,7 @@ export class TicketRunner {
       ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.codexChatEventHandlers = options.codexChatEventHandlers;
+    this.runSpecsEventHandlers = options.runSpecsEventHandlers;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -2410,6 +2429,27 @@ export class TicketRunner {
     }
   }
 
+  private async emitRunSpecsTriageMilestone(event: RunSpecsTriageLifecycleEvent): Promise<void> {
+    if (!this.runSpecsEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.runSpecsEventHandlers.onTriageMilestone({
+        ...event,
+        spec: { ...event.spec },
+      });
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar milestone de triagem de /run_specs para integracao", {
+        specFileName: event.spec.fileName,
+        specPath: event.spec.path,
+        outcome: event.outcome,
+        finalStage: event.finalStage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async prepareRunSlotStart(
     source: RunSlotPreflightSource,
   ): Promise<RunSlotStartPreflightResult> {
@@ -2525,6 +2565,12 @@ export class TicketRunner {
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
+      await this.emitRunSpecsTriageMilestone({
+        spec: { ...spec },
+        outcome: "success",
+        finalStage: "spec-close-and-version",
+        nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+      });
       slot.currentSpec = null;
       this.touchSlot(slot, "idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
       await this.runForever(slot);
@@ -2536,6 +2582,10 @@ export class TicketRunner {
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const failedAtCloseAndVersion = stage === "spec-close-and-version";
+      const finalStage: RunSpecsTriageFinalStage = stage ?? "unknown";
+      const nextAction = failedAtCloseAndVersion
+        ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
+        : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
       slot.isRunning = false;
       this.touchSlot(
         slot,
@@ -2552,6 +2602,13 @@ export class TicketRunner {
         durationMs: Date.now() - specStartedAt,
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
+      });
+      await this.emitRunSpecsTriageMilestone({
+        spec: { ...spec },
+        outcome: "failure",
+        finalStage,
+        nextAction,
+        details: errorMessage,
       });
     } finally {
       slot.currentSpec = null;

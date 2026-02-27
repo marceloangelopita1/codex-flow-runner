@@ -4018,6 +4018,112 @@ test("envia mensagens de pergunta/final/raw/falha do planejamento no Telegram", 
   assert.match(sentMessages[3]?.text ?? "", /Falha na sessão interativa de planejamento/u);
 });
 
+test("nao envia milestone de triagem /run_specs quando chat de notificacao nao foi capturado", async () => {
+  const { controller, logger } = createController();
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendRunSpecsTriageMilestone({
+    spec: {
+      fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+      path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+    },
+    outcome: "success",
+    finalStage: "spec-close-and-version",
+    nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+  });
+
+  assert.equal(sentMessages.length, 0);
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(
+    logger.warnings[0]?.message,
+    "Milestone de triagem de /run_specs nao enviada: chat de notificacao indefinido",
+  );
+  assert.equal(
+    logger.warnings[0]?.context?.specFileName,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+});
+
+test("envia milestone de triagem /run_specs para chat capturado pelo comando /run_specs", async () => {
+  const { controller } = createController({ runSpecsStatus: "started" });
+  const sentMessages = mockSendMessage(controller);
+
+  await callHandleRunSpecsCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async () => Promise.resolve(),
+  });
+
+  await controller.sendRunSpecsTriageMilestone({
+    spec: {
+      fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+      path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+    },
+    outcome: "success",
+    finalStage: "spec-close-and-version",
+    nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+  });
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.match(sentMessages[0]?.text ?? "", /Marco da triagem \/run_specs/u);
+  assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-close-and-version/u);
+  assert.match(sentMessages[0]?.text ?? "", /Proxima acao:/u);
+});
+
+test("envia milestone de triagem /run_specs para chat capturado por callback de /specs", async () => {
+  const { controller } = createController({
+    eligibleSpecs: [
+      {
+        fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+        specPath: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+      },
+    ],
+  });
+  const sentMessages = mockSendMessage(controller);
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpecsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpecsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async () => Promise.resolve(),
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  await controller.sendRunSpecsTriageMilestone({
+    spec: {
+      fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+      path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+    },
+    outcome: "failure",
+    finalStage: "spec-close-and-version",
+    nextAction: "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs.",
+    details: "falha simulada",
+  });
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[1]?.chatId, "42");
+  assert.match(sentMessages[1]?.text ?? "", /Resultado: falha/u);
+  assert.match(sentMessages[1]?.text ?? "", /Fase final: spec-close-and-version/u);
+  assert.match(sentMessages[1]?.text ?? "", /Detalhes: falha simulada/u);
+});
+
 test("envia resumo final para chat autorizado configurado", async () => {
   const { controller, logger } = createController({ allowedChatId: "42" });
   const sentMessages = mockSendMessage(controller);

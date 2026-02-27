@@ -6,15 +6,17 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-27 00:00Z
+- Last reviewed at (UTC): 2026-02-27 04:30Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - tickets/closed/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
   - tickets/open/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Related execplans:
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
+  - execplans/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
   - execplans/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Related commits:
   - A definir
@@ -38,6 +40,7 @@
 - RF-05: o comando `/status` deve refletir o estado mais recente da rodada e do ticket atual.
 - RF-06: o envio de resumo final deve aplicar retry bounded para falhas transitorias (`429`, `5xx`, `ETIMEDOUT`, `ECONNRESET`, `EAI_AGAIN`, `ENETUNREACH`).
 - RF-07: `/status` deve exibir separadamente o ultimo evento efetivamente entregue e a ultima falha definitiva de notificacao.
+- RF-08: ao concluir a triagem de `/run_specs`, o bot deve enviar milestone proativa com spec alvo, resultado (sucesso/falha), fase final e proxima acao.
 
 ## Nao-escopo
 - Envio de mensagem por micro-etapa interna dentro de cada fase.
@@ -52,6 +55,7 @@
 - [x] CA-05 - `/status` apresenta informacao coerente com o ultimo evento notificado.
 - [x] CA-06 - Em falha transitoria, o envio do resumo final reexecuta tentativas com backoff bounded e metadados de tentativa.
 - [x] CA-07 - Em falha definitiva (nao retentavel ou exaustao de tentativas), o estado e logs registram contexto acionavel sem sobrescrever o ultimo evento entregue.
+- [x] CA-08 - Ao concluir triagem de `/run_specs`, milestone proativa e enviada no chat de notificacao (origem comando `/run_specs` e callback de `/specs`) com contexto minimo.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -69,6 +73,8 @@
   - O estado do runner passou a expor `lastNotificationFailure` com ticket, tentativas, timestamp da falha e classe/codigo de erro para diagnostico operacional.
   - `/status` agora renderiza, em blocos separados, o ultimo evento entregue e a ultima falha definitiva de notificacao.
   - A suite automatizada cobre transiente->sucesso, falha nao retentavel imediata e exaustao de tentativas retentaveis.
+  - O bot passou a enviar milestone proativa de triagem de `/run_specs` antes da rodada de tickets, usando `notificationChatId` capturado por comando ou callback.
+  - Runner/main/bot receberam wiring dedicado para lifecycle de `run_specs` com envio best-effort e warning acionavel quando nao ha chat de notificacao.
 - Pendencias em aberto:
   - Validacao manual em Telegram real para comprovar o comportamento de retry em condicao de falha transitoria controlada de rede/API.
 - Evidencias de validacao:
@@ -103,3 +109,4 @@
 - 2026-02-19 15:09Z - Rastreabilidade avancada de sucesso e coerencia de `/status` com ultimo evento notificado implementadas e validadas por testes.
 - 2026-02-19 15:10Z - Ticket de rastreabilidade/coerencia movido para `tickets/closed/` apos validacao completa de testes, check e build.
 - 2026-02-27 - Politica de retry/backoff para notificacao final implementada com estado de falha definitiva em `/status`; validacao manual em Telegram real registrada como pendencia operacional.
+- 2026-02-27 04:30Z - Notificacao proativa de milestone da triagem `/run_specs` implementada e coberta em testes para origem por comando e callback.

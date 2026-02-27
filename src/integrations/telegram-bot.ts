@@ -14,6 +14,7 @@ import type {
   PlanSpecSessionCancelResult,
   PlanSpecSessionInputResult,
   PlanSpecSessionStartResult,
+  RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
   RunAllRequestResult,
   RunSelectedTicketRequestResult,
@@ -914,6 +915,23 @@ export class TelegramController {
 
   async sendPlanSpecMessage(chatId: string, message: string): Promise<void> {
     await this.bot.telegram.sendMessage(chatId, message);
+  }
+
+  async sendRunSpecsTriageMilestone(event: RunSpecsTriageLifecycleEvent): Promise<void> {
+    if (!this.notificationChatId) {
+      this.logger.warn("Milestone de triagem de /run_specs nao enviada: chat de notificacao indefinido", {
+        specFileName: event.spec.fileName,
+        specPath: event.spec.path,
+        outcome: event.outcome,
+        finalStage: event.finalStage,
+      });
+      return;
+    }
+
+    await this.bot.telegram.sendMessage(
+      this.notificationChatId,
+      this.buildRunSpecsTriageMilestoneMessage(event),
+    );
   }
 
   async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {
@@ -4485,6 +4503,24 @@ export class TelegramController {
 
     if (summary.status === "failure") {
       lines.push(`Erro: ${summary.errorMessage}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private buildRunSpecsTriageMilestoneMessage(event: RunSpecsTriageLifecycleEvent): string {
+    const outcomeLabel = event.outcome === "success" ? "sucesso" : "falha";
+    const lines = [
+      "🧭 Marco da triagem /run_specs",
+      `Spec: ${event.spec.fileName}`,
+      `Caminho da spec: ${event.spec.path}`,
+      `Resultado: ${outcomeLabel}`,
+      `Fase final: ${event.finalStage}`,
+      `Proxima acao: ${event.nextAction}`,
+    ];
+
+    if (event.details) {
+      lines.push(`Detalhes: ${event.details}`);
     }
 
     return lines.join("\n");

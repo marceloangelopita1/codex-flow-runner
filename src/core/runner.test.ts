@@ -35,6 +35,8 @@ import {
 import { Logger } from "./logger.js";
 import {
   PlanSpecEventHandlers,
+  RunSpecsEventHandlers,
+  RunSpecsTriageLifecycleEvent,
   RunnerRoundDependencies,
   TicketRunner,
   TicketRunnerOptions,
@@ -1863,6 +1865,44 @@ test("requestRunSpecs bloqueia rodada de tickets quando spec-close-and-version f
   assert.equal(logger.errors[0]?.message, "Erro no ciclo de triagem de spec");
 });
 
+test("requestRunSpecs emite milestone de falha quando spec-close-and-version falha", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
+  const milestones: RunSpecsTriageLifecycleEvent[] = [];
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => ticketA,
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runSpecsEventHandlers: {
+        onTriageMilestone: async (event) => {
+          milestones.push(event);
+        },
+      } satisfies RunSpecsEventHandlers,
+    },
+  });
+
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  assert.equal(milestones.length, 1);
+  assert.equal(milestones[0]?.spec.fileName, specFileName);
+  assert.equal(milestones[0]?.outcome, "failure");
+  assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
+  assert.match(milestones[0]?.nextAction ?? "", /Rodada \/run-all bloqueada/u);
+  assert.match(milestones[0]?.details ?? "", /falha simulada/u);
+});
+
 test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
@@ -1923,6 +1963,53 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
   assert.equal(state.phase, "idle");
   assert.equal(state.currentSpec, null);
   assert.equal(state.lastMessage, "Rodada /run-all finalizada: nenhum ticket aberto restante");
+});
+
+test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tickets", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const milestones: RunSpecsTriageLifecycleEvent[] = [];
+  let nextTicketCalls = 0;
+  let firstTicketCallSawMilestone = false;
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      if (nextTicketCalls === 1) {
+        firstTicketCallSawMilestone = milestones.length === 1;
+        return ticketA;
+      }
+      return null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runSpecsEventHandlers: {
+        onTriageMilestone: async (event) => {
+          milestones.push(event);
+        },
+      } satisfies RunSpecsEventHandlers,
+    },
+  });
+
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  assert.equal(milestones.length, 1);
+  assert.equal(milestones[0]?.spec.fileName, specFileName);
+  assert.equal(milestones[0]?.outcome, "success");
+  assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
+  assert.match(milestones[0]?.nextAction ?? "", /iniciando rodada \/run-all/u);
+  assert.equal(firstTicketCallSawMilestone, true);
 });
 
 test("requestRunSpecs expoe fase e currentSpec durante triagem e transita para fase de ticket", async () => {

@@ -6,14 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-02-19 19:34Z
-- Last reviewed at (UTC): 2026-02-19 20:11Z
+- Last reviewed at (UTC): 2026-02-27 04:30Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
   - tickets/closed/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
+  - tickets/closed/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
   - tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 - Related execplans:
   - execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
+  - execplans/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
 - Related commits:
   - A definir
 
@@ -68,6 +70,7 @@
 - [x] CA-10 - `/status` reflete fase e contexto de spec durante triagem e volta para fases de ticket no `run_all`.
 - [x] CA-11 - Com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chats nao autorizados nao executam `/specs` nem `/run_specs`.
 - [x] CA-12 - Specs sem gaps sao atualizadas para `Status: attended` antes do commit/push da triagem.
+- [x] CA-13 - Ao concluir a triagem em `/run_specs`, o operador recebe milestone proativo no Telegram com spec, resultado, fase final e proxima acao (sucesso/falha).
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
@@ -81,6 +84,8 @@
   - Triagem de spec executa `prompts/01-avaliar-spec-e-gerar-tickets.md` com substituicao de `<SPEC_PATH>`.
   - Fechamento da triagem integrado com novo prompt `prompts/05-encerrar-tratamento-spec-commit-push.md` e commit padrao `chore(specs): triage <arquivo-da-spec.md>`.
   - Fail-gate implementado: falha em `spec-close-and-version` bloqueia rodada de tickets; sucesso encadeia `/run_all` automaticamente.
+  - Runner passou a emitir evento de lifecycle dedicado para milestone de conclusao da triagem (`run_specs`) em sucesso/falha.
+  - Telegram passou a enviar notificacao proativa dessa milestone antes do handoff para tickets, usando `notificationChatId` capturado por comando `/run_specs` ou callback de `/specs`.
   - `/status` agora exibe `Spec atual` durante triagem e transicao para fases de ticket apos handoff.
   - `FileSystemSpecDiscovery` implementado para listar specs elegiveis e validar `Status: approved` + `Spec treatment: pending` no projeto ativo.
   - Comando `/specs` implementado com listagem deterministica de specs elegiveis e gate de acesso por `TELEGRAM_ALLOWED_CHAT_ID`.
@@ -126,3 +131,4 @@
 - 2026-02-19 19:41Z - Revisao de gaps concluida com abertura de 3 tickets (orquestracao `/run_specs`, listagem/elegibilidade `/specs` e baseline de metadata `Spec treatment`).
 - 2026-02-19 19:57Z - Fluxo `/run_specs` implementado e validado com fail-gate, handoff para `/run_all`, novo prompt `05` e cobertura de testes para CA-02, CA-04..CA-10 e CA-12.
 - 2026-02-19 20:11Z - `/specs` e validacao de elegibilidade/existencia em `/run_specs` implementados com cobertura automatizada para CA-01, CA-03 e CA-11.
+- 2026-02-27 04:30Z - Milestone proativa de conclusao da triagem em `/run_specs` implementada para sucesso/falha e validada para origem por comando `/run_specs` e callback de `/specs` (CA-13).

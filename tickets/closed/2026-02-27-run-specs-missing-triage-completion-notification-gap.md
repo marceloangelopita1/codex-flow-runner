@@ -1,7 +1,7 @@
 # [TICKET] /run_specs nao notifica conclusao da triagem da spec antes do ciclo de tickets
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-27 01:43Z
@@ -20,6 +20,7 @@
   - docs/specs/2026-02-19-approved-spec-triage-run-specs.md
   - docs/specs/2026-02-19-telegram-run-status-notification.md
   - execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
+  - execplans/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -91,9 +92,29 @@ Adicionar evento de lifecycle para `run_specs` no runner e wiring Telegram dedic
 
 ## Decision log
 - 2026-02-27 - Ticket aberto para cobrir lacuna de observabilidade entre fim da triagem da spec e inicio da rodada de tickets.
+- 2026-02-27 - Validacao do ExecPlan concluida com classificacao `GO`; entrega tecnica concluida e validada por testes/check/build.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-27 03:46Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-27-run-specs-missing-triage-completion-notification-gap.md (commit de fechamento deste ticket)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Evidencia objetiva de aceite tecnico:
+  - `npm test` -> pass (`265/265`)
+  - `npm run check && npm run build` -> pass
+- Entrega tecnica concluida:
+  - runner com lifecycle dedicado de `run_specs` para milestone de triagem;
+  - emissao de marco de sucesso/falha em `runSpecsAndRunAll` com fase final e proxima acao;
+  - wiring `runner -> main -> TelegramController` para envio proativo best-effort;
+  - cobertura automatizada de comando (`/run_specs`) e callback (`/specs`) para captura do chat e envio da milestone;
+  - docs/specs atualizadas com CA/RF e rastreabilidade da evolucao.
+- Validacao manual externa ainda necessaria:
+  - Entrega tecnica concluida: sim; pendencia remanescente e somente operacional em Telegram real.
+  - Objetivo: confirmar no chat real o recebimento da milestone de triagem em ambos os desfechos (sucesso e falha de `spec-close-and-version`).
+  - Como executar:
+    1. iniciar o bot no ambiente real com chat autorizado e enviar `/run_specs <spec-elegivel>`;
+    2. validar no chat o marco proativo de sucesso da triagem antes do inicio da rodada de tickets;
+    3. repetir com falha controlada em `spec-close-and-version` e validar marco proativo de bloqueio;
+    4. registrar evidencias operacionais (timestamp do chat + logs do runner).
+  - Responsavel operacional: operador do bot Telegram em ambiente real (mapita/time de operacao).
