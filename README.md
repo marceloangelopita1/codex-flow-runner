@@ -35,6 +35,7 @@ Pastas esperadas no repositório alvo:
 - `PROJECTS_ROOT_PATH` (**obrigatório**, ex.: `/home/mapita/projetos`)
 - `POLL_INTERVAL_MS` (opcional, padrão: `5000`)
 - `RUN_ALL_MAX_TICKETS_PER_ROUND` (opcional, padrão: `20`)
+- `SHUTDOWN_DRAIN_TIMEOUT_MS` (opcional, padrão: `30000`)
 - O app carrega automaticamente o arquivo `.env` na raiz do projeto ao iniciar (sem necessidade de `source .env` manual para `npm run dev`/`npm start`).
 
 Regras de bootstrap multi-projeto:
@@ -47,6 +48,7 @@ Regras de bootstrap multi-projeto:
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
 - cada comando `/run_all` processa no maximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada; ao atingir o limite, a rodada e encerrada de forma controlada.
+- ao receber `SIGINT`/`SIGTERM`, o runner entra em shutdown gracioso: bloqueia novas execucoes e aguarda drain bounded de operacoes em voo por ate `SHUTDOWN_DRAIN_TIMEOUT_MS`.
 - indisponibilidade de validacao manual externa ao agente (ex.: Telegram real indisponivel) nao deve, sozinha, forcar `NO_GO`; nesse caso, o fechamento pode ser `GO` com anotacao explicita de validacao manual pendente.
 - para uma mesma cadeia de `NO_GO` (`Closure reason: split-follow-up` + `Parent ticket`), o runner aceita no maximo 3 recuperacoes; ao exceder esse limite, a rodada para em erro e a tarefa permanece nao finalizada no backlog.
 
@@ -130,6 +132,7 @@ Passo a passo da service:
 Notas operacionais:
 - Execute `codex login` no mesmo usuário configurado na unit antes de subir o serviço.
 - Se o `codex` estiver fora do PATH padrão do `systemd`, adicione explicitamente o diretório na linha `Environment=PATH=...`.
+- Mantenha `TimeoutStopSec` maior que `SHUTDOWN_DRAIN_TIMEOUT_MS` (recomendado: margem de pelo menos 10s) para evitar corte prematuro durante o drain.
 - Para depuração da sessão `/plan_spec`, você pode habilitar:
   - `CODEX_INTERACTIVE_VERBOSE_LOGS=1` para logs detalhados dos turnos `codex exec/resume --json`.
 

@@ -253,7 +253,8 @@ type RunnerRequestBlockedReason =
   | "plan-spec-active"
   | "project-slot-busy"
   | "ticket-lock-active"
-  | "runner-capacity-full";
+  | "runner-capacity-full"
+  | "shutdown-in-progress";
 
 type RunnerRequestBlockedResult = {
   status: "blocked";
@@ -322,7 +323,8 @@ export type PlanSpecSessionStartResult =
         | "active-project-unavailable"
         | "codex-auth-missing"
         | "project-slot-busy"
-        | "runner-capacity-full";
+        | "runner-capacity-full"
+        | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
     }
@@ -347,7 +349,8 @@ export type CodexChatSessionStartResult =
         | "active-project-unavailable"
         | "codex-auth-missing"
         | "project-slot-busy"
-        | "runner-capacity-full";
+        | "runner-capacity-full"
+        | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
     }
@@ -383,6 +386,23 @@ export type PlanSpecCallbackResult =
       message: string;
     };
 
+interface ShutdownDrainTask {
+  name: string;
+  promise: Promise<void>;
+}
+
+export interface RunnerShutdownOptions {
+  timeoutMs?: number;
+}
+
+export interface RunnerShutdownReport {
+  timeoutMs: number;
+  durationMs: number;
+  timedOut: boolean;
+  drainedTasks: string[];
+  pendingTasks: string[];
+}
+
 export class TicketRunner {
   private readonly state: RunnerState;
   private readonly activeSlots = new Map<string, ActiveRunnerSlot>();
@@ -402,6 +422,9 @@ export class TicketRunner {
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
   private nextPlanSpecSessionId = 1;
   private nextCodexChatSessionId = 1;
+  private isShuttingDown = false;
+  private shutdownPromise: Promise<RunnerShutdownReport> | null = null;
+  private completedShutdownReport: RunnerShutdownReport | null = null;
 
   constructor(
     private readonly env: AppEnv,
@@ -563,6 +586,10 @@ export class TicketRunner {
       activeSlotsCount: this.activeSlots.size,
     });
 
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/plan_spec");
+    }
+
     if (this.isPlanSpecSessionActive()) {
       return {
         status: "already-active",
@@ -586,6 +613,10 @@ export class TicketRunner {
         reason: "active-project-unavailable",
         message,
       };
+    }
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/plan_spec");
     }
 
     const reservation = this.reserveSlot(roundDependencies, "plan-spec");
@@ -625,6 +656,11 @@ export class TicketRunner {
         reason: "codex-auth-missing",
         message,
       };
+    }
+
+    if (this.isShuttingDown) {
+      this.releaseSlot(slot.key);
+      return this.buildShutdownBlockedResult("/plan_spec");
     }
 
     const sessionId = this.nextPlanSpecSessionId;
@@ -783,6 +819,10 @@ export class TicketRunner {
       activeSlotsCount: this.activeSlots.size,
     });
 
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/codex_chat");
+    }
+
     if (this.isCodexChatSessionActive()) {
       return {
         status: "already-active",
@@ -816,6 +856,10 @@ export class TicketRunner {
       };
     }
 
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/codex_chat");
+    }
+
     const reservation = this.reserveSlot(roundDependencies, "codex-chat");
     if (reservation.status === "blocked") {
       return {
@@ -847,6 +891,11 @@ export class TicketRunner {
         reason: "codex-auth-missing",
         message,
       };
+    }
+
+    if (this.isShuttingDown) {
+      this.releaseSlot(slot.key);
+      return this.buildShutdownBlockedResult("/codex_chat");
     }
 
     const sessionId = this.nextCodexChatSessionId;
@@ -2456,6 +2505,10 @@ export class TicketRunner {
     const command =
       source === "run-all" ? "/run-all" : source === "run-specs" ? "/run_specs" : "/run_ticket";
 
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult(command);
+    }
+
     let roundDependencies: RunnerRoundDependencies;
     try {
       roundDependencies = await this.resolveRoundDependencies();
@@ -2473,6 +2526,10 @@ export class TicketRunner {
         reason: "active-project-unavailable",
         message,
       };
+    }
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult(command);
     }
 
     const reservation = this.reserveSlot(roundDependencies, source);
@@ -2504,6 +2561,11 @@ export class TicketRunner {
         reason: "codex-auth-missing",
         message,
       };
+    }
+
+    if (this.isShuttingDown) {
+      this.releaseSlot(slot.key);
+      return this.buildShutdownBlockedResult(command);
     }
 
     slot.isStarting = false;
@@ -3083,43 +3145,211 @@ export class TicketRunner {
     });
   }
 
-  shutdown(): void {
+  shutdown(options: RunnerShutdownOptions = {}): Promise<RunnerShutdownReport> {
+    if (this.completedShutdownReport) {
+      return Promise.resolve(this.cloneShutdownReport(this.completedShutdownReport));
+    }
+
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    const timeoutMs = this.resolveShutdownDrainTimeoutMs(options.timeoutMs);
+    const startedAt = Date.now();
+    this.isShuttingDown = true;
+
+    this.touch("idle", "Desligamento solicitado: iniciando drain de operacoes em voo");
+    this.logger.warn("Shutdown gracioso iniciado no runner", {
+      timeoutMs,
+      activeSlotsCount: this.activeSlots.size,
+      runSlotsCount: this.getRunSlots().length,
+      hasPlanSpecSession: Boolean(this.activePlanSpecSession),
+      hasCodexChatSession: Boolean(this.activeCodexChatSession),
+    });
+
+    this.shutdownPromise = this.executeGracefulShutdownDrain(timeoutMs, startedAt)
+      .then((report) => {
+        this.completedShutdownReport = this.cloneShutdownReport(report);
+        return report;
+      })
+      .finally(() => {
+        this.shutdownPromise = null;
+      });
+
+    return this.shutdownPromise;
+  }
+
+  private resolveShutdownDrainTimeoutMs(candidate?: number): number {
+    if (Number.isInteger(candidate) && (candidate ?? 0) > 0) {
+      return candidate as number;
+    }
+
+    return this.env.SHUTDOWN_DRAIN_TIMEOUT_MS;
+  }
+
+  private async executeGracefulShutdownDrain(
+    timeoutMs: number,
+    startedAt: number,
+  ): Promise<RunnerShutdownReport> {
     for (const slot of this.getRunSlots()) {
       slot.isRunning = false;
       slot.isPaused = false;
     }
+    this.syncStateFromSlots();
 
-    let hasInteractiveSession = false;
-    if (this.activePlanSpecSession) {
-      hasInteractiveSession = true;
-      void this.finalizePlanSpecSession(this.activePlanSpecSession.id, {
-        mode: "cancel",
-        phase: "idle",
-        message: "Desligamento solicitado",
+    const drainTasks = this.collectShutdownDrainTasks();
+    const drainResult = await this.awaitShutdownDrainTasks(drainTasks, timeoutMs);
+    this.releaseCompletedRunSlotsAfterShutdown();
+
+    const report: RunnerShutdownReport = {
+      timeoutMs,
+      durationMs: Date.now() - startedAt,
+      timedOut: drainResult.timedOut,
+      drainedTasks: drainResult.drainedTasks,
+      pendingTasks: drainResult.pendingTasks,
+    };
+
+    if (report.timedOut) {
+      this.touch(
+        "idle",
+        `Desligamento solicitado: drain expirou com ${report.pendingTasks.length} pendencia(s)`,
+      );
+      this.logger.warn("Shutdown gracioso expirou antes de drenar todas as operacoes", {
+        timeoutMs: report.timeoutMs,
+        durationMs: report.durationMs,
+        drainedTasks: report.drainedTasks,
+        pendingTasks: report.pendingTasks,
+      });
+    } else {
+      this.touch("idle", "Desligamento solicitado: drain concluido");
+      this.logger.info("Shutdown gracioso concluiu drain de operacoes em voo", {
+        timeoutMs: report.timeoutMs,
+        durationMs: report.durationMs,
+        drainedTasks: report.drainedTasks,
       });
     }
 
-    if (this.activeCodexChatSession) {
-      hasInteractiveSession = true;
-      void this.finalizeCodexChatSession(this.activeCodexChatSession.id, {
-        mode: "cancel",
-        phase: "idle",
-        message: "Desligamento solicitado",
-        closureReason: "shutdown",
+    return report;
+  }
+
+  private collectShutdownDrainTasks(): ShutdownDrainTask[] {
+    const drainTasks: ShutdownDrainTask[] = [];
+    for (const slot of this.getRunSlots()) {
+      if (slot.loopPromise) {
+        drainTasks.push({
+          name: this.buildShutdownRunSlotTaskName(slot),
+          promise: slot.loopPromise.then(() => undefined),
+        });
+      } else {
+        this.releaseSlot(slot.key);
+      }
+    }
+
+    const activePlanSpecSession = this.activePlanSpecSession;
+    if (activePlanSpecSession) {
+      drainTasks.push({
+        name: `plan-spec-session:${String(activePlanSpecSession.id)}`,
+        promise: this.finalizePlanSpecSession(activePlanSpecSession.id, {
+          mode: "cancel",
+          phase: "idle",
+          message: "Desligamento solicitado",
+        }),
       });
     }
 
-    if (hasInteractiveSession) {
-      return;
+    const activeCodexChatSession = this.activeCodexChatSession;
+    if (activeCodexChatSession) {
+      drainTasks.push({
+        name: `codex-chat-session:${String(activeCodexChatSession.id)}`,
+        promise: this.finalizeCodexChatSession(activeCodexChatSession.id, {
+          mode: "cancel",
+          phase: "idle",
+          message: "Desligamento solicitado",
+          closureReason: "shutdown",
+        }),
+      });
     }
 
+    return drainTasks;
+  }
+
+  private async awaitShutdownDrainTasks(
+    drainTasks: ShutdownDrainTask[],
+    timeoutMs: number,
+  ): Promise<{ timedOut: boolean; drainedTasks: string[]; pendingTasks: string[] }> {
+    if (drainTasks.length === 0) {
+      return {
+        timedOut: false,
+        drainedTasks: [],
+        pendingTasks: [],
+      };
+    }
+
+    const completed = new Set<string>();
+    const wrappedTasks = drainTasks.map((task) =>
+      task.promise
+        .catch((error) => {
+          this.logger.warn("Falha durante drain de shutdown", {
+            task: task.name,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          completed.add(task.name);
+        }),
+    );
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+
+    const timeoutPromise = new Promise<"timeout">((resolve) => {
+      timeoutHandle = this.setTimer(() => {
+        resolve("timeout");
+      }, timeoutMs);
+    });
+
+    const completion = Promise.all(wrappedTasks).then<"drained">(() => "drained");
+    const outcome: "drained" | "timeout" = await Promise.race([completion, timeoutPromise]);
+    timedOut = outcome === "timeout";
+
+    if (timeoutHandle) {
+      this.clearTimer(timeoutHandle);
+    }
+
+    if (!timedOut) {
+      await Promise.allSettled(wrappedTasks);
+    }
+
+    const drainedTasks = drainTasks.filter((task) => completed.has(task.name)).map((task) => task.name);
+    const pendingTasks = drainTasks.filter((task) => !completed.has(task.name)).map((task) => task.name);
+
+    return {
+      timedOut,
+      drainedTasks,
+      pendingTasks,
+    };
+  }
+
+  private releaseCompletedRunSlotsAfterShutdown(): void {
     for (const slot of this.getRunSlots()) {
       if (!slot.loopPromise) {
         this.releaseSlot(slot.key);
       }
     }
+  }
 
-    this.touch("idle", "Desligamento solicitado");
+  private buildShutdownRunSlotTaskName(slot: ActiveRunnerSlot): string {
+    return `run-slot:${slot.kind}:${slot.project.name}:${slot.project.path}`;
+  }
+
+  private cloneShutdownReport(report: RunnerShutdownReport): RunnerShutdownReport {
+    return {
+      timeoutMs: report.timeoutMs,
+      durationMs: report.durationMs,
+      timedOut: report.timedOut,
+      drainedTasks: [...report.drainedTasks],
+      pendingTasks: [...report.pendingTasks],
+    };
   }
 
   private async processTicket(ticket: TicketRef): Promise<boolean> {
@@ -3641,6 +3871,18 @@ export class TicketRunner {
       : "";
 
     return `Capacidade maxima de ${RUNNER_SLOT_LIMIT} runners ativos atingida.${suffix}`;
+  }
+
+  private buildShutdownBlockedResult(command: string): {
+    status: "blocked";
+    reason: "shutdown-in-progress";
+    message: string;
+  } {
+    return {
+      status: "blocked",
+      reason: "shutdown-in-progress",
+      message: `Nao e possivel iniciar ${command}: shutdown gracioso em andamento.`,
+    };
   }
 
   private buildActiveProjectResolutionErrorMessage(

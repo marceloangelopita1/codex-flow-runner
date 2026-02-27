@@ -282,11 +282,48 @@ const bootstrap = async () => {
     activeProjectPath: initialRoundDependencies.activeProject.path,
   });
 
-  const handleShutdown = async (signal: "SIGINT" | "SIGTERM") => {
-    logger.warn("Sinal recebido, encerrando...", { signal });
-    runner.shutdown();
-    await telegram.stop(signal);
-    process.exit(0);
+  let shutdownPromise: Promise<void> | null = null;
+  const handleShutdown = (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
+    if (shutdownPromise) {
+      logger.warn("Sinal adicional recebido durante shutdown em andamento", {
+        signal,
+      });
+      return shutdownPromise;
+    }
+
+    shutdownPromise = (async () => {
+      const shutdownStartedAt = Date.now();
+      logger.warn("Sinal recebido, iniciando shutdown gracioso", {
+        signal,
+        timeoutMs: env.SHUTDOWN_DRAIN_TIMEOUT_MS,
+      });
+
+      const drain = await runner.shutdown({
+        timeoutMs: env.SHUTDOWN_DRAIN_TIMEOUT_MS,
+      });
+      logger.info("Drain do runner finalizado", {
+        signal,
+        timeoutMs: drain.timeoutMs,
+        timedOut: drain.timedOut,
+        pendingTasks: drain.pendingTasks,
+        durationMs: drain.durationMs,
+      });
+
+      await telegram.stop(signal);
+      logger.info("Shutdown gracioso concluido", {
+        signal,
+        durationMs: Date.now() - shutdownStartedAt,
+      });
+      process.exit(0);
+    })().catch((error) => {
+      logger.error("Falha durante shutdown gracioso", {
+        signal,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    });
+
+    return shutdownPromise;
   };
 
   process.on("SIGINT", () => {

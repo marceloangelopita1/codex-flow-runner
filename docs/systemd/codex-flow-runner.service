@@ -8,6 +8,7 @@ WorkingDirectory=/home/YOUR_USER/projetos/codex-flow-runner
 ExecStart=/usr/bin/env npm start
 Restart=always
 RestartSec=5
+TimeoutStopSec=45
 User=YOUR_USER
 Environment=HOME=/home/YOUR_USER
 Environment=PATH=/home/YOUR_USER/.nvm/versions/node/<NODE_VERSION>/bin:/home/YOUR_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
@@ -17,6 +18,7 @@ EnvironmentFile=/home/YOUR_USER/projetos/codex-flow-runner/.env
 # A sessao do Codex CLI deve estar disponivel em ~/.codex desse usuario.
 # Ajuste <NODE_VERSION> para a versao instalada no host (ex.: v20.20.0).
 # Se `codex` estiver em outro diretorio, inclua no PATH acima.
+# Ajuste SHUTDOWN_DRAIN_TIMEOUT_MS no .env (padrao: 30000) e mantenha TimeoutStopSec acima desse valor.
 
 [Install]
 WantedBy=multi-user.target

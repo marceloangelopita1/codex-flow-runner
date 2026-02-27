@@ -281,6 +281,7 @@ const env: AppEnv = {
   PROJECTS_ROOT_PATH: "/tmp/projects",
   POLL_INTERVAL_MS: 1,
   RUN_ALL_MAX_TICKETS_PER_ROUND: 20,
+  SHUTDOWN_DRAIN_TIMEOUT_MS: 30000,
   PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: false,
 };
 
@@ -519,6 +520,25 @@ const createSpecFileContent = (title: string, summary: string): string =>
     "",
   ].join("\n");
 
+const createDeferred = <T>() => {
+  let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
+  let reject: ((reason?: unknown) => void) | null = null;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return {
+    promise,
+    resolve: (value: T | PromiseLike<T>) => {
+      resolve?.(value);
+    },
+    reject: (reason?: unknown) => {
+      reject?.(reason);
+    },
+  };
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("runner executa etapas em ordem para um ticket e valida sincronismo git", async () => {
@@ -699,6 +719,128 @@ test("requestRunAll encerra rodada quando fila fica vazia", async () => {
   assert.equal(summaries[0]?.status, "success");
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
+});
+
+test("shutdown gracioso aguarda resumo final em voo antes de concluir", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const summaries: TicketFinalSummary[] = [];
+  const summaryStarted = createDeferred<void>();
+  const summaryRelease = createDeferred<void>();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    onTicketFinalized: async (summary) => {
+      summaries.push(summary);
+      summaryStarted.resolve(undefined);
+      await summaryRelease.promise;
+      return {
+        channel: "telegram",
+        destinationChatId: "42",
+        deliveredAtUtc: "2026-02-19T15:05:00.000Z",
+        attempts: 1,
+        maxAttempts: 4,
+      };
+    },
+  });
+
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
+  await summaryStarted.promise;
+
+  const shutdownPromise = runner.shutdown({ timeoutMs: 500 });
+  const secondShutdownPromise = runner.shutdown({ timeoutMs: 500 });
+  assert.strictEqual(secondShutdownPromise, shutdownPromise);
+
+  const pendingBeforeRelease = await Promise.race([
+    shutdownPromise.then(() => "resolved"),
+    sleep(25).then(() => "pending"),
+  ]);
+  assert.equal(pendingBeforeRelease, "pending");
+
+  summaryRelease.resolve(undefined);
+  const report = await shutdownPromise;
+
+  assert.equal(report.timedOut, false);
+  assert.equal(report.pendingTasks.length, 0);
+  assert.equal(
+    report.drainedTasks.some((task) => task.includes("run-slot:run-all:alpha-project")),
+    true,
+  );
+  assert.equal(summaries.length, 1);
+  await waitForRunnerToStop(runner);
+  assert.equal(runner.getState().isRunning, false);
+
+  const repeatedReport = await runner.shutdown();
+  assert.deepEqual(repeatedReport, report);
+});
+
+test("shutdown gracioso respeita timeout de drain e reporta pendencias", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const summaryStarted = createDeferred<void>();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const blockedDeliveryPromise = new Promise<TicketNotificationDelivery>(() => undefined);
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    onTicketFinalized: async () => {
+      summaryStarted.resolve(undefined);
+      return blockedDeliveryPromise;
+    },
+  });
+
+  const runAllResult = await runner.requestRunAll();
+  assert.deepEqual(runAllResult, { status: "started" });
+  await summaryStarted.promise;
+
+  const report = await runner.shutdown({ timeoutMs: 20 });
+
+  assert.equal(report.timedOut, true);
+  assert.equal(report.timeoutMs, 20);
+  assert.equal(report.pendingTasks.length > 0, true);
+  assert.equal(
+    report.pendingTasks.some((task) => task.includes("run-slot:run-all:alpha-project")),
+    true,
+  );
+  assert.equal(report.durationMs >= 20, true);
+  assert.equal(
+    logger.warnings.some(
+      (entry) => entry.message === "Shutdown gracioso expirou antes de drenar todas as operacoes",
+    ),
+    true,
+  );
 });
 
 test("requestRunSelectedTicket executa somente o ticket selecionado sem varrer backlog", async () => {

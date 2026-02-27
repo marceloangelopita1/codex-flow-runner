@@ -48,6 +48,7 @@ test("parseEnv aceita TELEGRAM_ALLOWED_CHAT_ID e aplica defaults", () => {
   assert.equal(env.PROJECTS_ROOT_PATH, "/home/mapita/projetos");
   assert.equal(env.POLL_INTERVAL_MS, 5000);
   assert.equal(env.RUN_ALL_MAX_TICKETS_PER_ROUND, 20);
+  assert.equal(env.SHUTDOWN_DRAIN_TIMEOUT_MS, 30000);
   assert.equal(env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM, false);
 });
 
@@ -83,6 +84,41 @@ test("parseEnv falha quando RUN_ALL_MAX_TICKETS_PER_ROUND nao e inteiro positivo
         RUN_ALL_MAX_TICKETS_PER_ROUND: "1.5",
       }),
     /RUN_ALL_MAX_TICKETS_PER_ROUND/u,
+  );
+});
+
+test("parseEnv aceita SHUTDOWN_DRAIN_TIMEOUT_MS customizado", () => {
+  const env = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    SHUTDOWN_DRAIN_TIMEOUT_MS: "45000",
+  });
+
+  assert.equal(env.SHUTDOWN_DRAIN_TIMEOUT_MS, 45000);
+});
+
+test("parseEnv falha quando SHUTDOWN_DRAIN_TIMEOUT_MS nao e inteiro positivo", () => {
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        SHUTDOWN_DRAIN_TIMEOUT_MS: "0",
+      }),
+    /SHUTDOWN_DRAIN_TIMEOUT_MS/u,
+  );
+
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        SHUTDOWN_DRAIN_TIMEOUT_MS: "1.2",
+      }),
+    /SHUTDOWN_DRAIN_TIMEOUT_MS/u,
   );
 });
 

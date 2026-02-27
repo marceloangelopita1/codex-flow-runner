@@ -1,15 +1,15 @@
 # [TICKET] Shutdown do runner pode descartar notificacoes finais em voo no Telegram
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-02-27 01:43Z
 - Reporter: mapita
 - Owner: a definir
 - Source: production-observation
-- Parent ticket (optional): tickets/open/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
-- Parent execplan (optional):
+- Parent ticket (optional): tickets/closed/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
+- Parent execplan (optional): execplans/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -19,6 +19,7 @@
 - Related docs/execplans:
   - docs/specs/2026-02-19-telegram-run-status-notification.md
   - docs/systemd/codex-flow-runner.service
+  - execplans/2026-02-27-runner-shutdown-may-drop-in-flight-telegram-notifications.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -88,9 +89,30 @@ Introduzir shutdown gracioso em duas fases: (1) stop de novos trabalhos e freeze
 
 ## Decision log
 - 2026-02-27 - Ticket aberto para mitigar perda de visibilidade por encerramento de processo durante envio de notificacao final.
+- 2026-02-27 - Validacao do ExecPlan concluida com classificacao `GO`; entrega tecnica concluida com cobertura automatizada e docs operacionais alinhadas.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-02-27 04:00Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-02-27-runner-shutdown-may-drop-in-flight-telegram-notifications.md (commit de fechamento deste ticket)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Evidencia objetiva de aceite tecnico:
+  - `npx tsx --test src/core/runner.test.ts src/config/env.test.ts` -> pass (`77/77`)
+  - `npm test` -> pass (`269/269`)
+  - `npm run check` -> pass
+  - `npm run build` -> pass
+- Entrega tecnica concluida:
+  - `TicketRunner.shutdown()` passou a ser assincrono/idempotente e retorna relatorio estruturado de drain (`timedOut`, `drainedTasks`, `pendingTasks`, `durationMs`);
+  - novas execucoes (`/run_all`, `/run_specs`, `/run_ticket`, `/plan_spec`, `/codex_chat`) ficam bloqueadas durante shutdown em andamento;
+  - `main.ts` aguarda drain bounded (`SHUTDOWN_DRAIN_TIMEOUT_MS`) antes de `telegram.stop()` e `process.exit`, com guarda para sinais repetidos;
+  - testes adicionados para cenarios de drain com sucesso e timeout durante resumo final em voo;
+  - documentacao operacional atualizada (`README` e unit `systemd`) para tuning de timeout de parada.
+- Validacao manual externa ainda necessaria:
+  - Entrega tecnica concluida: sim; pendencia remanescente e apenas operacional em Telegram real.
+  - Objetivo: confirmar que, em ambiente real, o resumo final ainda e entregue quando `SIGTERM` chega durante fechamento de ticket.
+  - Como executar:
+    1. iniciar o runner com chat autorizado e acionar `/run_all` com pelo menos um ticket;
+    2. durante `close-and-version` ou envio de resumo final, enviar `SIGTERM` ao processo;
+    3. validar no chat o recebimento (ou timeout reportado) e conferir logs de `Drain do runner finalizado`.
+  - Responsavel operacional: operador do bot Telegram em ambiente real (mapita/time de operacao).

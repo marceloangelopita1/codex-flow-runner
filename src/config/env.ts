@@ -27,6 +27,7 @@ const envSchema = z.object({
   PROJECTS_ROOT_PATH: z.string().min(1),
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   RUN_ALL_MAX_TICKETS_PER_ROUND: z.coerce.number().int().positive().default(20),
+  SHUTDOWN_DRAIN_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: booleanFromEnv.default(false),
 });
 
