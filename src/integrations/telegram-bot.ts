@@ -28,6 +28,7 @@ import {
   TicketNotificationDelivery,
   TicketNotificationErrorClass,
 } from "../types/ticket-final-summary.js";
+import { RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   PlanSpecFinalActionId,
   PlanSpecFinalBlock,
@@ -932,6 +933,26 @@ export class TelegramController {
       this.notificationChatId,
       this.buildRunSpecsTriageMilestoneMessage(event),
     );
+  }
+
+  async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<void> {
+    this.logger.info("Resumo final de fluxo recebido para integracao Telegram", {
+      flow: summary.flow,
+      outcome: summary.outcome,
+      finalStage: summary.finalStage,
+      totalDurationMs: summary.timing.totalDurationMs,
+      activeProjectName: summary.activeProjectName,
+      activeProjectPath: summary.activeProjectPath,
+      ...(summary.flow === "run-all"
+        ? {
+            processedTicketsCount: summary.processedTicketsCount,
+            completionReason: summary.completionReason,
+          }
+        : {
+            specFileName: summary.spec.fileName,
+            completionReason: summary.completionReason,
+          }),
+    });
   }
 
   async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {

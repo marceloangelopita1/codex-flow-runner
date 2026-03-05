@@ -13,7 +13,12 @@ import {
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import { RunnerState } from "../types/state.js";
-import { TicketFinalFailureSummary, TicketFinalSuccessSummary } from "../types/ticket-final-summary.js";
+import {
+  TicketFinalFailureSummary,
+  TicketFinalSuccessSummary,
+  TicketTimingSnapshot,
+} from "../types/ticket-final-summary.js";
+import { FlowTimingSnapshot, RunSpecsTriageTimingStage } from "../types/flow-timing.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock, PlanSpecQuestionBlock } from "./plan-spec-parser.js";
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 import { TelegramController } from "./telegram-bot.js";
@@ -64,6 +69,35 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   ...value,
   codexChatSession: value.codexChatSession ?? null,
   lastCodexChatSessionClosure: value.lastCodexChatSessionClosure ?? null,
+  lastRunFlowSummary: value.lastRunFlowSummary ?? null,
+});
+
+const createTicketTimingSnapshot = (
+  value: Partial<TicketTimingSnapshot> = {},
+): TicketTimingSnapshot => ({
+  startedAtUtc: "2026-02-19T14:58:00.000Z",
+  finishedAtUtc: "2026-02-19T15:00:00.000Z",
+  totalDurationMs: 120000,
+  durationsByStageMs: {
+    plan: 45000,
+    implement: 50000,
+    "close-and-version": 25000,
+  },
+  completedStages: ["plan", "implement", "close-and-version"],
+  interruptedStage: null,
+  ...value,
+});
+
+const createRunSpecsTriageTimingSnapshot = (): FlowTimingSnapshot<RunSpecsTriageTimingStage> => ({
+  startedAtUtc: "2026-02-19T15:00:00.000Z",
+  finishedAtUtc: "2026-02-19T15:03:00.000Z",
+  totalDurationMs: 180000,
+  durationsByStageMs: {
+    "spec-triage": 90000,
+    "spec-close-and-version": 90000,
+  },
+  completedStages: ["spec-triage", "spec-close-and-version"],
+  interruptedStage: null,
 });
 
 const createPlanSpecSession = (
@@ -1277,32 +1311,57 @@ const mockSendMessage = (
 
 const createSuccessSummary = (
   value: Partial<TicketFinalSuccessSummary> = {},
-): TicketFinalSuccessSummary => ({
-  ticket: "2026-02-19-flow-a.md",
-  activeProjectName: "codex-flow-runner",
-  activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
-  status: "success",
-  finalStage: "close-and-version",
-  timestampUtc: "2026-02-19T15:00:00.000Z",
-  execPlanPath: "execplans/2026-02-19-flow-a.md",
-  commitPushId: "abc123@origin/main",
-  commitHash: "abc123",
-  pushUpstream: "origin/main",
-  ...value,
-});
+): TicketFinalSuccessSummary => {
+  const baseTiming = createTicketTimingSnapshot();
+  const base: TicketFinalSuccessSummary = {
+    ticket: "2026-02-19-flow-a.md",
+    activeProjectName: "codex-flow-runner",
+    activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
+    status: "success",
+    finalStage: "close-and-version",
+    timestampUtc: "2026-02-19T15:00:00.000Z",
+    timing: baseTiming,
+    execPlanPath: "execplans/2026-02-19-flow-a.md",
+    commitPushId: "abc123@origin/main",
+    commitHash: "abc123",
+    pushUpstream: "origin/main",
+  };
+  return {
+    ...base,
+    ...value,
+    timing: value.timing ?? baseTiming,
+  };
+};
 
 const createFailureSummary = (
   value: Partial<TicketFinalFailureSummary> = {},
-): TicketFinalFailureSummary => ({
-  ticket: "2026-02-19-flow-a.md",
-  activeProjectName: "codex-flow-runner",
-  activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
-  status: "failure",
-  finalStage: "implement",
-  timestampUtc: "2026-02-19T15:00:00.000Z",
-  errorMessage: "falha simulada",
-  ...value,
-});
+): TicketFinalFailureSummary => {
+  const baseTiming = createTicketTimingSnapshot({
+    finishedAtUtc: "2026-02-19T14:59:10.000Z",
+    totalDurationMs: 70000,
+    durationsByStageMs: {
+      plan: 45000,
+      implement: 25000,
+    },
+    completedStages: ["plan"],
+    interruptedStage: "implement",
+  });
+  const base: TicketFinalFailureSummary = {
+    ticket: "2026-02-19-flow-a.md",
+    activeProjectName: "codex-flow-runner",
+    activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
+    status: "failure",
+    finalStage: "implement",
+    timestampUtc: "2026-02-19T15:00:00.000Z",
+    timing: baseTiming,
+    errorMessage: "falha simulada",
+  };
+  return {
+    ...base,
+    ...value,
+    timing: value.timing ?? baseTiming,
+  };
+};
 
 const flushAsyncWork = async (): Promise<void> => {
   await Promise.resolve();
@@ -4131,6 +4190,7 @@ test("nao envia milestone de triagem /run_specs quando chat de notificacao nao f
     outcome: "success",
     finalStage: "spec-close-and-version",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+    timing: createRunSpecsTriageTimingSnapshot(),
   });
 
   assert.equal(sentMessages.length, 0);
@@ -4163,6 +4223,7 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
     outcome: "success",
     finalStage: "spec-close-and-version",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+    timing: createRunSpecsTriageTimingSnapshot(),
   });
 
   assert.equal(sentMessages.length, 1);
@@ -4216,6 +4277,17 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
     finalStage: "spec-close-and-version",
     nextAction: "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs.",
     details: "falha simulada",
+    timing: {
+      ...createRunSpecsTriageTimingSnapshot(),
+      finishedAtUtc: "2026-02-19T15:01:00.000Z",
+      totalDurationMs: 60000,
+      durationsByStageMs: {
+        "spec-triage": 40000,
+        "spec-close-and-version": 20000,
+      },
+      completedStages: ["spec-triage"],
+      interruptedStage: "spec-close-and-version",
+    },
   });
 
   assert.equal(sentMessages.length, 2);

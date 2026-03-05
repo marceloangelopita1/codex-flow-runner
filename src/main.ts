@@ -181,6 +181,20 @@ const bootstrap = async () => {
           await telegram.sendRunSpecsTriageMilestone(event);
         },
       },
+      runFlowEventHandlers: {
+        onFlowCompleted: async (event) => {
+          if (!telegram) {
+            logger.warn("Resumo final de fluxo nao enviado: Telegram indisponivel", {
+              flow: event.flow,
+              outcome: event.outcome,
+              finalStage: event.finalStage,
+            });
+            return;
+          }
+
+          await telegram.sendRunFlowSummary(event);
+        },
+      },
     },
   );
 

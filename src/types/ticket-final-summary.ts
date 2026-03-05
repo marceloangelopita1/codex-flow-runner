@@ -1,6 +1,10 @@
+import { FlowTimingSnapshot } from "./flow-timing.js";
+
 export type TicketFinalStatus = "success" | "failure";
 
 export type TicketFinalStage = "plan" | "implement" | "close-and-version";
+
+export type TicketTimingSnapshot = FlowTimingSnapshot<TicketFinalStage>;
 
 export type TicketNotificationErrorClass =
   | "telegram-rate-limit"
@@ -14,6 +18,7 @@ interface TicketFinalSummaryBase {
   timestampUtc: string;
   activeProjectName: string;
   activeProjectPath: string;
+  timing: TicketTimingSnapshot;
 }
 
 export interface TicketFinalSuccessSummary extends TicketFinalSummaryBase {

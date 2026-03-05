@@ -13,10 +13,25 @@ import {
 import {
   TicketFinalStage,
   TicketFinalSummary,
+  TicketTimingSnapshot,
   isTicketNotificationDispatchError,
   TicketNotificationDelivery,
   TicketNotificationFailure,
 } from "../types/ticket-final-summary.js";
+import {
+  FlowTimingSnapshot,
+  RunAllCompletionReason,
+  RunAllFinalStage,
+  RunAllFlowSummary,
+  RunAllTimingStage,
+  RunnerFlowSummary,
+  RunSpecsFlowCompletionReason,
+  RunSpecsFlowFinalStage,
+  RunSpecsFlowSummary,
+  RunSpecsFlowTimingStage,
+  RunSpecsTriageFinalStage,
+  RunSpecsTriageTimingStage,
+} from "../types/flow-timing.js";
 import { Logger } from "./logger.js";
 import {
   CodexAuthenticationError,
@@ -71,18 +86,21 @@ export interface CodexChatEventHandlers {
 
 export type RunSpecsTriageOutcome = "success" | "failure";
 
-export type RunSpecsTriageFinalStage = "spec-triage" | "spec-close-and-version" | "unknown";
-
 export interface RunSpecsTriageLifecycleEvent {
   spec: SpecRef;
   outcome: RunSpecsTriageOutcome;
   finalStage: RunSpecsTriageFinalStage;
   nextAction: string;
+  timing: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   details?: string;
 }
 
 export interface RunSpecsEventHandlers {
   onTriageMilestone: (event: RunSpecsTriageLifecycleEvent) => Promise<void> | void;
+}
+
+export interface RunFlowEventHandlers {
+  onFlowCompleted: (event: RunnerFlowSummary) => Promise<void> | void;
 }
 
 export interface TicketRunnerOptions {
@@ -96,6 +114,7 @@ export interface TicketRunnerOptions {
   planSpecEventHandlers?: PlanSpecEventHandlers;
   codexChatEventHandlers?: CodexChatEventHandlers;
   runSpecsEventHandlers?: RunSpecsEventHandlers;
+  runFlowEventHandlers?: RunFlowEventHandlers;
 }
 
 interface ActivePlanSpecSession {
@@ -146,6 +165,19 @@ interface ActiveRunnerSlot {
   phase: RunnerState["phase"];
   startedAt: Date;
   loopPromise: Promise<void> | null;
+}
+
+interface FlowTimingCollector<Stage extends string> {
+  startedAtMs: number;
+  startedAtUtc: string;
+  durationsByStageMs: Partial<Record<Stage, number>>;
+  completedStages: Stage[];
+  interruptedStage: Stage | null;
+}
+
+interface TicketProcessingResult {
+  succeeded: boolean;
+  finalSummary: TicketFinalSummary | null;
 }
 
 type PlanSpecSessionChatRejectedResult =
@@ -415,6 +447,7 @@ export class TicketRunner {
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
+  private readonly runFlowEventHandlers?: RunFlowEventHandlers;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
   private nextPlanSpecSessionId = 1;
@@ -453,6 +486,7 @@ export class TicketRunner {
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
+    this.runFlowEventHandlers = options.runFlowEventHandlers;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -531,7 +565,7 @@ export class TicketRunner {
     ...(this.state.lastNotifiedEvent
       ? {
           lastNotifiedEvent: {
-            summary: { ...this.state.lastNotifiedEvent.summary },
+            summary: this.cloneTicketFinalSummary(this.state.lastNotifiedEvent.summary),
             delivery: { ...this.state.lastNotifiedEvent.delivery },
           },
         }
@@ -539,9 +573,14 @@ export class TicketRunner {
     ...(this.state.lastNotificationFailure
       ? {
           lastNotificationFailure: {
-            summary: { ...this.state.lastNotificationFailure.summary },
+            summary: this.cloneTicketFinalSummary(this.state.lastNotificationFailure.summary),
             failure: { ...this.state.lastNotificationFailure.failure },
           },
+        }
+      : {}),
+    ...(this.state.lastRunFlowSummary
+      ? {
+          lastRunFlowSummary: this.cloneRunnerFlowSummary(this.state.lastRunFlowSummary),
         }
       : {}),
   });
@@ -1346,7 +1385,9 @@ export class TicketRunner {
       }
 
       const { slot } = preflightOutcome;
-      this.startRunSlotLoop(slot, () => this.runForever(slot));
+      this.startRunSlotLoop(slot, async () => {
+        await this.runForever(slot);
+      });
 
       this.logger.info("Rodada /run-all agendada no loop principal", {
         activeProjectName: slot.project.name,
@@ -2526,11 +2567,33 @@ export class TicketRunner {
       await this.runSpecsEventHandlers.onTriageMilestone({
         ...event,
         spec: { ...event.spec },
+        timing: this.cloneFlowTimingSnapshot(event.timing),
       });
     } catch (error) {
       this.logger.warn("Falha ao encaminhar milestone de triagem de /run_specs para integracao", {
         specFileName: event.spec.fileName,
         specPath: event.spec.path,
+        outcome: event.outcome,
+        finalStage: event.finalStage,
+        totalDurationMs: event.timing.totalDurationMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitRunFlowCompleted(event: RunnerFlowSummary): Promise<void> {
+    this.state.lastRunFlowSummary = this.cloneRunnerFlowSummary(event);
+    this.state.updatedAt = new Date(event.timestampUtc);
+
+    if (!this.runFlowEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.runFlowEventHandlers.onFlowCompleted(this.cloneRunnerFlowSummary(event));
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar resumo final de fluxo para integracao", {
+        flow: event.flow,
         outcome: event.outcome,
         finalStage: event.finalStage,
         error: error instanceof Error ? error.message : String(error),
@@ -2647,22 +2710,46 @@ export class TicketRunner {
   }
 
   private async runSpecsAndRunAll(slot: ActiveRunnerSlot, spec: SpecRef): Promise<void> {
-    const specStartedAt = Date.now();
+    const triageTimingCollector = this.createFlowTimingCollector<RunSpecsTriageTimingStage>();
+    const flowTimingCollector = this.createFlowTimingCollector<RunSpecsFlowTimingStage>();
+    let runAllSummary: RunAllFlowSummary | undefined;
+    let flowSummary: RunSpecsFlowSummary | null = null;
+    let triageCompleted = false;
     slot.currentSpec = spec.fileName;
     this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
 
+    const runTimedTriageStage = async (
+      stage: RunSpecsTriageTimingStage,
+      message: string,
+    ): Promise<void> => {
+      const stageStartedAt = Date.now();
+      try {
+        await this.runSpecStage(slot, stage, spec, message);
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+      } catch (error) {
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageFailure(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
+        throw error;
+      }
+    };
+
     try {
-      await this.runSpecStage(slot, "spec-triage", spec, `Executando etapa spec-triage para ${spec.fileName}`);
-      await this.runSpecStage(
-        slot,
+      await runTimedTriageStage(
+        "spec-triage",
+        `Executando etapa spec-triage para ${spec.fileName}`,
+      );
+      await runTimedTriageStage(
         "spec-close-and-version",
-        spec,
         `Executando etapa spec-close-and-version para ${spec.fileName}`,
       );
+      const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
       this.logger.info("Triagem de spec concluida com sucesso", {
         spec: spec.fileName,
         specPath: spec.path,
-        durationMs: Date.now() - specStartedAt,
+        durationMs: triageTiming.totalDurationMs,
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
@@ -2671,10 +2758,48 @@ export class TicketRunner {
         outcome: "success",
         finalStage: "spec-close-and-version",
         nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+        timing: triageTiming,
       });
+      triageCompleted = true;
       slot.currentSpec = null;
       this.touchSlot(slot, "idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
-      await this.runForever(slot);
+      runAllSummary = await this.runForever(slot);
+      if (runAllSummary.outcome === "success") {
+        this.recordFlowStageCompletion(
+          flowTimingCollector,
+          "run-all",
+          runAllSummary.timing.totalDurationMs,
+        );
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "success",
+          finalStage: "run-all",
+          completionReason: "completed",
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      } else {
+        this.recordFlowStageFailure(
+          flowTimingCollector,
+          "run-all",
+          runAllSummary.timing.totalDurationMs,
+        );
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage: "run-all",
+          completionReason: "run-all-failure",
+          details:
+            runAllSummary.details ??
+            "Fluxo /run-all interrompido durante a execucao encadeada de /run_specs.",
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      }
     } catch (error) {
       const stage =
         error instanceof CodexStageExecutionError &&
@@ -2682,36 +2807,89 @@ export class TicketRunner {
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const failedAtCloseAndVersion = stage === "spec-close-and-version";
-      const finalStage: RunSpecsTriageFinalStage = stage ?? "unknown";
-      const nextAction = failedAtCloseAndVersion
-        ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
-        : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
       slot.isRunning = false;
-      this.touchSlot(
-        slot,
-        "error",
-        failedAtCloseAndVersion
-          ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
-          : `Falha ao executar triagem da spec ${spec.fileName}`,
-      );
-      this.logger.error("Erro no ciclo de triagem de spec", {
-        spec: spec.fileName,
-        specPath: spec.path,
-        stage,
-        error: errorMessage,
-        durationMs: Date.now() - specStartedAt,
-        activeProjectName: slot.project.name,
-        activeProjectPath: slot.project.path,
-      });
-      await this.emitRunSpecsTriageMilestone({
-        spec: { ...spec },
-        outcome: "failure",
-        finalStage,
-        nextAction,
-        details: errorMessage,
-      });
+      const finalStage: RunSpecsTriageFinalStage = stage ?? "unknown";
+      const triageFailed = !triageCompleted;
+
+      if (triageFailed) {
+        const failedAtCloseAndVersion = stage === "spec-close-and-version";
+        const nextAction = failedAtCloseAndVersion
+          ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
+          : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
+        this.touchSlot(
+          slot,
+          "error",
+          failedAtCloseAndVersion
+            ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
+            : `Falha ao executar triagem da spec ${spec.fileName}`,
+        );
+        this.logger.error("Erro no ciclo de triagem de spec", {
+          spec: spec.fileName,
+          specPath: spec.path,
+          stage,
+          error: errorMessage,
+          durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        await this.emitRunSpecsTriageMilestone({
+          spec: { ...spec },
+          outcome: "failure",
+          finalStage,
+          nextAction,
+          details: errorMessage,
+          timing: this.buildFlowTimingSnapshot(triageTimingCollector),
+        });
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage,
+          completionReason: "triage-failure",
+          details: errorMessage,
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      } else {
+        this.recordFlowStageFailure(flowTimingCollector, "run-all", 0);
+        this.touchSlot(slot, "error", `Falha no /run-all encadeado apos triagem da spec ${spec.fileName}`);
+        this.logger.error("Erro no fluxo /run_specs durante /run-all encadeado", {
+          spec: spec.fileName,
+          specPath: spec.path,
+          stage: "run-all",
+          error: errorMessage,
+          durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage: "run-all",
+          completionReason: "run-all-failure",
+          details: errorMessage,
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      }
     } finally {
+      const summary =
+        flowSummary ??
+        this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage: "unknown",
+          completionReason: "triage-failure",
+          details: "Fluxo /run_specs interrompido antes da emissao do resumo final.",
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      await this.emitRunFlowCompleted(summary);
       slot.currentSpec = null;
       this.syncStateFromSlots();
     }
@@ -3031,8 +3209,35 @@ export class TicketRunner {
     };
   }
 
-  private async runForever(slot: ActiveRunnerSlot): Promise<void> {
-    const roundStartedAt = Date.now();
+  private async runForever(slot: ActiveRunnerSlot): Promise<RunAllFlowSummary> {
+    const roundTimingCollector = this.createFlowTimingCollector<RunAllTimingStage>();
+    const processedTickets = new Set<string>();
+    const maxTicketsPerRound = this.env.RUN_ALL_MAX_TICKETS_PER_ROUND;
+    const finalizeRound = async (params: {
+      outcome: RunAllFlowSummary["outcome"];
+      finalStage: RunAllFinalStage;
+      completionReason: RunAllCompletionReason;
+      ticket?: string;
+      details?: string;
+    }): Promise<RunAllFlowSummary> => {
+      if (params.outcome === "failure" && params.finalStage !== "unknown") {
+        this.markFlowInterrupted(roundTimingCollector, params.finalStage);
+      }
+      const summary = this.buildRunAllFlowSummary({
+        slot,
+        processedTicketsCount: processedTickets.size,
+        maxTicketsPerRound,
+        outcome: params.outcome,
+        finalStage: params.finalStage,
+        completionReason: params.completionReason,
+        ticket: params.ticket,
+        details: params.details,
+        timingCollector: roundTimingCollector,
+      });
+      await this.emitRunFlowCompleted(summary);
+      return summary;
+    };
+
     this.logger.info("Preparando estrutura da rodada /run-all", {
       activeProjectName: slot.project.name,
       activeProjectPath: slot.project.path,
@@ -3043,11 +3248,14 @@ export class TicketRunner {
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
-      return;
+      return finalizeRound({
+        outcome: "failure",
+        finalStage: "unknown",
+        completionReason: "stopped",
+        details: "Rodada /run-all encerrada antes de iniciar processamento.",
+      });
     }
     this.touchSlot(slot, "idle", "Rodada /run-all iniciada");
-    const processedTickets = new Set<string>();
-    const maxTicketsPerRound = this.env.RUN_ALL_MAX_TICKETS_PER_ROUND;
     this.logger.info("Loop da rodada /run-all iniciado", {
       pollIntervalMs: this.env.POLL_INTERVAL_MS,
       maxTicketsPerRound,
@@ -3066,11 +3274,15 @@ export class TicketRunner {
         this.logger.info("Rodada /run-all finalizada por limite de tickets", {
           processedTicketsCount: processedTickets.size,
           maxTicketsPerRound,
-          durationMs: Date.now() - roundStartedAt,
+          durationMs: this.buildFlowTimingSnapshot(roundTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
-        return;
+        return finalizeRound({
+          outcome: "success",
+          finalStage: "select-ticket",
+          completionReason: "max-tickets-reached",
+        });
       }
 
       if (slot.isPaused) {
@@ -3079,18 +3291,28 @@ export class TicketRunner {
       }
 
       this.touchSlot(slot, "select-ticket", "Buscando proximo ticket aberto");
+      const selectTicketStartedAt = Date.now();
       const ticket = await slot.queue.nextOpenTicket();
+      this.recordFlowStageCompletion(
+        roundTimingCollector,
+        "select-ticket",
+        Date.now() - selectTicketStartedAt,
+      );
 
       if (!ticket) {
         slot.isRunning = false;
         this.touchSlot(slot, "idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
         this.logger.info("Rodada /run-all finalizada sem tickets pendentes", {
           processedTicketsCount: processedTickets.size,
-          durationMs: Date.now() - roundStartedAt,
+          durationMs: this.buildFlowTimingSnapshot(roundTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
-        return;
+        return finalizeRound({
+          outcome: "success",
+          finalStage: "select-ticket",
+          completionReason: "queue-empty",
+        });
       }
 
       if (processedTickets.has(ticket.name)) {
@@ -3102,7 +3324,13 @@ export class TicketRunner {
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
-        return;
+        return finalizeRound({
+          outcome: "failure",
+          finalStage: "select-ticket",
+          completionReason: "ticket-reappeared",
+          ticket: ticket.name,
+          details: `Ticket ${ticket.name} reapareceu na fila apos tentativa de fechamento.`,
+        });
       }
 
       const noGoRecoveryContext = await this.evaluateNoGoRecoveryContext(slot, ticket);
@@ -3132,23 +3360,54 @@ export class TicketRunner {
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
-        return;
+        return finalizeRound({
+          outcome: "failure",
+          finalStage: "select-ticket",
+          completionReason: "no-go-limit-exceeded",
+          ticket: ticket.name,
+          details:
+            `Ticket ${ticket.name} excedeu o limite de ${MAX_NO_GO_RECOVERIES_PER_TICKET} recuperacoes de NO_GO.`,
+        });
       }
 
-      const succeeded = await this.processTicketInSlot(slot, ticket);
+      const ticketProcessing = await this.processTicketInSlot(slot, ticket);
+      const ticketSummary = ticketProcessing.finalSummary;
+      const succeeded = ticketProcessing.succeeded;
       processedTickets.add(ticket.name);
+      if (ticketSummary) {
+        this.mergeTicketTimingIntoRunAllCollector(roundTimingCollector, ticketSummary.timing);
+      }
       if (!succeeded) {
         slot.isRunning = false;
+        const ticketFailureDetails =
+          ticketSummary?.status === "failure" ? ticketSummary.errorMessage : undefined;
+        const finalStage = ticketSummary?.finalStage ?? this.resolveRunAllFinalStageFromRunnerPhase(slot.phase);
         this.logger.warn("Rodada /run-all interrompida por falha de ticket", {
           ticket: ticket.name,
           processedTicketsCount: processedTickets.size,
-          durationMs: Date.now() - roundStartedAt,
+          finalStage,
+          durationMs: this.buildFlowTimingSnapshot(roundTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
         });
-        return;
+        return finalizeRound({
+          outcome: "failure",
+          finalStage,
+          completionReason: "ticket-failure",
+          ticket: ticket.name,
+          details:
+            ticketFailureDetails ??
+            `Ticket ${ticket.name} falhou durante a rodada /run-all no estagio ${finalStage}.`,
+        });
       }
     }
+
+    return finalizeRound({
+      outcome: "failure",
+      finalStage: this.resolveRunAllFinalStageFromRunnerPhase(slot.phase),
+      completionReason: "stopped",
+      details: "Rodada /run-all interrompida externamente antes de concluir o backlog.",
+    });
   }
 
   private async runSelectedTicketOnce(slot: ActiveRunnerSlot, ticket: TicketRef): Promise<void> {
@@ -3162,8 +3421,8 @@ export class TicketRunner {
       activeProjectPath: slot.project.path,
     });
 
-    const succeeded = await this.processTicketInSlot(slot, ticket);
-    if (!succeeded) {
+    const ticketProcessing = await this.processTicketInSlot(slot, ticket);
+    if (!ticketProcessing.succeeded) {
       slot.isRunning = false;
       this.logger.warn("Execucao manual de ticket selecionado finalizada com falha", {
         ticket: ticket.name,
@@ -3412,15 +3671,16 @@ export class TicketRunner {
       loopPromise: null,
     };
 
-    return this.processTicketInSlot(fallbackSlot, ticket, true);
+    const result = await this.processTicketInSlot(fallbackSlot, ticket, true);
+    return result.succeeded;
   }
 
   private async processTicketInSlot(
     slot: ActiveRunnerSlot,
     ticket: TicketRef,
     updateGlobalStateDirectly = false,
-  ): Promise<boolean> {
-    const ticketStartedAt = Date.now();
+  ): Promise<TicketProcessingResult> {
+    const ticketTimingCollector = this.createFlowTimingCollector<TicketFinalStage>();
     slot.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
     const activeProject = { ...slot.project };
@@ -3439,6 +3699,7 @@ export class TicketRunner {
         ticket,
         `Executando etapa plan para ${ticket.name}`,
         updateGlobalStateDirectly,
+        ticketTimingCollector,
       );
       const execPlanPath = this.resolveExecPlanPath(ticket, planResult.execPlanPath);
       await this.runStage(
@@ -3447,6 +3708,7 @@ export class TicketRunner {
         ticket,
         `Executando etapa implement para ${ticket.name}`,
         updateGlobalStateDirectly,
+        ticketTimingCollector,
       );
       await this.runStage(
         slot,
@@ -3454,6 +3716,7 @@ export class TicketRunner {
         ticket,
         `Executando etapa close-and-version para ${ticket.name}`,
         updateGlobalStateDirectly,
+        ticketTimingCollector,
       );
       const syncEvidence = await this.assertCloseAndVersion(slot, ticket);
 
@@ -3464,20 +3727,31 @@ export class TicketRunner {
       }
       this.logger.info("Ticket finalizado com sucesso na rodada atual", {
         ticket: ticket.name,
-        durationMs: Date.now() - ticketStartedAt,
+        durationMs: this.buildFlowTimingSnapshot(ticketTimingCollector).totalDurationMs,
         commitHash: syncEvidence.commitHash,
         pushUpstream: syncEvidence.upstream,
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
       });
-      finalSummary = this.buildSuccessSummary(ticket.name, execPlanPath, syncEvidence, activeProject);
-      return true;
+      finalSummary = this.buildSuccessSummary(
+        ticket.name,
+        execPlanPath,
+        syncEvidence,
+        activeProject,
+        this.buildFlowTimingSnapshot(ticketTimingCollector),
+      );
+      return {
+        succeeded: true,
+        finalSummary: this.cloneTicketFinalSummary(finalSummary),
+      };
     } catch (error) {
       const stage =
         error instanceof CodexStageExecutionError && isTicketFlowStage(error.stage)
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const finalStage = this.resolveFailureStage(stage, slot.phase);
+      this.markFlowInterrupted(ticketTimingCollector, finalStage);
       if (updateGlobalStateDirectly) {
         this.touch("error", `Falha ao processar ${ticket.name}`);
       } else {
@@ -3487,18 +3761,22 @@ export class TicketRunner {
         ticket: ticket.name,
         stage,
         error: errorMessage,
-        durationMs: Date.now() - ticketStartedAt,
+        durationMs: this.buildFlowTimingSnapshot(ticketTimingCollector).totalDurationMs,
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
       });
 
       finalSummary = this.buildFailureSummary(
         ticket.name,
-        this.resolveFailureStage(stage, slot.phase),
+        finalStage,
         errorMessage,
         activeProject,
+        this.buildFlowTimingSnapshot(ticketTimingCollector),
       );
-      return false;
+      return {
+        succeeded: false,
+        finalSummary: this.cloneTicketFinalSummary(finalSummary),
+      };
     } finally {
       if (finalSummary) {
         await this.publishTicketFinalSummary(finalSummary);
@@ -3528,6 +3806,7 @@ export class TicketRunner {
     execPlanPath: string,
     syncEvidence: GitSyncEvidence,
     activeProject: ProjectRef,
+    timing: TicketTimingSnapshot,
   ): TicketFinalSummary {
     return {
       ticket,
@@ -3536,6 +3815,7 @@ export class TicketRunner {
       timestampUtc: new Date().toISOString(),
       activeProjectName: activeProject.name,
       activeProjectPath: activeProject.path,
+      timing,
       execPlanPath,
       commitPushId: syncEvidence.commitPushId,
       commitHash: syncEvidence.commitHash,
@@ -3548,6 +3828,7 @@ export class TicketRunner {
     finalStage: TicketFinalStage,
     errorMessage: string,
     activeProject: ProjectRef,
+    timing: TicketTimingSnapshot,
   ): TicketFinalSummary {
     return {
       ticket,
@@ -3556,6 +3837,7 @@ export class TicketRunner {
       timestampUtc: new Date().toISOString(),
       activeProjectName: activeProject.name,
       activeProjectPath: activeProject.path,
+      timing,
       errorMessage,
     };
   }
@@ -3588,7 +3870,7 @@ export class TicketRunner {
       }
 
       this.state.lastNotifiedEvent = {
-        summary: { ...summary },
+        summary: this.cloneTicketFinalSummary(summary),
         delivery: { ...delivery },
       };
       this.state.updatedAt = new Date(delivery.deliveredAtUtc);
@@ -3616,7 +3898,7 @@ export class TicketRunner {
   ): NonNullable<RunnerState["lastNotificationFailure"]> {
     if (isTicketNotificationDispatchError(error)) {
       return {
-        summary: { ...summary },
+        summary: this.cloneTicketFinalSummary(summary),
         failure: { ...error.failure },
       };
     }
@@ -3632,7 +3914,7 @@ export class TicketRunner {
     };
 
     return {
-      summary: { ...summary },
+      summary: this.cloneTicketFinalSummary(summary),
       failure: fallbackFailure,
     };
   }
@@ -3652,6 +3934,7 @@ export class TicketRunner {
     ticket: TicketRef,
     message: string,
     updateGlobalStateDirectly = false,
+    timingCollector?: FlowTimingCollector<TicketFlowStage>,
   ): Promise<CodexStageResult> {
     const stageStartedAt = Date.now();
     if (updateGlobalStateDirectly) {
@@ -3661,22 +3944,30 @@ export class TicketRunner {
       this.touchSlot(slot, stage, message);
     }
 
-    const result = await slot.codexClient.runStage(stage, ticket);
-    if (result.execPlanPath) {
-      this.logger.info("ExecPlan reportado pela etapa plan", {
+    try {
+      const result = await slot.codexClient.runStage(stage, ticket);
+      const durationMs = Date.now() - stageStartedAt;
+      this.recordFlowStageCompletion(timingCollector, stage, durationMs);
+      if (result.execPlanPath) {
+        this.logger.info("ExecPlan reportado pela etapa plan", {
+          ticket: ticket.name,
+          execPlanPath: result.execPlanPath,
+        });
+      }
+      this.logger.info("Etapa concluida no runner", {
         ticket: ticket.name,
-        execPlanPath: result.execPlanPath,
+        stage,
+        durationMs,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
       });
-    }
-    this.logger.info("Etapa concluida no runner", {
-      ticket: ticket.name,
-      stage,
-      durationMs: Date.now() - stageStartedAt,
-      activeProjectName: slot.project.name,
-      activeProjectPath: slot.project.path,
-    });
 
-    return result;
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - stageStartedAt;
+      this.recordFlowStageFailure(timingCollector, stage, durationMs);
+      throw error;
+    }
   }
 
   private async runSpecStage(
@@ -3703,6 +3994,224 @@ export class TicketRunner {
     });
 
     return result;
+  }
+
+  private createFlowTimingCollector<Stage extends string>(startedAtMs = Date.now()): FlowTimingCollector<Stage> {
+    return {
+      startedAtMs,
+      startedAtUtc: new Date(startedAtMs).toISOString(),
+      durationsByStageMs: {},
+      completedStages: [],
+      interruptedStage: null,
+    };
+  }
+
+  private recordFlowStageCompletion<Stage extends string>(
+    collector: FlowTimingCollector<Stage> | undefined,
+    stage: Stage,
+    durationMs: number,
+  ): void {
+    if (!collector) {
+      return;
+    }
+
+    this.addFlowStageDuration(collector, stage, durationMs);
+    if (!collector.completedStages.includes(stage)) {
+      collector.completedStages.push(stage);
+    }
+  }
+
+  private recordFlowStageFailure<Stage extends string>(
+    collector: FlowTimingCollector<Stage> | undefined,
+    stage: Stage,
+    durationMs: number,
+  ): void {
+    if (!collector) {
+      return;
+    }
+
+    this.addFlowStageDuration(collector, stage, durationMs);
+    this.markFlowInterrupted(collector, stage);
+  }
+
+  private addFlowStageDuration<Stage extends string>(
+    collector: FlowTimingCollector<Stage>,
+    stage: Stage,
+    durationMs: number,
+  ): void {
+    const normalizedDurationMs = Math.max(0, Math.floor(durationMs));
+    collector.durationsByStageMs[stage] =
+      (collector.durationsByStageMs[stage] ?? 0) + normalizedDurationMs;
+  }
+
+  private markFlowInterrupted<Stage extends string>(
+    collector: FlowTimingCollector<Stage>,
+    stage: Stage,
+  ): void {
+    if (collector.interruptedStage) {
+      return;
+    }
+
+    collector.interruptedStage = stage;
+  }
+
+  private buildFlowTimingSnapshot<Stage extends string>(
+    collector: FlowTimingCollector<Stage>,
+    finishedAtMs = Date.now(),
+  ): FlowTimingSnapshot<Stage> {
+    return {
+      startedAtUtc: collector.startedAtUtc,
+      finishedAtUtc: new Date(finishedAtMs).toISOString(),
+      totalDurationMs: Math.max(0, finishedAtMs - collector.startedAtMs),
+      durationsByStageMs: { ...collector.durationsByStageMs },
+      completedStages: [...collector.completedStages],
+      interruptedStage: collector.interruptedStage,
+    };
+  }
+
+  private cloneFlowTimingSnapshot<Stage extends string>(
+    snapshot: FlowTimingSnapshot<Stage>,
+  ): FlowTimingSnapshot<Stage> {
+    return {
+      startedAtUtc: snapshot.startedAtUtc,
+      finishedAtUtc: snapshot.finishedAtUtc,
+      totalDurationMs: snapshot.totalDurationMs,
+      durationsByStageMs: { ...snapshot.durationsByStageMs },
+      completedStages: [...snapshot.completedStages],
+      interruptedStage: snapshot.interruptedStage,
+    };
+  }
+
+  private mergeTicketTimingIntoRunAllCollector(
+    collector: FlowTimingCollector<RunAllTimingStage>,
+    timing: TicketTimingSnapshot,
+  ): void {
+    for (const stage of ["plan", "implement", "close-and-version"] as const) {
+      const durationMs = timing.durationsByStageMs[stage];
+      if (typeof durationMs === "number") {
+        this.addFlowStageDuration(collector, stage, durationMs);
+      }
+      if (timing.completedStages.includes(stage) && !collector.completedStages.includes(stage)) {
+        collector.completedStages.push(stage);
+      }
+    }
+
+    if (timing.interruptedStage) {
+      this.markFlowInterrupted(collector, timing.interruptedStage);
+    }
+  }
+
+  private resolveRunAllFinalStageFromRunnerPhase(phase: RunnerState["phase"]): RunAllFinalStage {
+    if (
+      phase === "select-ticket" ||
+      phase === "plan" ||
+      phase === "implement" ||
+      phase === "close-and-version"
+    ) {
+      return phase;
+    }
+
+    return "unknown";
+  }
+
+  private buildRunAllFlowSummary(params: {
+    slot: ActiveRunnerSlot;
+    processedTicketsCount: number;
+    maxTicketsPerRound: number;
+    outcome: RunAllFlowSummary["outcome"];
+    finalStage: RunAllFinalStage;
+    completionReason: RunAllCompletionReason;
+    ticket?: string;
+    details?: string;
+    timingCollector: FlowTimingCollector<RunAllTimingStage>;
+  }): RunAllFlowSummary {
+    return {
+      flow: "run-all",
+      outcome: params.outcome,
+      finalStage: params.finalStage,
+      completionReason: params.completionReason,
+      timestampUtc: this.now().toISOString(),
+      activeProjectName: params.slot.project.name,
+      activeProjectPath: params.slot.project.path,
+      processedTicketsCount: params.processedTicketsCount,
+      maxTicketsPerRound: params.maxTicketsPerRound,
+      ...(params.ticket ? { ticket: params.ticket } : {}),
+      ...(params.details ? { details: params.details } : {}),
+      timing: this.buildFlowTimingSnapshot(params.timingCollector),
+    };
+  }
+
+  private buildRunSpecsFlowSummary(params: {
+    slot: ActiveRunnerSlot;
+    spec: SpecRef;
+    outcome: RunSpecsFlowSummary["outcome"];
+    finalStage: RunSpecsFlowFinalStage;
+    completionReason: RunSpecsFlowCompletionReason;
+    details?: string;
+    triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
+    flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
+    runAllSummary?: RunAllFlowSummary;
+  }): RunSpecsFlowSummary {
+    return {
+      flow: "run-specs",
+      outcome: params.outcome,
+      finalStage: params.finalStage,
+      completionReason: params.completionReason,
+      timestampUtc: this.now().toISOString(),
+      activeProjectName: params.slot.project.name,
+      activeProjectPath: params.slot.project.path,
+      spec: {
+        fileName: params.spec.fileName,
+        path: params.spec.path,
+      },
+      ...(params.details ? { details: params.details } : {}),
+      triageTiming: this.buildFlowTimingSnapshot(params.triageTimingCollector),
+      timing: this.buildFlowTimingSnapshot(params.flowTimingCollector),
+      ...(params.runAllSummary
+        ? {
+            runAllSummary: this.cloneRunAllFlowSummary(params.runAllSummary),
+          }
+        : {}),
+    };
+  }
+
+  private cloneTicketFinalSummary(summary: TicketFinalSummary): TicketFinalSummary {
+    if (summary.status === "success") {
+      return {
+        ...summary,
+        timing: this.cloneFlowTimingSnapshot(summary.timing),
+      };
+    }
+
+    return {
+      ...summary,
+      timing: this.cloneFlowTimingSnapshot(summary.timing),
+    };
+  }
+
+  private cloneRunAllFlowSummary(summary: RunAllFlowSummary): RunAllFlowSummary {
+    return {
+      ...summary,
+      timing: this.cloneFlowTimingSnapshot(summary.timing),
+    };
+  }
+
+  private cloneRunnerFlowSummary(summary: RunnerFlowSummary): RunnerFlowSummary {
+    if (summary.flow === "run-all") {
+      return this.cloneRunAllFlowSummary(summary);
+    }
+
+    return {
+      ...summary,
+      spec: { ...summary.spec },
+      triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
+      timing: this.cloneFlowTimingSnapshot(summary.timing),
+      ...(summary.runAllSummary
+        ? {
+            runAllSummary: this.cloneRunAllFlowSummary(summary.runAllSummary),
+          }
+        : {}),
+    };
   }
 
   private reserveSlot(

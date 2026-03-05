@@ -3,6 +3,7 @@ import {
   TicketNotificationDelivery,
   TicketNotificationFailure,
 } from "./ticket-final-summary.js";
+import { RunnerFlowSummary } from "./flow-timing.js";
 import { ProjectRef } from "./project.js";
 
 export type RunnerPhase =
@@ -124,6 +125,7 @@ export interface RunnerState {
   updatedAt: Date;
   lastNotifiedEvent: RunnerLastNotifiedEvent | null;
   lastNotificationFailure: RunnerLastNotificationFailure | null;
+  lastRunFlowSummary: RunnerFlowSummary | null;
 }
 
 export const createInitialState = (
@@ -148,4 +150,5 @@ export const createInitialState = (
   updatedAt: new Date(),
   lastNotifiedEvent: null,
   lastNotificationFailure: null,
+  lastRunFlowSummary: null,
 });

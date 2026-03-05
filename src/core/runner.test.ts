@@ -27,6 +27,7 @@ import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import { ProjectRef } from "../types/project.js";
+import { RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   TicketFinalSummary,
   TicketNotificationDispatchError,
@@ -35,6 +36,7 @@ import {
 import { Logger } from "./logger.js";
 import {
   PlanSpecEventHandlers,
+  RunFlowEventHandlers,
   RunSpecsEventHandlers,
   RunSpecsTriageLifecycleEvent,
   RunnerRoundDependencies,
@@ -373,6 +375,17 @@ const createSummaryCollector = (
   return { summaries, deliveries, onTicketFinalized };
 };
 
+const createFlowSummaryCollector = () => {
+  const flowSummaries: RunnerFlowSummary[] = [];
+  const runFlowEventHandlers: RunFlowEventHandlers = {
+    onFlowCompleted: async (event) => {
+      flowSummaries.push(event);
+    },
+  };
+
+  return { flowSummaries, runFlowEventHandlers };
+};
+
 const createRoundDependencies = (
   value: Partial<RunnerRoundDependencies> & Pick<RunnerRoundDependencies, "queue" | "codexClient" | "gitVersioning">,
 ): RunnerRoundDependencies => ({
@@ -576,6 +589,12 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
   assert.match(summaries[0]?.timestampUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+  assert.equal(summaries[0]?.timing.interruptedStage, null);
+  assert.deepEqual(summaries[0]?.timing.completedStages, ["plan", "implement", "close-and-version"]);
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.plan, "number");
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.implement, "number");
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs["close-and-version"], "number");
+  assert.ok((summaries[0]?.timing.totalDurationMs ?? -1) >= 0);
   if (summaries[0]?.status === "success") {
     assert.equal(summaries[0].execPlanPath, "execplans/2026-02-19-flow-a.md");
     assert.equal(summaries[0].commitPushId, "abc123@origin/main");
@@ -628,6 +647,12 @@ test("runner para no stage com falha e registra contexto", async () => {
   assert.equal(summaries[0]?.finalStage, "implement");
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
+  assert.equal(summaries[0]?.timing.interruptedStage, "implement");
+  assert.deepEqual(summaries[0]?.timing.completedStages, ["plan"]);
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.plan, "number");
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.implement, "number");
+  assert.equal(summaries[0]?.timing.durationsByStageMs["close-and-version"], undefined);
+  assert.ok((summaries[0]?.timing.totalDurationMs ?? -1) >= 0);
   if (summaries[0]?.status === "failure") {
     assert.match(summaries[0].errorMessage, /falha simulada/u);
   } else {
@@ -663,6 +688,12 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
   assert.equal(summaries[0]?.finalStage, "close-and-version");
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
+  assert.equal(summaries[0]?.timing.interruptedStage, "close-and-version");
+  assert.deepEqual(summaries[0]?.timing.completedStages, ["plan", "implement", "close-and-version"]);
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.plan, "number");
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs.implement, "number");
+  assert.equal(typeof summaries[0]?.timing.durationsByStageMs["close-and-version"], "number");
+  assert.ok((summaries[0]?.timing.totalDurationMs ?? -1) >= 0);
   if (summaries[0]?.status === "failure") {
     assert.match(summaries[0].errorMessage, /push obrigatorio nao concluido/u);
   } else {
@@ -1517,6 +1548,56 @@ test("requestRunAll emite resumo final para cada ticket concluido na rodada", as
   assert.equal(summaries[1]?.finalStage, "close-and-version");
 });
 
+test("requestRunAll emite resumo final de fluxo com snapshot temporal em sucesso", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+    },
+  });
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
+  assert.ok(runAllSummary);
+  if (runAllSummary?.flow === "run-all") {
+    assert.equal(runAllSummary.outcome, "success");
+    assert.equal(runAllSummary.completionReason, "queue-empty");
+    assert.equal(runAllSummary.finalStage, "select-ticket");
+    assert.equal(runAllSummary.processedTicketsCount, 1);
+    assert.equal(runAllSummary.maxTicketsPerRound, env.RUN_ALL_MAX_TICKETS_PER_ROUND);
+    assert.equal(runAllSummary.timing.interruptedStage, null);
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs["select-ticket"], "number");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs.implement, "number");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs["close-and-version"], "number");
+    assert.ok(runAllSummary.timing.totalDurationMs >= 0);
+  } else {
+    assert.fail("resumo de fluxo /run-all deveria existir");
+  }
+});
+
 test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient(
@@ -1524,6 +1605,7 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   );
   const gitVersioning = new StubGitVersioning();
   const { summaries, onTicketFinalized } = createSummaryCollector();
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
   let nextTicketCalls = 0;
 
   const queue: TicketQueue = {
@@ -1549,7 +1631,12 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
     codexClient: codex,
     gitVersioning,
   });
-  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+  const runner = createRunner(logger, roundDependencies, {
+    onTicketFinalized,
+    runnerOptions: {
+      runFlowEventHandlers,
+    },
+  });
   const request = await runner.requestRunAll();
   assert.deepEqual(request, { status: "started" });
 
@@ -1577,6 +1664,23 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
   assert.equal(summaries[0]?.finalStage, "implement");
   assert.equal(summaries[0]?.activeProjectName, activeProjectA.name);
   assert.equal(summaries[0]?.activeProjectPath, activeProjectA.path);
+  const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
+  assert.ok(runAllSummary);
+  if (runAllSummary?.flow === "run-all") {
+    assert.equal(runAllSummary.outcome, "failure");
+    assert.equal(runAllSummary.completionReason, "ticket-failure");
+    assert.equal(runAllSummary.finalStage, "implement");
+    assert.equal(runAllSummary.processedTicketsCount, 1);
+    assert.equal(runAllSummary.ticket, ticketA.name);
+    assert.equal(runAllSummary.timing.interruptedStage, "implement");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs["select-ticket"], "number");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs.implement, "number");
+    assert.equal(runAllSummary.timing.durationsByStageMs["close-and-version"], undefined);
+    assert.ok(runAllSummary.timing.totalDurationMs >= 0);
+  } else {
+    assert.fail("resumo de fluxo /run-all deveria existir");
+  }
 });
 
 test("requestRunAll bloqueia rodada quando resolucao do projeto ativo falha", async () => {
@@ -2003,6 +2107,7 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
   const logger = new SpyLogger();
   const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
   const milestones: RunSpecsTriageLifecycleEvent[] = [];
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
   const queue: TicketQueue = {
     ensureStructure: async () => undefined,
     nextOpenTicket: async () => ticketA,
@@ -2022,6 +2127,7 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
           milestones.push(event);
         },
       } satisfies RunSpecsEventHandlers,
+      runFlowEventHandlers,
     },
   });
 
@@ -2035,6 +2141,27 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
   assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
   assert.match(milestones[0]?.nextAction ?? "", /Rodada \/run-all bloqueada/u);
   assert.match(milestones[0]?.details ?? "", /falha simulada/u);
+  assert.equal(milestones[0]?.timing.interruptedStage, "spec-close-and-version");
+  assert.deepEqual(milestones[0]?.timing.completedStages, ["spec-triage"]);
+  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
+  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
+  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+  assert.ok(runSpecsSummary);
+  if (runSpecsSummary?.flow === "run-specs") {
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.completionReason, "triage-failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-close-and-version");
+    assert.equal(runSpecsSummary.runAllSummary, undefined);
+    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-close-and-version");
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+    assert.equal(
+      typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+      "number",
+    );
+    assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
+  } else {
+    assert.fail("resumo de fluxo /run_specs deveria existir");
+  }
 });
 
 test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente", async () => {
@@ -2103,6 +2230,7 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
   const milestones: RunSpecsTriageLifecycleEvent[] = [];
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
   let nextTicketCalls = 0;
   let firstTicketCallSawMilestone = false;
   const queue: TicketQueue = {
@@ -2131,6 +2259,7 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
           milestones.push(event);
         },
       } satisfies RunSpecsEventHandlers,
+      runFlowEventHandlers,
     },
   });
 
@@ -2143,7 +2272,39 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
   assert.equal(milestones[0]?.outcome, "success");
   assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
   assert.match(milestones[0]?.nextAction ?? "", /iniciando rodada \/run-all/u);
+  assert.equal(milestones[0]?.timing.interruptedStage, null);
+  assert.deepEqual(milestones[0]?.timing.completedStages, ["spec-triage", "spec-close-and-version"]);
+  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
+  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
   assert.equal(firstTicketCallSawMilestone, true);
+  const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
+  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+  assert.ok(runAllSummary);
+  assert.ok(runSpecsSummary);
+  if (runAllSummary?.flow === "run-all") {
+    assert.equal(runAllSummary.outcome, "success");
+    assert.equal(runAllSummary.completionReason, "queue-empty");
+    assert.equal(runAllSummary.timing.interruptedStage, null);
+    assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
+  } else {
+    assert.fail("resumo /run-all deveria existir no fluxo encadeado");
+  }
+  if (runSpecsSummary?.flow === "run-specs") {
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.completionReason, "completed");
+    assert.equal(runSpecsSummary.finalStage, "run-all");
+    assert.equal(runSpecsSummary.timing.interruptedStage, null);
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+    assert.equal(
+      typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+      "number",
+    );
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
+    assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
+    assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");
+  } else {
+    assert.fail("resumo /run_specs deveria existir");
+  }
 });
 
 test("requestRunSpecs expoe fase e currentSpec durante triagem e transita para fase de ticket", async () => {

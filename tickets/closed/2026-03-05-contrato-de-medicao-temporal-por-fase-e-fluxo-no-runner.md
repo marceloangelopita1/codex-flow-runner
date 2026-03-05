@@ -1,7 +1,7 @@
 # [TICKET] Contrato de medicao temporal por fase e por fluxo no runner
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-05 02:01Z
@@ -9,7 +9,7 @@
 - Owner: a definir
 - Source: production-observation
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -18,6 +18,7 @@
   - Log file: N/A (evidencias por leitura de codigo e testes)
 - Related docs/execplans:
   - docs/specs/2026-03-05-medicao-de-tempo-por-prompt-fase-na-execucao-de-tickets-e-specs.md
+  - execplans/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -86,9 +87,23 @@ Introduzir contratos tipados de medicao temporal no runner (por fase + total por
 
 ## Decision log
 - 2026-03-05 - Ticket aberto a partir da revisao da spec para criar fundacao tecnica de medicao temporal estruturada.
+- 2026-03-05 - ExecPlan validado com resultado `GO` por evidencia objetiva de testes, check e build.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-05 02:26Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md`
+  - Commit: registrado no commit de fechamento deste ciclo.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva de aceite tecnico:
+  - `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> pass (`179/179`).
+  - `npm test` -> pass (`273/273`).
+  - `npm run check && npm run build` -> pass.
+- Entrega tecnica concluida:
+  - contrato tipado de snapshot temporal por fase/total implementado para `run-ticket`, `run-all` e `run_specs`;
+  - snapshots parciais preservados em falha (sem inventar tempos de etapas nao executadas);
+  - estado do runner e callbacks de integracao atualizados para transportar resumos temporais de fluxo;
+  - cobertura automatizada estendida para sucesso/falha com validacao de tempos por fase e total.
+- Validacao manual externa pendente: nao.
