@@ -1,0 +1,11 @@
+{
+  "action": "create-spec",
+  "sessionId": 1,
+  "chatId": "1314750680",
+  "specPath": "docs/specs/2026-03-05-medicao-de-tempo-por-prompt-fase-na-execucao-de-tickets-e-specs.md",
+  "specFileName": "2026-03-05-medicao-de-tempo-por-prompt-fase-na-execucao-de-tickets-e-specs.md",
+  "specTitle": "Medicao de tempo por prompt/fase na execucao de tickets e specs",
+  "specSummary": "Adicionar medicao de duracao por prompt/fase e tempo total da execucao, exibindo esses dados no resumo final para os fluxos de rodar ticket individual, rodar todos os tickets abertos e rodar specs, com foco em identificar gargalos.",
+  "commitMessage": "feat(spec): add 2026-03-05-medicao-de-tempo-por-prompt-fase-na-execucao-de-tickets-e-specs.md",
+  "recordedAtUtc": "2026-03-05T01:57:21.397Z"
+}
