@@ -18,7 +18,14 @@ import {
   TicketFinalSuccessSummary,
   TicketTimingSnapshot,
 } from "../types/ticket-final-summary.js";
-import { FlowTimingSnapshot, RunSpecsTriageTimingStage } from "../types/flow-timing.js";
+import {
+  FlowTimingSnapshot,
+  RunAllFlowSummary,
+  RunAllTimingStage,
+  RunSpecsFlowSummary,
+  RunSpecsFlowTimingStage,
+  RunSpecsTriageTimingStage,
+} from "../types/flow-timing.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock, PlanSpecQuestionBlock } from "./plan-spec-parser.js";
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 import { TelegramController } from "./telegram-bot.js";
@@ -98,6 +105,39 @@ const createRunSpecsTriageTimingSnapshot = (): FlowTimingSnapshot<RunSpecsTriage
   },
   completedStages: ["spec-triage", "spec-close-and-version"],
   interruptedStage: null,
+});
+
+const createRunAllTimingSnapshot = (
+  value: Partial<FlowTimingSnapshot<RunAllTimingStage>> = {},
+): FlowTimingSnapshot<RunAllTimingStage> => ({
+  startedAtUtc: "2026-02-19T15:04:00.000Z",
+  finishedAtUtc: "2026-02-19T15:08:00.000Z",
+  totalDurationMs: 240000,
+  durationsByStageMs: {
+    "select-ticket": 20000,
+    plan: 80000,
+    implement: 90000,
+    "close-and-version": 50000,
+  },
+  completedStages: ["select-ticket", "plan", "implement", "close-and-version"],
+  interruptedStage: null,
+  ...value,
+});
+
+const createRunSpecsFlowTimingSnapshot = (
+  value: Partial<FlowTimingSnapshot<RunSpecsFlowTimingStage>> = {},
+): FlowTimingSnapshot<RunSpecsFlowTimingStage> => ({
+  startedAtUtc: "2026-02-19T15:00:00.000Z",
+  finishedAtUtc: "2026-02-19T15:08:00.000Z",
+  totalDurationMs: 480000,
+  durationsByStageMs: {
+    "spec-triage": 90000,
+    "spec-close-and-version": 90000,
+    "run-all": 300000,
+  },
+  completedStages: ["spec-triage", "spec-close-and-version", "run-all"],
+  interruptedStage: null,
+  ...value,
 });
 
 const createPlanSpecSession = (
@@ -1359,6 +1399,60 @@ const createFailureSummary = (
   return {
     ...base,
     ...value,
+    timing: value.timing ?? baseTiming,
+  };
+};
+
+const createRunAllFlowSummary = (
+  value: Partial<RunAllFlowSummary> = {},
+): RunAllFlowSummary => {
+  const baseTiming = createRunAllTimingSnapshot();
+  const base: RunAllFlowSummary = {
+    flow: "run-all",
+    outcome: "success",
+    finalStage: "select-ticket",
+    completionReason: "queue-empty",
+    timestampUtc: "2026-02-19T15:08:00.000Z",
+    activeProjectName: "codex-flow-runner",
+    activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
+    processedTicketsCount: 2,
+    maxTicketsPerRound: 5,
+    timing: baseTiming,
+  };
+
+  return {
+    ...base,
+    ...value,
+    timing: value.timing ?? baseTiming,
+  };
+};
+
+const createRunSpecsFlowSummary = (
+  value: Partial<RunSpecsFlowSummary> = {},
+): RunSpecsFlowSummary => {
+  const baseTiming = createRunSpecsFlowTimingSnapshot();
+  const baseTriageTiming = createRunSpecsTriageTimingSnapshot();
+  const base: RunSpecsFlowSummary = {
+    flow: "run-specs",
+    outcome: "success",
+    finalStage: "run-all",
+    completionReason: "completed",
+    timestampUtc: "2026-02-19T15:08:00.000Z",
+    activeProjectName: "codex-flow-runner",
+    activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
+    spec: {
+      fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+      path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+    },
+    triageTiming: baseTriageTiming,
+    timing: baseTiming,
+    runAllSummary: createRunAllFlowSummary(),
+  };
+
+  return {
+    ...base,
+    ...value,
+    triageTiming: value.triageTiming ?? baseTriageTiming,
     timing: value.timing ?? baseTiming,
   };
 };
@@ -4233,6 +4327,10 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Proxima acao:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- spec-triage: 1m 30s \(90000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- spec-close-and-version: 1m 30s \(90000 ms\)/u);
 });
 
 test("envia milestone de triagem /run_specs para chat capturado por callback de /specs", async () => {
@@ -4295,6 +4393,10 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
   assert.match(sentMessages[1]?.text ?? "", /Resultado: falha/u);
   assert.match(sentMessages[1]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[1]?.text ?? "", /Detalhes: falha simulada/u);
+  assert.match(sentMessages[1]?.text ?? "", /Tempo total: 1m 0s \(60000 ms\)/u);
+  assert.match(sentMessages[1]?.text ?? "", /- spec-triage: 40s \(40000 ms\)/u);
+  assert.match(sentMessages[1]?.text ?? "", /- spec-close-and-version: 20s \(20000 ms\)/u);
+  assert.match(sentMessages[1]?.text ?? "", /Fase interrompida: spec-close-and-version/u);
 });
 
 test("envia resumo final para chat autorizado configurado", async () => {
@@ -4317,6 +4419,11 @@ test("envia resumo final para chat autorizado configurado", async () => {
   assert.match(sentMessages[0]?.text ?? "", /Timestamp UTC: 2026-02-19T15:00:00.000Z/u);
   assert.match(sentMessages[0]?.text ?? "", /ExecPlan: execplans\/2026-02-19-flow-a\.md/u);
   assert.match(sentMessages[0]?.text ?? "", /Commit\/Push: abc123@origin\/main/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempos do ticket/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 2m 0s \(120000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- plan: 45s \(45000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- implement: 50s \(50000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- close-and-version: 25s \(25000 ms\)/u);
   assert.equal(delivery?.channel, "telegram");
   assert.equal(delivery?.destinationChatId, "42");
   assert.match(delivery?.deliveredAtUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
@@ -4356,6 +4463,10 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   assert.match(sentMessages[0]?.text ?? "", /Fase final: implement/u);
   assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 1m 10s \(70000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- plan: 45s \(45000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- implement: 25s \(25000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase interrompida: implement/u);
   assert.equal(delivery?.destinationChatId, "99");
 });
 
@@ -4507,6 +4618,120 @@ test("encerra com falha definitiva apos exaurir tentativas retentaveis", async (
     ).length,
     1,
   );
+});
+
+test("nao envia resumo final de fluxo quando chat de notificacao nao foi capturado", async () => {
+  const { controller, logger } = createController();
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendRunFlowSummary(createRunAllFlowSummary());
+
+  assert.equal(sentMessages.length, 0);
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(
+    logger.warnings[0]?.message,
+    "Resumo final de fluxo nao enviado: chat de notificacao indefinido",
+  );
+  assert.deepEqual(logger.warnings[0]?.context, {
+    flow: "run-all",
+    outcome: "success",
+    finalStage: "select-ticket",
+  });
+});
+
+test("envia resumo final de fluxo /run-all com tempos para chat configurado", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendRunFlowSummary(createRunAllFlowSummary());
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.match(sentMessages[0]?.text ?? "", /Resumo final de fluxo/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-all/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
+  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: queue-empty/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tickets processados: 2\/5/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempos do fluxo/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 4m 0s \(240000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- select-ticket: 20s \(20000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- plan: 1m 20s \(80000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- implement: 1m 30s \(90000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- close-and-version: 50s \(50000 ms\)/u);
+  assert.equal(logger.warnings.length, 0);
+  assert.equal(logger.infos[0]?.message, "Resumo final de fluxo enviado no Telegram");
+});
+
+test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      outcome: "failure",
+      finalStage: "run-all",
+      completionReason: "run-all-failure",
+      details: "falha simulada no run-all encadeado",
+      timing: createRunSpecsFlowTimingSnapshot({
+        finishedAtUtc: "2026-02-19T15:02:45.000Z",
+        totalDurationMs: 165000,
+        durationsByStageMs: {
+          "spec-triage": 90000,
+          "spec-close-and-version": 45000,
+          "run-all": 30000,
+        },
+        completedStages: ["spec-triage", "spec-close-and-version"],
+        interruptedStage: "run-all",
+      }),
+      runAllSummary: createRunAllFlowSummary({
+        outcome: "failure",
+        finalStage: "implement",
+        completionReason: "ticket-failure",
+        processedTicketsCount: 1,
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "99");
+  assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-specs/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: falha/u);
+  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: run-all-failure/u);
+  assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(sentMessages[0]?.text ?? "", /Detalhes: falha simulada no run-all encadeado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 2m 45s \(165000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- run-all: 30s \(30000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase interrompida: run-all/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: falha \(ticket-failure\)/u);
+});
+
+test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: () => Promise<unknown>;
+      };
+    };
+  };
+
+  let sendAttempts = 0;
+  internalController.bot.telegram.sendMessage = async () => {
+    sendAttempts += 1;
+    throw new Error("falha de transporte simulada");
+  };
+
+  await controller.sendRunFlowSummary(createRunAllFlowSummary());
+
+  assert.equal(sendAttempts, 1);
+  assert.equal(logger.warnings.length, 1);
+  assert.equal(logger.warnings[0]?.message, "Falha ao enviar resumo final de fluxo no Telegram");
+  assert.equal(logger.warnings[0]?.context?.flow, "run-all");
+  assert.equal(logger.warnings[0]?.context?.outcome, "success");
+  assert.equal(logger.warnings[0]?.context?.finalStage, "select-ticket");
 });
 
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {

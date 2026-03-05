@@ -28,7 +28,7 @@ import {
   TicketNotificationDelivery,
   TicketNotificationErrorClass,
 } from "../types/ticket-final-summary.js";
-import { RunnerFlowSummary } from "../types/flow-timing.js";
+import { FlowTimingSnapshot, RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   PlanSpecFinalActionId,
   PlanSpecFinalBlock,
@@ -504,6 +504,10 @@ const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
   "EAI_AGAIN",
   "ENETUNREACH",
 ]);
+const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as const;
+const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = ["spec-triage", "spec-close-and-version"] as const;
+const RUN_ALL_TIMING_STAGE_ORDER = ["select-ticket", "plan", "implement", "close-and-version"] as const;
+const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = ["spec-triage", "spec-close-and-version", "run-all"] as const;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -936,23 +940,44 @@ export class TelegramController {
   }
 
   async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<void> {
-    this.logger.info("Resumo final de fluxo recebido para integracao Telegram", {
+    if (!this.notificationChatId) {
+      this.logger.warn("Resumo final de fluxo nao enviado: chat de notificacao indefinido", {
+        flow: summary.flow,
+        outcome: summary.outcome,
+        finalStage: summary.finalStage,
+      });
+      return;
+    }
+
+    const destinationChatId = this.notificationChatId;
+    const payload = this.buildRunFlowSummaryMessage(summary);
+    const flowContext = {
       flow: summary.flow,
       outcome: summary.outcome,
       finalStage: summary.finalStage,
+      completionReason: summary.completionReason,
       totalDurationMs: summary.timing.totalDurationMs,
       activeProjectName: summary.activeProjectName,
       activeProjectPath: summary.activeProjectPath,
+      chatId: destinationChatId,
       ...(summary.flow === "run-all"
         ? {
             processedTicketsCount: summary.processedTicketsCount,
-            completionReason: summary.completionReason,
           }
         : {
             specFileName: summary.spec.fileName,
-            completionReason: summary.completionReason,
           }),
-    });
+    };
+
+    try {
+      await this.bot.telegram.sendMessage(destinationChatId, payload);
+      this.logger.info("Resumo final de fluxo enviado no Telegram", flowContext);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar resumo final de fluxo no Telegram", {
+        ...flowContext,
+        error: this.resolveErrorMessage(error),
+      });
+    }
   }
 
   async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {
@@ -4566,8 +4591,122 @@ export class TelegramController {
     return `${value.slice(0, MAX_TEXT_PREVIEW_LENGTH)}...`;
   }
 
+  private buildRunFlowSummaryMessage(summary: RunnerFlowSummary): string {
+    const lines = [
+      "📣 Resumo final de fluxo",
+      `Fluxo: ${summary.flow}`,
+      `Projeto ativo: ${summary.activeProjectName}`,
+      `Caminho do projeto: ${summary.activeProjectPath}`,
+      `Resultado: ${this.renderOutcome(summary.outcome)}`,
+      `Fase final: ${summary.finalStage}`,
+      `Motivo de encerramento: ${summary.completionReason}`,
+      `Timestamp UTC: ${summary.timestampUtc}`,
+    ];
+
+    if (summary.flow === "run-all") {
+      lines.push(`Tickets processados: ${summary.processedTicketsCount}/${summary.maxTicketsPerRound}`);
+      if (summary.ticket) {
+        lines.push(`Ticket de referencia: ${summary.ticket}`);
+      }
+      if (summary.details) {
+        lines.push(`Detalhes: ${summary.details}`);
+      }
+      this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_ALL_TIMING_STAGE_ORDER);
+      return lines.join("\n");
+    }
+
+    lines.push(`Spec: ${summary.spec.fileName}`);
+    lines.push(`Caminho da spec: ${summary.spec.path}`);
+    if (summary.details) {
+      lines.push(`Detalhes: ${summary.details}`);
+    }
+    this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
+    this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
+
+    if (summary.runAllSummary) {
+      lines.push(
+        `Resumo /run-all encadeado: ${this.renderOutcome(summary.runAllSummary.outcome)} (${summary.runAllSummary.completionReason})`,
+      );
+      lines.push(
+        `Tickets processados no /run-all encadeado: ${summary.runAllSummary.processedTicketsCount}/${summary.runAllSummary.maxTicketsPerRound}`,
+      );
+    }
+
+    return lines.join("\n");
+  }
+
+  private renderOutcome(outcome: "success" | "failure"): string {
+    return outcome === "success" ? "sucesso" : "falha";
+  }
+
+  private appendTimingLines<Stage extends string>(
+    lines: string[],
+    title: string,
+    timing: FlowTimingSnapshot<Stage>,
+    orderedStages: readonly Stage[],
+  ): void {
+    lines.push(title);
+    lines.push(`Tempo total: ${this.formatDurationMs(timing.totalDurationMs)}`);
+    lines.push("Duracao por fase:");
+
+    const timedStages = this.listTimedStagesInOrder(timing, orderedStages);
+    if (timedStages.length === 0) {
+      lines.push("- nenhuma fase medida");
+    } else {
+      for (const [stage, durationMs] of timedStages) {
+        lines.push(`- ${stage}: ${this.formatDurationMs(durationMs)}`);
+      }
+    }
+
+    if (timing.interruptedStage) {
+      lines.push(`Fase interrompida: ${timing.interruptedStage}`);
+    }
+  }
+
+  private listTimedStagesInOrder<Stage extends string>(
+    timing: FlowTimingSnapshot<Stage>,
+    orderedStages: readonly Stage[],
+  ): Array<[string, number]> {
+    const orderedDurationEntries: Array<[string, number]> = [];
+    for (const stage of orderedStages) {
+      const durationMs = timing.durationsByStageMs[stage];
+      if (typeof durationMs === "number") {
+        orderedDurationEntries.push([stage, durationMs]);
+      }
+    }
+
+    const orderedStageSet = new Set<string>(orderedStages);
+    const extraDurationEntries = Object.entries(timing.durationsByStageMs)
+      .filter(
+        (entry): entry is [string, number] =>
+          typeof entry[1] === "number" && !orderedStageSet.has(entry[0]),
+      )
+      .sort((left, right) => left[0].localeCompare(right[0]));
+
+    return [...orderedDurationEntries, ...extraDurationEntries];
+  }
+
+  private formatDurationMs(durationMs: number): string {
+    const normalizedDurationMs = Math.max(0, Math.floor(durationMs));
+    const totalSeconds = Math.floor(normalizedDurationMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    const parts: string[] = [];
+    if (hours > 0) {
+      parts.push(`${hours}h`);
+    }
+    if (hours > 0 || minutes > 0) {
+      parts.push(`${minutes}m`);
+    }
+    parts.push(`${seconds}s`);
+
+    return `${parts.join(" ")} (${normalizedDurationMs} ms)`;
+  }
+
   private buildTicketFinalSummaryMessage(summary: TicketFinalSummary): string {
-    const status = summary.status === "success" ? "sucesso" : "falha";
+    const status = this.renderOutcome(summary.status);
     const lines = [
       "📣 Resumo final por ticket",
       `Ticket: ${summary.ticket}`,
@@ -4583,18 +4722,16 @@ export class TelegramController {
       lines.push(`Commit/Push: ${summary.commitPushId}`);
       lines.push(`Commit: ${summary.commitHash}`);
       lines.push(`Upstream: ${summary.pushUpstream}`);
-      return lines.join("\n");
-    }
-
-    if (summary.status === "failure") {
+    } else {
       lines.push(`Erro: ${summary.errorMessage}`);
     }
 
+    this.appendTimingLines(lines, "Tempos do ticket", summary.timing, TICKET_TIMING_STAGE_ORDER);
     return lines.join("\n");
   }
 
   private buildRunSpecsTriageMilestoneMessage(event: RunSpecsTriageLifecycleEvent): string {
-    const outcomeLabel = event.outcome === "success" ? "sucesso" : "falha";
+    const outcomeLabel = this.renderOutcome(event.outcome);
     const lines = [
       "🧭 Marco da triagem /run_specs",
       `Spec: ${event.spec.fileName}`,
@@ -4608,6 +4745,7 @@ export class TelegramController {
       lines.push(`Detalhes: ${event.details}`);
     }
 
+    this.appendTimingLines(lines, "Tempos da triagem", event.timing, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
     return lines.join("\n");
   }
 

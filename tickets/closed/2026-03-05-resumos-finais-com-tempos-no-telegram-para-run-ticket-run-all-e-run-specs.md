@@ -1,15 +1,15 @@
 # [TICKET] Resumos finais com tempos no Telegram para run-ticket, run-all e run_specs
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-05 02:01Z
 - Reporter: mapita
-- Owner: a definir
+- Owner: codex
 - Source: production-observation
-- Parent ticket (optional): tickets/open/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md
-- Parent execplan (optional):
+- Parent ticket (optional): tickets/closed/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md
+- Parent execplan (optional): execplans/2026-03-05-resumos-finais-com-tempos-no-telegram-para-run-ticket-run-all-e-run-specs.md
 - Parent commit (optional):
 - Request ID: N/A
 - Related artifacts:
@@ -89,7 +89,16 @@ Consumir o contrato temporal do runner e publicar resumos finais deterministicos
 - 2026-03-05 - Ticket aberto para cobrir camada de apresentacao/observabilidade temporal no Telegram apos fundacao do contrato no runner.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Delivery decision: GO
+- Closed at (UTC): 2026-03-05 02:37Z
+- Closure reason: fixed
+- Related PR/commit/execplan: commit deste ciclo em `main` (mesmo commit que move este ticket para `tickets/closed/`); `execplans/2026-03-05-resumos-finais-com-tempos-no-telegram-para-run-ticket-run-all-e-run-specs.md`
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Validacao manual externa pendente: sim
+- Entrega tecnica concluida: implementacao e testes automatizados atendem os criterios funcionais do ticket (CA-01..CA-04).
+- Validacao manual necessaria: validar em Telegram real os resumos finais de `run-ticket`, `run-all` e `run_specs` (sucesso/falha) com tempos por fase e total.
+- Como executar a validacao manual:
+  1. Executar `/run_all` em ambiente com bot real e confirmar mensagem "Resumo final de fluxo" com bloco "Tempos do fluxo".
+  2. Executar `/run_specs <spec-aprovada>` e confirmar milestone de triagem com bloco "Tempos da triagem".
+  3. Executar um ticket com falha controlada e confirmar exibicao de `Fase interrompida` e tempos parciais.
+- Responsavel operacional: operador do bot Telegram (mapita).
