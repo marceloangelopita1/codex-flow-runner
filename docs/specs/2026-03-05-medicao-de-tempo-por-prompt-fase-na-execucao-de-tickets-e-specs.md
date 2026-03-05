@@ -6,10 +6,11 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-05 01:57Z
-- Last reviewed at (UTC): 2026-03-05 01:57Z
+- Last reviewed at (UTC): 2026-03-05 02:05Z
 - Source: technical-evolution
 - Related tickets:
-  - A definir
+  - tickets/open/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md
+  - tickets/open/2026-03-05-resumos-finais-com-tempos-no-telegram-para-run-ticket-run-all-e-run-specs.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -48,17 +49,25 @@
 - [ ] CA-02 - Ao rodar todos os tickets abertos, o resumo final inclui duracao de cada prompt/fase executada e tempo total da execucao.
 - [ ] CA-03 - Ao rodar specs, o resumo final inclui duracao de cada prompt/fase executada e tempo total da execucao.
 - [ ] CA-04 - Em caso de falha durante qualquer fluxo, o resumo final ainda apresenta medicoes coletadas ate a falha e o tempo total acumulado ate a interrupcao.
-- [ ] CA-05 - A execucao permanece sequencial apos a entrega, sem processamento paralelo de tickets.
+- [x] CA-05 - A execucao permanece sequencial apos a entrega, sem processamento paralelo de tickets.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Nenhum nesta etapa de materializacao da spec.
+  - RF-01, RF-02 e RF-03 atendidos no nivel de medicao/log por fase (`durationMs`) no runner.
+  - RF-07 e CA-05 atendidos: execucao de tickets permanece sequencial por fluxo.
 - Pendencias em aberto:
-  - Derivar execucao tecnica (ticket em `tickets/open/` ou execplan em `execplans/`) para implementar RF-01..RF-08.
-  - Implementar e validar CA-01..CA-05 com evidencia verificavel.
+  - RF-04 parcialmente atendido: faltam tempos totais consolidados no fechamento dos tres fluxos, especialmente no `/run_specs`.
+  - RF-05 nao atendido: resumos finais atuais nao exibem tempos por fase nem tempo total em formato deterministico.
+  - RF-06 nao atendido: em falha, resumos finais nao carregam medicoes parciais coletadas ate a interrupcao.
+  - RF-08 parcialmente atendido: compatibilidade com logs/status foi mantida, mas sem adicionar a informacao temporal minima exigida no resumo final.
+  - CA-01, CA-02, CA-03 e CA-04 permanecem pendentes e foram derivados nos tickets:
+    - `tickets/open/2026-03-05-contrato-de-medicao-temporal-por-fase-e-fluxo-no-runner.md`
+    - `tickets/open/2026-03-05-resumos-finais-com-tempos-no-telegram-para-run-ticket-run-all-e-run-specs.md`
 - Evidencias de validacao:
-  - Nao aplicavel nesta etapa de planejamento.
+  - `src/core/runner.ts:3034-3152`, `src/core/runner.ts:3656-3703`.
+  - `src/core/runner.ts:3526-3560`, `src/types/ticket-final-summary.ts:11-32`.
+  - `src/integrations/telegram-bot.ts:4548-4590`.
 
 ## Riscos e impacto
 - Risco funcional: medicoes inconsistentes entre fases podem levar a leitura incorreta de gargalos.
@@ -71,3 +80,5 @@
 
 ## Historico de atualizacao
 - 2026-03-05 01:57Z - Versao inicial da spec criada com `Status: approved` e `Spec treatment: pending`.
+- 2026-03-05 02:03Z - Revisao de gaps concluida; tickets derivados para contrato temporal no runner e publicacao de resumos finais com tempos no Telegram.
+- 2026-03-05 02:05Z - Validacao final da triagem concluida, mantendo `Status: approved` e `Spec treatment: pending` devido aos gaps rastreados em `tickets/open/`.
