@@ -9,6 +9,7 @@ import {
   CodexPlanSessionError,
   CodexStageExecutionError,
 } from "./codex-client.js";
+import { buildRuntimeShellGuidance } from "./runtime-shell-guidance.js";
 import { TicketRef } from "./ticket-queue.js";
 
 class SpyLogger extends Logger {
@@ -91,6 +92,36 @@ test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", as
   }
 });
 
+test("runStage injeta guia operacional de shell no prompt", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# prompt",
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+    resolvePlanDirectoryName: async () => "execplans",
+    buildRuntimeShellGuidance: () => ({
+      text: [
+        "Contexto operacional do shell desta execucao (obrigatorio seguir):",
+        "- Prefixo obrigatorio para comandos Node: `export HOME=\"/home/test\"; export PATH=\"/opt/node/bin:$PATH\";`.",
+      ].join("\n"),
+      homePath: "/home/test",
+      nodeExecutablePath: "/opt/node/bin/node",
+      nodeBinPath: "/opt/node/bin",
+      npmExecutablePath: "/opt/node/bin/npm",
+      codexExecutablePath: "/usr/local/bin/codex",
+      isSnapCodex: false,
+    }),
+  });
+
+  await client.runStage("implement", ticket);
+
+  assert.match(capturedPrompt, /Contexto operacional do shell desta execucao/u);
+  assert.match(capturedPrompt, /export HOME="\/home\/test"; export PATH="\/opt\/node\/bin:\$PATH";/u);
+});
+
 test("args nao interativos usam full access explicito por chamada", () => {
   const args = buildNonInteractiveCodexArgs();
 
@@ -151,6 +182,34 @@ test("runStage retorna diagnosticos resumidos de stdout/stderr do Codex CLI", as
   assert.equal(result.diagnostics?.stdoutPreview, "resultado final: commit criado");
   assert.match(result.diagnostics?.stderrPreview ?? "", /OpenAI Codex v0\.111\.0/u);
   assert.match(result.diagnostics?.stderrPreview ?? "", /push nao concluido/u);
+});
+
+test("buildRuntimeShellGuidance inclui bridge de git remoto quando codex vem de snap", () => {
+  const guidance = buildRuntimeShellGuidance({
+    homePath: "/home/mapita",
+    nodeExecutablePath: "/home/mapita/.nvm/versions/node/v24.14.0/bin/node",
+    codexExecutablePath: "/snap/bin/codex",
+  });
+
+  assert.equal(guidance.isSnapCodex, true);
+  assert.match(
+    guidance.text,
+    /export HOME="\/home\/mapita"; export PATH="\/home\/mapita\/\.nvm\/versions\/node\/v24\.14\.0\/bin:\$PATH";/u,
+  );
+  assert.match(guidance.text, /\/var\/lib\/snapd\/hostfs\/usr\/bin\/git/u);
+  assert.match(guidance.text, /\/var\/lib\/snapd\/hostfs\/usr\/bin\/gh/u);
+});
+
+test("buildRuntimeShellGuidance omite bridge de git remoto fora de snap", () => {
+  const guidance = buildRuntimeShellGuidance({
+    homePath: "/home/mapita",
+    nodeExecutablePath: "/opt/node/bin/node",
+    codexExecutablePath: "/usr/local/bin/codex",
+  });
+
+  assert.equal(guidance.isSnapCodex, false);
+  assert.match(guidance.text, /export PATH="\/opt\/node\/bin:\$PATH"/u);
+  assert.doesNotMatch(guidance.text, /\/var\/lib\/snapd\/hostfs/u);
 });
 
 test("runSpecStage(spec-triage) substitui placeholder <SPEC_PATH>", async () => {

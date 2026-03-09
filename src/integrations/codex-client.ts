@@ -18,6 +18,10 @@ import {
   buildExecPlanPath,
   resolvePlanDirectoryName,
 } from "./plan-directory.js";
+import {
+  RuntimeShellGuidance,
+  buildRuntimeShellGuidance,
+} from "./runtime-shell-guidance.js";
 import { TicketRef } from "./ticket-queue.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
@@ -176,6 +180,7 @@ interface CodexClientDependencies {
   runCodexExecJsonCommand: (request: CodexExecJsonCommandRequest) => Promise<CodexCommandResult>;
   runCodexAuthStatusCommand: (request: CodexAuthStatusRequest) => Promise<CodexCommandResult>;
   resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
+  buildRuntimeShellGuidance: () => RuntimeShellGuidance;
 }
 
 const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
@@ -339,6 +344,7 @@ export class CodexChatSessionError extends Error {
 
 export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private readonly dependencies: CodexClientDependencies;
+  private readonly runtimeShellGuidance: RuntimeShellGuidance;
 
   constructor(
     private readonly repoPath: string,
@@ -351,8 +357,18 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       runCodexExecJsonCommand: runCodexExecJsonCommand,
       runCodexAuthStatusCommand: runCodexAuthStatusCommand,
       resolvePlanDirectoryName: resolvePlanDirectoryName,
+      buildRuntimeShellGuidance: buildRuntimeShellGuidance,
       ...dependencies,
     };
+    this.runtimeShellGuidance = this.dependencies.buildRuntimeShellGuidance();
+    this.logger.info("Guia operacional de shell preparado para o Codex CLI", {
+      repoPath: this.repoPath,
+      codexExecutablePath: this.runtimeShellGuidance.codexExecutablePath,
+      isSnapCodex: this.runtimeShellGuidance.isSnapCodex,
+      homePath: this.runtimeShellGuidance.homePath,
+      nodeExecutablePath: this.runtimeShellGuidance.nodeExecutablePath,
+      npmExecutablePath: this.runtimeShellGuidance.npmExecutablePath,
+    });
   }
 
   async ensureAuthenticated(): Promise<void> {
@@ -532,6 +548,8 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     return [
       stageTemplate.trimEnd(),
       "",
+      this.runtimeShellGuidance.text,
+      "",
       "Contexto adicional do ticket alvo:",
       `- Ticket alvo: \`${ticketPath}\``,
       `- ExecPlan esperado: \`${execPlanPath}\``,
@@ -574,6 +592,8 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
     return [
       stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
       "",
       "Contexto adicional da spec alvo:",
       `- Spec alvo: \`${spec.path}\``,
