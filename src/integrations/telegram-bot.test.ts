@@ -4451,12 +4451,18 @@ test("nao envia resumo final quando modo sem restricao nao tem chat de notificac
 });
 
 test("envia resumo final de falha para chat que iniciou /run-all no modo sem restricao", async () => {
-  const { controller } = createController();
+  const { controller, logger } = createController();
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
 
   const delivery = await controller.sendTicketFinalSummary(
     createFailureSummary({
+      codexStdoutPreview: [
+        "Resultado final: NO_GO",
+        "",
+        "- Push: falhou",
+        "- Motivo: origin/main permaneceu ahead 1",
+      ].join("\n"),
       codexStderrPreview:
         "OpenAI Codex v0.111.0\n...\nfalha final: push nao foi concluido e o repositorio ficou ahead 1",
     }),
@@ -4468,12 +4474,23 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   assert.match(sentMessages[0]?.text ?? "", /Fase final: implement/u);
   assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
-  assert.match(sentMessages[0]?.text ?? "", /Codex stderr: OpenAI Codex v0\.111\.0/u);
+  assert.match(sentMessages[0]?.text ?? "", /Mensagem final do Codex:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado final: NO_GO/u);
+  assert.match(sentMessages[0]?.text ?? "", /- Push: falhou/u);
+  assert.match(sentMessages[0]?.text ?? "", /Transcricao tecnica do Codex CLI:/u);
+  assert.match(sentMessages[0]?.text ?? "", /OpenAI Codex v0\.111\.0/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 1m 10s \(70000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- plan: 45s \(45000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- implement: 25s \(25000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase interrompida: implement/u);
   assert.equal(delivery?.destinationChatId, "99");
+  assert.equal(
+    logger.infos.find((entry) => entry.message === "Resumo final de ticket enviado no Telegram")
+      ?.context?.codexAssistantResponsePreview,
+    ["Resultado final: NO_GO", "", "- Push: falhou", "- Motivo: origin/main permaneceu ahead 1"].join(
+      "\n",
+    ),
+  );
 });
 
 test("reenvia resumo final em falhas transitorias e entrega com metadados de tentativa", async () => {

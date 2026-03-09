@@ -490,7 +490,7 @@ const SELECT_PROJECT_LEGACY_PATTERN = /^\/select-project(?:@[^\s]+)?(?:\s+.*)?$/
 const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
 const BOT_COMMAND_ENTITY_TYPE = "bot_command";
 const MAX_TEXT_PREVIEW_LENGTH = 160;
-const MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH = 280;
+const MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH = 900;
 const TELEGRAM_HANDLER_TIMEOUT_MS = 30 * 60 * 1000;
 const TELEGRAM_LONG_POLLING_CONFLICT_CODE = 409;
 const TELEGRAM_GET_UPDATES_METHOD = "getUpdates";
@@ -693,6 +693,25 @@ export class TelegramController {
           chatId: destinationChatId,
           attempt,
           maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+          ...(summary.status === "failure"
+            ? {
+                telegramMessagePreview: this.limit(payload),
+                ...(summary.codexStdoutPreview
+                  ? {
+                      codexAssistantResponsePreview: this.limitDiagnosticPreview(
+                        summary.codexStdoutPreview,
+                      ),
+                    }
+                  : {}),
+                ...(summary.codexStderrPreview
+                  ? {
+                      codexCliTranscriptPreview: this.limitDiagnosticPreview(
+                        summary.codexStderrPreview,
+                      ),
+                    }
+                  : {}),
+              }
+            : {}),
         });
 
         return delivery;
@@ -4593,14 +4612,14 @@ export class TelegramController {
   }
 
   private limitDiagnosticPreview(value: string): string {
-    const normalized = value.replace(/\s+/gu, " ").trim();
+    const normalized = value.trim();
     if (normalized.length <= MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH) {
       return normalized;
     }
 
-    const headLength = 120;
-    const tailLength = MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH - headLength - " ... ".length;
-    return `${normalized.slice(0, headLength)} ... ${normalized.slice(-tailLength)}`;
+    const headLength = 420;
+    const tailLength = MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH - headLength - "\n...\n".length;
+    return `${normalized.slice(0, headLength)}\n...\n${normalized.slice(-tailLength)}`;
   }
 
   private buildRunFlowSummaryMessage(summary: RunnerFlowSummary): string {
@@ -4737,10 +4756,12 @@ export class TelegramController {
     } else {
       lines.push(`Erro: ${summary.errorMessage}`);
       if (summary.codexStdoutPreview) {
-        lines.push(`Codex stdout: ${this.limitDiagnosticPreview(summary.codexStdoutPreview)}`);
+        lines.push("Mensagem final do Codex:");
+        lines.push(this.limitDiagnosticPreview(summary.codexStdoutPreview));
       }
       if (summary.codexStderrPreview) {
-        lines.push(`Codex stderr: ${this.limitDiagnosticPreview(summary.codexStderrPreview)}`);
+        lines.push("Transcricao tecnica do Codex CLI:");
+        lines.push(this.limitDiagnosticPreview(summary.codexStderrPreview));
       }
     }
 

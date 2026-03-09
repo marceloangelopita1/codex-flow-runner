@@ -692,6 +692,11 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
     logger.errors.find((entry) => entry.message === "Erro no ciclo de ticket")?.context?.stage,
     "close-and-version",
   );
+  assert.equal(
+    logger.errors.find((entry) => entry.message === "Validacao git falhou apos close-and-version")
+      ?.context?.codexAssistantResponsePreview,
+    "ok:close-and-version",
+  );
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "close-and-version");

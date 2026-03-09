@@ -402,11 +402,13 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
       const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
       if (diagnostics?.stderrPreview) {
-        this.logger.warn("Codex CLI retornou stderr na etapa", {
+        this.logger.warn("Codex CLI retornou diagnostico em stderr na etapa", {
           ticket: ticket.name,
           stage,
-          stderrPreview: diagnostics.stderrPreview,
-          ...(diagnostics.stdoutPreview ? { stdoutPreview: diagnostics.stdoutPreview } : {}),
+          codexCliTranscriptPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview
+            ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+            : {}),
         });
       }
 
@@ -450,11 +452,13 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
       const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
       if (diagnostics?.stderrPreview) {
-        this.logger.warn("Codex CLI retornou stderr na etapa de spec", {
+        this.logger.warn("Codex CLI retornou diagnostico em stderr na etapa de spec", {
           spec: spec.fileName,
           stage,
-          stderrPreview: diagnostics.stderrPreview,
-          ...(diagnostics.stdoutPreview ? { stdoutPreview: diagnostics.stdoutPreview } : {}),
+          codexCliTranscriptPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview
+            ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+            : {}),
         });
       }
 

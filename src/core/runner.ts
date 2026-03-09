@@ -3782,12 +3782,7 @@ export class TicketRunner {
         durationMs: this.buildFlowTimingSnapshot(ticketTimingCollector).totalDurationMs,
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
-        ...(finalStageDiagnostics?.stdoutPreview
-          ? { codexStdoutPreview: finalStageDiagnostics.stdoutPreview }
-          : {}),
-        ...(finalStageDiagnostics?.stderrPreview
-          ? { codexStderrPreview: finalStageDiagnostics.stderrPreview }
-          : {}),
+        ...this.buildCodexDiagnosticsLogContext(finalStageDiagnostics),
       });
 
       finalSummary = this.buildFailureSummary(
@@ -3960,11 +3955,27 @@ export class TicketRunner {
         ticket: ticket.name,
         ...(error instanceof GitSyncValidationError ? { failureCode: error.code, ...error.details } : {}),
         ...(error instanceof GitSyncValidationError ? {} : { error: details }),
-        ...(diagnostics?.stdoutPreview ? { codexStdoutPreview: diagnostics.stdoutPreview } : {}),
-        ...(diagnostics?.stderrPreview ? { codexStderrPreview: diagnostics.stderrPreview } : {}),
+        ...this.buildCodexDiagnosticsLogContext(diagnostics),
       });
       throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
     }
+  }
+
+  private buildCodexDiagnosticsLogContext(
+    diagnostics?: CodexStageDiagnostics,
+  ): Record<string, unknown> {
+    if (!diagnostics) {
+      return {};
+    }
+
+    return {
+      ...(diagnostics.stdoutPreview
+        ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+        : {}),
+      ...(diagnostics.stderrPreview
+        ? { codexCliTranscriptPreview: diagnostics.stderrPreview }
+        : {}),
+    };
   }
 
   private recordStageDiagnostics(
