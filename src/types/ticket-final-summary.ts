@@ -32,6 +32,8 @@ export interface TicketFinalSuccessSummary extends TicketFinalSummaryBase {
 export interface TicketFinalFailureSummary extends TicketFinalSummaryBase {
   status: "failure";
   errorMessage: string;
+  codexStdoutPreview?: string;
+  codexStderrPreview?: string;
 }
 
 export type TicketFinalSummary = TicketFinalSuccessSummary | TicketFinalFailureSummary;

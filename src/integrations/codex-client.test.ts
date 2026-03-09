@@ -136,6 +136,23 @@ test("runStage(plan) adapta caminho esperado para repositorio com plans", async 
   assert.match(capturedPrompt, /ExecPlan esperado: `plans\/2026-02-19-example-ticket\.md`/u);
 });
 
+test("runStage retorna diagnosticos resumidos de stdout/stderr do Codex CLI", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# prompt",
+    runCodexCommand: async () => ({
+      stdout: "resultado final: commit criado",
+      stderr: "\u001b[33mOpenAI Codex v0.111.0\u001b[0m\n...\npush nao concluido",
+    }),
+    resolvePlanDirectoryName: async () => "execplans",
+  });
+
+  const result = await client.runStage("close-and-version", ticket);
+
+  assert.equal(result.diagnostics?.stdoutPreview, "resultado final: commit criado");
+  assert.match(result.diagnostics?.stderrPreview ?? "", /OpenAI Codex v0\.111\.0/u);
+  assert.match(result.diagnostics?.stderrPreview ?? "", /push nao concluido/u);
+});
+
 test("runSpecStage(spec-triage) substitui placeholder <SPEC_PATH>", async () => {
   let capturedPrompt = "";
 

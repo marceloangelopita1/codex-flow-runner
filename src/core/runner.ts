@@ -37,6 +37,7 @@ import {
   CodexAuthenticationError,
   CodexChatSession,
   CodexChatSessionCloseResult,
+  CodexStageDiagnostics,
   CodexChatSessionError,
   CodexChatSessionEvent,
   CodexPlanSessionError,
@@ -56,7 +57,11 @@ import {
   SpecPlanningTraceSession,
   SpecPlanningTraceStore,
 } from "../integrations/spec-planning-trace-store.js";
-import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
+import {
+  GitSyncEvidence,
+  GitSyncValidationError,
+  GitVersioning,
+} from "../integrations/git-client.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 
@@ -3681,6 +3686,7 @@ export class TicketRunner {
     updateGlobalStateDirectly = false,
   ): Promise<TicketProcessingResult> {
     const ticketTimingCollector = this.createFlowTimingCollector<TicketFinalStage>();
+    const stageDiagnostics: Partial<Record<TicketFlowStage, CodexStageDiagnostics>> = {};
     slot.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
     const activeProject = { ...slot.project };
@@ -3701,8 +3707,9 @@ export class TicketRunner {
         updateGlobalStateDirectly,
         ticketTimingCollector,
       );
+      this.recordStageDiagnostics(stageDiagnostics, "plan", planResult.diagnostics);
       const execPlanPath = this.resolveExecPlanPath(ticket, planResult.execPlanPath);
-      await this.runStage(
+      const implementResult = await this.runStage(
         slot,
         "implement",
         ticket,
@@ -3710,7 +3717,8 @@ export class TicketRunner {
         updateGlobalStateDirectly,
         ticketTimingCollector,
       );
-      await this.runStage(
+      this.recordStageDiagnostics(stageDiagnostics, "implement", implementResult.diagnostics);
+      const closeAndVersionResult = await this.runStage(
         slot,
         "close-and-version",
         ticket,
@@ -3718,7 +3726,16 @@ export class TicketRunner {
         updateGlobalStateDirectly,
         ticketTimingCollector,
       );
-      const syncEvidence = await this.assertCloseAndVersion(slot, ticket);
+      this.recordStageDiagnostics(
+        stageDiagnostics,
+        "close-and-version",
+        closeAndVersionResult.diagnostics,
+      );
+      const syncEvidence = await this.assertCloseAndVersion(
+        slot,
+        ticket,
+        closeAndVersionResult.diagnostics,
+      );
 
       if (updateGlobalStateDirectly) {
         this.touch("idle", `Ticket ${ticket.name} finalizado com sucesso`);
@@ -3751,6 +3768,7 @@ export class TicketRunner {
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const finalStage = this.resolveFailureStage(stage, slot.phase);
+      const finalStageDiagnostics = this.resolveStageDiagnostics(stageDiagnostics, finalStage);
       this.markFlowInterrupted(ticketTimingCollector, finalStage);
       if (updateGlobalStateDirectly) {
         this.touch("error", `Falha ao processar ${ticket.name}`);
@@ -3764,6 +3782,12 @@ export class TicketRunner {
         durationMs: this.buildFlowTimingSnapshot(ticketTimingCollector).totalDurationMs,
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
+        ...(finalStageDiagnostics?.stdoutPreview
+          ? { codexStdoutPreview: finalStageDiagnostics.stdoutPreview }
+          : {}),
+        ...(finalStageDiagnostics?.stderrPreview
+          ? { codexStderrPreview: finalStageDiagnostics.stderrPreview }
+          : {}),
       });
 
       finalSummary = this.buildFailureSummary(
@@ -3772,6 +3796,7 @@ export class TicketRunner {
         errorMessage,
         activeProject,
         this.buildFlowTimingSnapshot(ticketTimingCollector),
+        finalStageDiagnostics,
       );
       return {
         succeeded: false,
@@ -3829,6 +3854,7 @@ export class TicketRunner {
     errorMessage: string,
     activeProject: ProjectRef,
     timing: TicketTimingSnapshot,
+    diagnostics?: CodexStageDiagnostics,
   ): TicketFinalSummary {
     return {
       ticket,
@@ -3839,6 +3865,8 @@ export class TicketRunner {
       activeProjectPath: activeProject.path,
       timing,
       errorMessage,
+      ...(diagnostics?.stdoutPreview ? { codexStdoutPreview: diagnostics.stdoutPreview } : {}),
+      ...(diagnostics?.stderrPreview ? { codexStderrPreview: diagnostics.stderrPreview } : {}),
     };
   }
 
@@ -3919,13 +3947,43 @@ export class TicketRunner {
     };
   }
 
-  private async assertCloseAndVersion(slot: ActiveRunnerSlot, ticket: TicketRef): Promise<GitSyncEvidence> {
+  private async assertCloseAndVersion(
+    slot: ActiveRunnerSlot,
+    ticket: TicketRef,
+    diagnostics?: CodexStageDiagnostics,
+  ): Promise<GitSyncEvidence> {
     try {
       return await slot.gitVersioning.assertSyncedWithRemote();
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
+      this.logger.error("Validacao git falhou apos close-and-version", {
+        ticket: ticket.name,
+        ...(error instanceof GitSyncValidationError ? { failureCode: error.code, ...error.details } : {}),
+        ...(error instanceof GitSyncValidationError ? {} : { error: details }),
+        ...(diagnostics?.stdoutPreview ? { codexStdoutPreview: diagnostics.stdoutPreview } : {}),
+        ...(diagnostics?.stderrPreview ? { codexStderrPreview: diagnostics.stderrPreview } : {}),
+      });
       throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
     }
+  }
+
+  private recordStageDiagnostics(
+    collector: Partial<Record<TicketFlowStage, CodexStageDiagnostics>>,
+    stage: TicketFlowStage,
+    diagnostics?: CodexStageDiagnostics,
+  ): void {
+    if (!diagnostics) {
+      return;
+    }
+
+    collector[stage] = diagnostics;
+  }
+
+  private resolveStageDiagnostics(
+    collector: Partial<Record<TicketFlowStage, CodexStageDiagnostics>>,
+    stage: TicketFinalStage,
+  ): CodexStageDiagnostics | undefined {
+    return collector[stage];
   }
 
   private async runStage(

@@ -9,6 +9,21 @@ export interface GitSyncEvidence {
   commitPushId: string;
 }
 
+export type GitSyncValidationFailureCode =
+  | "working-tree-dirty"
+  | "upstream-missing"
+  | "upstream-unresolved"
+  | "ahead-count-invalid"
+  | "push-pending"
+  | "head-missing";
+
+export interface GitSyncValidationFailureDetails {
+  workingTreeStatus?: string;
+  upstream?: string;
+  ahead?: number;
+  rawAhead?: string;
+}
+
 export interface GitVersioning {
   commitTicketClosure(ticketName: string, execPlanPath: string): Promise<void>;
   assertSyncedWithRemote(): Promise<GitSyncEvidence>;
@@ -21,6 +36,17 @@ interface GitCommandResult {
 
 interface GitCliVersioningDependencies {
   runGit: (args: string[]) => Promise<GitCommandResult>;
+}
+
+export class GitSyncValidationError extends Error {
+  constructor(
+    public readonly code: GitSyncValidationFailureCode,
+    message: string,
+    public readonly details: GitSyncValidationFailureDetails = {},
+  ) {
+    super(message);
+    this.name = "GitSyncValidationError";
+  }
 }
 
 export class GitCliVersioning implements GitVersioning {
@@ -61,7 +87,13 @@ export class GitCliVersioning implements GitVersioning {
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     const workingTreeStatus = (await this.runGit(["status", "--porcelain"])).stdout.trim();
     if (workingTreeStatus.length > 0) {
-      throw new Error("Repositorio com alteracoes locais apos close-and-version.");
+      throw new GitSyncValidationError(
+        "working-tree-dirty",
+        "Repositorio com alteracoes locais apos close-and-version.",
+        {
+          workingTreeStatus,
+        },
+      );
     }
 
     let upstream = "";
@@ -70,26 +102,52 @@ export class GitCliVersioning implements GitVersioning {
         await this.runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
       ).stdout.trim();
     } catch {
-      throw new Error("Branch atual sem upstream configurado para validar push obrigatorio.");
+      throw new GitSyncValidationError(
+        "upstream-missing",
+        "Branch atual sem upstream configurado para validar push obrigatorio.",
+      );
     }
 
     if (!upstream) {
-      throw new Error("Nao foi possivel identificar upstream para validar push obrigatorio.");
+      throw new GitSyncValidationError(
+        "upstream-unresolved",
+        "Nao foi possivel identificar upstream para validar push obrigatorio.",
+      );
     }
 
     const aheadRaw = (await this.runGit(["rev-list", "--count", `${upstream}..HEAD`])).stdout.trim();
     const ahead = Number.parseInt(aheadRaw, 10);
     if (Number.isNaN(ahead)) {
-      throw new Error(`Valor invalido ao validar commits sem push: "${aheadRaw}".`);
+      throw new GitSyncValidationError(
+        "ahead-count-invalid",
+        `Valor invalido ao validar commits sem push: "${aheadRaw}".`,
+        {
+          upstream,
+          rawAhead: aheadRaw,
+        },
+      );
     }
 
     if (ahead > 0) {
-      throw new Error(`Push obrigatorio nao concluido: ${ahead} commit(s) sem push.`);
+      throw new GitSyncValidationError(
+        "push-pending",
+        `Push obrigatorio nao concluido para ${upstream}: ${ahead} commit(s) sem push.`,
+        {
+          upstream,
+          ahead,
+        },
+      );
     }
 
     const commitHash = (await this.runGit(["rev-parse", "HEAD"])).stdout.trim();
     if (!commitHash) {
-      throw new Error("Nao foi possivel identificar hash HEAD apos validar push obrigatorio.");
+      throw new GitSyncValidationError(
+        "head-missing",
+        "Nao foi possivel identificar hash HEAD apos validar push obrigatorio.",
+        {
+          upstream,
+        },
+      );
     }
 
     return {

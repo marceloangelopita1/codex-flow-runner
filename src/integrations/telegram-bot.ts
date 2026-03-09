@@ -490,6 +490,7 @@ const SELECT_PROJECT_LEGACY_PATTERN = /^\/select-project(?:@[^\s]+)?(?:\s+.*)?$/
 const UNKNOWN_COMMAND_PATTERN = /^\/\S+/u;
 const BOT_COMMAND_ENTITY_TYPE = "bot_command";
 const MAX_TEXT_PREVIEW_LENGTH = 160;
+const MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH = 280;
 const TELEGRAM_HANDLER_TIMEOUT_MS = 30 * 60 * 1000;
 const TELEGRAM_LONG_POLLING_CONFLICT_CODE = 409;
 const TELEGRAM_GET_UPDATES_METHOD = "getUpdates";
@@ -4591,6 +4592,17 @@ export class TelegramController {
     return `${value.slice(0, MAX_TEXT_PREVIEW_LENGTH)}...`;
   }
 
+  private limitDiagnosticPreview(value: string): string {
+    const normalized = value.replace(/\s+/gu, " ").trim();
+    if (normalized.length <= MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH) {
+      return normalized;
+    }
+
+    const headLength = 120;
+    const tailLength = MAX_TICKET_DIAGNOSTIC_PREVIEW_LENGTH - headLength - " ... ".length;
+    return `${normalized.slice(0, headLength)} ... ${normalized.slice(-tailLength)}`;
+  }
+
   private buildRunFlowSummaryMessage(summary: RunnerFlowSummary): string {
     const lines = [
       "📣 Resumo final de fluxo",
@@ -4724,6 +4736,12 @@ export class TelegramController {
       lines.push(`Upstream: ${summary.pushUpstream}`);
     } else {
       lines.push(`Erro: ${summary.errorMessage}`);
+      if (summary.codexStdoutPreview) {
+        lines.push(`Codex stdout: ${this.limitDiagnosticPreview(summary.codexStdoutPreview)}`);
+      }
+      if (summary.codexStderrPreview) {
+        lines.push(`Codex stderr: ${this.limitDiagnosticPreview(summary.codexStderrPreview)}`);
+      }
     }
 
     this.appendTimingLines(lines, "Tempos do ticket", summary.timing, TICKET_TIMING_STAGE_ORDER);

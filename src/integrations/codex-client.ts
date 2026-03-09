@@ -47,6 +47,12 @@ export interface CodexStageResult {
   stage: CodexFlowStage;
   output: string;
   execPlanPath?: string;
+  diagnostics?: CodexStageDiagnostics;
+}
+
+export interface CodexStageDiagnostics {
+  stdoutPreview?: string;
+  stderrPreview?: string;
 }
 
 export interface PlanSpecSessionActivity {
@@ -394,12 +400,13 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         },
       });
 
-      const stderr = result.stderr.trim();
-      if (stderr.length > 0) {
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
         this.logger.warn("Codex CLI retornou stderr na etapa", {
           ticket: ticket.name,
           stage,
-          stderr: limit(stderr),
+          stderrPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview ? { stdoutPreview: diagnostics.stdoutPreview } : {}),
         });
       }
 
@@ -411,6 +418,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       return {
         stage,
         output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
         ...(stage === "plan" ? { execPlanPath } : {}),
       };
     } catch (error) {
@@ -440,12 +448,13 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         },
       });
 
-      const stderr = result.stderr.trim();
-      if (stderr.length > 0) {
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
         this.logger.warn("Codex CLI retornou stderr na etapa de spec", {
           spec: spec.fileName,
           stage,
-          stderr: limit(stderr),
+          stderrPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview ? { stdoutPreview: diagnostics.stdoutPreview } : {}),
         });
       }
 
@@ -457,6 +466,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       return {
         stage,
         output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
       };
     } catch (error) {
       const details = errorMessage(error);
@@ -1219,7 +1229,10 @@ const runCodexCliCommand = async (params: {
 
       reject(
         new Error(
-          `${params.commandName} terminou com codigo ${String(code)}: ${limit(stderr || stdout)}`,
+          [
+            `${params.commandName} terminou com codigo ${String(code)}:`,
+            summarizeCodexCliOutput(stderr) ?? summarizeCodexCliOutput(stdout) ?? "sem saida capturada",
+          ].join(" "),
         ),
       );
     });
@@ -1265,4 +1278,53 @@ const limit = (value: string): string => {
   }
 
   return `${value.slice(0, MAX)}...`;
+};
+
+const ANSI_ESCAPE_PATTERN =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/gu;
+const CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
+const MAX_CLI_OUTPUT_PREVIEW_LENGTH = 1200;
+const CLI_OUTPUT_PREVIEW_HEAD_LENGTH = 420;
+
+const buildCodexStageDiagnostics = (
+  stdout: string,
+  stderr: string,
+): CodexStageDiagnostics | undefined => {
+  const stdoutPreview = summarizeCodexCliOutput(stdout);
+  const stderrPreview = summarizeCodexCliOutput(stderr);
+
+  if (!stdoutPreview && !stderrPreview) {
+    return undefined;
+  }
+
+  return {
+    ...(stdoutPreview ? { stdoutPreview } : {}),
+    ...(stderrPreview ? { stderrPreview } : {}),
+  };
+};
+
+const summarizeCodexCliOutput = (value: string): string | undefined => {
+  const sanitized = sanitizeCodexCliOutput(value);
+  if (!sanitized) {
+    return undefined;
+  }
+
+  if (sanitized.length <= MAX_CLI_OUTPUT_PREVIEW_LENGTH) {
+    return sanitized;
+  }
+
+  const tailLength = MAX_CLI_OUTPUT_PREVIEW_LENGTH - CLI_OUTPUT_PREVIEW_HEAD_LENGTH - "\n...\n".length;
+  return `${sanitized.slice(0, CLI_OUTPUT_PREVIEW_HEAD_LENGTH)}\n...\n${sanitized.slice(-tailLength)}`;
+};
+
+const sanitizeCodexCliOutput = (value: string): string => {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(CONTROL_CHAR_PATTERN, "")
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
 };

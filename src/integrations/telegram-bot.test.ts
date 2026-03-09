@@ -4455,7 +4455,12 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
 
-  const delivery = await controller.sendTicketFinalSummary(createFailureSummary());
+  const delivery = await controller.sendTicketFinalSummary(
+    createFailureSummary({
+      codexStderrPreview:
+        "OpenAI Codex v0.111.0\n...\nfalha final: push nao foi concluido e o repositorio ficou ahead 1",
+    }),
+  );
 
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]?.chatId, "99");
@@ -4463,6 +4468,7 @@ test("envia resumo final de falha para chat que iniciou /run-all no modo sem res
   assert.match(sentMessages[0]?.text ?? "", /Fase final: implement/u);
   assert.match(sentMessages[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(sentMessages[0]?.text ?? "", /Erro: falha simulada/u);
+  assert.match(sentMessages[0]?.text ?? "", /Codex stderr: OpenAI Codex v0\.111\.0/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 1m 10s \(70000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- plan: 45s \(45000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- implement: 25s \(25000 ms\)/u);

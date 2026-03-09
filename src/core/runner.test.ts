@@ -113,6 +113,9 @@ class StubCodexClient implements CodexTicketFlowClient {
     return {
       stage,
       output: `ok:${stage}`,
+      diagnostics: {
+        stdoutPreview: `ok:${stage}`,
+      },
       ...(stage === "plan" && this.includeExecPlanPath
         ? { execPlanPath: `execplans/${ticket.name.replace(/\.md$/u, "")}.md` }
         : {}),
@@ -137,6 +140,9 @@ class StubCodexClient implements CodexTicketFlowClient {
     return {
       stage,
       output: `ok:${stage}`,
+      diagnostics: {
+        stdoutPreview: `ok:${stage}`,
+      },
     };
   }
 
@@ -682,7 +688,10 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
     ["plan", "implement", "close-and-version"],
   );
   assert.equal(gitVersioning.syncChecks, 1);
-  assert.equal(logger.errors[0]?.context?.stage, "close-and-version");
+  assert.equal(
+    logger.errors.find((entry) => entry.message === "Erro no ciclo de ticket")?.context?.stage,
+    "close-and-version",
+  );
   assert.equal(summaries.length, 1);
   assert.equal(summaries[0]?.status, "failure");
   assert.equal(summaries[0]?.finalStage, "close-and-version");
@@ -696,6 +705,7 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
   assert.ok((summaries[0]?.timing.totalDurationMs ?? -1) >= 0);
   if (summaries[0]?.status === "failure") {
     assert.match(summaries[0].errorMessage, /push obrigatorio nao concluido/u);
+    assert.equal(summaries[0].codexStdoutPreview, "ok:close-and-version");
   } else {
     assert.fail("resumo deveria ser falha");
   }
