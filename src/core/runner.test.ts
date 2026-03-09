@@ -9,6 +9,7 @@ import {
   CodexChatSession,
   CodexChatSessionCloseResult,
   CodexChatSessionError,
+  CodexStageDiagnostics,
   CodexChatSessionEvent,
   CodexChatSessionStartRequest,
   CodexPlanSessionError,
@@ -90,6 +91,9 @@ class StubCodexClient implements CodexTicketFlowClient {
     private readonly failPlanSessionStart = false,
     private readonly onSpecStageRun?: (stage: SpecFlowStage, spec: SpecRef) => Promise<void> | void,
     private readonly failFreeChatSessionStart = false,
+    private readonly stageDiagnostics: Partial<
+      Record<TicketFlowStage | SpecFlowStage, CodexStageDiagnostics>
+    > = {},
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -110,11 +114,13 @@ class StubCodexClient implements CodexTicketFlowClient {
       throw new CodexStageExecutionError(ticket.name, stage, "falha simulada");
     }
 
+    const stageDiagnostics = this.stageDiagnostics[stage];
     return {
       stage,
       output: `ok:${stage}`,
       diagnostics: {
-        stdoutPreview: `ok:${stage}`,
+        stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
+        ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
       ...(stage === "plan" && this.includeExecPlanPath
         ? { execPlanPath: `execplans/${ticket.name.replace(/\.md$/u, "")}.md` }
@@ -137,11 +143,13 @@ class StubCodexClient implements CodexTicketFlowClient {
 
     await this.onSpecStageRun?.(stage, spec);
 
+    const stageDiagnostics = this.stageDiagnostics[stage];
     return {
       stage,
       output: `ok:${stage}`,
       diagnostics: {
-        stdoutPreview: `ok:${stage}`,
+        stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
+        ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
     };
   }
@@ -261,6 +269,7 @@ class StubCodexChatSession implements CodexChatSession {
 
 class StubGitVersioning implements GitVersioning {
   public syncChecks = 0;
+  public readonly commitClosures: Array<{ ticketName: string; execPlanPath: string }> = [];
 
   constructor(
     private readonly failSyncCheck = false,
@@ -269,9 +278,16 @@ class StubGitVersioning implements GitVersioning {
       upstream: "origin/main",
       commitPushId: "abc123@origin/main",
     },
+    private readonly failCommitClosure = false,
+    private readonly commitClosureErrorMessage = "falha simulada no versionamento git",
   ) {}
 
-  async commitTicketClosure(): Promise<void> {}
+  async commitTicketClosure(ticketName: string, execPlanPath: string): Promise<void> {
+    this.commitClosures.push({ ticketName, execPlanPath });
+    if (this.failCommitClosure) {
+      throw new Error(this.commitClosureErrorMessage);
+    }
+  }
 
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     this.syncChecks += 1;
@@ -580,6 +596,12 @@ test("runner executa etapas em ordem para um ticket e valida sincronismo git", a
     codex.calls.map((value) => value.stage),
     ["plan", "implement", "close-and-version"],
   );
+  assert.deepEqual(gitVersioning.commitClosures, [
+    {
+      ticketName: ticketA.name,
+      execPlanPath: "execplans/2026-02-19-flow-a.md",
+    },
+  ]);
   assert.equal(gitVersioning.syncChecks, 1);
 
   const state = runner.getState();
@@ -637,6 +659,7 @@ test("runner para no stage com falha e registra contexto", async () => {
     codex.calls.map((value) => value.stage),
     ["plan", "implement"],
   );
+  assert.equal(gitVersioning.commitClosures.length, 0);
   assert.equal(gitVersioning.syncChecks, 0);
 
   const state = runner.getState();
@@ -714,6 +737,90 @@ test("runner marca erro de close-and-version quando validacao de push falha", as
   } else {
     assert.fail("resumo deveria ser falha");
   }
+});
+
+test("runner marca erro de close-and-version quando versionamento git controlado falha", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning(
+    false,
+    {
+      commitHash: "abc123",
+      upstream: "origin/main",
+      commitPushId: "abc123@origin/main",
+    },
+    true,
+    "git push falhou: autenticacao ausente",
+  );
+  const { summaries, onTicketFinalized } = createSummaryCollector();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+
+  const succeeded = await callProcessTicket(runner, ticketA);
+
+  assert.equal(succeeded, false);
+  assert.deepEqual(gitVersioning.commitClosures, [
+    {
+      ticketName: ticketA.name,
+      execPlanPath: "execplans/2026-02-19-flow-a.md",
+    },
+  ]);
+  assert.equal(gitVersioning.syncChecks, 0);
+  assert.equal(
+    logger.errors.find((entry) => entry.message === "Versionamento git falhou apos close-and-version")
+      ?.context?.error,
+    "git push falhou: autenticacao ausente",
+  );
+  assert.equal(summaries[0]?.status, "failure");
+  assert.equal(summaries[0]?.finalStage, "close-and-version");
+  if (summaries[0]?.status === "failure") {
+    assert.match(summaries[0].errorMessage, /autenticacao ausente/u);
+  } else {
+    assert.fail("resumo deveria ser falha");
+  }
+});
+
+test("runner diagnostica helper de credencial ausente no snap quando stderr do Codex indica /usr/bin/gh inexistente", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient(
+    undefined,
+    true,
+    false,
+    0,
+    undefined,
+    false,
+    undefined,
+    false,
+    {
+      "close-and-version": {
+        stdoutPreview: "ok:close-and-version",
+        stderrPreview:
+          "/usr/bin/gh auth git-credential get: 1: /usr/bin/gh: not found\nfatal: could not read Username for 'https://github.com': No such device or address",
+      },
+    },
+  );
+  const gitVersioning = new StubGitVersioning(true);
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const succeeded = await callProcessTicket(runner, ticketA);
+
+  assert.equal(succeeded, false);
+  const logEntry = logger.errors.find(
+    (entry) => entry.message === "Validacao git falhou apos close-and-version",
+  );
+  assert.equal(logEntry?.context?.diagnosedCause, "snap-git-credential-helper-missing");
+  assert.match(String(logEntry?.context?.diagnosedCauseDetail ?? ""), /HOST_GIT\/HOST_GH/u);
 });
 
 test("requestRunAll encerra rodada quando fila fica vazia", async () => {

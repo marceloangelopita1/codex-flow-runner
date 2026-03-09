@@ -5,7 +5,7 @@ Runner de tickets com **Node.js + TypeScript** para executar um fluxo **sequenci
 1. detectar proximo ticket em `tickets/open/` por `Priority` (`P0 -> P1 -> P2`; empate com fallback por nome de arquivo);
 2. gerar/atualizar ExecPlan em `execplans/`;
 3. fechar ticket movendo para `tickets/closed/`;
-4. criar commit git no mesmo ciclo;
+4. executar commit/push git controlados pelo runner no mesmo ciclo;
 5. expor status e controle por Telegram.
 
 ## Status atual
@@ -47,6 +47,7 @@ Regras de bootstrap multi-projeto:
 
 Observacao operacional:
 - o ciclo de fechamento/versionamento exige commit + push por ticket (sem modo opcional de push).
+- a etapa `close-and-version` prepara o estado final do ticket; o commit/push correspondente e executado pelo runner apos essa etapa.
 - cada comando `/run_all` processa no maximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada; ao atingir o limite, a rodada e encerrada de forma controlada.
 - ao receber `SIGINT`/`SIGTERM`, o runner entra em shutdown gracioso: bloqueia novas execucoes e aguarda drain bounded de operacoes em voo por ate `SHUTDOWN_DRAIN_TIMEOUT_MS`.
 - indisponibilidade de validacao manual externa ao agente (ex.: Telegram real indisponivel) nao deve, sozinha, forcar `NO_GO`; nesse caso, o fechamento pode ser `GO` com anotacao explicita de validacao manual pendente.

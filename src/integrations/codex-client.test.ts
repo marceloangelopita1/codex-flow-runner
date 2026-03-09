@@ -113,6 +113,9 @@ test("runStage injeta guia operacional de shell no prompt", async () => {
       npmExecutablePath: "/opt/node/bin/npm",
       codexExecutablePath: "/usr/local/bin/codex",
       isSnapCodex: false,
+      hostGitExecutablePath: null,
+      hostGitExecPath: null,
+      hostGhExecutablePath: null,
     }),
   });
 
@@ -192,10 +195,14 @@ test("buildRuntimeShellGuidance inclui bridge de git remoto quando codex vem de 
   });
 
   assert.equal(guidance.isSnapCodex, true);
+  assert.equal(guidance.hostGitExecutablePath, "/var/lib/snapd/hostfs/usr/bin/git");
+  assert.equal(guidance.hostGitExecPath, "/var/lib/snapd/hostfs/usr/lib/git-core");
+  assert.equal(guidance.hostGhExecutablePath, "/var/lib/snapd/hostfs/usr/bin/gh");
   assert.match(
     guidance.text,
     /export HOME="\/home\/mapita"; export PATH="\/home\/mapita\/\.nvm\/versions\/node\/v24\.14\.0\/bin:\$PATH";/u,
   );
+  assert.match(guidance.text, /Nunca use `git push`/u);
   assert.match(guidance.text, /\/var\/lib\/snapd\/hostfs\/usr\/bin\/git/u);
   assert.match(guidance.text, /\/var\/lib\/snapd\/hostfs\/usr\/bin\/gh/u);
 });
@@ -208,6 +215,9 @@ test("buildRuntimeShellGuidance omite bridge de git remoto fora de snap", () => 
   });
 
   assert.equal(guidance.isSnapCodex, false);
+  assert.equal(guidance.hostGitExecutablePath, null);
+  assert.equal(guidance.hostGitExecPath, null);
+  assert.equal(guidance.hostGhExecutablePath, null);
   assert.match(guidance.text, /export PATH="\/opt\/node\/bin:\$PATH"/u);
   assert.doesNotMatch(guidance.text, /\/var\/lib\/snapd\/hostfs/u);
 });

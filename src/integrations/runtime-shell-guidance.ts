@@ -8,6 +8,9 @@ export interface RuntimeShellGuidanceOptions {
   homePath?: string;
   nodeExecutablePath?: string;
   codexExecutablePath?: string | null;
+  hostGitExecutablePath?: string;
+  hostGitExecPath?: string;
+  hostGhExecutablePath?: string;
   pathValue?: string;
 }
 
@@ -19,6 +22,9 @@ export interface RuntimeShellGuidance {
   npmExecutablePath: string;
   codexExecutablePath: string | null;
   isSnapCodex: boolean;
+  hostGitExecutablePath: string | null;
+  hostGitExecPath: string | null;
+  hostGhExecutablePath: string | null;
 }
 
 export const buildRuntimeShellGuidance = (
@@ -36,6 +42,15 @@ export const buildRuntimeShellGuidance = (
       ? resolveExecutableInPath("codex", options.pathValue ?? process.env.PATH ?? "")
       : options.codexExecutablePath;
   const isSnapCodex = detectSnapCodex(codexExecutablePath);
+  const hostGitExecutablePath = isSnapCodex
+    ? normalizeHostBridgePath(options.hostGitExecutablePath, "/var/lib/snapd/hostfs/usr/bin/git")
+    : null;
+  const hostGitExecPath = isSnapCodex
+    ? normalizeHostBridgePath(options.hostGitExecPath, "/var/lib/snapd/hostfs/usr/lib/git-core")
+    : null;
+  const hostGhExecutablePath = isSnapCodex
+    ? normalizeHostBridgePath(options.hostGhExecutablePath, "/var/lib/snapd/hostfs/usr/bin/gh")
+    : null;
 
   const lines = [
     "Contexto operacional do shell desta execucao (obrigatorio seguir):",
@@ -48,8 +63,9 @@ export const buildRuntimeShellGuidance = (
   if (isSnapCodex) {
     lines.push(
       `- Codex CLI detectado via Snap: \`${codexExecutablePath}\`. O git padrao dentro da sessao nao suporta HTTPS remoto nem enxerga o HOME real.`,
-      `- Para \`git push\`, \`git pull\`, \`git fetch\` ou \`git ls-remote\`, use o bridge do host no mesmo comando: \`export HOME="${homePath}"; HOST_GIT="/var/lib/snapd/hostfs/usr/bin/git"; HOST_GIT_EXEC="/var/lib/snapd/hostfs/usr/lib/git-core"; HOST_GH="/var/lib/snapd/hostfs/usr/bin/gh"; GIT_EXEC_PATH="$HOST_GIT_EXEC" "$HOST_GIT" -c credential.https://github.com.helper= -c "credential.https://github.com.helper=!$HOST_GH auth git-credential" <git-args>\`.`,
-      `- Exemplo de push: \`export HOME="${homePath}"; HOST_GIT="/var/lib/snapd/hostfs/usr/bin/git"; HOST_GIT_EXEC="/var/lib/snapd/hostfs/usr/lib/git-core"; HOST_GH="/var/lib/snapd/hostfs/usr/bin/gh"; GIT_EXEC_PATH="$HOST_GIT_EXEC" "$HOST_GIT" -c credential.https://github.com.helper= -c "credential.https://github.com.helper=!$HOST_GH auth git-credential" push\`.`,
+      "- Nunca use `git push`, `git pull`, `git fetch` ou `git ls-remote` diretamente dentro do snap; isso reaplica o `credential.helper` do host (ex.: `!/usr/bin/gh auth git-credential`) e pode falhar com `/usr/bin/gh: not found`.",
+      `- Para \`git push\`, \`git pull\`, \`git fetch\` ou \`git ls-remote\`, use o bridge do host no mesmo comando: \`export HOME="${homePath}"; HOST_GIT="${hostGitExecutablePath}"; HOST_GIT_EXEC="${hostGitExecPath}"; HOST_GH="${hostGhExecutablePath}"; GIT_EXEC_PATH="$HOST_GIT_EXEC" "$HOST_GIT" -c credential.https://github.com.helper= -c "credential.https://github.com.helper=!$HOST_GH auth git-credential" <git-args>\`.`,
+      `- Exemplo de push: \`export HOME="${homePath}"; HOST_GIT="${hostGitExecutablePath}"; HOST_GIT_EXEC="${hostGitExecPath}"; HOST_GH="${hostGhExecutablePath}"; GIT_EXEC_PATH="$HOST_GIT_EXEC" "$HOST_GIT" -c credential.https://github.com.helper= -c "credential.https://github.com.helper=!$HOST_GH auth git-credential" push\`.`,
     );
   }
 
@@ -61,6 +77,9 @@ export const buildRuntimeShellGuidance = (
     npmExecutablePath,
     codexExecutablePath,
     isSnapCodex,
+    hostGitExecutablePath,
+    hostGitExecPath,
+    hostGhExecutablePath,
   };
 };
 
@@ -85,6 +104,15 @@ const normalizeNodeExecutablePath = (value?: string): string => {
   }
 
   return process.execPath;
+};
+
+const normalizeHostBridgePath = (value: string | undefined, fallback: string): string => {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+
+  return fallback;
 };
 
 const detectSnapCodex = (codexExecutablePath: string | null): boolean => {

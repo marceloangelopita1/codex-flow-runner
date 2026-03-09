@@ -60,6 +60,10 @@ export class GitCliVersioning implements GitVersioning {
       runGit: async (args) =>
         execFileAsync("git", args, {
           cwd: this.repoPath,
+          env: {
+            ...process.env,
+            GIT_TERMINAL_PROMPT: "0",
+          },
         }),
       ...dependencies,
     };
@@ -167,6 +171,44 @@ export class GitCliVersioning implements GitVersioning {
   }
 
   private async runGit(args: string[]): Promise<GitCommandResult> {
-    return this.dependencies.runGit(args);
+    try {
+      return await this.dependencies.runGit(args);
+    } catch (error) {
+      throw normalizeGitCommandError(args, error);
+    }
   }
 }
+
+const normalizeGitCommandError = (args: string[], error: unknown): Error => {
+  const stderr = readGitCommandOutput(error, "stderr");
+  const stdout = readGitCommandOutput(error, "stdout");
+  const command = `git ${args.join(" ")}`;
+  const details = stderr || stdout;
+
+  if (details) {
+    return new Error(`${command} falhou: ${details}`);
+  }
+
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(String(error));
+};
+
+const readGitCommandOutput = (error: unknown, stream: "stdout" | "stderr"): string => {
+  if (typeof error !== "object" || error === null || !(stream in error)) {
+    return "";
+  }
+
+  const value = (error as Record<"stdout" | "stderr", unknown>)[stream];
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8").trim();
+  }
+
+  return "";
+};

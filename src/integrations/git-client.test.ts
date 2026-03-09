@@ -78,6 +78,36 @@ test("commitTicketClosure propaga erro quando push falha", async () => {
   );
 });
 
+test("commitTicketClosure inclui stderr do git quando push falha no wrapper controlado", async () => {
+  const client = new GitCliVersioning("/tmp/repo", {
+    runGit: async (args): Promise<CallResult> => {
+      if (args[0] === "diff") {
+        throw new Error("ha alteracoes staged");
+      }
+
+      if (args[0] === "push") {
+        const error = new Error("Command failed");
+        Object.assign(error, {
+          stderr: "fatal: could not read Username for 'https://github.com': No such device or address",
+        });
+        throw error;
+      }
+
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  await assert.rejects(
+    () => client.commitTicketClosure("2026-02-19-ticket.md", "execplans/2026-02-19-ticket.md"),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /git push falhou:/u);
+      assert.match(error.message, /could not read Username/u);
+      return true;
+    },
+  );
+});
+
 test("assertSyncedWithRemote valida repositorio limpo e sem commits pendentes", async () => {
   const calls: string[][] = [];
   const client = new GitCliVersioning("/tmp/repo", {

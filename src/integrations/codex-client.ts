@@ -368,6 +368,13 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       homePath: this.runtimeShellGuidance.homePath,
       nodeExecutablePath: this.runtimeShellGuidance.nodeExecutablePath,
       npmExecutablePath: this.runtimeShellGuidance.npmExecutablePath,
+      ...(this.runtimeShellGuidance.isSnapCodex
+        ? {
+            hostGitExecutablePath: this.runtimeShellGuidance.hostGitExecutablePath,
+            hostGitExecPath: this.runtimeShellGuidance.hostGitExecPath,
+            hostGhExecutablePath: this.runtimeShellGuidance.hostGhExecutablePath,
+          }
+        : {}),
     });
   }
 

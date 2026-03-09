@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-20 17:08Z
+- Last reviewed at (UTC): 2026-03-09 18:54Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-codex-sdk-real-three-prompt-flow-gap.md
@@ -24,21 +24,22 @@
 
 ## Objetivo e contexto
 - Problema que esta spec resolve: permitir que o bot controle, de forma remota, a execucao sequencial de tickets abertos do repositorio `guiadomus-matricula`.
-- Resultado esperado: um comando Telegram inicia rodada que processa tickets abertos um por vez via Codex SDK real, com fechamento + commit/push por ticket.
+- Resultado esperado: um comando Telegram inicia rodada que processa tickets abertos um por vez via Codex SDK real, com fechamento por ticket e versionamento git controlado pelo runner no mesmo ciclo.
 - Contexto funcional: runner como controlador operacional de backlog remoto baseado em tickets Markdown.
 
 ## Jornada de uso
 1. Operador autorizado envia `/run-all` no bot.
 2. Runner inicia rodada de execucao no repositorio `../guiadomus-matricula`.
-3. Para cada ticket aberto, runner executa ciclo completo (`plan -> implement -> close`) via Codex SDK real, depois commit/push.
-4. Em caso de erro em qualquer ticket, a rodada para no primeiro erro e preserva o estado atual para diagnostico.
+3. Para cada ticket aberto, runner executa ciclo completo (`plan -> implement -> close-and-version`) via Codex SDK real.
+4. Apos a etapa `close-and-version`, o runner executa `git add/commit/push` de forma controlada e valida sincronismo com o upstream.
+5. Em caso de erro em qualquer ticket, a rodada para no primeiro erro e preserva o estado atual para diagnostico.
 
 ## Requisitos funcionais
 - RF-01: comando `/run-all` deve iniciar rodada de processamento sequencial de tickets em `tickets/open/`.
 - RF-02: cada ticket deve executar os 3 prompts operacionais definidos no projeto (`plan`, `implement`, `close-and-version`) antes de passar ao proximo.
 - RF-03: integracao deve usar Codex SDK real ponta a ponta (nao apenas gerador local de execplan).
 - RF-04: ao finalizar cada ticket com sucesso, o arquivo deve ser movido para `tickets/closed/` no mesmo commit da implementacao.
-- RF-05: o fluxo deve realizar `push` automatico apos commit de fechamento de cada ticket.
+- RF-05: o runner deve realizar `push` automatico apos commit de fechamento de cada ticket, sem depender de comando git remoto executado pelo Codex.
 - RF-06: a rodada deve parar no primeiro erro, mantendo rastreabilidade do ticket que falhou.
 - RF-07: runner deve ser compativel com repositorios que usam `plans/` ou `execplans/`, sem exigir migracao manual previa.
 - RF-08: quando o fechamento resultar em `NO_GO` tecnico, o ticket atual deve ser encerrado com `Closure reason: split-follow-up` e um novo ticket de follow-up deve ser criado em `tickets/open/` no mesmo commit/push.
@@ -52,7 +53,7 @@
 
 ## Criterios de aceitacao (observaveis)
 - [x] CA-01 - Ao enviar `/run-all` com tickets abertos, o runner processa um ticket por vez ate concluir a rodada ou falhar.
-- [x] CA-02 - Ao concluir ticket com sucesso, ocorre movimentacao `tickets/open -> tickets/closed` no mesmo commit e push automatico.
+- [x] CA-02 - Ao concluir ticket com sucesso, ocorre movimentacao `tickets/open -> tickets/closed` no mesmo ciclo, com commit/push automatico executados pelo runner.
 - [x] CA-03 - Em erro no ticket N, os tickets seguintes nao sao executados e o estado do erro fica registrado.
 - [x] CA-04 - Em repositorio alvo com `plans/`, artefato de plano e criado sem quebrar o fluxo.
 - [x] CA-05 - Em repositorio alvo com `execplans/`, artefato de plano e criado sem quebrar o fluxo.
@@ -74,6 +75,7 @@
   - Runner interrompe rodada no primeiro erro de ticket (fail-fast), sem executar tickets seguintes na mesma rodada.
   - Runner valida fechamento/versionamento apos `close-and-version` exigindo repositorio limpo e sem commits locais sem push.
   - `GitCliVersioning` passou a executar push obrigatorio apos commit de fechamento (sem feature flag opcional).
+  - A etapa `close-and-version` passou a preparar apenas o estado de arquivos/tickets; commit/push de ticket agora sao centralizados no runner via `GitCliVersioning`.
   - Suite automatizada cobre rodada finita, fail-fast entre tickets e validacao de push/sincronismo em `git-client`.
   - `/run-all` agora executa preflight de autenticacao do Codex CLI e bloqueia inicio da rodada com mensagem acionavel quando a sessao nao existe.
   - Integracao com Codex CLI deixou de injetar `CODEX_API_KEY`/`OPENAI_API_KEY`; autenticacao passa a depender da sessao do usuario (`codex login`).
@@ -133,3 +135,4 @@
 - 2026-02-19 16:05Z - Fluxo migrado para autenticacao login-only do Codex CLI, com preflight de `/run-all`, remocao de injecao de API key e testes/documentacao atualizados.
 - 2026-02-20 17:08Z - Fluxo ajustado para handoff `NO_GO` com `split-follow-up` no fechamento e limite de tickets por rodada (`RUN_ALL_MAX_TICKETS_PER_ROUND`, padrao 20).
 - 2026-02-23 15:16Z - Regra de fechamento refinada: pendencia exclusiva de validacao manual externa ao agente nao bloqueia `GO`; ticket fecha como `fixed` com anotacao de validacao manual pendente, sem gerar cadeia de `split-follow-up`.
+- 2026-03-09 18:54Z - Versionamento de ticket centralizado no runner: `close-and-version` deixa de executar git remoto e passa a apenas preparar o estado de fechamento para commit/push posterior controlado.

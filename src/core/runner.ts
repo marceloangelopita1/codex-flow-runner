@@ -3731,6 +3731,12 @@ export class TicketRunner {
         "close-and-version",
         closeAndVersionResult.diagnostics,
       );
+      await this.commitCloseAndVersion(
+        slot,
+        ticket,
+        execPlanPath,
+        closeAndVersionResult.diagnostics,
+      );
       const syncEvidence = await this.assertCloseAndVersion(
         slot,
         ticket,
@@ -3955,10 +3961,69 @@ export class TicketRunner {
         ticket: ticket.name,
         ...(error instanceof GitSyncValidationError ? { failureCode: error.code, ...error.details } : {}),
         ...(error instanceof GitSyncValidationError ? {} : { error: details }),
+        ...this.buildCloseAndVersionFailureHintLogContext(diagnostics),
         ...this.buildCodexDiagnosticsLogContext(diagnostics),
       });
       throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
     }
+  }
+
+  private async commitCloseAndVersion(
+    slot: ActiveRunnerSlot,
+    ticket: TicketRef,
+    execPlanPath: string,
+    diagnostics?: CodexStageDiagnostics,
+  ): Promise<void> {
+    this.logger.info("Executando versionamento git controlado pelo runner", {
+      ticket: ticket.name,
+      execPlanPath,
+    });
+
+    try {
+      await slot.gitVersioning.commitTicketClosure(ticket.name, execPlanPath);
+      this.logger.info("Versionamento git concluido pelo runner apos close-and-version", {
+        ticket: ticket.name,
+        execPlanPath,
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.logger.error("Versionamento git falhou apos close-and-version", {
+        ticket: ticket.name,
+        execPlanPath,
+        error: details,
+        ...this.buildCloseAndVersionFailureHintLogContext(diagnostics),
+        ...this.buildCodexDiagnosticsLogContext(diagnostics),
+      });
+      throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
+    }
+  }
+
+  private buildCloseAndVersionFailureHintLogContext(
+    diagnostics?: CodexStageDiagnostics,
+  ): Record<string, unknown> {
+    const stderrPreview = diagnostics?.stderrPreview ?? "";
+    if (!stderrPreview) {
+      return {};
+    }
+
+    if (
+      /gh auth git-credential/u.test(stderrPreview) &&
+      /\/usr\/bin\/gh: not found/u.test(stderrPreview)
+    ) {
+      return {
+        diagnosedCause: "snap-git-credential-helper-missing",
+        diagnosedCauseDetail:
+          "Codex executou git remoto com o git interno do Snap; o helper configurado !/usr/bin/gh auth git-credential nao existe nesse sandbox. Use o bridge HOST_GIT/HOST_GH do host no mesmo comando.",
+      };
+    }
+
+    if (/could not read Username for 'https:\/\/github\.com'/u.test(stderrPreview)) {
+      return {
+        diagnosedCause: "git-https-authentication-failed",
+      };
+    }
+
+    return {};
   }
 
   private buildCodexDiagnosticsLogContext(
