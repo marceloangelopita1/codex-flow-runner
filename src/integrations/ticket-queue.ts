@@ -10,6 +10,7 @@ const PRIORITY_RANK: Readonly<Record<string, number>> = {
 
 const FALLBACK_PRIORITY_RANK = 3;
 const PRIORITY_METADATA_PATTERN = /^\s*(?:-\s*)?Priority\s*:\s*(P[0-2])\b/imu;
+const IGNORED_OPEN_TICKET_FILE_NAMES = new Set(["README.md"]);
 
 export interface TicketRef {
   name: string;
@@ -86,6 +87,13 @@ export class FileSystemTicketQueue implements TicketQueue {
       };
     }
 
+    if (this.shouldIgnoreOpenTicketFile(normalizedTicketName)) {
+      return {
+        status: "not-found",
+        ticketName: normalizedTicketName,
+      };
+    }
+
     const ticketPath = path.join(this.openDir, normalizedTicketName);
     try {
       const content = await fs.readFile(ticketPath, "utf8");
@@ -118,7 +126,9 @@ export class FileSystemTicketQueue implements TicketQueue {
       return [];
     }
 
-    const candidates = files.filter((file) => file.endsWith(".md"));
+    const candidates = files.filter(
+      (file) => file.endsWith(".md") && !this.shouldIgnoreOpenTicketFile(file),
+    );
     const prioritizedCandidates = await Promise.all(
       candidates.map(async (name): Promise<TicketCandidate> => ({
         name,
@@ -160,6 +170,10 @@ export class FileSystemTicketQueue implements TicketQueue {
       openPath: path.join(this.openDir, ticketName),
       closedPath: path.join(this.closedDir, ticketName),
     };
+  }
+
+  private shouldIgnoreOpenTicketFile(ticketName: string): boolean {
+    return IGNORED_OPEN_TICKET_FILE_NAMES.has(ticketName);
   }
 
   private isValidTicketName(ticketName: string): boolean {

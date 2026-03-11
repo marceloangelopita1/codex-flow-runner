@@ -121,6 +121,24 @@ test("nextOpenTicket trata prioridade ausente como menor prioridade", async () =
   }
 });
 
+test("nextOpenTicket ignora README.md em tickets/open", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    await Promise.all([
+      writeOpenTicket(repoPath, "README.md", "P0"),
+      writeOpenTicket(repoPath, "2026-02-19-ticket-real.md", "P1"),
+    ]);
+
+    const nextTicket = await queue.nextOpenTicket();
+    assert.equal(nextTicket?.name, "2026-02-19-ticket-real.md");
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
 test("listOpenTickets retorna lista completa em ordem deterministica de prioridade e nome", async () => {
   const repoPath = await createTempRepo();
   try {
@@ -143,6 +161,28 @@ test("listOpenTickets retorna lista completa em ordem deterministica de priorida
         "2026-02-19-c-p1.md",
         "2026-02-19-z-sem-prioridade.md",
       ],
+    );
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
+test("listOpenTickets ignora README.md em tickets/open", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    await Promise.all([
+      writeOpenTicket(repoPath, "README.md", "P0"),
+      writeOpenTicket(repoPath, "2026-02-19-b-p1.md", "P1"),
+      writeOpenTicket(repoPath, "2026-02-19-a-p0.md", "P0"),
+    ]);
+
+    const listedTickets = await queue.listOpenTickets();
+    assert.deepEqual(
+      listedTickets.map((ticket) => ticket.name),
+      ["2026-02-19-a-p0.md", "2026-02-19-b-p1.md"],
     );
   } finally {
     await cleanupTempRepo(repoPath);
@@ -182,6 +222,23 @@ test("readOpenTicket retorna not-found para ticket ausente em tickets/open", asy
     assert.deepEqual(result, {
       status: "not-found",
       ticketName: "2026-02-19-inexistente.md",
+    });
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
+test("readOpenTicket trata README.md como ausente em tickets/open", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+    await writeOpenTicket(repoPath, "README.md", "P0");
+
+    const result = await queue.readOpenTicket("README.md");
+    assert.deepEqual(result, {
+      status: "not-found",
+      ticketName: "README.md",
     });
   } finally {
     await cleanupTempRepo(repoPath);
