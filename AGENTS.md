@@ -3,6 +3,10 @@
 ## Objetivo do repositório
 Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop sequencial (planejar → implementar → fechar ticket + commit/push) e expondo acompanhamento/controle por Telegram.
 
+## Documentacao para IA
+- Preserve o contexto auto-carregado para regras recorrentes, estaveis e acionaveis; detalhe, exemplos e racional devem viver em documentacao referenciada.
+- Ao criar ou alterar documentacao do projeto, siga a politica oficial em `DOCUMENTATION.md`.
+
 ## Regras de implementação
 - Linguagem padrão: TypeScript em Node.js 20+.
 - Evite dependências desnecessárias; prefira módulos internos pequenos e composáveis.
