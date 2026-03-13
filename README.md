@@ -190,6 +190,8 @@ Se voce vai fazer um fork deste projeto e instalar em uma maquina Windows, o cam
 
 Este README foi escrito com esse fluxo em mente.
 
+Se a maquina for Linux nativo, voce pode seguir praticamente os mesmos comandos Linux deste guia e simplesmente pular as etapas especificas de instalacao do WSL.
+
 ## Antes de comecar
 
 Para seguir este guia com menos atrito, tenha em maos:
@@ -199,6 +201,22 @@ Para seguir este guia com menos atrito, tenha em maos:
 - o app do Telegram instalado no celular ou desktop;
 - permissao para instalar o WSL no Windows;
 - um fork deste repositorio criado na sua conta.
+
+## Caminho mais curto para a primeira execucao
+
+Se a ideia for apenas validar se o fork instala e sobe corretamente, siga esta sequencia:
+
+1. instalar WSL + Ubuntu (ou usar um Linux nativo);
+2. instalar `git`, `curl` e `build-essential`;
+3. instalar `nvm` e depois Node.js 20;
+4. fazer o fork e clonar em `~/projetos/codex-flow-runner`;
+5. rodar `npm install` e `npm run check`;
+6. instalar o Codex CLI e fazer `codex login`;
+7. criar o bot no Telegram e descobrir o `chat id`;
+8. copiar `cp .env.example .env` e preencher os valores reais;
+9. rodar `npm run dev` e testar `/status` no Telegram.
+
+Se algum passo falhar, pare nele antes de continuar. O restante do README detalha cada etapa com mais calma.
 
 ## Checklist rapido de sucesso
 
@@ -387,6 +405,11 @@ npm run check
 
 Se `npm run check` terminar sem erro, o projeto esta com dependencias e TypeScript prontos para a primeira execucao.
 
+Importante:
+
+- `npm run check` valida TypeScript e imports do projeto, mas nao confirma login no Codex, token do Telegram ou permissao de `git push`;
+- por isso, a validacao real da instalacao continua sendo subir o runner e testar `/status`.
+
 Dica para iniciantes:
 
 - rode `npm install` sem `sudo`.
@@ -487,6 +510,73 @@ Observacoes:
 - faca o login no mesmo usuario Linux que vai rodar `npm run dev` ou o servico `systemd`;
 - sem sessao valida no `codex`, o comando `/run_all` falha cedo com instrucao para autenticacao.
 
+### Confiar no projeto e preparar um modo realmente automatico
+
+Depois do `codex login`, vale fazer um teste manual simples dentro do repositorio que o Codex vai editar.
+
+No proprio `codex-flow-runner`:
+
+```bash
+cd ~/projetos/codex-flow-runner
+codex
+```
+
+Quando o Codex perguntar se deve confiar na pasta, aceite. Depois pode sair da interface.
+
+Por que isso ajuda:
+
+- a documentacao oficial informa que o Codex so carrega configuracao por projeto em `.codex/config.toml` quando o projeto e confiavel;
+- isso evita confusoes futuras se voce passar a usar configuracoes locais por repositorio;
+- na pratica, ao marcar um projeto como confiavel, o Codex registra essa confianca no arquivo `~/.codex/config.toml`.
+
+Se voce quiser verificar ou ajustar isso manualmente, o formato esperado e este:
+
+```toml
+[projects."/home/SEU_USUARIO/projetos/codex-flow-runner"]
+trust_level = "trusted"
+```
+
+Para outros repositorios que o runner vai gerenciar, a ideia e a mesma: entre na pasta uma vez, rode `codex`, aceite a confianca e so depois use o fluxo automatizado naquele projeto.
+
+### Opcional: deixar suas sessoes manuais do Codex sem perguntas e com full access
+
+Pausa rapida de seguranca: isso deixa o Codex muito mais autonomo e tambem mais perigoso. So faz sentido em uma maquina que voce controla e em repositorios nos quais voce realmente quer delegar edicao e execucao de comandos sem confirmacoes.
+
+Este projeto depende justamente desse estilo de execucao para automatizar planejamento, implementacao e fechamento sem ficar esperando confirmacoes humanas a cada comando. Nas etapas nao interativas, o runner usa chamadas equivalentes a `codex exec -a never -s danger-full-access ...`. Ainda assim, se voce quiser que suas sessoes manuais no terminal sigam a mesma ideia, o caminho mais seguro e criar um **profile** em `~/.codex/config.toml`:
+
+```toml
+[profiles.runner_full_access]
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+```
+
+Depois, quando quiser abrir o Codex nesse modo:
+
+```bash
+codex --profile runner_full_access
+```
+
+Se voce preferir um comando explicito, sem depender de profile:
+
+```bash
+codex -a never -s danger-full-access
+```
+
+E para uso nao interativo:
+
+```bash
+codex exec -a never -s danger-full-access "<sua tarefa>"
+```
+
+Se voce realmente quiser que esse seja o comportamento padrao de todas as suas sessoes locais do Codex, pode usar os defaults globais abaixo em `~/.codex/config.toml`:
+
+```toml
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+```
+
+Mas, para a maioria das pessoas, um profile dedicado e melhor do que tornar esse modo perigoso o default global.
+
 ## 8) Crie o bot no Telegram
 
 ### Criar o bot
@@ -555,7 +645,13 @@ Observacoes:
 
 ## 9) Crie o arquivo .env
 
-Crie um arquivo chamado `.env` na raiz do projeto com este conteudo:
+Este repositorio ja traz um arquivo modelo. Na raiz do projeto, copie:
+
+```bash
+cp .env.example .env
+```
+
+Depois abra o arquivo `.env` e deixe assim:
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=COLE_AQUI_O_TOKEN_DO_BOT
@@ -590,6 +686,7 @@ Importante:
 - `PROJECTS_ROOT_PATH` deve apontar para a **pasta-pai**, nao para a pasta do repositorio;
 - o app carrega automaticamente o `.env` da raiz ao iniciar;
 - para `npm run dev` e `npm start`, voce **nao** precisa rodar `source .env`.
+- nao commite seu `.env`; ele deve ficar apenas na sua maquina.
 - se preferir, abra o projeto no VS Code e crie esse arquivo por la.
 
 ## 10) Rode o projeto pela primeira vez
@@ -619,6 +716,15 @@ Observacoes:
 - mantenha o terminal aberto enquanto o runner estiver em execucao;
 - `npm run dev` nao faz hot-reload;
 - se quiser recarregamento automatico em desenvolvimento, use `npm run dev:watch`.
+- para parar o runner manualmente, use `Ctrl+C` no terminal.
+
+## Erros mais comuns na primeira instalacao
+
+- `which codex` nao encontra nada: o Codex CLI provavelmente foi instalado no Windows ou em outro usuario. Instale e faca login dentro do mesmo Ubuntu/WSL que executa `npm run dev`.
+- `npm run dev` reclama de configuracao invalida: quase sempre o problema esta no `.env`, principalmente em `PROJECTS_ROOT_PATH` apontando para a pasta do repositorio em vez da pasta-pai.
+- o bot nao responde a `/status`: confirme se voce enviou `/start` para o bot, se `TELEGRAM_BOT_TOKEN` esta correto e se `TELEGRAM_ALLOWED_CHAT_ID` bate exatamente com o chat autorizado.
+- `/run_all` falha na hora do push: o Git do WSL ainda nao esta autenticado para empurrar para o seu fork ou para o repositorio alvo.
+- um projeto nao aparece em `/projects`: ele precisa estar no primeiro nivel de `PROJECTS_ROOT_PATH` e conter pelo menos `.git` e `tickets/open/`.
 
 ## Exemplo pratico: criar um segundo projeto "Hello World"
 
@@ -657,6 +763,15 @@ git init -b main
 ```
 
 Crie tambem um `README.md` simples no projeto novo. Se preferir, faca isso pelo VS Code.
+
+Antes de seguir, faca o bootstrap de confianca do Codex nesse repositorio novo:
+
+```bash
+cd ~/projetos/hello-world-runner-demo
+codex
+```
+
+Se aparecer o prompt de confianca da pasta, aceite. Depois saia do Codex. Esse passo e razoavel porque ajuda o CLI a registrar o projeto como confiavel e reduz a chance de atrito futuro quando voce testar o Codex manualmente nesse repositorio ou passar a usar `.codex/config.toml` local.
 
 Conteudo sugerido:
 
