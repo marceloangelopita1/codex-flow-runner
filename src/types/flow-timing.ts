@@ -1,3 +1,5 @@
+import { CodexFlowPreferencesSnapshot } from "./codex-preferences.js";
+
 export interface FlowTimingSnapshot<Stage extends string = string> {
   startedAtUtc: string;
   finishedAtUtc: string;
@@ -31,6 +33,7 @@ export interface RunAllFlowSummary {
   maxTicketsPerRound: number;
   ticket?: string;
   details?: string;
+  codexPreferences?: CodexFlowPreferencesSnapshot;
   timing: FlowTimingSnapshot<RunAllTimingStage>;
 }
 
@@ -59,6 +62,7 @@ export interface RunSpecsFlowSummary {
   activeProjectPath: string;
   spec: RunSpecsTargetRef;
   details?: string;
+  codexPreferences?: CodexFlowPreferencesSnapshot;
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
   runAllSummary?: RunAllFlowSummary;

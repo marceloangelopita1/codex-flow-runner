@@ -28,7 +28,10 @@ import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import { ProjectRef } from "../types/project.js";
-import { CodexInvocationPreferences } from "../types/codex-preferences.js";
+import {
+  CodexFlowPreferencesSnapshot,
+  CodexInvocationPreferences,
+} from "../types/codex-preferences.js";
 import { RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   TicketFinalSummary,
@@ -429,6 +432,15 @@ const createFlowSummaryCollector = () => {
 
   return { flowSummaries, runFlowEventHandlers };
 };
+
+const createFlowCodexPreferencesSnapshot = (
+  value: Partial<CodexFlowPreferencesSnapshot> = {},
+): CodexFlowPreferencesSnapshot => ({
+  model: "gpt-5.4",
+  reasoningEffort: "xhigh",
+  speed: "standard",
+  ...value,
+});
 
 const createRoundDependencies = (
   value: Partial<RunnerRoundDependencies> & Pick<RunnerRoundDependencies, "queue" | "codexClient" | "gitVersioning">,
@@ -1731,6 +1743,7 @@ test("requestRunAll emite resumo final de fluxo com snapshot temporal em sucesso
     assert.equal(runAllSummary.finalStage, "select-ticket");
     assert.equal(runAllSummary.processedTicketsCount, 1);
     assert.equal(runAllSummary.maxTicketsPerRound, env.RUN_ALL_MAX_TICKETS_PER_ROUND);
+    assert.deepEqual(runAllSummary.codexPreferences, createFlowCodexPreferencesSnapshot());
     assert.equal(runAllSummary.timing.interruptedStage, null);
     assert.equal(typeof runAllSummary.timing.durationsByStageMs["select-ticket"], "number");
     assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
@@ -1816,6 +1829,7 @@ test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async
     assert.equal(runAllSummary.finalStage, "implement");
     assert.equal(runAllSummary.processedTicketsCount, 1);
     assert.equal(runAllSummary.ticket, ticketA.name);
+    assert.deepEqual(runAllSummary.codexPreferences, createFlowCodexPreferencesSnapshot());
     assert.equal(runAllSummary.timing.interruptedStage, "implement");
     assert.equal(typeof runAllSummary.timing.durationsByStageMs["select-ticket"], "number");
     assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
@@ -2296,6 +2310,7 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
     assert.equal(runSpecsSummary.completionReason, "triage-failure");
     assert.equal(runSpecsSummary.finalStage, "spec-close-and-version");
     assert.equal(runSpecsSummary.runAllSummary, undefined);
+    assert.deepEqual(runSpecsSummary.codexPreferences, createFlowCodexPreferencesSnapshot());
     assert.equal(runSpecsSummary.timing.interruptedStage, "spec-close-and-version");
     assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
@@ -2373,6 +2388,11 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
 test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tickets", async () => {
   const logger = new SpyLogger();
   const codex = new StubCodexClient();
+  codex.invocationPreferences = {
+    model: "gpt-5.4",
+    reasoningEffort: "high",
+    speed: "fast",
+  };
   const milestones: RunSpecsTriageLifecycleEvent[] = [];
   const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
   let nextTicketCalls = 0;
@@ -2428,6 +2448,13 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
   if (runAllSummary?.flow === "run-all") {
     assert.equal(runAllSummary.outcome, "success");
     assert.equal(runAllSummary.completionReason, "queue-empty");
+    assert.deepEqual(
+      runAllSummary.codexPreferences,
+      createFlowCodexPreferencesSnapshot({
+        reasoningEffort: "high",
+        speed: "fast",
+      }),
+    );
     assert.equal(runAllSummary.timing.interruptedStage, null);
     assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
   } else {
@@ -2437,6 +2464,13 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
     assert.equal(runSpecsSummary.outcome, "success");
     assert.equal(runSpecsSummary.completionReason, "completed");
     assert.equal(runSpecsSummary.finalStage, "run-all");
+    assert.deepEqual(
+      runSpecsSummary.codexPreferences,
+      createFlowCodexPreferencesSnapshot({
+        reasoningEffort: "high",
+        speed: "fast",
+      }),
+    );
     assert.equal(runSpecsSummary.timing.interruptedStage, null);
     assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
@@ -2446,6 +2480,13 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
     assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
     assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
     assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");
+    assert.deepEqual(
+      runSpecsSummary.runAllSummary?.codexPreferences,
+      createFlowCodexPreferencesSnapshot({
+        reasoningEffort: "high",
+        speed: "fast",
+      }),
+    );
   } else {
     assert.fail("resumo /run_specs deveria existir");
   }

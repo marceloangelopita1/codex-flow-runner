@@ -16,6 +16,12 @@ export interface CodexInvocationPreferences {
   speed?: CodexSpeed;
 }
 
+export interface CodexFlowPreferencesSnapshot {
+  model: string;
+  reasoningEffort: string;
+  speed: CodexSpeed;
+}
+
 export interface CodexReasoningLevel {
   effort: string;
   description: string;

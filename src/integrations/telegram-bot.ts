@@ -1122,6 +1122,13 @@ export class TelegramController {
         : {
             specFileName: summary.spec.fileName,
           }),
+      ...(summary.codexPreferences
+        ? {
+            model: summary.codexPreferences.model,
+            reasoningEffort: summary.codexPreferences.reasoningEffort,
+            speed: summary.codexPreferences.speed,
+          }
+        : {}),
     };
 
     try {
@@ -5586,6 +5593,13 @@ export class TelegramController {
       `Motivo de encerramento: ${summary.completionReason}`,
       `Timestamp UTC: ${summary.timestampUtc}`,
     ];
+    if (summary.codexPreferences) {
+      lines.push(
+        `Codex utilizado: ${summary.codexPreferences.model} | reasoning ${summary.codexPreferences.reasoningEffort} | velocidade ${this.renderCodexSpeedLabel(summary.codexPreferences.speed)}`,
+      );
+    } else {
+      lines.push("Codex utilizado: snapshot indisponivel");
+    }
 
     if (summary.flow === "run-all") {
       lines.push(`Tickets processados: ${summary.processedTicketsCount}/${summary.maxTicketsPerRound}`);

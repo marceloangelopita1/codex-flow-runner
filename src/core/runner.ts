@@ -68,6 +68,8 @@ import {
 import { PlanSpecFinalActionId, PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import {
+  CodexFlowPreferencesSnapshot,
+  CodexInvocationPreferences,
   CodexModelSelectionResult,
   CodexModelSelectionSnapshot,
   CodexReasoningSelectionResult,
@@ -174,6 +176,7 @@ interface ActiveRunnerSlot {
   project: ProjectRef;
   queue: TicketQueue;
   codexClient: CodexTicketFlowClient;
+  codexPreferencesSnapshot: CodexFlowPreferencesSnapshot | null;
   gitVersioning: GitVersioning;
   isStarting: boolean;
   isRunning: boolean;
@@ -2892,14 +2895,15 @@ export class TicketRunner {
 
     try {
       const fixedPreferences = await slot.codexClient.snapshotInvocationPreferences();
+      slot.codexPreferencesSnapshot = this.normalizeFlowCodexPreferencesSnapshot(fixedPreferences);
       slot.codexClient = slot.codexClient.forkWithFixedInvocationPreferences(fixedPreferences);
       this.logger.info("Preferencias do Codex snapshotadas para slot multi-etapa", {
         command,
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
-        model: fixedPreferences?.model ?? null,
-        reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
-        speed: fixedPreferences?.speed ?? null,
+        model: slot.codexPreferencesSnapshot?.model ?? null,
+        reasoningEffort: slot.codexPreferencesSnapshot?.reasoningEffort ?? null,
+        speed: slot.codexPreferencesSnapshot?.speed ?? null,
       });
     } catch (error) {
       this.releaseSlot(slot.key);
@@ -3908,6 +3912,7 @@ export class TicketRunner {
       project: { ...activeProject },
       queue: this.initialRoundDependencies.queue,
       codexClient: this.initialRoundDependencies.codexClient,
+      codexPreferencesSnapshot: null,
       gitVersioning: this.initialRoundDependencies.gitVersioning,
       isStarting: false,
       isRunning: true,
@@ -4446,6 +4451,36 @@ export class TicketRunner {
     };
   }
 
+  private normalizeFlowCodexPreferencesSnapshot(
+    preferences: CodexInvocationPreferences | null,
+  ): CodexFlowPreferencesSnapshot | null {
+    if (!preferences) {
+      return null;
+    }
+
+    const model = preferences.model.trim();
+    const reasoningEffort = preferences.reasoningEffort.trim();
+    if (!model || !reasoningEffort) {
+      return null;
+    }
+
+    return {
+      model,
+      reasoningEffort,
+      speed: preferences.speed ?? "standard",
+    };
+  }
+
+  private cloneFlowCodexPreferencesSnapshot(
+    snapshot: CodexFlowPreferencesSnapshot,
+  ): CodexFlowPreferencesSnapshot {
+    return {
+      model: snapshot.model,
+      reasoningEffort: snapshot.reasoningEffort,
+      speed: snapshot.speed,
+    };
+  }
+
   private cloneFlowTimingSnapshot<Stage extends string>(
     snapshot: FlowTimingSnapshot<Stage>,
   ): FlowTimingSnapshot<Stage> {
@@ -4514,6 +4549,13 @@ export class TicketRunner {
       maxTicketsPerRound: params.maxTicketsPerRound,
       ...(params.ticket ? { ticket: params.ticket } : {}),
       ...(params.details ? { details: params.details } : {}),
+      ...(params.slot.codexPreferencesSnapshot
+        ? {
+            codexPreferences: this.cloneFlowCodexPreferencesSnapshot(
+              params.slot.codexPreferencesSnapshot,
+            ),
+          }
+        : {}),
       timing: this.buildFlowTimingSnapshot(params.timingCollector),
     };
   }
@@ -4542,6 +4584,13 @@ export class TicketRunner {
         path: params.spec.path,
       },
       ...(params.details ? { details: params.details } : {}),
+      ...(params.slot.codexPreferencesSnapshot
+        ? {
+            codexPreferences: this.cloneFlowCodexPreferencesSnapshot(
+              params.slot.codexPreferencesSnapshot,
+            ),
+          }
+        : {}),
       triageTiming: this.buildFlowTimingSnapshot(params.triageTimingCollector),
       timing: this.buildFlowTimingSnapshot(params.flowTimingCollector),
       ...(params.runAllSummary
@@ -4569,6 +4618,11 @@ export class TicketRunner {
   private cloneRunAllFlowSummary(summary: RunAllFlowSummary): RunAllFlowSummary {
     return {
       ...summary,
+      ...(summary.codexPreferences
+        ? {
+            codexPreferences: this.cloneFlowCodexPreferencesSnapshot(summary.codexPreferences),
+          }
+        : {}),
       timing: this.cloneFlowTimingSnapshot(summary.timing),
     };
   }
@@ -4581,6 +4635,11 @@ export class TicketRunner {
     return {
       ...summary,
       spec: { ...summary.spec },
+      ...(summary.codexPreferences
+        ? {
+            codexPreferences: this.cloneFlowCodexPreferencesSnapshot(summary.codexPreferences),
+          }
+        : {}),
       triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
       timing: this.cloneFlowTimingSnapshot(summary.timing),
       ...(summary.runAllSummary
@@ -4625,6 +4684,7 @@ export class TicketRunner {
       project: { ...roundDependencies.activeProject },
       queue: roundDependencies.queue,
       codexClient: roundDependencies.codexClient,
+      codexPreferencesSnapshot: null,
       gitVersioning: roundDependencies.gitVersioning,
       isStarting: true,
       isRunning: false,
@@ -4658,6 +4718,7 @@ export class TicketRunner {
       return;
     }
 
+    slot.codexPreferencesSnapshot = null;
     this.activeSlots.delete(slotKey);
     this.syncStateFromSlots();
     this.logger.info("Slot de projeto liberado", {

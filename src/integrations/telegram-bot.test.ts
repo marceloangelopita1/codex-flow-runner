@@ -13,6 +13,7 @@ import {
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
 import {
+  CodexFlowPreferencesSnapshot,
   CodexModelSelectionResult,
   CodexModelSelectionSnapshot,
   CodexReasoningSelectionResult,
@@ -146,6 +147,15 @@ const createRunSpecsFlowTimingSnapshot = (
   },
   completedStages: ["spec-triage", "spec-close-and-version", "run-all"],
   interruptedStage: null,
+  ...value,
+});
+
+const createFlowCodexPreferencesSnapshot = (
+  value: Partial<CodexFlowPreferencesSnapshot> = {},
+): CodexFlowPreferencesSnapshot => ({
+  model: "gpt-5.4",
+  reasoningEffort: "xhigh",
+  speed: "standard",
   ...value,
 });
 
@@ -1886,6 +1896,7 @@ const createRunAllFlowSummary = (
     activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
     processedTicketsCount: 2,
     maxTicketsPerRound: 5,
+    codexPreferences: createFlowCodexPreferencesSnapshot(),
     timing: baseTiming,
   };
 
@@ -1901,6 +1912,11 @@ const createRunSpecsFlowSummary = (
 ): RunSpecsFlowSummary => {
   const baseTiming = createRunSpecsFlowTimingSnapshot();
   const baseTriageTiming = createRunSpecsTriageTimingSnapshot();
+  const baseCodexPreferences = createFlowCodexPreferencesSnapshot({
+    model: "gpt-5.4",
+    reasoningEffort: "high",
+    speed: "fast",
+  });
   const base: RunSpecsFlowSummary = {
     flow: "run-specs",
     outcome: "success",
@@ -1909,13 +1925,16 @@ const createRunSpecsFlowSummary = (
     timestampUtc: "2026-02-19T15:08:00.000Z",
     activeProjectName: "codex-flow-runner",
     activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
+    codexPreferences: baseCodexPreferences,
     spec: {
       fileName: "2026-02-19-approved-spec-triage-run-specs.md",
       path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
     },
     triageTiming: baseTriageTiming,
     timing: baseTiming,
-    runAllSummary: createRunAllFlowSummary(),
+    runAllSummary: createRunAllFlowSummary({
+      codexPreferences: baseCodexPreferences,
+    }),
   };
 
   return {
@@ -5379,6 +5398,10 @@ test("envia resumo final de fluxo /run-all com tempos para chat configurado", as
   assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-all/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: queue-empty/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Codex utilizado: gpt-5\.4 \| reasoning xhigh \| velocidade Standard/u,
+  );
   assert.match(sentMessages[0]?.text ?? "", /Tickets processados: 2\/5/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempos do fluxo/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 4m 0s \(240000 ms\)/u);
@@ -5417,6 +5440,11 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
         finalStage: "implement",
         completionReason: "ticket-failure",
         processedTicketsCount: 1,
+        codexPreferences: createFlowCodexPreferencesSnapshot({
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          speed: "fast",
+        }),
       }),
     }),
   );
@@ -5426,6 +5454,10 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
   assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-specs/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: falha/u);
   assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: run-all-failure/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Codex utilizado: gpt-5\.4 \| reasoning high \| velocidade Fast/u,
+  );
   assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.match(sentMessages[0]?.text ?? "", /Detalhes: falha simulada no run-all encadeado/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 2m 45s \(165000 ms\)/u);

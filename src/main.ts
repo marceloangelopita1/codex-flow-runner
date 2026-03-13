@@ -79,6 +79,7 @@ const bootstrap = async () => {
             return {
               model: resolved.model,
               reasoningEffort: resolved.reasoningEffort,
+              speed: resolved.speed,
             };
           },
         },
