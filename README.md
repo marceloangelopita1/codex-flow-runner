@@ -123,6 +123,45 @@ Isso significa que, em muitos casos, uma pessoa pode sair de um pedido em lingua
 4. executar commit e push git no mesmo ciclo;
 5. expor status e controle por Telegram.
 
+## O papel da pasta `prompts/`
+
+Uma parte essencial desta automacao esta na pasta `prompts/`.
+
+Em termos simples: os arquivos dessa pasta sao os "roteiros de trabalho" que o runner entrega ao Codex em cada etapa. Eles dizem ao agente o que ele deve fazer, quais regras do repositorio precisa seguir e qual saida e esperada.
+
+Isso e importante porque o runner nao chama o Codex de forma solta ou improvisada. Em vez disso, ele escolhe um prompt especifico para a etapa atual, injeta o contexto real do trabalho e executa aquela fase com um objetivo bem definido.
+
+Exemplos de etapas:
+
+- `prompts/01-avaliar-spec-e-gerar-tickets.md`: analisar uma spec e abrir tickets quando houver gaps;
+- `prompts/02-criar-execplan-para-ticket.md`: transformar um ticket em plano de execucao;
+- `prompts/03-executar-execplan-atual.md`: implementar o plano no repositorio alvo;
+- `prompts/04-encerrar-ticket-commit-push.md`: fechar ticket, versionar e publicar;
+- `prompts/05-07`: concluir tratamento de spec e materializar specs criadas via `/plan_spec`.
+
+Na pratica, a automacao funciona como uma esteira:
+
+1. o runner identifica a etapa atual;
+2. carrega o arquivo correto em `prompts/`;
+3. adiciona detalhes concretos, como caminho do ticket, caminho da spec, execplan esperado e commit esperado;
+4. envia esse prompt montado para o Codex CLI;
+5. valida o resultado e segue para a proxima etapa sequencial.
+
+Por que isso ajuda tanto:
+
+- deixa o comportamento mais repetivel e menos dependente de improviso;
+- reduz ambiguidade sobre o que o Codex deve fazer em cada fase;
+- facilita evoluir o processo sem reescrever o runner inteiro;
+- permite auditar e melhorar a automacao mexendo no roteiro certo.
+
+Uma forma didatica de pensar nisso:
+
+- `tickets/` e `docs/specs/` dizem **o que** precisa ser feito;
+- `prompts/` diz **como o Codex deve conduzir cada etapa do processo**;
+- o runner faz a orquestracao entre essas pecas.
+
+Por isso, mudar um arquivo em `prompts/` pode alterar o comportamento de todas as futuras execucoes daquela etapa. Essas mudancas devem ser feitas com cuidado, porque sao parte central da logica operacional do projeto.
+
 ## Status atual
 
 O projeto executa o ciclo sequencial por ticket com chamadas reais ao Codex CLI (`plan -> implement -> close-and-version`), mantendo controle operacional por Telegram.
@@ -150,6 +189,29 @@ Se voce vai fazer um fork deste projeto e instalar em uma maquina Windows, o cam
 5. rodar o app pelo terminal do WSL com `npm run dev`.
 
 Este README foi escrito com esse fluxo em mente.
+
+## Antes de comecar
+
+Para seguir este guia com menos atrito, tenha em maos:
+
+- uma conta no GitHub;
+- uma conta OpenAI/ChatGPT com acesso ao Codex;
+- o app do Telegram instalado no celular ou desktop;
+- permissao para instalar o WSL no Windows;
+- um fork deste repositorio criado na sua conta.
+
+## Checklist rapido de sucesso
+
+Ao final da instalacao, voce deve conseguir fazer estas 6 verificacoes:
+
+1. abrir o projeto dentro do WSL em um caminho como `/home/SEU_USUARIO/projetos/codex-flow-runner`;
+2. rodar `node -v` e ver `v20` ou superior;
+3. rodar `which codex` e `codex --version` sem erro;
+4. rodar `npm install` e `npm run check` sem erro;
+5. subir o runner com `npm run dev`;
+6. receber resposta do bot no Telegram para `/status`.
+
+Se voce travar em algum ponto, volte para a ultima verificacao que funcionou. Isso costuma mostrar exatamente qual etapa faltou.
 
 ## O que e WSL e como usar
 
@@ -211,6 +273,11 @@ sudo apt update
 sudo apt install -y git curl build-essential
 ```
 
+Verificacao rapida:
+
+- `git --version` deve responder com uma versao valida;
+- `curl --version` deve responder normalmente.
+
 ## 3) Instale Node.js 20+ e npm dentro do WSL
 
 Este projeto exige **Node.js 20 ou superior**. O jeito mais pratico para iniciantes no WSL e usar `nvm`.
@@ -235,6 +302,11 @@ nvm use 20
 node -v
 npm -v
 ```
+
+Verificacao rapida:
+
+- `node -v` deve mostrar `v20.x.x` ou superior;
+- `npm -v` deve responder normalmente.
 
 Observacao:
 
@@ -271,12 +343,17 @@ Importante:
 - evite clonar em `/mnt/c/Users/...`, porque esse fluxo costuma ser mais lento e gerar mais problemas de permissao;
 - o runner faz commit e push automaticamente no ciclo de fechamento, entao seu `git push` no WSL precisa estar autenticado antes de usar `/run_all`.
 
+Verificacao rapida:
+
+- `git remote -v` deve mostrar a URL do seu fork;
+- `git status` deve abrir normalmente dentro do repositorio clonado.
+
 ## 5) Abra no VS Code
 
 No Windows, instale:
 
 - **Visual Studio Code**
-- extensao **Remote - WSL**
+- extensao **WSL** do VS Code
 - extensao **OpenAI Codex**
 
 Depois, a partir do terminal do WSL dentro da pasta do projeto:
@@ -295,7 +372,7 @@ Importante:
 Se `code .` nao funcionar:
 
 1. abra o VS Code no Windows;
-2. instale ou confirme a extensao **Remote - WSL**;
+2. instale ou confirme a extensao **WSL** do VS Code;
 3. use o comando **WSL: Open Folder in WSL** na paleta de comandos;
 4. abra a pasta `/home/SEU_USUARIO/projetos/codex-flow-runner`.
 
@@ -305,7 +382,14 @@ Na raiz do projeto:
 
 ```bash
 npm install
+npm run check
 ```
+
+Se `npm run check` terminar sem erro, o projeto esta com dependencias e TypeScript prontos para a primeira execucao.
+
+Dica para iniciantes:
+
+- rode `npm install` sem `sudo`.
 
 ## 7) Instale e autentique o Codex CLI
 
@@ -419,7 +503,31 @@ Esse token sera o valor de `TELEGRAM_BOT_TOKEN`.
 
 ### Descobrir o chat ID autorizado
 
-Para a primeira configuracao, o mais simples e usar uma **conversa privada** com o bot.
+Para a primeira configuracao, o jeito mais simples costuma ser usar um bot que mostra seu ID diretamente.
+
+Opcao recomendada para bootstrap:
+
+1. abra [`@my_id_bot`](https://t.me/my_id_bot);
+2. clique em **Start**;
+3. copie o numero informado pelo bot como seu Telegram ID;
+4. use esse numero como `TELEGRAM_ALLOWED_CHAT_ID`.
+
+Se voce for autorizar um grupo:
+
+1. adicione o `@my_id_bot` ao grupo;
+2. envie uma mensagem no grupo;
+3. copie o ID informado pelo bot;
+4. se o numero vier negativo, mantenha o sinal `-` no `.env`.
+
+Observacoes:
+
+- esse caminho depende de um bot de terceiros; ele e o mais pratico para bootstrap, mas nao e um recurso oficial do Telegram;
+- se o `@my_id_bot` estiver indisponivel, uma alternativa comum e [`@RawDataBot`](https://t.me/RawDataBot);
+- se voce preferir nao depender de terceiros, use o fallback oficial abaixo com a API do Telegram.
+
+#### Fallback oficial via API (`getUpdates`)
+
+O fallback mais confiavel e usar uma **conversa privada** com o bot que voce criou no `@BotFather`.
 
 1. abra o link do bot criado;
 2. clique em **Start** ou envie `/start`;
@@ -482,6 +590,7 @@ Importante:
 - `PROJECTS_ROOT_PATH` deve apontar para a **pasta-pai**, nao para a pasta do repositorio;
 - o app carrega automaticamente o `.env` da raiz ao iniciar;
 - para `npm run dev` e `npm start`, voce **nao** precisa rodar `source .env`.
+- se preferir, abra o projeto no VS Code e crie esse arquivo por la.
 
 ## 10) Rode o projeto pela primeira vez
 
@@ -492,6 +601,11 @@ npm run dev
 ```
 
 Com isso, o bot sobe em modo de desenvolvimento e fica ouvindo comandos do Telegram.
+
+Sinais esperados nesta etapa:
+
+- o processo deve continuar rodando no terminal, sem encerrar sozinho;
+- se houver erro de `.env`, `codex` ou Telegram, ele normalmente aparece logo na inicializacao.
 
 Primeiros testes sugeridos no Telegram:
 
@@ -760,6 +874,13 @@ src/
 ├── integrations/
 └── types/
 ```
+
+Pastas importantes na raiz deste repositorio:
+
+- `prompts/`: roteiros operacionais usados pelo runner para instruir o Codex em cada etapa automatizada;
+- `tickets/`: backlog interno do proprio `codex-flow-runner`;
+- `docs/specs/`: specs funcionais e operacionais usadas como base para evolucao;
+- `execplans/`: planos de execucao gerados durante o fluxo.
 
 Pastas esperadas em cada repositorio gerenciado pelo runner:
 
