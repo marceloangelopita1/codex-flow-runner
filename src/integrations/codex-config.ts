@@ -6,6 +6,8 @@ export interface CodexLocalConfigSnapshot {
   loadedAt: Date;
   model: string | null;
   reasoningEffort: string | null;
+  serviceTier: string | null;
+  fastModeEnabled: boolean | null;
 }
 
 export interface CodexLocalConfigReader {
@@ -42,6 +44,8 @@ export class FileSystemCodexLocalConfigReader implements CodexLocalConfigReader 
           loadedAt: new Date(0),
           model: null,
           reasoningEffort: null,
+          serviceTier: null,
+          fastModeEnabled: null,
         };
       }
 
@@ -56,6 +60,8 @@ export class FileSystemCodexLocalConfigReader implements CodexLocalConfigReader 
         loadedAt: stats.mtime,
         model: extractTopLevelTomlString(raw, "model"),
         reasoningEffort: extractTopLevelTomlString(raw, "model_reasoning_effort"),
+        serviceTier: extractTopLevelTomlString(raw, "service_tier"),
+        fastModeEnabled: extractTopLevelTomlBoolean(raw, "features.fast_mode"),
       };
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
@@ -94,6 +100,39 @@ const extractTopLevelTomlString = (raw: string, key: string): string | null => {
     }
 
     return decodeTomlBasicString(match[1] ?? "");
+  }
+
+  return null;
+};
+
+const extractTopLevelTomlBoolean = (raw: string, key: string): boolean | null => {
+  let currentSection: string | null = null;
+  const lines = raw.split(/\r?\n/gu);
+
+  for (const originalLine of lines) {
+    const withoutComment = stripTomlComment(originalLine).trim();
+    if (!withoutComment) {
+      continue;
+    }
+
+    if (withoutComment.startsWith("[") && withoutComment.endsWith("]")) {
+      const section = withoutComment.slice(1, -1).trim();
+      currentSection = section.length > 0 ? section : null;
+      continue;
+    }
+
+    if (currentSection !== null) {
+      continue;
+    }
+
+    const match = withoutComment.match(
+      new RegExp(`^${escapeRegExp(key)}\\s*=\\s*(true|false)\\s*$`, "u"),
+    );
+    if (!match) {
+      continue;
+    }
+
+    return match[1] === "true";
   }
 
   return null;

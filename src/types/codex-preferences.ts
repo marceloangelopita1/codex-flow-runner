@@ -1,10 +1,19 @@
 import { ProjectRef } from "./project.js";
 
 export type CodexPreferenceSource = "runner-local" | "codex-config" | "catalog-default";
+export type CodexPreferenceResolutionSource = CodexPreferenceSource | "mixed";
+export type CodexSpeed = "standard" | "fast";
+
+export interface CodexPreferenceSources {
+  model: CodexPreferenceSource;
+  reasoningEffort: CodexPreferenceSource;
+  speed: CodexPreferenceSource;
+}
 
 export interface CodexInvocationPreferences {
   model: string;
   reasoningEffort: string;
+  speed?: CodexSpeed;
 }
 
 export interface CodexReasoningLevel {
@@ -30,8 +39,10 @@ export interface CodexModelCatalogSnapshot {
 export interface CodexProjectPreferences {
   model: string;
   reasoningEffort: string;
+  speed: CodexSpeed;
   updatedAt: Date;
-  source: CodexPreferenceSource;
+  source: CodexPreferenceResolutionSource;
+  sources: CodexPreferenceSources;
 }
 
 export interface CodexResolvedProjectPreferences extends CodexProjectPreferences {
@@ -44,6 +55,8 @@ export interface CodexResolvedProjectPreferences extends CodexProjectPreferences
   supportedReasoningLevels: CodexReasoningLevel[];
   defaultReasoningEffort: string;
   reasoningAdjustedFrom: string | null;
+  fastModeSupported: boolean;
+  speedAdjustedFrom: CodexSpeed | null;
 }
 
 export interface CodexModelOption {
@@ -61,6 +74,14 @@ export interface CodexReasoningOption extends CodexReasoningLevel {
   active: boolean;
 }
 
+export interface CodexSpeedOption {
+  slug: CodexSpeed;
+  label: string;
+  description: string;
+  selectable: boolean;
+  active: boolean;
+}
+
 export interface CodexModelSelectionSnapshot {
   project: ProjectRef;
   current: CodexResolvedProjectPreferences;
@@ -73,12 +94,19 @@ export interface CodexReasoningSelectionSnapshot {
   reasoningLevels: CodexReasoningOption[];
 }
 
+export interface CodexSpeedSelectionSnapshot {
+  project: ProjectRef;
+  current: CodexResolvedProjectPreferences;
+  speedOptions: CodexSpeedOption[];
+}
+
 export type CodexModelSelectionResult =
   | {
       status: "selected";
       current: CodexResolvedProjectPreferences;
       previousModel: string;
       reasoningResetFrom: string | null;
+      speedResetFrom: CodexSpeed | null;
     }
   | {
       status: "not-found";
@@ -104,6 +132,19 @@ export type CodexReasoningSelectionResult =
       effort: string;
       current: CodexResolvedProjectPreferences;
       supportedEfforts: string[];
+    };
+
+export type CodexSpeedSelectionResult =
+  | {
+      status: "selected";
+      current: CodexResolvedProjectPreferences;
+      previousSpeed: CodexSpeed;
+    }
+  | {
+      status: "not-supported";
+      speed: string;
+      current: CodexResolvedProjectPreferences;
+      supportedSpeeds: CodexSpeed[];
     };
 
 export interface CodexObservedTurnPreferences {

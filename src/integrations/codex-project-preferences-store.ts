@@ -1,10 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { CodexPreferenceSource } from "../types/codex-preferences.js";
+import { CodexPreferenceSource, CodexSpeed } from "../types/codex-preferences.js";
 import { ProjectRef } from "../types/project.js";
 
-const persistedPreferenceSchema = z.object({
+const codexSpeedSchema = z.enum(["standard", "fast"]);
+
+const persistedPreferenceSchemaV1 = z.object({
   name: z.string().min(1),
   path: z.string().min(1),
   model: z.string().min(1),
@@ -13,14 +15,26 @@ const persistedPreferenceSchema = z.object({
   source: z.literal("runner-local"),
 });
 
-const persistedStoreSchema = z.object({
-  version: z.literal(1),
-  projects: z.record(persistedPreferenceSchema),
+const persistedPreferenceSchemaV2 = persistedPreferenceSchemaV1.extend({
+  speed: codexSpeedSchema,
 });
+
+const persistedStoreSchemaV1 = z.object({
+  version: z.literal(1),
+  projects: z.record(persistedPreferenceSchemaV1),
+});
+
+const persistedStoreSchemaV2 = z.object({
+  version: z.literal(2),
+  projects: z.record(persistedPreferenceSchemaV2),
+});
+
+const persistedStoreSchema = z.union([persistedStoreSchemaV1, persistedStoreSchemaV2]);
 
 export interface PersistedCodexProjectPreference extends ProjectRef {
   model: string;
   reasoningEffort: string;
+  speed: CodexSpeed | null;
   updatedAt: string;
   source: Extract<CodexPreferenceSource, "runner-local">;
 }
@@ -28,7 +42,10 @@ export interface PersistedCodexProjectPreference extends ProjectRef {
 export interface CodexProjectPreferencesStore {
   readonly stateFilePath: string;
   load(project: ProjectRef): Promise<PersistedCodexProjectPreference | null>;
-  save(project: ProjectRef, preferences: { model: string; reasoningEffort: string }): Promise<PersistedCodexProjectPreference>;
+  save(
+    project: ProjectRef,
+    preferences: { model: string; reasoningEffort: string; speed: CodexSpeed },
+  ): Promise<PersistedCodexProjectPreference>;
 }
 
 export class CodexProjectPreferencesStoreError extends Error {
@@ -54,7 +71,7 @@ export class FileSystemCodexProjectPreferencesStore implements CodexProjectPrefe
 
   async save(
     project: ProjectRef,
-    preferences: { model: string; reasoningEffort: string },
+    preferences: { model: string; reasoningEffort: string; speed: CodexSpeed },
   ): Promise<PersistedCodexProjectPreference> {
     const store = await this.readStore();
     const persisted: PersistedCodexProjectPreference = {
@@ -62,6 +79,7 @@ export class FileSystemCodexProjectPreferencesStore implements CodexProjectPrefe
       path: project.path,
       model: preferences.model,
       reasoningEffort: preferences.reasoningEffort,
+      speed: preferences.speed,
       updatedAt: new Date().toISOString(),
       source: "runner-local",
     };
@@ -71,14 +89,17 @@ export class FileSystemCodexProjectPreferencesStore implements CodexProjectPrefe
     return persisted;
   }
 
-  private async readStore(): Promise<z.infer<typeof persistedStoreSchema>> {
+  private async readStore(): Promise<{
+    version: 2;
+    projects: Record<string, PersistedCodexProjectPreference>;
+  }> {
     let raw = "";
     try {
       raw = await fs.readFile(this.stateFilePath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return {
-          version: 1,
+          version: 2,
           projects: {},
         };
       }
@@ -110,10 +131,38 @@ export class FileSystemCodexProjectPreferencesStore implements CodexProjectPrefe
       );
     }
 
-    return parsed.data;
+    if (parsed.data.version === 1) {
+      return {
+        version: 2,
+        projects: Object.fromEntries(
+          Object.entries(parsed.data.projects).map(([projectPath, preference]) => [
+            projectPath,
+            {
+              ...preference,
+              speed: null,
+            },
+          ]),
+        ),
+      };
+    }
+
+    return {
+      version: 2,
+      projects: Object.fromEntries(
+        Object.entries(parsed.data.projects).map(([projectPath, preference]) => [
+          projectPath,
+          {
+            ...preference,
+          },
+        ]),
+      ),
+    };
   }
 
-  private async writeStore(store: z.infer<typeof persistedStoreSchema>): Promise<void> {
+  private async writeStore(store: {
+    version: 2;
+    projects: Record<string, PersistedCodexProjectPreference>;
+  }): Promise<void> {
     await fs.mkdir(this.stateDirectoryPath, { recursive: true });
     const tempFilePath = `${this.stateFilePath}.tmp-${process.pid}-${Date.now()}`;
     await fs.writeFile(tempFilePath, JSON.stringify(store, null, 2).concat("\n"), "utf8");

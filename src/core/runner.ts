@@ -73,6 +73,8 @@ import {
   CodexReasoningSelectionResult,
   CodexReasoningSelectionSnapshot,
   CodexResolvedProjectPreferences,
+  CodexSpeedSelectionResult,
+  CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
 
 type TicketFinalSummaryHandler = (
@@ -666,6 +668,26 @@ export class TicketRunner {
     }
 
     return this.codexPreferencesService.selectReasoning(activeProject, effort);
+  };
+
+  listActiveProjectCodexSpeed = async (): Promise<CodexSpeedSelectionSnapshot> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("listar velocidade");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.listSpeed(activeProject);
+  };
+
+  selectActiveProjectCodexSpeed = async (
+    speed: string,
+  ): Promise<CodexSpeedSelectionResult> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("selecionar velocidade");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.selectSpeed(activeProject, speed);
   };
 
   syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
@@ -1396,6 +1418,7 @@ export class TicketRunner {
         specFileName: spec.fileName,
         model: fixedPreferences?.model ?? null,
         reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
+        speed: fixedPreferences?.speed ?? null,
       });
 
       await this.finalizePlanSpecSession(session.id, {
@@ -2876,6 +2899,7 @@ export class TicketRunner {
         activeProjectPath: slot.project.path,
         model: fixedPreferences?.model ?? null,
         reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
+        speed: fixedPreferences?.speed ?? null,
       });
     } catch (error) {
       this.releaseSlot(slot.key);

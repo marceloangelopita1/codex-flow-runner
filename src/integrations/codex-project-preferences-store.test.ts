@@ -41,11 +41,13 @@ test("save persiste preferencias por projeto e load restaura o registro", async 
       {
         model: "gpt-5.4",
         reasoningEffort: "xhigh",
+        speed: "fast",
       },
     );
 
     assert.equal(saved.model, "gpt-5.4");
     assert.equal(saved.reasoningEffort, "xhigh");
+    assert.equal(saved.speed, "fast");
     assert.equal(saved.source, "runner-local");
 
     const loaded = await store.load({
@@ -71,6 +73,46 @@ test("load falha quando o estado persistido possui JSON invalido", async () => {
       name: "alpha-project",
       path: "/tmp/projects/alpha-project",
     }), /JSON invalido/u);
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});
+
+test("load aceita schema legado sem velocidade e retorna speed nulo", async () => {
+  const rootPath = await createTempRoot();
+
+  try {
+    const store = new FileSystemCodexProjectPreferencesStore(rootPath);
+    await fs.mkdir(path.dirname(store.stateFilePath), { recursive: true });
+    await fs.writeFile(
+      store.stateFilePath,
+      JSON.stringify(
+        {
+          version: 1,
+          projects: {
+            "/tmp/projects/alpha-project": {
+              name: "alpha-project",
+              path: "/tmp/projects/alpha-project",
+              model: "gpt-5.4",
+              reasoningEffort: "xhigh",
+              updatedAt: "2026-03-13T00:00:00.000Z",
+              source: "runner-local",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = await store.load({
+      name: "alpha-project",
+      path: "/tmp/projects/alpha-project",
+    });
+
+    assert.equal(loaded?.speed, null);
+    assert.equal(loaded?.model, "gpt-5.4");
   } finally {
     await cleanupTempRoot(rootPath);
   }

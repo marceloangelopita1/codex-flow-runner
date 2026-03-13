@@ -288,6 +288,8 @@ const bootstrap = async () => {
       selectCodexModel: runner.selectActiveProjectCodexModel,
       listCodexReasoning: runner.listActiveProjectCodexReasoning,
       selectCodexReasoning: runner.selectActiveProjectCodexReasoning,
+      listCodexSpeed: runner.listActiveProjectCodexSpeed,
+      selectCodexSpeed: runner.selectActiveProjectCodexSpeed,
       resolveCodexProjectPreferences: runner.resolveCodexProjectPreferences,
       onPlanSpecQuestionOptionSelected: runner.handlePlanSpecQuestionOptionSelection,
       onPlanSpecFinalActionSelected: runner.handlePlanSpecFinalActionSelection,

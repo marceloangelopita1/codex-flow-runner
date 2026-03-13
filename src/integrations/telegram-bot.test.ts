@@ -18,6 +18,8 @@ import {
   CodexReasoningSelectionResult,
   CodexReasoningSelectionSnapshot,
   CodexResolvedProjectPreferences,
+  CodexSpeedSelectionResult,
+  CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
 import { RunnerState } from "../types/state.js";
 import {
@@ -270,11 +272,14 @@ interface ControllerOptions {
   listProjectsErrorMessage?: string;
   codexModelSnapshot?: CodexModelSelectionSnapshot;
   codexReasoningSnapshot?: CodexReasoningSelectionSnapshot;
+  codexSpeedSnapshot?: CodexSpeedSelectionSnapshot;
   selectCodexModelResult?: CodexModelSelectionResult;
   selectCodexReasoningResult?: CodexReasoningSelectionResult;
+  selectCodexSpeedResult?: CodexSpeedSelectionResult;
   resolveCodexPreferencesErrorMessage?: string;
   listCodexModelsErrorMessage?: string;
   listCodexReasoningErrorMessage?: string;
+  listCodexSpeedErrorMessage?: string;
   forceSelectBlockedPlanSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
@@ -317,8 +322,14 @@ const createResolvedCodexPreferences = (
 ): CodexResolvedProjectPreferences => ({
   model: "gpt-5.4",
   reasoningEffort: "xhigh",
+  speed: "standard",
   updatedAt: new Date("2026-03-13T00:00:00.000Z"),
   source: "runner-local",
+  sources: {
+    model: "runner-local",
+    reasoningEffort: "runner-local",
+    speed: "runner-local",
+  },
   catalogFetchedAt: new Date("2026-03-13T00:00:00.000Z"),
   modelDisplayName: "gpt-5.4",
   modelDescription: "Modelo principal de teste",
@@ -332,6 +343,8 @@ const createResolvedCodexPreferences = (
   ],
   defaultReasoningEffort: "medium",
   reasoningAdjustedFrom: null,
+  fastModeSupported: true,
+  speedAdjustedFrom: null,
   ...value,
   project: cloneProject(value.project ?? defaultActiveProject),
 });
@@ -379,6 +392,32 @@ const createCodexReasoningSnapshot = (
       ...level,
       active: level.effort === current.reasoningEffort,
     })),
+  };
+};
+
+const createCodexSpeedSnapshot = (
+  value: Partial<CodexSpeedSelectionSnapshot> = {},
+): CodexSpeedSelectionSnapshot => {
+  const current = value.current ?? createResolvedCodexPreferences();
+  return {
+    project: cloneProject(value.project ?? current.project),
+    current,
+    speedOptions: value.speedOptions ?? [
+      {
+        slug: "standard",
+        label: "Standard",
+        description: "Modo padrao",
+        selectable: true,
+        active: current.speed === "standard",
+      },
+      {
+        slug: "fast",
+        label: "Fast",
+        description: current.fastModeSupported ? "Fast mode" : "Indisponivel",
+        selectable: current.fastModeSupported,
+        active: current.speed === "fast",
+      },
+    ],
   };
 };
 
@@ -441,6 +480,9 @@ const createController = (options: ControllerOptions = {}) => {
     listCodexReasoningCalls: 0,
     selectCodexReasoningCalls: 0,
     selectedCodexReasoningLevels: [] as string[],
+    listCodexSpeedCalls: 0,
+    selectCodexSpeedCalls: 0,
+    selectedCodexSpeeds: [] as string[],
     resolveCodexProjectPreferencesCalls: [] as ProjectRef[],
     planSpecQuestionSelections: [] as string[],
     planSpecFinalActions: [] as PlanSpecFinalActionId[],
@@ -450,6 +492,7 @@ const createController = (options: ControllerOptions = {}) => {
   const mutableSnapshot = cloneSnapshot(options.projectSnapshot ?? createDefaultProjectSnapshot());
   let mutableCodexModelSnapshot = createCodexModelSnapshot(options.codexModelSnapshot);
   let mutableCodexReasoningSnapshot = createCodexReasoningSnapshot(options.codexReasoningSnapshot);
+  let mutableCodexSpeedSnapshot = createCodexSpeedSnapshot(options.codexSpeedSnapshot);
   const mutableEligibleSpecs = (options.eligibleSpecs ?? createDefaultEligibleSpecs())
     .map(cloneEligibleSpec);
   const mutableOpenTickets = (options.openTickets ?? createDefaultOpenTickets())
@@ -724,6 +767,9 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       const previousModel = mutableCodexModelSnapshot.current.model;
+      const previousSpeed = mutableCodexModelSnapshot.current.speed;
+      const speedResetFrom =
+        previousSpeed === "fast" && target.slug !== "gpt-5.4" ? ("fast" as const) : null;
       mutableCodexModelSnapshot = createCodexModelSnapshot({
         ...mutableCodexModelSnapshot,
         current: createResolvedCodexPreferences({
@@ -733,6 +779,8 @@ const createController = (options: ControllerOptions = {}) => {
           modelDescription: target.description,
           modelVisibility: target.visibility,
           modelSelectable: target.selectable,
+          fastModeSupported: target.slug === "gpt-5.4",
+          speed: target.slug === "gpt-5.4" ? mutableCodexModelSnapshot.current.speed : "standard",
           supportedReasoningLevels: target.supportedReasoningLevels.map((level) => ({ ...level })),
         }),
         models: mutableCodexModelSnapshot.models.map((entry) => ({
@@ -748,6 +796,21 @@ const createController = (options: ControllerOptions = {}) => {
           modelDescription: target.description,
           modelVisibility: target.visibility,
           modelSelectable: target.selectable,
+          fastModeSupported: target.slug === "gpt-5.4",
+          speed: target.slug === "gpt-5.4" ? mutableCodexReasoningSnapshot.current.speed : "standard",
+          supportedReasoningLevels: target.supportedReasoningLevels.map((level) => ({ ...level })),
+        }),
+      });
+      mutableCodexSpeedSnapshot = createCodexSpeedSnapshot({
+        current: createResolvedCodexPreferences({
+          ...mutableCodexSpeedSnapshot.current,
+          model: target.slug,
+          modelDisplayName: target.displayName,
+          modelDescription: target.description,
+          modelVisibility: target.visibility,
+          modelSelectable: target.selectable,
+          fastModeSupported: target.slug === "gpt-5.4",
+          speed: target.slug === "gpt-5.4" ? mutableCodexSpeedSnapshot.current.speed : "standard",
           supportedReasoningLevels: target.supportedReasoningLevels.map((level) => ({ ...level })),
         }),
       });
@@ -757,6 +820,7 @@ const createController = (options: ControllerOptions = {}) => {
         current: createResolvedCodexPreferences(mutableCodexModelSnapshot.current),
         previousModel,
         reasoningResetFrom: null,
+        speedResetFrom,
       };
     },
     listCodexReasoning: () => {
@@ -808,6 +872,66 @@ const createController = (options: ControllerOptions = {}) => {
         status: "selected" as const,
         current: createResolvedCodexPreferences(mutableCodexReasoningSnapshot.current),
         previousReasoningEffort,
+      };
+    },
+    listCodexSpeed: () => {
+      controlState.listCodexSpeedCalls += 1;
+      if (options.listCodexSpeedErrorMessage) {
+        throw new Error(options.listCodexSpeedErrorMessage);
+      }
+
+      return createCodexSpeedSnapshot(mutableCodexSpeedSnapshot);
+    },
+    selectCodexSpeed: (speed: string) => {
+      controlState.selectCodexSpeedCalls += 1;
+      controlState.selectedCodexSpeeds.push(speed);
+      if (options.selectCodexSpeedResult) {
+        return options.selectCodexSpeedResult;
+      }
+
+      const supported = mutableCodexSpeedSnapshot.speedOptions.find((option) => option.slug === speed);
+      if (!supported || !supported.selectable) {
+        return {
+          status: "not-supported" as const,
+          speed,
+          current: createResolvedCodexPreferences(mutableCodexSpeedSnapshot.current),
+          supportedSpeeds: mutableCodexSpeedSnapshot.speedOptions
+            .filter((option) => option.selectable)
+            .map((option) => option.slug),
+        };
+      }
+
+      const previousSpeed = mutableCodexSpeedSnapshot.current.speed;
+      mutableCodexSpeedSnapshot = createCodexSpeedSnapshot({
+        ...mutableCodexSpeedSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexSpeedSnapshot.current,
+          speed: supported.slug,
+        }),
+        speedOptions: mutableCodexSpeedSnapshot.speedOptions.map((option) => ({
+          ...option,
+          active: option.slug === supported.slug,
+        })),
+      });
+      mutableCodexModelSnapshot = createCodexModelSnapshot({
+        ...mutableCodexModelSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexModelSnapshot.current,
+          speed: supported.slug,
+        }),
+      });
+      mutableCodexReasoningSnapshot = createCodexReasoningSnapshot({
+        ...mutableCodexReasoningSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexReasoningSnapshot.current,
+          speed: supported.slug,
+        }),
+      });
+
+      return {
+        status: "selected" as const,
+        current: createResolvedCodexPreferences(mutableCodexSpeedSnapshot.current),
+        previousSpeed,
       };
     },
     resolveCodexProjectPreferences: (project: ProjectRef) => {
@@ -1099,6 +1223,23 @@ const callHandleReasoningCommand = async (
   };
 
   await internalController.handleReasoningCommand(context);
+};
+
+const callHandleSpeedCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleSpeedCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleSpeedCommand(context);
 };
 
 const callHandleRunSpecsCommand = async (
@@ -1546,6 +1687,27 @@ const callHandleReasoningCallbackQuery = async (
   };
 
   await internalController.handleReasoningCallbackQuery(context);
+};
+
+const callHandleSpeedCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string; from?: { id: number } };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleSpeedCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string; from?: { id: number } };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleSpeedCallbackQuery(context);
 };
 
 const callHandlePlanSpecCallbackQuery = async (
@@ -3949,6 +4111,112 @@ test("/reasoning responde lista com marcador do effort atual", async () => {
   assert.match(replies[0]?.text ?? "", /✅ high/u);
 });
 
+test("/speed responde lista com marcador da velocidade atual", async () => {
+  const { controller, controlState } = createController({
+    codexSpeedSnapshot: createCodexSpeedSnapshot({
+      current: createResolvedCodexPreferences({
+        speed: "fast",
+      }),
+    }),
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpeedCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listCodexSpeedCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /Velocidade do Codex/u);
+  assert.match(replies[0]?.text ?? "", /Velocidade atual: Fast/u);
+  assert.match(replies[0]?.text ?? "", /✅ Fast/u);
+});
+
+test("callback de /speed seleciona fast e atualiza a mensagem", async () => {
+  const { controller, controlState } = createController();
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpeedCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[1]?.[0]?.callback_data) ?? "";
+
+  await callHandleSpeedCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.selectCodexSpeedCalls, 1);
+  assert.deepEqual(controlState.selectedCodexSpeeds, ["fast"]);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Velocidade atual: Fast/u);
+  assert.deepEqual(answers, ["Velocidade atualizada para Fast."]);
+});
+
+test("/speed informa quando fast mode nao esta disponivel para o modelo atual", async () => {
+  const { controller } = createController({
+    codexSpeedSnapshot: createCodexSpeedSnapshot({
+      current: createResolvedCodexPreferences({
+        model: "gpt-5.3-codex",
+        modelDisplayName: "gpt-5.3-codex",
+        fastModeSupported: false,
+        speed: "standard",
+      }),
+      speedOptions: [
+        {
+          slug: "standard",
+          label: "Standard",
+          description: "Modo padrao",
+          selectable: true,
+          active: true,
+        },
+        {
+          slug: "fast",
+          label: "Fast",
+          description: "Disponivel apenas quando o modelo atual suporta Fast mode.",
+          selectable: false,
+          active: false,
+        },
+      ],
+    }),
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleSpeedCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.match(replies[0]?.text ?? "", /Fast mode indisponivel para o modelo atual/u);
+  assert.match(replies[0]?.text ?? "", /Fast \(indisponivel\)/u);
+});
+
 test("callback de paginacao atualiza mensagem para pagina solicitada", async () => {
   const pagedSnapshot: ProjectSelectionSnapshot = {
     projects: [
@@ -5222,10 +5490,10 @@ test("status inclui modelo e reasoning selecionados e observados", () => {
 
   const reply = callBuildStatusReply(controller, state, codexPreferences);
 
-  assert.match(reply, /Projeto ativo Codex: gpt-5\.4 \| reasoning xhigh \| origem runner-local/u);
-  assert.match(reply, /Seleção atual \/plan_spec Codex: gpt-5\.4 \| reasoning xhigh/u);
+  assert.match(reply, /Projeto ativo Codex: gpt-5\.4 \| reasoning xhigh \| velocidade Standard \| origem runner-local/u);
+  assert.match(reply, /Seleção atual \/plan_spec Codex: gpt-5\.4 \| reasoning xhigh \| velocidade Standard/u);
   assert.match(reply, /Último turn_context \/plan_spec: gpt-5\.4 \| reasoning xhigh/u);
-  assert.match(reply, /Seleção atual \/codex_chat Codex: gpt-5\.4 \| reasoning xhigh/u);
+  assert.match(reply, /Seleção atual \/codex_chat Codex: gpt-5\.4 \| reasoning xhigh \| velocidade Standard/u);
   assert.match(reply, /Último turn_context \/codex_chat: gpt-5\.4 \| reasoning high/u);
 });
 

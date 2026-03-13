@@ -27,6 +27,9 @@ import {
   CodexReasoningSelectionResult,
   CodexReasoningSelectionSnapshot,
   CodexResolvedProjectPreferences,
+  CodexSpeed,
+  CodexSpeedSelectionResult,
+  CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
 import { RunnerSlotKind, RunnerState } from "../types/state.js";
 import {
@@ -94,6 +97,10 @@ interface BotControls {
   selectCodexReasoning: (
     effort: string,
   ) => Promise<CodexReasoningSelectionResult> | CodexReasoningSelectionResult;
+  listCodexSpeed: () => Promise<CodexSpeedSelectionSnapshot> | CodexSpeedSelectionSnapshot;
+  selectCodexSpeed: (
+    speed: string,
+  ) => Promise<CodexSpeedSelectionResult> | CodexSpeedSelectionResult;
   resolveCodexProjectPreferences: (
     project: ProjectRef,
   ) => Promise<CodexResolvedProjectPreferences> | CodexResolvedProjectPreferences;
@@ -254,6 +261,21 @@ type ParsedReasoningCallbackData =
       status: "invalid";
     };
 
+type ParsedSpeedCallbackData =
+  | {
+      status: "page";
+      contextId: string;
+      page: number;
+    }
+  | {
+      status: "select";
+      contextId: string;
+      speed: string;
+    }
+  | {
+      status: "invalid";
+    };
+
 type ParsedPlanSpecCallbackData =
   | {
       status: "question";
@@ -331,6 +353,12 @@ interface ModelsCallbackContextState {
 }
 
 interface ReasoningCallbackContextState {
+  chatId: string;
+  activeProjectSnapshot: ProjectRef;
+  model: string;
+}
+
+interface SpeedCallbackContextState {
   chatId: string;
   activeProjectSnapshot: ProjectRef;
   model: string;
@@ -528,6 +556,19 @@ const REASONING_CALLBACK_STALE_REPLY =
   "A lista de reasoning expirou. Use /reasoning para atualizar.";
 const REASONING_CALLBACK_SELECTION_FAILED_REPLY =
   "❌ Falha ao atualizar o reasoning do Codex. Use /reasoning para tentar novamente.";
+const SPEED_PAGE_SIZE = 5;
+const SPEED_CALLBACK_PREFIX = "speed:";
+const SPEED_CALLBACK_PAGE_PREFIX = "speed:page:";
+const SPEED_CALLBACK_SELECT_PREFIX = "speed:select:";
+const SPEED_EMPTY_REPLY =
+  "ℹ️ Nenhuma opcao de velocidade foi encontrada para o projeto atual.";
+const SPEED_LIST_FAILED_REPLY =
+  "❌ Falha ao listar velocidades do Codex. Verifique logs do runner e tente novamente.";
+const SPEED_CALLBACK_INVALID_REPLY = "Ação de velocidade inválida.";
+const SPEED_CALLBACK_STALE_REPLY =
+  "A lista de velocidades expirou. Use /speed para atualizar.";
+const SPEED_CALLBACK_SELECTION_FAILED_REPLY =
+  "❌ Falha ao atualizar a velocidade do Codex. Use /speed para tentar novamente.";
 const PLAN_SPEC_CALLBACK_PREFIX = "plan-spec:";
 const PLAN_SPEC_CALLBACK_QUESTION_PREFIX = "plan-spec:question:";
 const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
@@ -615,6 +656,7 @@ const START_REPLY_LINES = [
   "/projects - lista projetos elegíveis com paginação",
   "/models - lista os modelos do Codex disponíveis para o projeto ativo",
   "/reasoning - lista os niveis de reasoning suportados pelo modelo atual",
+  "/speed - escolhe a velocidade do Codex para o projeto ativo",
   "/select_project <nome> - seleciona projeto ativo por nome (alias legado: /select-project)",
 ];
 
@@ -629,6 +671,8 @@ export class TelegramController {
   private readonly modelsCallbackContexts = new Map<string, ModelsCallbackContextState>();
   private reasoningCallbackContextCounter = 0;
   private readonly reasoningCallbackContexts = new Map<string, ReasoningCallbackContextState>();
+  private speedCallbackContextCounter = 0;
+  private readonly speedCallbackContexts = new Map<string, SpeedCallbackContextState>();
   private ticketRunCallbackContextCounter = 0;
   private readonly ticketRunCallbackContexts = new Map<string, TicketRunCallbackContextState>();
   private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
@@ -1221,6 +1265,10 @@ export class TelegramController {
       await this.handleReasoningCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("speed", async (ctx) => {
+      await this.handleSpeedCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("select_project", async (ctx) => {
       await this.handleSelectProjectCommand(ctx as unknown as CommandContext, "select_project");
     });
@@ -1345,6 +1393,11 @@ export class TelegramController {
 
     if (callbackData.startsWith(REASONING_CALLBACK_PREFIX)) {
       await this.handleReasoningCallbackQuery(ctx);
+      return;
+    }
+
+    if (callbackData.startsWith(SPEED_CALLBACK_PREFIX)) {
+      await this.handleSpeedCallbackQuery(ctx);
       return;
     }
 
@@ -2498,6 +2551,43 @@ export class TelegramController {
     }
   }
 
+  private async handleSpeedCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /speed recebido via Telegram", { chatId });
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "speed",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      const snapshot = await this.controls.listCodexSpeed();
+      if (snapshot.speedOptions.length === 0) {
+        await ctx.reply(SPEED_EMPTY_REPLY);
+        return;
+      }
+
+      const contextId = this.createSpeedCallbackContext(
+        chatId,
+        snapshot.project,
+        snapshot.current.model,
+      );
+      const rendered = this.buildSpeedReply(snapshot, 0, contextId);
+      await ctx.reply(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.error("Falha ao listar velocidades do Codex via comando /speed", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(SPEED_LIST_FAILED_REPLY);
+    }
+  }
+
   private async handleSelectProjectCommand(
     ctx: CommandContext,
     command: "select_project" | "select-project",
@@ -2717,6 +2807,70 @@ export class TelegramController {
         error: error instanceof Error ? error.message : String(error),
       });
       await this.safeAnswerCallbackQuery(ctx, REASONING_CALLBACK_SELECTION_FAILED_REPLY);
+    }
+  }
+
+  private async handleSpeedCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(SPEED_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseSpeedCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, SPEED_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    const context = this.speedCallbackContexts.get(parsed.contextId);
+    const state = this.getState();
+    if (!context || context.chatId !== chatId || !this.isSameProject(state.activeProject, context.activeProjectSnapshot)) {
+      await this.safeAnswerCallbackQuery(ctx, SPEED_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    try {
+      const snapshot = await this.controls.listCodexSpeed();
+      if (snapshot.current.model !== context.model) {
+        await this.safeAnswerCallbackQuery(ctx, SPEED_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      if (parsed.status === "page") {
+        const rendered = this.buildSpeedReply(snapshot, parsed.page, parsed.contextId);
+        await ctx.editMessageText(rendered.text, rendered.extra);
+        await this.safeAnswerCallbackQuery(ctx);
+        return;
+      }
+
+      const selection = await this.controls.selectCodexSpeed(parsed.speed);
+      const refreshedSnapshot = await this.controls.listCodexSpeed();
+      const rendered = this.buildSpeedReply(
+        refreshedSnapshot,
+        this.resolveSpeedActivePage(refreshedSnapshot),
+        parsed.contextId,
+      );
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx, this.buildSelectSpeedCallbackReply(selection));
+    } catch (error) {
+      this.logger.error("Falha ao selecionar velocidade do Codex via callback", {
+        chatId,
+        callbackData,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, SPEED_CALLBACK_SELECTION_FAILED_REPLY);
     }
   }
 
@@ -3784,6 +3938,40 @@ export class TelegramController {
     return { status: "invalid" };
   }
 
+  private parseSpeedCallbackData(callbackData: string): ParsedSpeedCallbackData {
+    if (callbackData.startsWith(SPEED_CALLBACK_PAGE_PREFIX)) {
+      const payload = callbackData.slice(SPEED_CALLBACK_PAGE_PREFIX.length);
+      const [contextId, rawPage] = payload.split(":", 2);
+      const page = Number.parseInt(rawPage ?? "", 10);
+      if (!contextId || !Number.isFinite(page) || page < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "page",
+        contextId,
+        page,
+      };
+    }
+
+    if (callbackData.startsWith(SPEED_CALLBACK_SELECT_PREFIX)) {
+      const payload = callbackData.slice(SPEED_CALLBACK_SELECT_PREFIX.length);
+      const [contextId, rawSpeed] = payload.split(":", 2);
+      const speed = decodeURIComponent(rawSpeed ?? "");
+      if (!contextId || !speed) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "select",
+        contextId,
+        speed,
+      };
+    }
+
+    return { status: "invalid" };
+  }
+
   private parsePlanSpecCallbackData(callbackData: string): ParsedPlanSpecCallbackData {
     if (callbackData.startsWith(PLAN_SPEC_CALLBACK_QUESTION_PREFIX)) {
       const optionValue = callbackData.slice(PLAN_SPEC_CALLBACK_QUESTION_PREFIX.length).trim();
@@ -4117,6 +4305,21 @@ export class TelegramController {
     return contextId;
   }
 
+  private createSpeedCallbackContext(
+    chatId: string,
+    project: ProjectRef,
+    model: string,
+  ): string {
+    this.invalidateSpeedCallbackContextsForChat(chatId);
+    const contextId = this.nextSpeedCallbackContextId();
+    this.speedCallbackContexts.set(contextId, {
+      chatId,
+      activeProjectSnapshot: { ...project },
+      model,
+    });
+    return contextId;
+  }
+
   private createTicketsOpenCallbackContext(chatId: string): string {
     this.invalidateTicketsOpenCallbackContextsForChat(chatId);
     const contextId = this.nextTicketsOpenCallbackContextId();
@@ -4151,6 +4354,14 @@ export class TelegramController {
     }
   }
 
+  private invalidateSpeedCallbackContextsForChat(chatId: string): void {
+    for (const [contextId, context] of this.speedCallbackContexts.entries()) {
+      if (context.chatId === chatId) {
+        this.speedCallbackContexts.delete(contextId);
+      }
+    }
+  }
+
   private invalidateTicketsOpenCallbackContextsForChat(chatId: string): void {
     for (const [contextId, context] of this.ticketsOpenCallbackContexts.entries()) {
       if (context.chatId === chatId) {
@@ -4172,6 +4383,11 @@ export class TelegramController {
   private nextReasoningCallbackContextId(): string {
     this.reasoningCallbackContextCounter += 1;
     return this.reasoningCallbackContextCounter.toString(36);
+  }
+
+  private nextSpeedCallbackContextId(): string {
+    this.speedCallbackContextCounter += 1;
+    return this.speedCallbackContextCounter.toString(36);
   }
 
   private nextTicketsOpenCallbackContextId(): string {
@@ -4372,6 +4588,7 @@ export class TelegramController {
       `Página ${page + 1}/${totalPages}`,
       `Modelo atual: ${this.renderCodexCurrentModelSummary(snapshot.current)}`,
       `Reasoning atual: ${snapshot.current.reasoningEffort}`,
+      `Velocidade atual: ${this.renderCodexSpeedLabel(snapshot.current.speed)}`,
       "",
     ];
 
@@ -4436,6 +4653,7 @@ export class TelegramController {
       `Modelo atual: ${this.renderCodexCurrentModelSummary(snapshot.current)}`,
       `Página ${page + 1}/${totalPages}`,
       `Reasoning atual: ${snapshot.current.reasoningEffort}`,
+      `Velocidade atual: ${this.renderCodexSpeedLabel(snapshot.current.speed)}`,
       "",
     ];
 
@@ -4462,6 +4680,73 @@ export class TelegramController {
       totalPages,
       previousPrefix: REASONING_CALLBACK_PAGE_PREFIX,
       nextPrefix: REASONING_CALLBACK_PAGE_PREFIX,
+      contextId,
+    });
+    if (pageButtons.length > 0) {
+      inlineKeyboard.push(pageButtons);
+    }
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildSpeedReply(
+    snapshot: CodexSpeedSelectionSnapshot,
+    requestedPage: number,
+    contextId: string,
+  ): { text: string; extra: ReplyOptions } {
+    const totalSpeeds = snapshot.speedOptions.length;
+    const totalPages = Math.max(1, Math.ceil(totalSpeeds / SPEED_PAGE_SIZE));
+    const page = Math.min(Math.max(requestedPage, 0), totalPages - 1);
+    const start = page * SPEED_PAGE_SIZE;
+    const pageSpeedOptions = snapshot.speedOptions.slice(start, start + SPEED_PAGE_SIZE);
+
+    const lines = [
+      "⚡ Velocidade do Codex",
+      `Projeto: ${snapshot.project.name}`,
+      `Modelo atual: ${this.renderCodexCurrentModelSummary(snapshot.current)}`,
+      `Página ${page + 1}/${totalPages}`,
+      `Velocidade atual: ${this.renderCodexSpeedLabel(snapshot.current.speed)}`,
+      "",
+    ];
+
+    if (!snapshot.current.fastModeSupported) {
+      lines.push("Fast mode indisponivel para o modelo atual.", "");
+    }
+
+    for (const [index, speedOption] of pageSpeedOptions.entries()) {
+      const absoluteIndex = start + index;
+      const marker = speedOption.active ? "✅" : "▫️";
+      const availability = speedOption.selectable ? "" : " (indisponivel)";
+      lines.push(
+        `${absoluteIndex + 1}. ${marker} ${speedOption.label}${availability} - ${speedOption.description}`,
+      );
+    }
+
+    lines.push("", "Toque em uma velocidade para selecionar.");
+
+    const inlineKeyboard: InlineKeyboardButton[][] = pageSpeedOptions.map((speedOption) => {
+      const marker = speedOption.active ? "✅" : "▫️";
+      const suffix = speedOption.selectable ? "" : " (indisponivel)";
+      return [
+        {
+          text: `${marker} ${speedOption.label}${suffix}`,
+          callback_data: `${SPEED_CALLBACK_SELECT_PREFIX}${contextId}:${encodeURIComponent(speedOption.slug)}`,
+        },
+      ];
+    });
+
+    const pageButtons = this.buildPagedNavigationButtons({
+      page,
+      totalPages,
+      previousPrefix: SPEED_CALLBACK_PAGE_PREFIX,
+      nextPrefix: SPEED_CALLBACK_PAGE_PREFIX,
       contextId,
     });
     if (pageButtons.length > 0) {
@@ -4513,8 +4798,16 @@ export class TelegramController {
 
   private buildSelectModelCallbackReply(result: CodexModelSelectionResult): string {
     if (result.status === "selected") {
+      if (result.reasoningResetFrom && result.speedResetFrom) {
+        return `Modelo atualizado. Reasoning resetado para ${result.current.reasoningEffort} e velocidade resetada para ${this.renderCodexSpeedLabel(result.current.speed)}.`;
+      }
+
       if (result.reasoningResetFrom) {
         return `Modelo atualizado. Reasoning resetado para ${result.current.reasoningEffort}.`;
+      }
+
+      if (result.speedResetFrom) {
+        return `Modelo atualizado. Velocidade resetada para ${this.renderCodexSpeedLabel(result.current.speed)}.`;
       }
 
       return `Modelo atualizado para ${result.current.modelDisplayName}.`;
@@ -4535,6 +4828,14 @@ export class TelegramController {
     return "Reasoning nao suportado pelo modelo atual.";
   }
 
+  private buildSelectSpeedCallbackReply(result: CodexSpeedSelectionResult): string {
+    if (result.status === "selected") {
+      return `Velocidade atualizada para ${this.renderCodexSpeedLabel(result.current.speed)}.`;
+    }
+
+    return "Velocidade indisponivel para o modelo atual.";
+  }
+
   private resolveModelsActivePage(snapshot: CodexModelSelectionSnapshot, selectedModel: string): number {
     const index = snapshot.models.findIndex((model) => model.slug === selectedModel || model.active);
     if (index < 0) {
@@ -4551,6 +4852,19 @@ export class TelegramController {
     }
 
     return Math.floor(index / REASONING_PAGE_SIZE);
+  }
+
+  private resolveSpeedActivePage(snapshot: CodexSpeedSelectionSnapshot): number {
+    const index = snapshot.speedOptions.findIndex((speedOption) => speedOption.active);
+    if (index < 0) {
+      return 0;
+    }
+
+    return Math.floor(index / SPEED_PAGE_SIZE);
+  }
+
+  private renderCodexSpeedLabel(speed: CodexSpeed): string {
+    return speed === "fast" ? "Fast" : "Standard";
   }
 
   private resolveActiveProjectPage(snapshot: ProjectSelectionSnapshot): number {
@@ -5671,7 +5985,7 @@ export class TelegramController {
     }
 
     lines.push(
-      `${label} Codex: ${resolved.modelDisplayName} | reasoning ${resolved.reasoningEffort} | origem ${this.renderCodexPreferenceSource(resolved.source)}`,
+      `${label} Codex: ${resolved.modelDisplayName} | reasoning ${resolved.reasoningEffort} | velocidade ${this.renderCodexSpeedLabel(resolved.speed)} | origem ${this.renderCodexPreferenceSource(resolved.source)}`,
     );
     if (!resolved.modelSelectable) {
       lines.push(`${label} disponibilidade do modelo: atual, indisponivel para nova selecao`);
@@ -5680,6 +5994,14 @@ export class TelegramController {
       lines.push(
         `${label} reasoning ajustado automaticamente: ${resolved.reasoningAdjustedFrom} -> ${resolved.reasoningEffort}`,
       );
+    }
+    if (resolved.speedAdjustedFrom) {
+      lines.push(
+        `${label} velocidade ajustada automaticamente: ${this.renderCodexSpeedLabel(resolved.speedAdjustedFrom)} -> ${this.renderCodexSpeedLabel(resolved.speed)}`,
+      );
+    }
+    if (!resolved.fastModeSupported) {
+      lines.push(`${label} fast mode: indisponivel para o modelo atual`);
     }
   }
 
@@ -5694,6 +6016,10 @@ export class TelegramController {
 
     if (source === "codex-config") {
       return "config-local";
+    }
+
+    if (source === "mixed") {
+      return "misto";
     }
 
     return "catalogo";

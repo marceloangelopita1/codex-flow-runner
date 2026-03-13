@@ -273,11 +273,30 @@ const buildInvocationPreferenceArgs = (
     return [];
   }
 
+  const speedArgs = buildSpeedPreferenceArgs(preferences);
+
   return [
     "-m",
     model,
     "-c",
     `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`,
+    ...speedArgs,
+  ];
+};
+
+const buildSpeedPreferenceArgs = (preferences: CodexInvocationPreferences): string[] => {
+  if (preferences.speed === "fast") {
+    return [
+      "-c",
+      "features.fast_mode=true",
+      "-c",
+      `service_tier=${JSON.stringify("fast")}`,
+    ];
+  }
+
+  return [
+    "-c",
+    "features.fast_mode=false",
   ];
 };
 

@@ -142,10 +142,22 @@ test("args nao interativos usam full access explicito por chamada", () => {
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
+test("args nao interativos desativam fast mode explicitamente quando velocidade standard e informada", () => {
+  const args = buildNonInteractiveCodexArgs({
+    model: "gpt-5.4",
+    reasoningEffort: "xhigh",
+    speed: "standard",
+  });
+
+  assert.equal(args.includes("features.fast_mode=false"), true);
+  assert.equal(args.includes('service_tier="fast"'), false);
+});
+
 test("args nao interativos aceitam modelo e reasoning explicitos", () => {
   const args = buildNonInteractiveCodexArgs({
     model: "gpt-5.4",
     reasoningEffort: "xhigh",
+    speed: "fast",
   });
 
   assert.deepEqual(args, [
@@ -161,12 +173,19 @@ test("args nao interativos aceitam modelo e reasoning explicitos", () => {
     "gpt-5.4",
     "-c",
     'model_reasoning_effort="xhigh"',
+    "-c",
+    "features.fast_mode=true",
+    "-c",
+    'service_tier="fast"',
     "-",
   ]);
 });
 
 test("runStage encaminha preferencias resolvidas para codex exec", async () => {
-  let capturedPreferences: { model: string; reasoningEffort: string } | null | undefined;
+  let capturedPreferences:
+    | { model: string; reasoningEffort: string; speed?: "standard" | "fast" }
+    | null
+    | undefined;
 
   const client = new CodexCliTicketFlowClient(
     "/tmp/repo",
@@ -183,6 +202,7 @@ test("runStage encaminha preferencias resolvidas para codex exec", async () => {
       resolveInvocationPreferences: async () => ({
         model: "gpt-5.4",
         reasoningEffort: "high",
+        speed: "fast",
       }),
     },
   );
@@ -192,6 +212,7 @@ test("runStage encaminha preferencias resolvidas para codex exec", async () => {
   assert.deepEqual(capturedPreferences, {
     model: "gpt-5.4",
     reasoningEffort: "high",
+    speed: "fast",
   });
 });
 
@@ -504,6 +525,7 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
     resolveInvocationPreferences: async () => ({
       model: "gpt-5.4",
       reasoningEffort: "xhigh",
+      speed: "fast",
     }),
   });
 
@@ -527,6 +549,8 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(capturedArgs[0]?.includes("-m"), true);
   assert.equal(capturedArgs[0]?.includes("gpt-5.4"), true);
   assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="xhigh"'), true);
+  assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Brief do operador: brief inicial/u);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
@@ -537,6 +561,8 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
   assert.equal(capturedArgs[1]?.includes("-m"), true);
   assert.equal(capturedArgs[1]?.includes('model_reasoning_effort="xhigh"'), true);
+  assert.equal(capturedArgs[1]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[1]?.includes('service_tier="fast"'), true);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
   assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "refine com mais detalhes");
@@ -700,6 +726,7 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
     resolveInvocationPreferences: async () => ({
       model: "gpt-5.4",
       reasoningEffort: "high",
+      speed: "fast",
     }),
   });
 
@@ -754,6 +781,8 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
   assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
   assert.equal(capturedArgs[0]?.includes("-m"), true);
   assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
 
   assert.equal(capturedArgs[1]?.includes("resume"), true);
@@ -762,6 +791,8 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
   assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
   assert.equal(capturedArgs[1]?.includes("-m"), true);
   assert.equal(capturedArgs[1]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[1]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[1]?.includes('service_tier="fast"'), true);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
 

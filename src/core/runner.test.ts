@@ -100,6 +100,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     invocationPreferences: CodexInvocationPreferences | null = {
       model: "gpt-5.4",
       reasoningEffort: "xhigh",
+      speed: "standard",
     },
   ) {
     this.invocationPreferences = invocationPreferences;

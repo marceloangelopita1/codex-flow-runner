@@ -36,6 +36,8 @@ class StubConfigReader implements CodexLocalConfigReader {
       loadedAt: new Date(this.snapshot.loadedAt),
       model: this.snapshot.model,
       reasoningEffort: this.snapshot.reasoningEffort,
+      serviceTier: this.snapshot.serviceTier,
+      fastModeEnabled: this.snapshot.fastModeEnabled,
     };
   }
 }
@@ -57,13 +59,14 @@ class StubPreferencesStore implements CodexProjectPreferencesStore {
 
   async save(
     project: ProjectRef,
-    preferences: { model: string; reasoningEffort: string },
+    preferences: { model: string; reasoningEffort: string; speed: "standard" | "fast" },
   ): Promise<PersistedCodexProjectPreference> {
     const persisted: PersistedCodexProjectPreference = {
       name: project.name,
       path: project.path,
       model: preferences.model,
       reasoningEffort: preferences.reasoningEffort,
+      speed: preferences.speed,
       updatedAt: "2026-03-13T10:00:00.000Z",
       source: "runner-local",
     };
@@ -71,6 +74,17 @@ class StubPreferencesStore implements CodexProjectPreferencesStore {
     return { ...persisted };
   }
 }
+
+const createConfigSnapshot = (
+  value: Partial<CodexLocalConfigSnapshot> = {},
+): CodexLocalConfigSnapshot => ({
+  loadedAt: new Date("2026-03-13T08:00:00.000Z"),
+  model: null,
+  reasoningEffort: null,
+  serviceTier: null,
+  fastModeEnabled: null,
+  ...value,
+});
 
 const project: ProjectRef = {
   name: "alpha-project",
@@ -110,16 +124,17 @@ const catalogSnapshot: CodexModelCatalogSnapshot = {
 test("resolveProjectPreferences usa preferencia runner-local antes da config local", async () => {
   const service = new DefaultCodexPreferencesService({
     catalogReader: new StubCatalogReader(catalogSnapshot),
-    configReader: new StubConfigReader({
-      loadedAt: new Date("2026-03-13T08:00:00.000Z"),
+    configReader: new StubConfigReader(createConfigSnapshot({
       model: "gpt-5.3-codex",
       reasoningEffort: "medium",
-    }),
+      serviceTier: "fast",
+    })),
     store: new StubPreferencesStore({
       name: project.name,
       path: project.path,
       model: "gpt-5.4",
       reasoningEffort: "xhigh",
+      speed: "standard",
       updatedAt: "2026-03-13T07:00:00.000Z",
       source: "runner-local",
     }),
@@ -129,17 +144,49 @@ test("resolveProjectPreferences usa preferencia runner-local antes da config loc
 
   assert.equal(resolved.model, "gpt-5.4");
   assert.equal(resolved.reasoningEffort, "xhigh");
+  assert.equal(resolved.speed, "standard");
   assert.equal(resolved.source, "runner-local");
+});
+
+test("resolveProjectPreferences usa speed da config local quando o store legado nao define velocidade", async () => {
+  const service = new DefaultCodexPreferencesService({
+    catalogReader: new StubCatalogReader(catalogSnapshot),
+    configReader: new StubConfigReader(createConfigSnapshot({
+      serviceTier: "fast",
+      fastModeEnabled: true,
+    })),
+    store: new StubPreferencesStore({
+      name: project.name,
+      path: project.path,
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh",
+      speed: null,
+      updatedAt: "2026-03-13T07:00:00.000Z",
+      source: "runner-local",
+    }),
+  });
+
+  const resolved = await service.resolveProjectPreferences(project);
+
+  assert.equal(resolved.model, "gpt-5.4");
+  assert.equal(resolved.reasoningEffort, "xhigh");
+  assert.equal(resolved.speed, "fast");
+  assert.equal(resolved.source, "mixed");
+  assert.deepEqual(resolved.sources, {
+    model: "runner-local",
+    reasoningEffort: "runner-local",
+    speed: "codex-config",
+  });
 });
 
 test("resolveProjectPreferences usa config local quando nao ha preferencia persistida", async () => {
   const service = new DefaultCodexPreferencesService({
     catalogReader: new StubCatalogReader(catalogSnapshot),
-    configReader: new StubConfigReader({
-      loadedAt: new Date("2026-03-13T08:00:00.000Z"),
+    configReader: new StubConfigReader(createConfigSnapshot({
       model: "gpt-5.3-codex",
       reasoningEffort: "medium",
-    }),
+      serviceTier: "fast",
+    })),
     store: new StubPreferencesStore(),
   });
 
@@ -147,25 +194,25 @@ test("resolveProjectPreferences usa config local quando nao ha preferencia persi
 
   assert.equal(resolved.model, "gpt-5.3-codex");
   assert.equal(resolved.reasoningEffort, "medium");
+  assert.equal(resolved.speed, "standard");
+  assert.equal(resolved.speedAdjustedFrom, "fast");
+  assert.equal(resolved.fastModeSupported, false);
   assert.equal(resolved.source, "codex-config");
 });
 
-test("selectModel reseta reasoning quando o modelo de destino nao suporta o effort atual", async () => {
+test("selectModel reseta reasoning e velocidade quando o modelo de destino nao suporta o estado atual", async () => {
   const store = new StubPreferencesStore({
     name: project.name,
     path: project.path,
     model: "gpt-5.4",
     reasoningEffort: "xhigh",
+    speed: "fast",
     updatedAt: "2026-03-13T07:00:00.000Z",
     source: "runner-local",
   });
   const service = new DefaultCodexPreferencesService({
     catalogReader: new StubCatalogReader(catalogSnapshot),
-    configReader: new StubConfigReader({
-      loadedAt: new Date("2026-03-13T08:00:00.000Z"),
-      model: null,
-      reasoningEffort: null,
-    }),
+    configReader: new StubConfigReader(createConfigSnapshot()),
     store,
   });
 
@@ -175,6 +222,33 @@ test("selectModel reseta reasoning quando o modelo de destino nao suporta o effo
   if (result.status === "selected") {
     assert.equal(result.current.model, "gpt-5.3-codex");
     assert.equal(result.current.reasoningEffort, "medium");
+    assert.equal(result.current.speed, "standard");
     assert.equal(result.reasoningResetFrom, "xhigh");
+    assert.equal(result.speedResetFrom, "fast");
+  }
+});
+
+test("selectSpeed rejeita fast quando o modelo atual nao suporta fast mode", async () => {
+  const store = new StubPreferencesStore({
+    name: project.name,
+    path: project.path,
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+    speed: "standard",
+    updatedAt: "2026-03-13T07:00:00.000Z",
+    source: "runner-local",
+  });
+  const service = new DefaultCodexPreferencesService({
+    catalogReader: new StubCatalogReader(catalogSnapshot),
+    configReader: new StubConfigReader(createConfigSnapshot()),
+    store,
+  });
+
+  const result = await service.selectSpeed(project, "fast");
+
+  assert.equal(result.status, "not-supported");
+  if (result.status === "not-supported") {
+    assert.equal(result.speed, "fast");
+    assert.deepEqual(result.supportedSpeeds, ["standard"]);
   }
 });
