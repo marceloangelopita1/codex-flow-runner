@@ -28,6 +28,7 @@ import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import { ProjectRef } from "../types/project.js";
+import { CodexInvocationPreferences } from "../types/codex-preferences.js";
 import { RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   TicketFinalSummary,
@@ -75,6 +76,8 @@ class StubCodexClient implements CodexTicketFlowClient {
   public freeChatSessionStartCalls = 0;
   public lastPlanSession: StubPlanSession | null = null;
   public lastFreeChatSession: StubCodexChatSession | null = null;
+  public invocationPreferences: CodexInvocationPreferences | null;
+  private fixedInvocationPreferences: CodexInvocationPreferences | null | undefined;
 
   constructor(
     private readonly shouldFail?: (
@@ -94,7 +97,13 @@ class StubCodexClient implements CodexTicketFlowClient {
     private readonly stageDiagnostics: Partial<
       Record<TicketFlowStage | SpecFlowStage, CodexStageDiagnostics>
     > = {},
-  ) {}
+    invocationPreferences: CodexInvocationPreferences | null = {
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh",
+    },
+  ) {
+    this.invocationPreferences = invocationPreferences;
+  }
 
   async ensureAuthenticated(): Promise<void> {
     if (this.authDelayMs > 0) {
@@ -104,6 +113,18 @@ class StubCodexClient implements CodexTicketFlowClient {
     if (this.failAuthentication) {
       throw new CodexAuthenticationError("sessao ausente");
     }
+  }
+
+  async snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null> {
+    const resolved = this.fixedInvocationPreferences ?? this.invocationPreferences;
+    return resolved ? { ...resolved } : null;
+  }
+
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): CodexTicketFlowClient {
+    this.fixedInvocationPreferences = preferences ? { ...preferences } : null;
+    return this;
   }
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {

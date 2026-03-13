@@ -23,6 +23,7 @@ import {
   buildRuntimeShellGuidance,
 } from "./runtime-shell-guidance.js";
 import { TicketRef } from "./ticket-queue.js";
+import { CodexInvocationPreferences } from "../types/codex-preferences.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -81,6 +82,11 @@ export type PlanSpecSessionEvent =
   | {
       type: "activity";
       activity: PlanSpecSessionActivity;
+    }
+  | {
+      type: "turn-context";
+      model: string;
+      reasoningEffort: string;
     };
 
 export interface PlanSpecSessionCloseResult {
@@ -120,6 +126,11 @@ export type CodexChatSessionEvent =
       activity: CodexChatSessionActivity;
     }
   | {
+      type: "turn-context";
+      model: string;
+      reasoningEffort: string;
+    }
+  | {
       type: "turn-complete";
     };
 
@@ -146,6 +157,10 @@ export interface CodexChatSession {
 
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
+  snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): CodexTicketFlowClient;
   runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult>;
   runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult>;
   startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession>;
@@ -156,6 +171,7 @@ interface CodexCommandRequest {
   cwd: string;
   prompt: string;
   env: NodeJS.ProcessEnv;
+  preferences?: CodexInvocationPreferences | null;
 }
 
 interface CodexAuthStatusRequest {
@@ -181,6 +197,13 @@ interface CodexClientDependencies {
   runCodexAuthStatusCommand: (request: CodexAuthStatusRequest) => Promise<CodexCommandResult>;
   resolvePlanDirectoryName: (repoPath: string) => Promise<PlanDirectoryName>;
   buildRuntimeShellGuidance: () => RuntimeShellGuidance;
+}
+
+export interface CodexCliTicketFlowClientOptions {
+  resolveInvocationPreferences?: () =>
+    | Promise<CodexInvocationPreferences | null>
+    | CodexInvocationPreferences
+    | null;
 }
 
 const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
@@ -237,51 +260,93 @@ const CODEX_COLOR_NEVER_ARGS = [
 const CODEX_JSON_OUTPUT_ARGS = ["--json"] as const;
 const INTERACTIVE_VERBOSE_LOG_ENV = "CODEX_INTERACTIVE_VERBOSE_LOGS";
 
-export const buildNonInteractiveCodexArgs = (): string[] => [
+const buildInvocationPreferenceArgs = (
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => {
+  if (!preferences) {
+    return [];
+  }
+
+  const model = preferences.model.trim();
+  const reasoningEffort = preferences.reasoningEffort.trim();
+  if (!model || !reasoningEffort) {
+    return [];
+  }
+
+  return [
+    "-m",
+    model,
+    "-c",
+    `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`,
+  ];
+};
+
+export const buildNonInteractiveCodexArgs = (
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
   ...CODEX_EXEC_ONLY_ARGS,
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_COLOR_NEVER_ARGS,
+  ...buildInvocationPreferenceArgs(preferences),
   "-",
 ];
 
-const buildFreeChatExecStartArgs = (prompt: string): string[] => [
+const buildFreeChatExecStartArgs = (
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
   ...CODEX_EXEC_ONLY_ARGS,
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
+  ...buildInvocationPreferenceArgs(preferences),
   prompt,
 ];
 
-const buildPlanSpecExecStartArgs = (prompt: string): string[] => [
+const buildPlanSpecExecStartArgs = (
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
   ...CODEX_EXEC_ONLY_ARGS,
   ...CODEX_SANDBOX_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
+  ...buildInvocationPreferenceArgs(preferences),
   prompt,
 ];
 
-const buildFreeChatExecResumeArgs = (threadId: string, prompt: string): string[] => [
+const buildFreeChatExecResumeArgs = (
+  threadId: string,
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
   "resume",
   ...CODEX_EXEC_ONLY_ARGS,
   ...CODEX_RESUME_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
+  ...buildInvocationPreferenceArgs(preferences),
   threadId,
   prompt,
 ];
 
-const buildPlanSpecExecResumeArgs = (threadId: string, prompt: string): string[] => [
+const buildPlanSpecExecResumeArgs = (
+  threadId: string,
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => [
   ...CODEX_APPROVAL_NEVER_ARGS,
   "exec",
   "resume",
   ...CODEX_EXEC_ONLY_ARGS,
   ...CODEX_RESUME_FULL_ACCESS_ARGS,
   ...CODEX_JSON_OUTPUT_ARGS,
+  ...buildInvocationPreferenceArgs(preferences),
   threadId,
   prompt,
 ];
@@ -345,11 +410,13 @@ export class CodexChatSessionError extends Error {
 export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private readonly dependencies: CodexClientDependencies;
   private readonly runtimeShellGuidance: RuntimeShellGuidance;
+  private readonly resolveInvocationPreferences: () => Promise<CodexInvocationPreferences | null>;
 
   constructor(
     private readonly repoPath: string,
     private readonly logger: Logger,
     dependencies: Partial<CodexClientDependencies> = {},
+    options: CodexCliTicketFlowClientOptions = {},
   ) {
     this.dependencies = {
       loadPromptTemplate: (filePath: string) => fs.readFile(filePath, "utf8"),
@@ -361,6 +428,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       ...dependencies,
     };
     this.runtimeShellGuidance = this.dependencies.buildRuntimeShellGuidance();
+    this.resolveInvocationPreferences = async () => {
+      const resolved = await options.resolveInvocationPreferences?.();
+      return resolved ?? null;
+    };
     this.logger.info("Guia operacional de shell preparado para o Codex CLI", {
       repoPath: this.repoPath,
       codexExecutablePath: this.runtimeShellGuidance.codexExecutablePath,
@@ -401,6 +472,18 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null> {
+    return this.resolveInvocationPreferences();
+  }
+
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): CodexTicketFlowClient {
+    return new CodexCliTicketFlowClient(this.repoPath, this.logger, this.dependencies, {
+      resolveInvocationPreferences: async () => preferences,
+    });
+  }
+
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
     const promptTemplatePath = path.join(PROMPTS_DIR, TICKET_STAGE_PROMPT_FILES[stage]);
     const planDirectory = await this.dependencies.resolvePlanDirectoryName(this.repoPath);
@@ -415,12 +498,14 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     });
 
     try {
+      const preferences = await this.snapshotInvocationPreferences();
       const result = await this.dependencies.runCodexCommand({
         cwd: this.repoPath,
         prompt,
         env: {
           ...process.env,
         },
+        preferences,
       });
 
       const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
@@ -465,12 +550,14 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     try {
       const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
       const prompt = this.buildSpecPrompt(stage, promptTemplate, spec);
+      const preferences = await this.snapshotInvocationPreferences();
       const result = await this.dependencies.runCodexCommand({
         cwd: this.repoPath,
         prompt,
         env: {
           ...process.env,
         },
+        preferences,
       });
 
       const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
@@ -514,6 +601,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         request,
         this.logger,
         this.dependencies.runCodexExecJsonCommand,
+        this.resolveInvocationPreferences,
       );
     } catch (error) {
       throw new CodexPlanSessionError("start", errorMessage(error));
@@ -532,6 +620,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         request,
         this.logger,
         this.dependencies.runCodexExecJsonCommand,
+        this.resolveInvocationPreferences,
       );
     } catch (error) {
       throw new CodexChatSessionError("start", errorMessage(error));
@@ -667,6 +756,7 @@ class CodexExecResumePlanSession implements PlanSpecSession {
     private readonly runCodexExecJsonCommand: (
       request: CodexExecJsonCommandRequest,
     ) => Promise<CodexCommandResult>,
+    private readonly resolveInvocationPreferences: () => Promise<CodexInvocationPreferences | null>,
   ) {
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
@@ -707,12 +797,15 @@ class CodexExecResumePlanSession implements PlanSpecSession {
   }
 
   private async executeTurn(prompt: string): Promise<void> {
+    const preferences = await this.resolveInvocationPreferences();
     const args = this.threadId
-      ? buildPlanSpecExecResumeArgs(this.threadId, prompt)
-      : buildPlanSpecExecStartArgs(prompt);
+      ? buildPlanSpecExecResumeArgs(this.threadId, prompt, preferences)
+      : buildPlanSpecExecStartArgs(prompt, preferences);
     this.logVerbose("Sessao /plan_spec executando codex exec", {
       hasThreadId: Boolean(this.threadId),
       promptLength: prompt.length,
+      model: preferences?.model ?? null,
+      reasoningEffort: preferences?.reasoningEffort ?? null,
     });
 
     let result: CodexCommandResult;
@@ -736,6 +829,13 @@ class CodexExecResumePlanSession implements PlanSpecSession {
     const parsed = parseCodexExecJsonTranscript(result.stdout, result.stderr);
     this.emitActivityObservation("stdout", result.stdout);
     this.emitActivityObservation("stderr", result.stderr);
+    if (parsed.turnContext) {
+      this.emitEvent({
+        type: "turn-context",
+        model: parsed.turnContext.model,
+        reasoningEffort: parsed.turnContext.reasoningEffort,
+      });
+    }
 
     const previousThreadId = this.threadId;
     if (parsed.threadId) {
@@ -915,6 +1015,7 @@ class CodexExecResumeFreeChatSession implements CodexChatSession {
     private readonly runCodexExecJsonCommand: (
       request: CodexExecJsonCommandRequest,
     ) => Promise<CodexCommandResult>,
+    private readonly resolveInvocationPreferences: () => Promise<CodexInvocationPreferences | null>,
   ) {
     const initialUserInput = this.request.initialUserInput?.trim();
     if (initialUserInput) {
@@ -953,12 +1054,15 @@ class CodexExecResumeFreeChatSession implements CodexChatSession {
   }
 
   private async executeTurn(prompt: string): Promise<void> {
+    const preferences = await this.resolveInvocationPreferences();
     const args = this.threadId
-      ? buildFreeChatExecResumeArgs(this.threadId, prompt)
-      : buildFreeChatExecStartArgs(prompt);
+      ? buildFreeChatExecResumeArgs(this.threadId, prompt, preferences)
+      : buildFreeChatExecStartArgs(prompt, preferences);
     this.logVerbose("Sessao /codex_chat executando codex exec", {
       hasThreadId: Boolean(this.threadId),
       promptLength: prompt.length,
+      model: preferences?.model ?? null,
+      reasoningEffort: preferences?.reasoningEffort ?? null,
     });
 
     let result: CodexCommandResult;
@@ -982,6 +1086,13 @@ class CodexExecResumeFreeChatSession implements CodexChatSession {
     const parsed = parseCodexExecJsonTranscript(result.stdout, result.stderr);
     this.emitActivityObservation("stdout", result.stdout);
     this.emitActivityObservation("stderr", result.stderr);
+    if (parsed.turnContext) {
+      this.emitEvent({
+        type: "turn-context",
+        model: parsed.turnContext.model,
+        reasoningEffort: parsed.turnContext.reasoningEffort,
+      });
+    }
 
     const previousThreadId = this.threadId;
     if (parsed.threadId) {
@@ -1108,6 +1219,7 @@ class CodexExecResumeFreeChatSession implements CodexChatSession {
 interface CodexExecJsonTranscript {
   threadId: string | null;
   agentMessage: string | null;
+  turnContext: CodexInvocationPreferences | null;
 }
 
 const parseCodexExecJsonTranscript = (
@@ -1116,6 +1228,7 @@ const parseCodexExecJsonTranscript = (
 ): CodexExecJsonTranscript => {
   let threadId: string | null = null;
   let agentMessage: string | null = null;
+  let turnContext: CodexInvocationPreferences | null = null;
   const lines = `${stdout}\n${stderr}`.split(/\r?\n/gu);
 
   for (const line of lines) {
@@ -1134,6 +1247,23 @@ const parseCodexExecJsonTranscript = (
       const candidateThreadId = safeString((event as { thread_id?: unknown }).thread_id);
       if (candidateThreadId) {
         threadId = candidateThreadId;
+      }
+      continue;
+    }
+
+    if (eventType === "turn_context") {
+      const payload = (event as { payload?: unknown }).payload;
+      if (payload && typeof payload === "object") {
+        const model = safeString((payload as { model?: unknown }).model);
+        const reasoningEffort =
+          safeString((payload as { effort?: unknown }).effort) ||
+          readNestedReasoningEffort(payload);
+        if (model && reasoningEffort) {
+          turnContext = {
+            model,
+            reasoningEffort,
+          };
+        }
       }
       continue;
     }
@@ -1164,6 +1294,7 @@ const parseCodexExecJsonTranscript = (
   return {
     threadId,
     agentMessage,
+    turnContext,
   };
 };
 
@@ -1188,6 +1319,24 @@ const safeString = (value: unknown): string => {
   return typeof value === "string" ? value : "";
 };
 
+const readNestedReasoningEffort = (value: unknown): string => {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  const collaborationMode = (value as { collaboration_mode?: unknown }).collaboration_mode;
+  if (!collaborationMode || typeof collaborationMode !== "object") {
+    return "";
+  }
+
+  const settings = (collaborationMode as { settings?: unknown }).settings;
+  if (!settings || typeof settings !== "object") {
+    return "";
+  }
+
+  return safeString((settings as { reasoning_effort?: unknown }).reasoning_effort);
+};
+
 export const isTicketFlowStage = (stage: CodexFlowStage): stage is TicketFlowStage =>
   stage === "plan" || stage === "implement" || stage === "close-and-version";
 
@@ -1195,7 +1344,7 @@ const runCodexCommand = async (request: CodexCommandRequest): Promise<CodexComma
   return runCodexCliCommand({
     cwd: request.cwd,
     env: request.env,
-    args: buildNonInteractiveCodexArgs(),
+    args: buildNonInteractiveCodexArgs(request.preferences ?? null),
     stdin: request.prompt,
     commandName: "codex exec",
   });

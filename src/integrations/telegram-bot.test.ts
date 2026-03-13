@@ -12,6 +12,13 @@ import {
 } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
 import { ProjectRef } from "../types/project.js";
+import {
+  CodexModelSelectionResult,
+  CodexModelSelectionSnapshot,
+  CodexReasoningSelectionResult,
+  CodexReasoningSelectionSnapshot,
+  CodexResolvedProjectPreferences,
+} from "../types/codex-preferences.js";
 import { RunnerState } from "../types/state.js";
 import {
   TicketFinalFailureSummary,
@@ -151,6 +158,9 @@ const createPlanSpecSession = (
   lastCodexActivityAt: null,
   lastCodexStream: null,
   lastCodexPreview: null,
+  observedModel: null,
+  observedReasoningEffort: null,
+  observedAt: null,
   activeProjectSnapshot: cloneProject(defaultActiveProject),
   ...value,
 });
@@ -168,6 +178,9 @@ const createCodexChatSession = (
   lastCodexActivityAt: null,
   lastCodexStream: null,
   lastCodexPreview: null,
+  observedModel: null,
+  observedReasoningEffort: null,
+  observedAt: null,
   activeProjectSnapshot: cloneProject(defaultActiveProject),
   ...value,
 });
@@ -188,6 +201,8 @@ type ControlCommand =
   | "pause"
   | "resume"
   | "projects"
+  | "models"
+  | "reasoning"
   | "select_project"
   | "select-project";
 
@@ -253,6 +268,13 @@ interface ControllerOptions {
   readOpenTicketErrorMessage?: string;
   listEligibleSpecsErrorMessage?: string;
   listProjectsErrorMessage?: string;
+  codexModelSnapshot?: CodexModelSelectionSnapshot;
+  codexReasoningSnapshot?: CodexReasoningSelectionSnapshot;
+  selectCodexModelResult?: CodexModelSelectionResult;
+  selectCodexReasoningResult?: CodexReasoningSelectionResult;
+  resolveCodexPreferencesErrorMessage?: string;
+  listCodexModelsErrorMessage?: string;
+  listCodexReasoningErrorMessage?: string;
   forceSelectBlockedPlanSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
@@ -289,6 +311,76 @@ const cloneSnapshot = (snapshot: ProjectSelectionSnapshot): ProjectSelectionSnap
   projects: snapshot.projects.map(cloneProject),
   activeProject: cloneProject(snapshot.activeProject),
 });
+
+const createResolvedCodexPreferences = (
+  value: Partial<CodexResolvedProjectPreferences> = {},
+): CodexResolvedProjectPreferences => ({
+  model: "gpt-5.4",
+  reasoningEffort: "xhigh",
+  updatedAt: new Date("2026-03-13T00:00:00.000Z"),
+  source: "runner-local",
+  catalogFetchedAt: new Date("2026-03-13T00:00:00.000Z"),
+  modelDisplayName: "gpt-5.4",
+  modelDescription: "Modelo principal de teste",
+  modelVisibility: "list",
+  modelSelectable: true,
+  supportedReasoningLevels: [
+    { effort: "low", description: "Fast responses" },
+    { effort: "medium", description: "Balanced reasoning" },
+    { effort: "high", description: "Deep reasoning" },
+    { effort: "xhigh", description: "Extra deep reasoning" },
+  ],
+  defaultReasoningEffort: "medium",
+  reasoningAdjustedFrom: null,
+  ...value,
+  project: cloneProject(value.project ?? defaultActiveProject),
+});
+
+const createCodexModelSnapshot = (
+  value: Partial<CodexModelSelectionSnapshot> = {},
+): CodexModelSelectionSnapshot => {
+  const current = value.current ?? createResolvedCodexPreferences();
+  return {
+    project: cloneProject(value.project ?? current.project),
+    current,
+    models: value.models ?? [
+      {
+        slug: "gpt-5.4",
+        displayName: "gpt-5.4",
+        description: "Modelo principal de teste",
+        visibility: "list",
+        selectable: true,
+        active: current.model === "gpt-5.4",
+        defaultReasoningEffort: "medium",
+        supportedReasoningLevels: current.supportedReasoningLevels,
+      },
+      {
+        slug: "gpt-5.3-codex",
+        displayName: "gpt-5.3-codex",
+        description: "Modelo alternativo",
+        visibility: "list",
+        selectable: true,
+        active: current.model === "gpt-5.3-codex",
+        defaultReasoningEffort: "medium",
+        supportedReasoningLevels: current.supportedReasoningLevels,
+      },
+    ],
+  };
+};
+
+const createCodexReasoningSnapshot = (
+  value: Partial<CodexReasoningSelectionSnapshot> = {},
+): CodexReasoningSelectionSnapshot => {
+  const current = value.current ?? createResolvedCodexPreferences();
+  return {
+    project: cloneProject(value.project ?? current.project),
+    current,
+    reasoningLevels: value.reasoningLevels ?? current.supportedReasoningLevels.map((level) => ({
+      ...level,
+      active: level.effort === current.reasoningEffort,
+    })),
+  };
+};
 
 const cloneEligibleSpec = (spec: EligibleSpecRef): EligibleSpecRef => ({
   fileName: spec.fileName,
@@ -343,12 +435,21 @@ const createController = (options: ControllerOptions = {}) => {
     resumeCalls: 0,
     listProjectsCalls: 0,
     selectedProjectNames: [] as string[],
+    listCodexModelsCalls: 0,
+    selectCodexModelCalls: 0,
+    selectedCodexModels: [] as string[],
+    listCodexReasoningCalls: 0,
+    selectCodexReasoningCalls: 0,
+    selectedCodexReasoningLevels: [] as string[],
+    resolveCodexProjectPreferencesCalls: [] as ProjectRef[],
     planSpecQuestionSelections: [] as string[],
     planSpecFinalActions: [] as PlanSpecFinalActionId[],
   };
 
   const stateGetter = options.getState ?? (() => createState());
   const mutableSnapshot = cloneSnapshot(options.projectSnapshot ?? createDefaultProjectSnapshot());
+  let mutableCodexModelSnapshot = createCodexModelSnapshot(options.codexModelSnapshot);
+  let mutableCodexReasoningSnapshot = createCodexReasoningSnapshot(options.codexReasoningSnapshot);
   const mutableEligibleSpecs = (options.eligibleSpecs ?? createDefaultEligibleSpecs())
     .map(cloneEligibleSpec);
   const mutableOpenTickets = (options.openTickets ?? createDefaultOpenTickets())
@@ -597,6 +698,129 @@ const createController = (options: ControllerOptions = {}) => {
         isPaused: false,
       };
     },
+    listCodexModels: () => {
+      controlState.listCodexModelsCalls += 1;
+      if (options.listCodexModelsErrorMessage) {
+        throw new Error(options.listCodexModelsErrorMessage);
+      }
+
+      return createCodexModelSnapshot(mutableCodexModelSnapshot);
+    },
+    selectCodexModel: (model: string) => {
+      controlState.selectCodexModelCalls += 1;
+      controlState.selectedCodexModels.push(model);
+      if (options.selectCodexModelResult) {
+        return options.selectCodexModelResult;
+      }
+
+      const target = mutableCodexModelSnapshot.models.find((entry) => entry.slug === model);
+      if (!target) {
+        return {
+          status: "not-found" as const,
+          model,
+          current: createResolvedCodexPreferences(mutableCodexModelSnapshot.current),
+          availableModels: mutableCodexModelSnapshot.models.map((entry) => entry.slug),
+        };
+      }
+
+      const previousModel = mutableCodexModelSnapshot.current.model;
+      mutableCodexModelSnapshot = createCodexModelSnapshot({
+        ...mutableCodexModelSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexModelSnapshot.current,
+          model: target.slug,
+          modelDisplayName: target.displayName,
+          modelDescription: target.description,
+          modelVisibility: target.visibility,
+          modelSelectable: target.selectable,
+          supportedReasoningLevels: target.supportedReasoningLevels.map((level) => ({ ...level })),
+        }),
+        models: mutableCodexModelSnapshot.models.map((entry) => ({
+          ...entry,
+          active: entry.slug === target.slug,
+        })),
+      });
+      mutableCodexReasoningSnapshot = createCodexReasoningSnapshot({
+        current: createResolvedCodexPreferences({
+          ...mutableCodexReasoningSnapshot.current,
+          model: target.slug,
+          modelDisplayName: target.displayName,
+          modelDescription: target.description,
+          modelVisibility: target.visibility,
+          modelSelectable: target.selectable,
+          supportedReasoningLevels: target.supportedReasoningLevels.map((level) => ({ ...level })),
+        }),
+      });
+
+      return {
+        status: "selected" as const,
+        current: createResolvedCodexPreferences(mutableCodexModelSnapshot.current),
+        previousModel,
+        reasoningResetFrom: null,
+      };
+    },
+    listCodexReasoning: () => {
+      controlState.listCodexReasoningCalls += 1;
+      if (options.listCodexReasoningErrorMessage) {
+        throw new Error(options.listCodexReasoningErrorMessage);
+      }
+
+      return createCodexReasoningSnapshot(mutableCodexReasoningSnapshot);
+    },
+    selectCodexReasoning: (effort: string) => {
+      controlState.selectCodexReasoningCalls += 1;
+      controlState.selectedCodexReasoningLevels.push(effort);
+      if (options.selectCodexReasoningResult) {
+        return options.selectCodexReasoningResult;
+      }
+
+      const supported = mutableCodexReasoningSnapshot.reasoningLevels.find((level) => level.effort === effort);
+      if (!supported) {
+        return {
+          status: "not-supported" as const,
+          effort,
+          current: createResolvedCodexPreferences(mutableCodexReasoningSnapshot.current),
+          supportedEfforts: mutableCodexReasoningSnapshot.reasoningLevels.map((level) => level.effort),
+        };
+      }
+
+      const previousReasoningEffort = mutableCodexReasoningSnapshot.current.reasoningEffort;
+      mutableCodexReasoningSnapshot = createCodexReasoningSnapshot({
+        ...mutableCodexReasoningSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexReasoningSnapshot.current,
+          reasoningEffort: effort,
+        }),
+        reasoningLevels: mutableCodexReasoningSnapshot.reasoningLevels.map((level) => ({
+          ...level,
+          active: level.effort === effort,
+        })),
+      });
+      mutableCodexModelSnapshot = createCodexModelSnapshot({
+        ...mutableCodexModelSnapshot,
+        current: createResolvedCodexPreferences({
+          ...mutableCodexModelSnapshot.current,
+          reasoningEffort: effort,
+        }),
+      });
+
+      return {
+        status: "selected" as const,
+        current: createResolvedCodexPreferences(mutableCodexReasoningSnapshot.current),
+        previousReasoningEffort,
+      };
+    },
+    resolveCodexProjectPreferences: (project: ProjectRef) => {
+      controlState.resolveCodexProjectPreferencesCalls.push(cloneProject(project));
+      if (options.resolveCodexPreferencesErrorMessage) {
+        throw new Error(options.resolveCodexPreferencesErrorMessage);
+      }
+
+      return createResolvedCodexPreferences({
+        ...mutableCodexModelSnapshot.current,
+        project,
+      });
+    },
     listProjects: () => {
       controlState.listProjectsCalls += 1;
       if (options.listProjectsErrorMessage) {
@@ -775,12 +999,19 @@ const callCaptureNotificationChat = (controller: TelegramController, chatId: str
   internalController.captureNotificationChat(chatId);
 };
 
-const callBuildStatusReply = (controller: TelegramController, state: RunnerState): string => {
+const callBuildStatusReply = (
+  controller: TelegramController,
+  state: RunnerState,
+  codexPreferencesByProject: Map<string, CodexResolvedProjectPreferences | Error> = new Map(),
+): string => {
   const internalController = controller as unknown as {
-    buildStatusReply: (value: RunnerState) => string;
+    buildStatusReply: (
+      value: RunnerState,
+      codexPreferencesByProject?: Map<string, CodexResolvedProjectPreferences | Error>,
+    ) => string;
   };
 
-  return internalController.buildStatusReply(state);
+  return internalController.buildStatusReply(state, codexPreferencesByProject);
 };
 
 const callSetTicketFinalSummaryRetryWait = (
@@ -834,6 +1065,40 @@ const callHandleSelectProjectCommand = async (
   };
 
   await internalController.handleSelectProjectCommand(context, command);
+};
+
+const callHandleModelsCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleModelsCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleModelsCommand(context);
+};
+
+const callHandleReasoningCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleReasoningCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleReasoningCommand(context);
 };
 
 const callHandleRunSpecsCommand = async (
@@ -1239,6 +1504,48 @@ const callHandleProjectsCallbackQuery = async (
   };
 
   await internalController.handleProjectsCallbackQuery(context);
+};
+
+const callHandleModelsCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string; from?: { id: number } };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleModelsCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string; from?: { id: number } };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleModelsCallbackQuery(context);
+};
+
+const callHandleReasoningCallbackQuery = async (
+  controller: TelegramController,
+  context: {
+    chat?: { id: number };
+    callbackQuery: { data?: string; from?: { id: number } };
+    answerCbQuery: (text?: string) => Promise<unknown>;
+    editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleReasoningCallbackQuery: (value: {
+      chat?: { id: number };
+      callbackQuery: { data?: string; from?: { id: number } };
+      answerCbQuery: (text?: string) => Promise<unknown>;
+      editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleReasoningCallbackQuery(context);
 };
 
 const callHandlePlanSpecCallbackQuery = async (
@@ -3512,6 +3819,136 @@ test("/projects lida com erro de listagem de projetos", async () => {
   assert.match(replies[0] ?? "", /Falha ao listar projetos elegíveis/u);
 });
 
+test("/models responde lista paginada com marcador do modelo atual", async () => {
+  const { controller, controlState } = createController();
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleModelsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listCodexModelsCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /Modelos do Codex/u);
+  assert.match(replies[0]?.text ?? "", /Modelo atual: gpt-5\.4/u);
+  assert.match(replies[0]?.text ?? "", /✅ gpt-5\.4/u);
+});
+
+test("callback de /models seleciona modelo e atualiza a mensagem", async () => {
+  const { controller, controlState } = createController();
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleModelsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[1]?.[0]?.callback_data) ?? "";
+
+  await callHandleModelsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.selectCodexModelCalls, 1);
+  assert.deepEqual(controlState.selectedCodexModels, ["gpt-5.3-codex"]);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Modelo atual: gpt-5\.3-codex/u);
+  assert.deepEqual(answers, ["Modelo atualizado para gpt-5.3-codex."]);
+});
+
+test("callback de /models fica stale quando o projeto ativo muda", async () => {
+  const alphaProject = { name: "alpha-project", path: "/home/mapita/projetos/alpha-project" };
+  const betaProject = { name: "beta-project", path: "/home/mapita/projetos/beta-project" };
+  let currentState = createState({ activeProject: cloneProject(alphaProject) });
+  const { controller, controlState } = createController({
+    getState: () => currentState,
+    codexModelSnapshot: createCodexModelSnapshot({
+      project: alphaProject,
+      current: createResolvedCodexPreferences({
+        project: alphaProject,
+      }),
+    }),
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+  const answers: string[] = [];
+
+  await callHandleModelsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  currentState = createState({ activeProject: cloneProject(betaProject) });
+
+  const callbackData = ((replies[0]?.extra as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ callback_data: string }>>;
+    };
+  })?.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data) ?? "";
+
+  await callHandleModelsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: callbackData },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.selectCodexModelCalls, 0);
+  assert.deepEqual(answers, ["A lista de modelos expirou. Use /models para atualizar."]);
+});
+
+test("/reasoning responde lista com marcador do effort atual", async () => {
+  const { controller, controlState } = createController({
+    codexReasoningSnapshot: createCodexReasoningSnapshot({
+      current: createResolvedCodexPreferences({
+        reasoningEffort: "high",
+      }),
+    }),
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleReasoningCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.listCodexReasoningCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /Reasoning do Codex/u);
+  assert.match(replies[0]?.text ?? "", /Reasoning atual: high/u);
+  assert.match(replies[0]?.text ?? "", /✅ high/u);
+});
+
 test("callback de paginacao atualiza mensagem para pagina solicitada", async () => {
   const pagedSnapshot: ProjectSelectionSnapshot = {
     projects: [
@@ -4755,6 +5192,41 @@ test("envio de resumo final de fluxo falha em modo best-effort e registra warnin
   assert.equal(logger.warnings[0]?.context?.flow, "run-all");
   assert.equal(logger.warnings[0]?.context?.outcome, "success");
   assert.equal(logger.warnings[0]?.context?.finalStage, "select-ticket");
+});
+
+test("status inclui modelo e reasoning selecionados e observados", () => {
+  const { controller } = createController();
+  const state = createState({
+    activeProject: cloneProject(defaultActiveProject),
+    planSpecSession: createPlanSpecSession({
+      observedModel: "gpt-5.4",
+      observedReasoningEffort: "xhigh",
+      observedAt: new Date("2026-03-13T10:00:00.000Z"),
+    }),
+    codexChatSession: createCodexChatSession({
+      observedModel: "gpt-5.4",
+      observedReasoningEffort: "high",
+      observedAt: new Date("2026-03-13T10:05:00.000Z"),
+    }),
+  });
+  const codexPreferences = new Map<string, CodexResolvedProjectPreferences | Error>([
+    [
+      `${defaultActiveProject.name}::${defaultActiveProject.path}`,
+      createResolvedCodexPreferences({
+        project: defaultActiveProject,
+        model: "gpt-5.4",
+        reasoningEffort: "xhigh",
+      }),
+    ],
+  ]);
+
+  const reply = callBuildStatusReply(controller, state, codexPreferences);
+
+  assert.match(reply, /Projeto ativo Codex: gpt-5\.4 \| reasoning xhigh \| origem runner-local/u);
+  assert.match(reply, /Seleção atual \/plan_spec Codex: gpt-5\.4 \| reasoning xhigh/u);
+  assert.match(reply, /Último turn_context \/plan_spec: gpt-5\.4 \| reasoning xhigh/u);
+  assert.match(reply, /Seleção atual \/codex_chat Codex: gpt-5\.4 \| reasoning xhigh/u);
+  assert.match(reply, /Último turn_context \/codex_chat: gpt-5\.4 \| reasoning high/u);
 });
 
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {

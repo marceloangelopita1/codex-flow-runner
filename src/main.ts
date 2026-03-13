@@ -1,10 +1,14 @@
 import { loadEnv } from "./config/env.js";
 import { resolveActiveProject } from "./core/active-project-resolver.js";
+import { DefaultCodexPreferencesService } from "./core/codex-preferences.js";
 import { Logger } from "./core/logger.js";
 import { ActiveProjectSelectionService } from "./core/project-selection.js";
 import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
+import { FileSystemCodexLocalConfigReader } from "./integrations/codex-config.js";
 import { CodexCliTicketFlowClient } from "./integrations/codex-client.js";
+import { FileSystemCodexModelCatalogReader } from "./integrations/codex-model-catalog.js";
+import { FileSystemCodexProjectPreferencesStore } from "./integrations/codex-project-preferences-store.js";
 import { GitCliVersioning } from "./integrations/git-client.js";
 import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js";
 import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
@@ -24,10 +28,21 @@ const bootstrap = async () => {
   const projectDiscovery = new FileSystemProjectDiscovery();
   const specDiscovery = new FileSystemSpecDiscovery();
   const activeProjectStore = new FileSystemActiveProjectStore(env.PROJECTS_ROOT_PATH);
+  const codexProjectPreferencesStore = new FileSystemCodexProjectPreferencesStore(
+    env.PROJECTS_ROOT_PATH,
+  );
   const projectSelection = new ActiveProjectSelectionService(env.PROJECTS_ROOT_PATH, {
     discovery: projectDiscovery,
     store: activeProjectStore,
   });
+  const codexPreferencesService = new DefaultCodexPreferencesService(
+    {
+      catalogReader: new FileSystemCodexModelCatalogReader(),
+      configReader: new FileSystemCodexLocalConfigReader(),
+      store: codexProjectPreferencesStore,
+    },
+    logger,
+  );
 
   const resolveRunnerRoundDependencies = async (
     source: DependencyResolutionSource,
@@ -38,6 +53,9 @@ const bootstrap = async () => {
     });
 
     const activeProjectPath = activeProjectResolution.activeProject.path;
+    const activeProjectRef = {
+      ...activeProjectResolution.activeProject,
+    };
     logger.info("Projeto ativo global resolvido", {
       source,
       projectsRootPath: env.PROJECTS_ROOT_PATH,
@@ -51,7 +69,20 @@ const bootstrap = async () => {
     return {
       activeProject: activeProjectResolution.activeProject,
       queue: new FileSystemTicketQueue(activeProjectPath),
-      codexClient: new CodexCliTicketFlowClient(activeProjectPath, logger),
+      codexClient: new CodexCliTicketFlowClient(
+        activeProjectPath,
+        logger,
+        {},
+        {
+          resolveInvocationPreferences: async () => {
+            const resolved = await codexPreferencesService.resolveProjectPreferences(activeProjectRef);
+            return {
+              model: resolved.model,
+              reasoningEffort: resolved.reasoningEffort,
+            };
+          },
+        },
+      ),
       gitVersioning: new GitCliVersioning(activeProjectPath),
     };
   };
@@ -195,6 +226,7 @@ const bootstrap = async () => {
           await telegram.sendRunFlowSummary(event);
         },
       },
+      codexPreferencesService,
     },
   );
 
@@ -252,6 +284,11 @@ const bootstrap = async () => {
       },
       pause: runner.requestPause,
       resume: runner.requestResume,
+      listCodexModels: runner.listActiveProjectCodexModels,
+      selectCodexModel: runner.selectActiveProjectCodexModel,
+      listCodexReasoning: runner.listActiveProjectCodexReasoning,
+      selectCodexReasoning: runner.selectActiveProjectCodexReasoning,
+      resolveCodexProjectPreferences: runner.resolveCodexProjectPreferences,
       onPlanSpecQuestionOptionSelected: runner.handlePlanSpecQuestionOptionSelection,
       onPlanSpecFinalActionSelected: runner.handlePlanSpecFinalActionSelection,
       listProjects: projectSelection.listProjects.bind(projectSelection),

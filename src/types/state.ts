@@ -42,6 +42,9 @@ export interface PlanSpecSessionState {
   lastCodexActivityAt: Date | null;
   lastCodexStream: PlanSpecCodexStream | null;
   lastCodexPreview: string | null;
+  observedModel: string | null;
+  observedReasoningEffort: string | null;
+  observedAt: Date | null;
   activeProjectSnapshot: ProjectRef;
 }
 
@@ -68,6 +71,9 @@ export interface CodexChatSessionState {
   lastCodexActivityAt: Date | null;
   lastCodexStream: CodexChatCodexStream | null;
   lastCodexPreview: string | null;
+  observedModel: string | null;
+  observedReasoningEffort: string | null;
+  observedAt: Date | null;
   activeProjectSnapshot: ProjectRef;
 }
 

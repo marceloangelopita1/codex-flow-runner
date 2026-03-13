@@ -142,6 +142,59 @@ test("args nao interativos usam full access explicito por chamada", () => {
   assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), false);
 });
 
+test("args nao interativos aceitam modelo e reasoning explicitos", () => {
+  const args = buildNonInteractiveCodexArgs({
+    model: "gpt-5.4",
+    reasoningEffort: "xhigh",
+  });
+
+  assert.deepEqual(args, [
+    "-a",
+    "never",
+    "exec",
+    "--skip-git-repo-check",
+    "-s",
+    "danger-full-access",
+    "--color",
+    "never",
+    "-m",
+    "gpt-5.4",
+    "-c",
+    'model_reasoning_effort="xhigh"',
+    "-",
+  ]);
+});
+
+test("runStage encaminha preferencias resolvidas para codex exec", async () => {
+  let capturedPreferences: { model: string; reasoningEffort: string } | null | undefined;
+
+  const client = new CodexCliTicketFlowClient(
+    "/tmp/repo",
+    new SpyLogger(),
+    {
+      loadPromptTemplate: async () => "# prompt",
+      runCodexCommand: async (request) => {
+        capturedPreferences = request.preferences;
+        return { stdout: "ok", stderr: "" };
+      },
+      resolvePlanDirectoryName: async () => "execplans",
+    },
+    {
+      resolveInvocationPreferences: async () => ({
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+      }),
+    },
+  );
+
+  await client.runStage("implement", ticket);
+
+  assert.deepEqual(capturedPreferences, {
+    model: "gpt-5.4",
+    reasoningEffort: "high",
+  });
+});
+
 test("runStage(plan) adapta caminho esperado para repositorio com plans", async () => {
   let capturedPrompt = "";
 
@@ -429,6 +482,7 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
         return {
           stdout: [
             `{"type":"thread.started","thread_id":"${threadId}"}`,
+            '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"xhigh"}}',
             '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"[[PLAN_SPEC_QUESTION]]\\nPergunta: Qual escopo devemos priorizar?\\nOpcoes:\\n- [api] API\\n- [bot] Bot Telegram\\n[[/PLAN_SPEC_QUESTION]]"}}',
             '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
           ].join("\n"),
@@ -439,12 +493,18 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
       return {
         stdout: [
           `{"type":"thread.started","thread_id":"${threadId}"}`,
+          '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"xhigh"}}',
           '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: Plano final\\nResumo: Implementar migracao para exec resume json.\\nAcoes:\\n- Criar spec\\n- Refinar\\n- Cancelar\\n[[/PLAN_SPEC_FINAL]]"}}',
           '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
         ].join("\n"),
         stderr: "",
       };
     },
+  }, {
+    resolveInvocationPreferences: async () => ({
+      model: "gpt-5.4",
+      reasoningEffort: "xhigh",
+    }),
   });
 
   const session = await client.startPlanSession({
@@ -464,6 +524,9 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(capturedArgs[0]?.includes("--json"), true);
   assert.equal(capturedArgs[0]?.includes("-s"), true);
   assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
+  assert.equal(capturedArgs[0]?.includes("-m"), true);
+  assert.equal(capturedArgs[0]?.includes("gpt-5.4"), true);
+  assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="xhigh"'), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Brief do operador: brief inicial/u);
   assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /\[\[PLAN_SPEC_QUESTION\]\]/u);
@@ -472,6 +535,8 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
   assert.equal(capturedArgs[1]?.includes("-s"), false);
   assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
+  assert.equal(capturedArgs[1]?.includes("-m"), true);
+  assert.equal(capturedArgs[1]?.includes('model_reasoning_effort="xhigh"'), true);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
   assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "refine com mais detalhes");
@@ -599,7 +664,7 @@ test("startPlanSession falha quando codex exec --json nao retorna agent_message"
 });
 
 test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_id", async () => {
-  const events: Array<{ type: string; text?: string }> = [];
+  const events: Array<{ type: string; text?: string; model?: string; reasoningEffort?: string }> = [];
   const capturedArgs: string[][] = [];
   const threadId = "019c7f32-4dda-71a0-a33f-00b65eca7c2b";
 
@@ -612,6 +677,7 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
         return {
           stdout: [
             `{"type":"thread.started","thread_id":"${threadId}"}`,
+            '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
             '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**analisando**"}}',
             '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Primeira resposta"}}',
             '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
@@ -623,12 +689,18 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
       return {
         stdout: [
           `{"type":"thread.started","thread_id":"${threadId}"}`,
+          '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
           '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Segunda resposta"}}',
           '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
         ].join("\n"),
         stderr: "2026-02-21T07:55:36Z WARN codex_core::state_db: fallback\n",
       };
     },
+  }, {
+    resolveInvocationPreferences: async () => ({
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+    }),
   });
 
   const session = await client.startFreeChatSession({
@@ -636,6 +708,15 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
       onEvent: (event) => {
         if (event.type === "raw-sanitized") {
           events.push({ type: event.type, text: event.text });
+          return;
+        }
+
+        if (event.type === "turn-context") {
+          events.push({
+            type: event.type,
+            model: event.model,
+            reasoningEffort: event.reasoningEffort,
+          });
           return;
         }
 
@@ -652,20 +733,35 @@ test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_i
 
   const rawMessages = events.filter((event) => event.type === "raw-sanitized").map((event) => event.text);
   const turnCompletions = events.filter((event) => event.type === "turn-complete");
+  const turnContexts = events.filter((event) => event.type === "turn-context");
   assert.deepEqual(rawMessages, ["Primeira resposta", "Segunda resposta"]);
   assert.equal(turnCompletions.length, 2);
+  assert.deepEqual(
+    turnContexts.map((event) => ({
+      model: event.model,
+      reasoningEffort: event.reasoningEffort,
+    })),
+    [
+      { model: "gpt-5.4", reasoningEffort: "high" },
+      { model: "gpt-5.4", reasoningEffort: "high" },
+    ],
+  );
 
   assert.equal(capturedArgs.length, 2);
   assert.equal(capturedArgs[0]?.includes("resume"), false);
   assert.equal(capturedArgs[0]?.includes("--json"), true);
   assert.equal(capturedArgs[0]?.includes("-s"), true);
   assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
+  assert.equal(capturedArgs[0]?.includes("-m"), true);
+  assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="high"'), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
 
   assert.equal(capturedArgs[1]?.includes("resume"), true);
   assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
   assert.equal(capturedArgs[1]?.includes("-s"), false);
   assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
+  assert.equal(capturedArgs[1]?.includes("-m"), true);
+  assert.equal(capturedArgs[1]?.includes('model_reasoning_effort="high"'), true);
   const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
   assert.equal(resumeThreadIdIndex >= 0, true);
 

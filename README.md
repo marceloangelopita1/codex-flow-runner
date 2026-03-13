@@ -29,6 +29,7 @@ Depois de configurar o bot, o Telegram vira um painel de controle simples:
 
 - voce pode ver o status do runner;
 - pode escolher em qual projeto ele vai trabalhar;
+- pode escolher o modelo e o nivel de reasoning por projeto;
 - pode listar tickets abertos;
 - pode criar e refinar uma spec em linguagem natural;
 - pode mandar uma spec entrar no fluxo automatizado;
@@ -715,7 +716,9 @@ Primeiros testes sugeridos no Telegram:
 1. envie `/start`;
 2. envie `/status`;
 3. envie `/projects`;
-4. quando quiser iniciar a rodada sequencial, envie `/run_all`.
+4. envie `/models`;
+5. envie `/reasoning`;
+6. quando quiser iniciar a rodada sequencial, envie `/run_all`.
 
 Observacoes:
 
@@ -1105,6 +1108,12 @@ npm run dev
 - `/projects` -> lista projetos elegiveis com paginacao e marca o projeto ativo
 - `/select_project <nome>` -> seleciona projeto ativo por nome (fallback textual)
 - `/select-project <nome>` -> alias legado compativel para `/select_project`
+- `/models` -> lista os modelos disponiveis no catalogo local do Codex para o projeto ativo e permite trocar o modelo atual
+- `/reasoning` -> lista os niveis de reasoning suportados pelo modelo atual do projeto ativo e permite trocar o effort
+
+Modelo e reasoning sao preferencias por projeto. O runner persiste a escolha em `.codex-flow-runner/codex-project-preferences.json` dentro de `PROJECTS_ROOT_PATH`, nao altera `~/.codex/config.toml`, aplica a mudanca no proximo turno de `/codex_chat` e `/plan_spec`, e congela um snapshot por slot durante `/run_all`, `/run_specs` e execucao unitaria de ticket.
+
+As listas de `/models` e `/reasoning` sao lidas dinamicamente do catalogo local do Codex em `~/.codex/models_cache.json`. Se esse catalogo estiver ausente, invalido ou ilegivel, o bot responde com erro observavel em vez de usar fallback hardcoded.
 
 ### Confiabilidade do resumo final por ticket
 

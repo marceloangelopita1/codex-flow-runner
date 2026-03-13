@@ -21,6 +21,13 @@ import type {
   RunSpecsRequestResult,
 } from "../core/runner.js";
 import { ProjectRef } from "../types/project.js";
+import {
+  CodexModelSelectionResult,
+  CodexModelSelectionSnapshot,
+  CodexReasoningSelectionResult,
+  CodexReasoningSelectionSnapshot,
+  CodexResolvedProjectPreferences,
+} from "../types/codex-preferences.js";
 import { RunnerSlotKind, RunnerState } from "../types/state.js";
 import {
   TicketFinalSummary,
@@ -78,6 +85,18 @@ interface BotControls {
   selectProjectByName: (
     projectName: string,
   ) => Promise<ProjectSelectionControlResult> | ProjectSelectionControlResult;
+  listCodexModels: () => Promise<CodexModelSelectionSnapshot> | CodexModelSelectionSnapshot;
+  selectCodexModel: (
+    model: string,
+  ) => Promise<CodexModelSelectionResult> | CodexModelSelectionResult;
+  listCodexReasoning: () =>
+    Promise<CodexReasoningSelectionSnapshot> | CodexReasoningSelectionSnapshot;
+  selectCodexReasoning: (
+    effort: string,
+  ) => Promise<CodexReasoningSelectionResult> | CodexReasoningSelectionResult;
+  resolveCodexProjectPreferences: (
+    project: ProjectRef,
+  ) => Promise<CodexResolvedProjectPreferences> | CodexResolvedProjectPreferences;
   onPlanSpecQuestionOptionSelected?: (
     chatId: string,
     optionValue: string,
@@ -205,6 +224,36 @@ type ParsedProjectsCallbackData =
       status: "invalid";
     };
 
+type ParsedModelsCallbackData =
+  | {
+      status: "page";
+      contextId: string;
+      page: number;
+    }
+  | {
+      status: "select";
+      contextId: string;
+      model: string;
+    }
+  | {
+      status: "invalid";
+    };
+
+type ParsedReasoningCallbackData =
+  | {
+      status: "page";
+      contextId: string;
+      page: number;
+    }
+  | {
+      status: "select";
+      contextId: string;
+      effort: string;
+    }
+  | {
+      status: "invalid";
+    };
+
 type ParsedPlanSpecCallbackData =
   | {
       status: "question";
@@ -274,6 +323,17 @@ interface SpecsCallbackContextState {
 interface TicketsOpenCallbackContextState {
   chatId: string;
   consumed: boolean;
+}
+
+interface ModelsCallbackContextState {
+  chatId: string;
+  activeProjectSnapshot: ProjectRef;
+}
+
+interface ReasoningCallbackContextState {
+  chatId: string;
+  activeProjectSnapshot: ProjectRef;
+  model: string;
 }
 
 interface TicketRunCallbackContextState {
@@ -443,6 +503,31 @@ const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
 const PROJECTS_CALLBACK_SELECT_PREFIX = "projects:select:";
+const MODELS_PAGE_SIZE = 5;
+const MODELS_CALLBACK_PREFIX = "models:";
+const MODELS_CALLBACK_PAGE_PREFIX = "models:page:";
+const MODELS_CALLBACK_SELECT_PREFIX = "models:select:";
+const MODELS_EMPTY_REPLY =
+  "ℹ️ Nenhum modelo selecionavel foi encontrado no catalogo local do Codex.";
+const MODELS_LIST_FAILED_REPLY =
+  "❌ Falha ao listar modelos do Codex. Verifique logs do runner e tente novamente.";
+const MODELS_CALLBACK_INVALID_REPLY = "Ação de modelo inválida.";
+const MODELS_CALLBACK_STALE_REPLY = "A lista de modelos expirou. Use /models para atualizar.";
+const MODELS_CALLBACK_SELECTION_FAILED_REPLY =
+  "❌ Falha ao atualizar o modelo do Codex. Use /models para tentar novamente.";
+const REASONING_PAGE_SIZE = 5;
+const REASONING_CALLBACK_PREFIX = "reasoning:";
+const REASONING_CALLBACK_PAGE_PREFIX = "reasoning:page:";
+const REASONING_CALLBACK_SELECT_PREFIX = "reasoning:select:";
+const REASONING_EMPTY_REPLY =
+  "ℹ️ Nenhum nivel de reasoning suportado foi encontrado para o modelo atual.";
+const REASONING_LIST_FAILED_REPLY =
+  "❌ Falha ao listar levels de reasoning do Codex. Verifique logs do runner e tente novamente.";
+const REASONING_CALLBACK_INVALID_REPLY = "Ação de reasoning inválida.";
+const REASONING_CALLBACK_STALE_REPLY =
+  "A lista de reasoning expirou. Use /reasoning para atualizar.";
+const REASONING_CALLBACK_SELECTION_FAILED_REPLY =
+  "❌ Falha ao atualizar o reasoning do Codex. Use /reasoning para tentar novamente.";
 const PLAN_SPEC_CALLBACK_PREFIX = "plan-spec:";
 const PLAN_SPEC_CALLBACK_QUESTION_PREFIX = "plan-spec:question:";
 const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
@@ -528,6 +613,8 @@ const START_REPLY_LINES = [
   "/pause - pausa após a etapa corrente",
   "/resume - retoma execução",
   "/projects - lista projetos elegíveis com paginação",
+  "/models - lista os modelos do Codex disponíveis para o projeto ativo",
+  "/reasoning - lista os niveis de reasoning suportados pelo modelo atual",
   "/select_project <nome> - seleciona projeto ativo por nome (alias legado: /select-project)",
 ];
 
@@ -538,6 +625,10 @@ export class TelegramController {
   private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
   private ticketsOpenCallbackContextCounter = 0;
   private readonly ticketsOpenCallbackContexts = new Map<string, TicketsOpenCallbackContextState>();
+  private modelsCallbackContextCounter = 0;
+  private readonly modelsCallbackContexts = new Map<string, ModelsCallbackContextState>();
+  private reasoningCallbackContextCounter = 0;
+  private readonly reasoningCallbackContexts = new Map<string, ReasoningCallbackContextState>();
   private ticketRunCallbackContextCounter = 0;
   private readonly ticketRunCallbackContexts = new Map<string, TicketRunCallbackContextState>();
   private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
@@ -1107,18 +1198,7 @@ export class TelegramController {
     });
 
     this.bot.command("status", async (ctx) => {
-      if (
-        !this.isAllowed({
-          chatId: ctx.chat.id.toString(),
-          eventType: "command",
-          command: "status",
-        })
-      ) {
-        await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
-        return;
-      }
-      const state = this.getState();
-      await ctx.reply(this.buildStatusReply(state));
+      await this.handleStatusCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("pause", async (ctx) => {
@@ -1131,6 +1211,14 @@ export class TelegramController {
 
     this.bot.command("projects", async (ctx) => {
       await this.handleProjectsCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("models", async (ctx) => {
+      await this.handleModelsCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("reasoning", async (ctx) => {
+      await this.handleReasoningCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("select_project", async (ctx) => {
@@ -1206,6 +1294,24 @@ export class TelegramController {
     await ctx.reply(this.buildRunnerProjectControlReply(result));
   }
 
+  private async handleStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const state = this.getState();
+    const codexPreferencesByProject = await this.resolveStatusCodexPreferences(state);
+    await ctx.reply(this.buildStatusReply(state, codexPreferencesByProject));
+  }
+
   private async handleCallbackQuery(ctx: CallbackContext): Promise<void> {
     const callbackData = ctx.callbackQuery.data;
     if (!callbackData) {
@@ -1229,6 +1335,16 @@ export class TelegramController {
 
     if (callbackData.startsWith(PROJECTS_CALLBACK_PREFIX)) {
       await this.handleProjectsCallbackQuery(ctx);
+      return;
+    }
+
+    if (callbackData.startsWith(MODELS_CALLBACK_PREFIX)) {
+      await this.handleModelsCallbackQuery(ctx);
+      return;
+    }
+
+    if (callbackData.startsWith(REASONING_CALLBACK_PREFIX)) {
+      await this.handleReasoningCallbackQuery(ctx);
       return;
     }
 
@@ -2312,6 +2428,76 @@ export class TelegramController {
     }
   }
 
+  private async handleModelsCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /models recebido via Telegram", { chatId });
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "models",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      const snapshot = await this.controls.listCodexModels();
+      if (snapshot.models.length === 0) {
+        await ctx.reply(MODELS_EMPTY_REPLY);
+        return;
+      }
+
+      const contextId = this.createModelsCallbackContext(chatId, snapshot.project);
+      const rendered = this.buildModelsReply(snapshot, 0, contextId);
+      await ctx.reply(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.error("Falha ao listar modelos do Codex via comando /models", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(MODELS_LIST_FAILED_REPLY);
+    }
+  }
+
+  private async handleReasoningCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /reasoning recebido via Telegram", { chatId });
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "reasoning",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      const snapshot = await this.controls.listCodexReasoning();
+      if (snapshot.reasoningLevels.length === 0) {
+        await ctx.reply(REASONING_EMPTY_REPLY);
+        return;
+      }
+
+      const contextId = this.createReasoningCallbackContext(
+        chatId,
+        snapshot.project,
+        snapshot.current.model,
+      );
+      const rendered = this.buildReasoningReply(snapshot, 0, contextId);
+      await ctx.reply(rendered.text, rendered.extra);
+    } catch (error) {
+      this.logger.error("Falha ao listar reasoning do Codex via comando /reasoning", {
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(REASONING_LIST_FAILED_REPLY);
+    }
+  }
+
   private async handleSelectProjectCommand(
     ctx: CommandContext,
     command: "select_project" | "select-project",
@@ -2400,6 +2586,138 @@ export class TelegramController {
     }
 
     await this.handleSelectProjectFromCallback(ctx, parsed.projectIndex);
+  }
+
+  private async handleModelsCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(MODELS_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseModelsCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, MODELS_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    const context = this.modelsCallbackContexts.get(parsed.contextId);
+    const state = this.getState();
+    if (!context || context.chatId !== chatId || !this.isSameProject(state.activeProject, context.activeProjectSnapshot)) {
+      await this.safeAnswerCallbackQuery(ctx, MODELS_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    if (parsed.status === "page") {
+      try {
+        const snapshot = await this.controls.listCodexModels();
+        const rendered = this.buildModelsReply(snapshot, parsed.page, parsed.contextId);
+        await ctx.editMessageText(rendered.text, rendered.extra);
+        await this.safeAnswerCallbackQuery(ctx);
+      } catch (error) {
+        this.logger.error("Falha ao paginar modelos do Codex via callback", {
+          chatId,
+          callbackData,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await this.safeAnswerCallbackQuery(ctx, MODELS_LIST_FAILED_REPLY);
+      }
+      return;
+    }
+
+    try {
+      const selection = await this.controls.selectCodexModel(parsed.model);
+      const snapshot = await this.controls.listCodexModels();
+      const rendered = this.buildModelsReply(
+        snapshot,
+        this.resolveModelsActivePage(snapshot, parsed.model),
+        parsed.contextId,
+      );
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx, this.buildSelectModelCallbackReply(selection));
+    } catch (error) {
+      this.logger.error("Falha ao selecionar modelo do Codex via callback", {
+        chatId,
+        callbackData,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, MODELS_CALLBACK_SELECTION_FAILED_REPLY);
+    }
+  }
+
+  private async handleReasoningCallbackQuery(ctx: CallbackContext): Promise<void> {
+    const callbackData = ctx.callbackQuery.data;
+    if (!callbackData || !callbackData.startsWith(REASONING_CALLBACK_PREFIX)) {
+      return;
+    }
+
+    const chatId = this.resolveContextChatId(ctx.chat);
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "callback-query",
+        callbackData,
+      })
+    ) {
+      await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseReasoningCallbackData(callbackData);
+    if (parsed.status === "invalid") {
+      await this.safeAnswerCallbackQuery(ctx, REASONING_CALLBACK_INVALID_REPLY);
+      return;
+    }
+
+    const context = this.reasoningCallbackContexts.get(parsed.contextId);
+    const state = this.getState();
+    if (!context || context.chatId !== chatId || !this.isSameProject(state.activeProject, context.activeProjectSnapshot)) {
+      await this.safeAnswerCallbackQuery(ctx, REASONING_CALLBACK_STALE_REPLY);
+      return;
+    }
+
+    try {
+      const snapshot = await this.controls.listCodexReasoning();
+      if (snapshot.current.model !== context.model) {
+        await this.safeAnswerCallbackQuery(ctx, REASONING_CALLBACK_STALE_REPLY);
+        return;
+      }
+
+      if (parsed.status === "page") {
+        const rendered = this.buildReasoningReply(snapshot, parsed.page, parsed.contextId);
+        await ctx.editMessageText(rendered.text, rendered.extra);
+        await this.safeAnswerCallbackQuery(ctx);
+        return;
+      }
+
+      const selection = await this.controls.selectCodexReasoning(parsed.effort);
+      const refreshedSnapshot = await this.controls.listCodexReasoning();
+      const rendered = this.buildReasoningReply(
+        refreshedSnapshot,
+        this.resolveReasoningActivePage(refreshedSnapshot),
+        parsed.contextId,
+      );
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx, this.buildSelectReasoningCallbackReply(selection));
+    } catch (error) {
+      this.logger.error("Falha ao selecionar reasoning do Codex via callback", {
+        chatId,
+        callbackData,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, REASONING_CALLBACK_SELECTION_FAILED_REPLY);
+    }
   }
 
   private async handlePlanSpecCallbackQuery(ctx: CallbackContext): Promise<void> {
@@ -3398,6 +3716,74 @@ export class TelegramController {
     return { status: "invalid" };
   }
 
+  private parseModelsCallbackData(callbackData: string): ParsedModelsCallbackData {
+    if (callbackData.startsWith(MODELS_CALLBACK_PAGE_PREFIX)) {
+      const payload = callbackData.slice(MODELS_CALLBACK_PAGE_PREFIX.length);
+      const [contextId, rawPage] = payload.split(":", 2);
+      const page = Number.parseInt(rawPage ?? "", 10);
+      if (!contextId || !Number.isFinite(page) || page < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "page",
+        contextId,
+        page,
+      };
+    }
+
+    if (callbackData.startsWith(MODELS_CALLBACK_SELECT_PREFIX)) {
+      const payload = callbackData.slice(MODELS_CALLBACK_SELECT_PREFIX.length);
+      const [contextId, rawModel] = payload.split(":", 2);
+      const model = decodeURIComponent(rawModel ?? "");
+      if (!contextId || !model) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "select",
+        contextId,
+        model,
+      };
+    }
+
+    return { status: "invalid" };
+  }
+
+  private parseReasoningCallbackData(callbackData: string): ParsedReasoningCallbackData {
+    if (callbackData.startsWith(REASONING_CALLBACK_PAGE_PREFIX)) {
+      const payload = callbackData.slice(REASONING_CALLBACK_PAGE_PREFIX.length);
+      const [contextId, rawPage] = payload.split(":", 2);
+      const page = Number.parseInt(rawPage ?? "", 10);
+      if (!contextId || !Number.isFinite(page) || page < 0) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "page",
+        contextId,
+        page,
+      };
+    }
+
+    if (callbackData.startsWith(REASONING_CALLBACK_SELECT_PREFIX)) {
+      const payload = callbackData.slice(REASONING_CALLBACK_SELECT_PREFIX.length);
+      const [contextId, rawEffort] = payload.split(":", 2);
+      const effort = decodeURIComponent(rawEffort ?? "");
+      if (!contextId || !effort) {
+        return { status: "invalid" };
+      }
+
+      return {
+        status: "select",
+        contextId,
+        effort,
+      };
+    }
+
+    return { status: "invalid" };
+  }
+
   private parsePlanSpecCallbackData(callbackData: string): ParsedPlanSpecCallbackData {
     if (callbackData.startsWith(PLAN_SPEC_CALLBACK_QUESTION_PREFIX)) {
       const optionValue = callbackData.slice(PLAN_SPEC_CALLBACK_QUESTION_PREFIX.length).trim();
@@ -3706,6 +4092,31 @@ export class TelegramController {
     return contextId;
   }
 
+  private createModelsCallbackContext(chatId: string, project: ProjectRef): string {
+    this.invalidateModelsCallbackContextsForChat(chatId);
+    const contextId = this.nextModelsCallbackContextId();
+    this.modelsCallbackContexts.set(contextId, {
+      chatId,
+      activeProjectSnapshot: { ...project },
+    });
+    return contextId;
+  }
+
+  private createReasoningCallbackContext(
+    chatId: string,
+    project: ProjectRef,
+    model: string,
+  ): string {
+    this.invalidateReasoningCallbackContextsForChat(chatId);
+    const contextId = this.nextReasoningCallbackContextId();
+    this.reasoningCallbackContexts.set(contextId, {
+      chatId,
+      activeProjectSnapshot: { ...project },
+      model,
+    });
+    return contextId;
+  }
+
   private createTicketsOpenCallbackContext(chatId: string): string {
     this.invalidateTicketsOpenCallbackContextsForChat(chatId);
     const contextId = this.nextTicketsOpenCallbackContextId();
@@ -3724,6 +4135,22 @@ export class TelegramController {
     }
   }
 
+  private invalidateModelsCallbackContextsForChat(chatId: string): void {
+    for (const [contextId, context] of this.modelsCallbackContexts.entries()) {
+      if (context.chatId === chatId) {
+        this.modelsCallbackContexts.delete(contextId);
+      }
+    }
+  }
+
+  private invalidateReasoningCallbackContextsForChat(chatId: string): void {
+    for (const [contextId, context] of this.reasoningCallbackContexts.entries()) {
+      if (context.chatId === chatId) {
+        this.reasoningCallbackContexts.delete(contextId);
+      }
+    }
+  }
+
   private invalidateTicketsOpenCallbackContextsForChat(chatId: string): void {
     for (const [contextId, context] of this.ticketsOpenCallbackContexts.entries()) {
       if (context.chatId === chatId) {
@@ -3735,6 +4162,16 @@ export class TelegramController {
   private nextSpecsCallbackContextId(): string {
     this.specsCallbackContextCounter += 1;
     return this.specsCallbackContextCounter.toString(36);
+  }
+
+  private nextModelsCallbackContextId(): string {
+    this.modelsCallbackContextCounter += 1;
+    return this.modelsCallbackContextCounter.toString(36);
+  }
+
+  private nextReasoningCallbackContextId(): string {
+    this.reasoningCallbackContextCounter += 1;
+    return this.reasoningCallbackContextCounter.toString(36);
   }
 
   private nextTicketsOpenCallbackContextId(): string {
@@ -3918,6 +4355,204 @@ export class TelegramController {
     };
   }
 
+  private buildModelsReply(
+    snapshot: CodexModelSelectionSnapshot,
+    requestedPage: number,
+    contextId: string,
+  ): { text: string; extra: ReplyOptions } {
+    const totalModels = snapshot.models.length;
+    const totalPages = Math.max(1, Math.ceil(totalModels / MODELS_PAGE_SIZE));
+    const page = Math.min(Math.max(requestedPage, 0), totalPages - 1);
+    const start = page * MODELS_PAGE_SIZE;
+    const pageModels = snapshot.models.slice(start, start + MODELS_PAGE_SIZE);
+
+    const lines = [
+      "🧠 Modelos do Codex",
+      `Projeto: ${snapshot.project.name}`,
+      `Página ${page + 1}/${totalPages}`,
+      `Modelo atual: ${this.renderCodexCurrentModelSummary(snapshot.current)}`,
+      `Reasoning atual: ${snapshot.current.reasoningEffort}`,
+      "",
+    ];
+
+    for (const [index, model] of pageModels.entries()) {
+      const absoluteIndex = start + index;
+      const marker = model.active ? "✅" : "▫️";
+      const description = model.description?.trim();
+      lines.push(
+        description
+          ? `${absoluteIndex + 1}. ${marker} ${model.displayName} - ${description}`
+          : `${absoluteIndex + 1}. ${marker} ${model.displayName}`,
+      );
+    }
+
+    lines.push("", "Toque em um modelo para selecionar.");
+
+    const inlineKeyboard: InlineKeyboardButton[][] = pageModels.map((model) => {
+      const marker = model.active ? "✅" : "▫️";
+      return [
+        {
+          text: `${marker} ${model.displayName}`,
+          callback_data: `${MODELS_CALLBACK_SELECT_PREFIX}${contextId}:${encodeURIComponent(model.slug)}`,
+        },
+      ];
+    });
+
+    const pageButtons = this.buildPagedNavigationButtons({
+      page,
+      totalPages,
+      previousPrefix: MODELS_CALLBACK_PAGE_PREFIX,
+      nextPrefix: MODELS_CALLBACK_PAGE_PREFIX,
+      contextId,
+    });
+    if (pageButtons.length > 0) {
+      inlineKeyboard.push(pageButtons);
+    }
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildReasoningReply(
+    snapshot: CodexReasoningSelectionSnapshot,
+    requestedPage: number,
+    contextId: string,
+  ): { text: string; extra: ReplyOptions } {
+    const totalLevels = snapshot.reasoningLevels.length;
+    const totalPages = Math.max(1, Math.ceil(totalLevels / REASONING_PAGE_SIZE));
+    const page = Math.min(Math.max(requestedPage, 0), totalPages - 1);
+    const start = page * REASONING_PAGE_SIZE;
+    const pageLevels = snapshot.reasoningLevels.slice(start, start + REASONING_PAGE_SIZE);
+
+    const lines = [
+      "🧩 Reasoning do Codex",
+      `Projeto: ${snapshot.project.name}`,
+      `Modelo atual: ${this.renderCodexCurrentModelSummary(snapshot.current)}`,
+      `Página ${page + 1}/${totalPages}`,
+      `Reasoning atual: ${snapshot.current.reasoningEffort}`,
+      "",
+    ];
+
+    for (const [index, level] of pageLevels.entries()) {
+      const absoluteIndex = start + index;
+      const marker = level.active ? "✅" : "▫️";
+      lines.push(`${absoluteIndex + 1}. ${marker} ${level.effort} - ${level.description}`);
+    }
+
+    lines.push("", "Toque em um nivel para selecionar.");
+
+    const inlineKeyboard: InlineKeyboardButton[][] = pageLevels.map((level) => {
+      const marker = level.active ? "✅" : "▫️";
+      return [
+        {
+          text: `${marker} ${level.effort}`,
+          callback_data: `${REASONING_CALLBACK_SELECT_PREFIX}${contextId}:${encodeURIComponent(level.effort)}`,
+        },
+      ];
+    });
+
+    const pageButtons = this.buildPagedNavigationButtons({
+      page,
+      totalPages,
+      previousPrefix: REASONING_CALLBACK_PAGE_PREFIX,
+      nextPrefix: REASONING_CALLBACK_PAGE_PREFIX,
+      contextId,
+    });
+    if (pageButtons.length > 0) {
+      inlineKeyboard.push(pageButtons);
+    }
+
+    return {
+      text: lines.join("\n"),
+      extra: {
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
+      },
+    };
+  }
+
+  private buildPagedNavigationButtons(params: {
+    page: number;
+    totalPages: number;
+    previousPrefix: string;
+    nextPrefix: string;
+    contextId: string;
+  }): InlineKeyboardButton[] {
+    const buttons: InlineKeyboardButton[] = [];
+    if (params.page > 0) {
+      buttons.push({
+        text: "⬅️ Anterior",
+        callback_data: `${params.previousPrefix}${params.contextId}:${params.page - 1}`,
+      });
+    }
+
+    if (params.page < params.totalPages - 1) {
+      buttons.push({
+        text: "Próxima ➡️",
+        callback_data: `${params.nextPrefix}${params.contextId}:${params.page + 1}`,
+      });
+    }
+
+    return buttons;
+  }
+
+  private renderCodexCurrentModelSummary(preferences: CodexResolvedProjectPreferences): string {
+    if (preferences.modelSelectable) {
+      return preferences.modelDisplayName;
+    }
+
+    return `${preferences.modelDisplayName} (atual, indisponivel para selecao)`;
+  }
+
+  private buildSelectModelCallbackReply(result: CodexModelSelectionResult): string {
+    if (result.status === "selected") {
+      if (result.reasoningResetFrom) {
+        return `Modelo atualizado. Reasoning resetado para ${result.current.reasoningEffort}.`;
+      }
+
+      return `Modelo atualizado para ${result.current.modelDisplayName}.`;
+    }
+
+    if (result.status === "not-selectable") {
+      return "Modelo indisponivel para selecao.";
+    }
+
+    return "Modelo nao encontrado no catalogo.";
+  }
+
+  private buildSelectReasoningCallbackReply(result: CodexReasoningSelectionResult): string {
+    if (result.status === "selected") {
+      return `Reasoning atualizado para ${result.current.reasoningEffort}.`;
+    }
+
+    return "Reasoning nao suportado pelo modelo atual.";
+  }
+
+  private resolveModelsActivePage(snapshot: CodexModelSelectionSnapshot, selectedModel: string): number {
+    const index = snapshot.models.findIndex((model) => model.slug === selectedModel || model.active);
+    if (index < 0) {
+      return 0;
+    }
+
+    return Math.floor(index / MODELS_PAGE_SIZE);
+  }
+
+  private resolveReasoningActivePage(snapshot: CodexReasoningSelectionSnapshot): number {
+    const index = snapshot.reasoningLevels.findIndex((level) => level.active);
+    if (index < 0) {
+      return 0;
+    }
+
+    return Math.floor(index / REASONING_PAGE_SIZE);
+  }
+
   private resolveActiveProjectPage(snapshot: ProjectSelectionSnapshot): number {
     const activeProjectIndex = snapshot.projects.findIndex((project) =>
       this.isSameProject(project, snapshot.activeProject),
@@ -3930,7 +4565,11 @@ export class TelegramController {
     return Math.floor(activeProjectIndex / PROJECTS_PAGE_SIZE);
   }
 
-  private isSameProject(left: ProjectRef, right: ProjectRef): boolean {
+  private isSameProject(left: ProjectRef | null | undefined, right: ProjectRef): boolean {
+    if (!left) {
+      return false;
+    }
+
     return left.name === right.name && left.path === right.path;
   }
 
@@ -4788,7 +5427,47 @@ export class TelegramController {
     return lines.join("\n");
   }
 
-  private buildStatusReply(state: RunnerState): string {
+  private async resolveStatusCodexPreferences(
+    state: RunnerState,
+  ): Promise<Map<string, CodexResolvedProjectPreferences | Error>> {
+    const projects = new Map<string, ProjectRef>();
+    const registerProject = (project: ProjectRef | null | undefined): void => {
+      if (!project) {
+        return;
+      }
+
+      const key = this.buildProjectKey(project);
+      if (!projects.has(key)) {
+        projects.set(key, { ...project });
+      }
+    };
+
+    registerProject(state.activeProject);
+    registerProject(state.planSpecSession?.activeProjectSnapshot);
+    registerProject(state.codexChatSession?.activeProjectSnapshot);
+
+    const results = new Map<string, CodexResolvedProjectPreferences | Error>();
+    await Promise.all(
+      Array.from(projects.values()).map(async (project) => {
+        try {
+          const resolved = await this.controls.resolveCodexProjectPreferences(project);
+          results.set(this.buildProjectKey(project), resolved);
+        } catch (error) {
+          results.set(
+            this.buildProjectKey(project),
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }),
+    );
+
+    return results;
+  }
+
+  private buildStatusReply(
+    state: RunnerState,
+    codexPreferencesByProject: Map<string, CodexResolvedProjectPreferences | Error> = new Map(),
+  ): string {
     const lines = [
       `Runner: ${state.isRunning ? "ativo" : "inativo"}`,
       `Pausado: ${state.isPaused ? "sim" : "não"}`,
@@ -4803,6 +5482,8 @@ export class TelegramController {
       `Última mensagem: ${state.lastMessage}`,
       `Atualizado em: ${state.updatedAt.toISOString()}`,
     ];
+
+    this.appendStatusCodexPreferences(lines, "Projeto ativo", state.activeProject, codexPreferencesByProject);
 
     if (state.activeSlots.length === 0) {
       lines.push("Slots ativos: nenhum");
@@ -4828,6 +5509,20 @@ export class TelegramController {
         `Última atividade /plan_spec: ${state.planSpecSession.lastActivityAt.toISOString()}`,
         `Última atividade Codex /plan_spec: ${state.planSpecSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
       );
+      this.appendStatusCodexPreferences(
+        lines,
+        "Seleção atual /plan_spec",
+        state.planSpecSession.activeProjectSnapshot,
+        codexPreferencesByProject,
+      );
+      if (state.planSpecSession.observedModel && state.planSpecSession.observedReasoningEffort) {
+        lines.push(
+          `Último turn_context /plan_spec: ${state.planSpecSession.observedModel} | reasoning ${state.planSpecSession.observedReasoningEffort}`,
+        );
+      }
+      if (state.planSpecSession.observedAt) {
+        lines.push(`Turn_context observado em /plan_spec: ${state.planSpecSession.observedAt.toISOString()}`);
+      }
       if (state.planSpecSession.waitingCodexSinceAt) {
         lines.push(
           `Aguardando Codex /plan_spec desde: ${state.planSpecSession.waitingCodexSinceAt.toISOString()}`,
@@ -4849,6 +5544,20 @@ export class TelegramController {
         `Inatividade do operador /codex_chat: ${state.codexChatSession.userInactivitySinceAt ? "ativa" : "pausada"}`,
         `Última atividade Codex /codex_chat: ${state.codexChatSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
       );
+      this.appendStatusCodexPreferences(
+        lines,
+        "Seleção atual /codex_chat",
+        state.codexChatSession.activeProjectSnapshot,
+        codexPreferencesByProject,
+      );
+      if (state.codexChatSession.observedModel && state.codexChatSession.observedReasoningEffort) {
+        lines.push(
+          `Último turn_context /codex_chat: ${state.codexChatSession.observedModel} | reasoning ${state.codexChatSession.observedReasoningEffort}`,
+        );
+      }
+      if (state.codexChatSession.observedAt) {
+        lines.push(`Turn_context observado em /codex_chat: ${state.codexChatSession.observedAt.toISOString()}`);
+      }
       if (state.codexChatSession.userInactivitySinceAt) {
         lines.push(
           `Inatividade do operador /codex_chat desde: ${state.codexChatSession.userInactivitySinceAt.toISOString()}`,
@@ -4936,6 +5645,58 @@ export class TelegramController {
     }
 
     return lines.join("\n");
+  }
+
+  private appendStatusCodexPreferences(
+    lines: string[],
+    label: string,
+    project: ProjectRef | null | undefined,
+    codexPreferencesByProject: Map<string, CodexResolvedProjectPreferences | Error>,
+  ): void {
+    if (!project) {
+      lines.push(`${label} Codex: projeto indisponivel`);
+      return;
+    }
+
+    const key = this.buildProjectKey(project);
+    const resolved = codexPreferencesByProject.get(key);
+    if (!resolved) {
+      lines.push(`${label} Codex: preferências ainda nao resolvidas`);
+      return;
+    }
+
+    if (resolved instanceof Error) {
+      lines.push(`${label} Codex: erro ao resolver preferências (${resolved.message})`);
+      return;
+    }
+
+    lines.push(
+      `${label} Codex: ${resolved.modelDisplayName} | reasoning ${resolved.reasoningEffort} | origem ${this.renderCodexPreferenceSource(resolved.source)}`,
+    );
+    if (!resolved.modelSelectable) {
+      lines.push(`${label} disponibilidade do modelo: atual, indisponivel para nova selecao`);
+    }
+    if (resolved.reasoningAdjustedFrom) {
+      lines.push(
+        `${label} reasoning ajustado automaticamente: ${resolved.reasoningAdjustedFrom} -> ${resolved.reasoningEffort}`,
+      );
+    }
+  }
+
+  private buildProjectKey(project: ProjectRef): string {
+    return `${project.name}::${project.path}`;
+  }
+
+  private renderCodexPreferenceSource(source: CodexResolvedProjectPreferences["source"]): string {
+    if (source === "runner-local") {
+      return "runner-local";
+    }
+
+    if (source === "codex-config") {
+      return "config-local";
+    }
+
+    return "catalogo";
   }
 
   private renderCodexChatClosureReason(

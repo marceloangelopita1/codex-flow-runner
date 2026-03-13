@@ -53,6 +53,9 @@ import {
   isTicketFlowStage,
 } from "../integrations/codex-client.js";
 import {
+  CodexPreferencesService,
+} from "./codex-preferences.js";
+import {
   FileSystemSpecPlanningTraceStore,
   SpecPlanningTraceSession,
   SpecPlanningTraceStore,
@@ -64,6 +67,13 @@ import {
 } from "../integrations/git-client.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
+import {
+  CodexModelSelectionResult,
+  CodexModelSelectionSnapshot,
+  CodexReasoningSelectionResult,
+  CodexReasoningSelectionSnapshot,
+  CodexResolvedProjectPreferences,
+} from "../types/codex-preferences.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -120,6 +130,7 @@ export interface TicketRunnerOptions {
   codexChatEventHandlers?: CodexChatEventHandlers;
   runSpecsEventHandlers?: RunSpecsEventHandlers;
   runFlowEventHandlers?: RunFlowEventHandlers;
+  codexPreferencesService?: CodexPreferencesService;
 }
 
 interface ActivePlanSpecSession {
@@ -287,6 +298,7 @@ type RunnerRequestBlockedReason =
   | "global-free-text-busy"
   | "project-slot-busy"
   | "runner-capacity-maxed"
+  | "codex-preferences-unavailable"
   | "shutdown-in-progress";
 
 type RunnerRequestBlockedResult = {
@@ -358,6 +370,7 @@ export type PlanSpecSessionStartResult =
         | "global-free-text-busy"
         | "project-slot-busy"
         | "runner-capacity-maxed"
+        | "codex-preferences-unavailable"
         | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
@@ -384,6 +397,7 @@ export type CodexChatSessionStartResult =
         | "codex-auth-missing"
         | "project-slot-busy"
         | "runner-capacity-maxed"
+        | "codex-preferences-unavailable"
         | "shutdown-in-progress";
       message: string;
       activeProjects?: ProjectRef[];
@@ -453,6 +467,7 @@ export class TicketRunner {
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
   private readonly runFlowEventHandlers?: RunFlowEventHandlers;
+  private readonly codexPreferencesService?: CodexPreferencesService;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
   private nextPlanSpecSessionId = 1;
@@ -492,6 +507,7 @@ export class TicketRunner {
     this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
     this.runFlowEventHandlers = options.runFlowEventHandlers;
+    this.codexPreferencesService = options.codexPreferencesService;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -526,6 +542,11 @@ export class TicketRunner {
                   lastCodexActivityAt: new Date(this.state.planSpecSession.lastCodexActivityAt),
                 }
               : {}),
+            ...(this.state.planSpecSession.observedAt
+              ? {
+                  observedAt: new Date(this.state.planSpecSession.observedAt),
+                }
+              : {}),
           },
         }
       : {}),
@@ -551,6 +572,11 @@ export class TicketRunner {
             ...(this.state.codexChatSession.lastCodexActivityAt
               ? {
                   lastCodexActivityAt: new Date(this.state.codexChatSession.lastCodexActivityAt),
+                }
+              : {}),
+            ...(this.state.codexChatSession.observedAt
+              ? {
+                  observedAt: new Date(this.state.codexChatSession.observedAt),
                 }
               : {}),
           },
@@ -594,6 +620,54 @@ export class TicketRunner {
 
   requestResume = (): RunnerProjectControlResult => this.requestProjectControl("resume");
 
+  resolveCodexProjectPreferences = async (
+    project: ProjectRef,
+  ): Promise<CodexResolvedProjectPreferences> => {
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.resolveProjectPreferences(project);
+  };
+
+  listActiveProjectCodexModels = async (): Promise<CodexModelSelectionSnapshot> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("listar modelos");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.listModels(activeProject);
+  };
+
+  selectActiveProjectCodexModel = async (model: string): Promise<CodexModelSelectionResult> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("selecionar modelo");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.selectModel(activeProject, model);
+  };
+
+  listActiveProjectCodexReasoning = async (): Promise<CodexReasoningSelectionSnapshot> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("listar reasoning");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.listReasoning(activeProject);
+  };
+
+  selectActiveProjectCodexReasoning = async (
+    effort: string,
+  ): Promise<CodexReasoningSelectionResult> => {
+    const activeProject = this.requireActiveProjectForCodexPreferences("selecionar reasoning");
+    if (!this.codexPreferencesService) {
+      throw new Error("Servico de preferencias do Codex nao configurado no runner.");
+    }
+
+    return this.codexPreferencesService.selectReasoning(activeProject, effort);
+  };
+
   syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
     if (this.isPlanSpecSessionActive()) {
       return { status: "blocked-plan-spec" };
@@ -614,6 +688,14 @@ export class TicketRunner {
 
     return { status: "updated" };
   };
+
+  private requireActiveProjectForCodexPreferences(action: string): ProjectRef {
+    if (!this.state.activeProject) {
+      throw new Error(`Projeto ativo indisponivel para ${action} do Codex.`);
+    }
+
+    return { ...this.state.activeProject };
+  }
 
   startPlanSpecSession = async (chatId: string): Promise<PlanSpecSessionStartResult> => {
     this.logger.info("Solicitacao de inicio de sessao /plan_spec recebida", {
@@ -705,6 +787,24 @@ export class TicketRunner {
       };
     }
 
+    try {
+      await slot.codexClient.snapshotInvocationPreferences();
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message = this.buildCodexPreferencesResolutionErrorMessage(slot.project, error);
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver preferencias do Codex ao iniciar /plan_spec", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-preferences-unavailable",
+        message,
+      };
+    }
+
     if (this.isShuttingDown) {
       this.releaseSlot(slot.key);
       return this.buildShutdownBlockedResult("/plan_spec");
@@ -739,6 +839,9 @@ export class TicketRunner {
         lastCodexActivityAt: null,
         lastCodexStream: null,
         lastCodexPreview: null,
+        observedModel: null,
+        observedReasoningEffort: null,
+        observedAt: null,
         activeProjectSnapshot: { ...slot.project },
       };
       this.activePlanSpecSession = {
@@ -939,6 +1042,24 @@ export class TicketRunner {
       };
     }
 
+    try {
+      await slot.codexClient.snapshotInvocationPreferences();
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message = this.buildCodexPreferencesResolutionErrorMessage(slot.project, error);
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver preferencias do Codex ao iniciar /codex_chat", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-preferences-unavailable",
+        message,
+      };
+    }
+
     if (this.isShuttingDown) {
       this.releaseSlot(slot.key);
       return this.buildShutdownBlockedResult("/codex_chat");
@@ -974,6 +1095,9 @@ export class TicketRunner {
         lastCodexActivityAt: null,
         lastCodexStream: null,
         lastCodexPreview: null,
+        observedModel: null,
+        observedReasoningEffort: null,
+        observedAt: null,
         activeProjectSnapshot: { ...slot.project },
       };
       this.activeCodexChatSession = {
@@ -1260,7 +1384,20 @@ export class TicketRunner {
       this.syncStateFromSlots();
     }
 
+    let specExecutionClient: CodexTicketFlowClient = session.codexClient;
     try {
+      const fixedPreferences = await session.codexClient.snapshotInvocationPreferences();
+      specExecutionClient = session.codexClient.forkWithFixedInvocationPreferences(fixedPreferences);
+      this.logger.info("Preferencias do Codex snapshotadas para acao create-spec do /plan_spec", {
+        sessionId: session.id,
+        chatId: session.chatId,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
+        specFileName: spec.fileName,
+        model: fixedPreferences?.model ?? null,
+        reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
+      });
+
       await this.finalizePlanSpecSession(session.id, {
         mode: "cancel",
         phase: "plan-spec-waiting-codex",
@@ -1281,7 +1418,7 @@ export class TicketRunner {
           `Executando etapa plan-spec-materialize para ${spec.fileName}`,
         );
       }
-      const materializeResult = await session.codexClient.runSpecStage("plan-spec-materialize", {
+      const materializeResult = await specExecutionClient.runSpecStage("plan-spec-materialize", {
         fileName: spec.fileName,
         path: spec.path,
         plannedTitle: finalBlock.title,
@@ -1306,7 +1443,7 @@ export class TicketRunner {
           `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
         );
       }
-      const versionResult = await session.codexClient.runSpecStage("plan-spec-version-and-push", {
+      const versionResult = await specExecutionClient.runSpecStage("plan-spec-version-and-push", {
         fileName: spec.fileName,
         path: spec.path,
         commitMessage,
@@ -1836,6 +1973,11 @@ export class TicketRunner {
       return;
     }
 
+    if (event.type === "turn-context") {
+      this.recordCodexChatTurnContext(activeSession, codexChatSession, sessionId, event);
+      return;
+    }
+
     if (event.type === "turn-complete") {
       activeSession.turnCompletionFlushArmed = true;
       this.scheduleCodexChatTurnCompletionFlush(sessionId);
@@ -1914,6 +2056,28 @@ export class TicketRunner {
       bytes: event.activity.bytes,
       preview: codexChatSession.lastCodexPreview,
       ...(suppressedEvents > 0 ? { suppressedEvents, suppressedBytes } : {}),
+      activeProjectName: codexChatSession.activeProjectSnapshot.name,
+      activeProjectPath: codexChatSession.activeProjectSnapshot.path,
+    });
+  }
+
+  private recordCodexChatTurnContext(
+    activeSession: ActiveCodexChatSession,
+    codexChatSession: NonNullable<RunnerState["codexChatSession"]>,
+    sessionId: number,
+    event: Extract<CodexChatSessionEvent, { type: "turn-context" }>,
+  ): void {
+    const observedAt = this.now();
+    codexChatSession.observedModel = event.model;
+    codexChatSession.observedReasoningEffort = event.reasoningEffort;
+    codexChatSession.observedAt = observedAt;
+    codexChatSession.lastActivityAt = observedAt;
+
+    this.logger.info("Lifecycle /codex_chat: turn-context observado", {
+      chatId: activeSession.chatId,
+      sessionId,
+      model: event.model,
+      reasoningEffort: event.reasoningEffort,
       activeProjectName: codexChatSession.activeProjectSnapshot.name,
       activeProjectPath: codexChatSession.activeProjectSnapshot.path,
     });
@@ -2255,6 +2419,12 @@ export class TicketRunner {
       return;
     }
 
+    if (event.type === "turn-context") {
+      this.recordPlanSpecTurnContext(activeSession, planSpecSession, sessionId, event);
+      this.refreshPlanSpecCodexHeartbeat(sessionId);
+      return;
+    }
+
     if (event.type === "question") {
       activeSession.latestFinalBlock = null;
       this.setPlanSpecPhase(
@@ -2301,6 +2471,28 @@ export class TicketRunner {
       activeProjectPath: planSpecSession.activeProjectSnapshot.path,
     });
     await this.emitPlanSpecRawOutput(activeSession.chatId, event);
+  }
+
+  private recordPlanSpecTurnContext(
+    activeSession: ActivePlanSpecSession,
+    planSpecSession: NonNullable<RunnerState["planSpecSession"]>,
+    sessionId: number,
+    event: Extract<PlanSpecSessionEvent, { type: "turn-context" }>,
+  ): void {
+    const observedAt = this.now();
+    planSpecSession.observedModel = event.model;
+    planSpecSession.observedReasoningEffort = event.reasoningEffort;
+    planSpecSession.observedAt = observedAt;
+    planSpecSession.lastActivityAt = observedAt;
+
+    this.logger.info("Lifecycle /plan_spec: turn-context observado", {
+      chatId: activeSession.chatId,
+      sessionId,
+      model: event.model,
+      reasoningEffort: event.reasoningEffort,
+      activeProjectName: planSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: planSpecSession.activeProjectSnapshot.path,
+    });
   }
 
   private shouldThrottlePlanSpecRawOutput(
@@ -2673,6 +2865,33 @@ export class TicketRunner {
     if (this.isShuttingDown) {
       this.releaseSlot(slot.key);
       return this.buildShutdownBlockedResult(command);
+    }
+
+    try {
+      const fixedPreferences = await slot.codexClient.snapshotInvocationPreferences();
+      slot.codexClient = slot.codexClient.forkWithFixedInvocationPreferences(fixedPreferences);
+      this.logger.info("Preferencias do Codex snapshotadas para slot multi-etapa", {
+        command,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+        model: fixedPreferences?.model ?? null,
+        reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
+      });
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message = this.buildCodexPreferencesResolutionErrorMessage(slot.project, error);
+      this.touch("error", message);
+      this.logger.error("Falha ao snapshotar preferencias do Codex antes da rodada", {
+        command,
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-preferences-unavailable",
+        message,
+      };
     }
 
     slot.isStarting = false;
@@ -4555,6 +4774,18 @@ export class TicketRunner {
     return [
       `Falha ao resolver projeto ativo para rodada ${command}.`,
       "Verifique PROJECTS_ROOT_PATH, descoberta e estado persistido do projeto ativo.",
+      `Detalhes: ${details}`,
+    ].join(" ");
+  }
+
+  private buildCodexPreferencesResolutionErrorMessage(
+    project: ProjectRef,
+    error: unknown,
+  ): string {
+    const details = error instanceof Error ? error.message : String(error);
+    return [
+      `Falha ao resolver modelo e reasoning do Codex para o projeto ${project.name}.`,
+      "Verifique o catalogo local em ~/.codex/models_cache.json e a configuracao em ~/.codex/config.toml.",
       `Detalhes: ${details}`,
     ].join(" ");
   }
