@@ -166,6 +166,12 @@ Por isso, mudar um arquivo em `prompts/` pode alterar o comportamento de todas a
 
 O projeto executa o ciclo sequencial por ticket com chamadas reais ao Codex CLI (`plan -> implement -> close-and-version`), mantendo controle operacional por Telegram.
 
+## Licenca
+
+Este projeto esta licenciado sob a **The Unlicense**.
+
+Na pratica, isso significa uso o mais livre possivel: qualquer pessoa pode copiar, modificar, distribuir, vender e reutilizar este projeto para qualquer finalidade.
+
 ## Dependencia obrigatoria do Codex CLI
 
 Este projeto **depende diretamente do Codex CLI** instalado no ambiente local.

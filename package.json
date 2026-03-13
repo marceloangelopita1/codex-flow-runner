@@ -2,6 +2,7 @@
   "name": "codex-flow-runner",
   "version": "0.1.0",
   "description": "Automação contínua de tickets usando Codex SDK + Telegram no WSL.",
+  "license": "Unlicense",
   "private": true,
   "type": "module",
   "scripts": {
