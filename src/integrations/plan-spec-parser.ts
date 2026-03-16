@@ -41,6 +41,17 @@ const PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS = [
   "planspecquestionperguntaperguntaobjetiva",
   "planspecfinaltitulotitulofinaldaspec",
   "resumoresumofinalobjetivo",
+  "objetivoobjetivocentraldaspec",
+  "atoresatorprincipal",
+  "jornadapassoprincipaldajornada",
+  "rfsrf01descricaoobjetiva",
+  "casca01validacaoobservavel",
+  "naoescopoitemforadeescopo",
+  "restricoestecnicasrestricaotecnicaounenhum",
+  "validacoesobrigatoriasvalidacaoobrigatoriaounenhum",
+  "validacoesmanuaispendentesvalidacaomanualpendenteounenhum",
+  "riscosconhecidosriscoconhecidoounenhum",
+  "naocomprimarfscasjornadariscosenaoescopoemumunicoresumo",
 ] as const;
 
 export type PlanSpecFinalActionId = "create-spec" | "refine" | "cancel";
@@ -60,9 +71,23 @@ export interface PlanSpecFinalAction {
   label: string;
 }
 
+export interface PlanSpecFinalOutline {
+  objective: string;
+  actors: string[];
+  journey: string[];
+  requirements: string[];
+  acceptanceCriteria: string[];
+  nonScope: string[];
+  technicalConstraints: string[];
+  mandatoryValidations: string[];
+  pendingManualValidations: string[];
+  knownRisks: string[];
+}
+
 export interface PlanSpecFinalBlock {
   title: string;
   summary: string;
+  outline: PlanSpecFinalOutline;
   actions: PlanSpecFinalAction[];
 }
 
@@ -108,6 +133,22 @@ const DEFAULT_FINAL_ACTIONS: PlanSpecFinalAction[] = [
     label: "Cancelar",
   },
 ];
+
+const FINAL_BLOCK_STOP_LABELS_PATTERN = [
+  "(?:titulo|title)",
+  "(?:resumo|summary)",
+  "(?:objetivo|objective)",
+  "(?:atores|actors)",
+  "(?:jornada|journey)",
+  "(?:rfs|requisitos funcionais|requirements)",
+  "(?:cas|criterios de aceitacao|acceptance criteria)",
+  "(?:nao-escopo|nao escopo|non-scope|non scope)",
+  "(?:restricoes tecnicas|technical constraints)",
+  "(?:validacoes obrigatorias|mandatory validations)",
+  "(?:validacoes manuais pendentes|pending manual validations|manual validations pending)",
+  "(?:riscos conhecidos|known risks)",
+  "(?:a[cç][oõ]es|actions)",
+].join("|");
 
 export const createPlanSpecParserState = (): PlanSpecParserState => ({
   pendingChunk: "",
@@ -616,21 +657,66 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
     ...summaryLines,
   ].filter(Boolean);
   let summary = summaryParts.join("\n").trim();
+  const outline: PlanSpecFinalOutline = {
+    objective:
+      extractTaggedField(body, "(?:objetivo|objective)", FINAL_BLOCK_STOP_LABELS_PATTERN) ?? "",
+    actors: extractTaggedListField(body, "(?:atores|actors)", FINAL_BLOCK_STOP_LABELS_PATTERN),
+    journey: extractTaggedListField(body, "(?:jornada|journey)", FINAL_BLOCK_STOP_LABELS_PATTERN),
+    requirements: extractTaggedListField(
+      body,
+      "(?:rfs|requisitos funcionais|requirements)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    acceptanceCriteria: extractTaggedListField(
+      body,
+      "(?:cas|criterios de aceitacao|acceptance criteria)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    nonScope: extractTaggedListField(
+      body,
+      "(?:nao-escopo|nao escopo|non-scope|non scope)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    technicalConstraints: extractTaggedListField(
+      body,
+      "(?:restricoes tecnicas|technical constraints)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    mandatoryValidations: extractTaggedListField(
+      body,
+      "(?:validacoes obrigatorias|mandatory validations)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    pendingManualValidations: extractTaggedListField(
+      body,
+      "(?:validacoes manuais pendentes|pending manual validations|manual validations pending)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+    knownRisks: extractTaggedListField(
+      body,
+      "(?:riscos conhecidos|known risks)",
+      FINAL_BLOCK_STOP_LABELS_PATTERN,
+    ),
+  };
 
   const taggedTitle = extractTaggedField(
     body,
     "(?:titulo|title)",
-    "(?:resumo|summary|a[cç][oõ]es|actions)",
+    FINAL_BLOCK_STOP_LABELS_PATTERN,
   );
   if (
     taggedTitle &&
-    (!title || hasInlineFieldMarker(title, "(?:resumo|summary|a[cç][oõ]es|actions)"))
+    (!title || hasInlineFieldMarker(title, FINAL_BLOCK_STOP_LABELS_PATTERN))
   ) {
     title = taggedTitle;
   }
 
-  const taggedSummary = extractTaggedField(body, "(?:resumo|summary)", "(?:a[cç][oõ]es|actions)");
-  if (taggedSummary && (!summary || hasInlineFieldMarker(summary, "(?:a[cç][oõ]es|actions)"))) {
+  const taggedSummary = extractTaggedField(
+    body,
+    "(?:resumo|summary)",
+    FINAL_BLOCK_STOP_LABELS_PATTERN,
+  );
+  if (taggedSummary && (!summary || hasInlineFieldMarker(summary, FINAL_BLOCK_STOP_LABELS_PATTERN))) {
     summary = taggedSummary;
   }
 
@@ -647,6 +733,7 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
   const finalBlock: PlanSpecFinalBlock = {
     title,
     summary,
+    outline,
     actions: actions.size > 0 ? [...actions.values()] : [...DEFAULT_FINAL_ACTIONS],
   };
 
@@ -771,6 +858,44 @@ const extractTaggedField = (
   labelsPattern: string,
   stopLabelsPattern?: string,
 ): string | null => {
+  const extractedBlock = extractTaggedBlock(body, labelsPattern, stopLabelsPattern);
+  if (!extractedBlock) {
+    return null;
+  }
+
+  const cleaned = cleanupInlineSegment(extractedBlock);
+  return cleaned || null;
+};
+
+const extractTaggedListField = (
+  body: string,
+  labelsPattern: string,
+  stopLabelsPattern?: string,
+): string[] => {
+  const extractedBlock = extractTaggedBlock(body, labelsPattern, stopLabelsPattern);
+  if (!extractedBlock) {
+    return [];
+  }
+
+  const listItems = extractedBlock
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => normalizeStructuredListItem(line))
+    .filter((line): line is string => Boolean(line));
+
+  if (listItems.length === 0) {
+    const inlineItem = normalizeStructuredListItem(extractedBlock);
+    return inlineItem ? [inlineItem] : [];
+  }
+
+  return listItems;
+};
+
+const extractTaggedBlock = (
+  body: string,
+  labelsPattern: string,
+  stopLabelsPattern?: string,
+): string | null => {
   const pattern = stopLabelsPattern
     ? new RegExp(
         `(?:${labelsPattern})\\s*:\\s*([\\s\\S]*?)(?=(?:${stopLabelsPattern})\\s*:|$)`,
@@ -782,12 +907,36 @@ const extractTaggedField = (
     return null;
   }
 
-  const cleaned = cleanupInlineSegment(match[1]);
+  const cleaned = cleanupBlockSegment(match[1]);
   return cleaned || null;
 };
 
 const cleanupInlineSegment = (value: string): string => {
   return value.replace(/\s+/gu, " ").trim();
+};
+
+const cleanupBlockSegment = (value: string): string => {
+  return value
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/gu, "\n\n")
+    .trim();
+};
+
+const normalizeStructuredListItem = (value: string): string | null => {
+  const cleaned = cleanupInlineSegment(value.replace(/^(?:[-*]|\d+[.)])\s*/u, ""));
+  if (!cleaned) {
+    return null;
+  }
+
+  const compact = toCompactComparableText(cleaned);
+  if (compact === "nenhum" || compact === "nenhuma" || compact === "naoaplica" || compact === "na") {
+    return null;
+  }
+
+  return cleaned;
 };
 
 const hasInlineFieldMarker = (value: string, fieldPattern: string): boolean => {

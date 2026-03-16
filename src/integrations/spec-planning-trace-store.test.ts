@@ -5,6 +5,19 @@ import path from "node:path";
 import test from "node:test";
 import { FileSystemSpecPlanningTraceStore } from "./spec-planning-trace-store.js";
 
+const createSpecOutline = () => ({
+  objective: "Transformar o planejamento guiado em uma spec pronta para execucao.",
+  actors: ["Operador do Telegram", "Codex Runner"],
+  journey: ["Operador descreve a necessidade.", "Codex devolve um bloco final estruturado."],
+  requirements: ["RF-01 - A spec deve preservar RFs e CAs aprovados."],
+  acceptanceCriteria: ["CA-01 - O bloco final estruturado fica persistido na trilha."],
+  nonScope: ["Nao implementar a feature final nesta etapa."],
+  technicalConstraints: ["Manter o protocolo parseavel."],
+  mandatoryValidations: ["Conferir se a spec criada segue o template oficial."],
+  pendingManualValidations: ["Revisar a clareza da jornada com um humano."],
+  knownRisks: ["Contexto comprimido reduz a qualidade dos tickets posteriores."],
+});
+
 const createTempProjectRoot = async (): Promise<string> =>
   fs.mkdtemp(path.join(os.tmpdir(), "spec-planning-trace-store-"));
 
@@ -27,6 +40,7 @@ test("startSession cria trilha request/decision e writeStageResponse persiste ou
       specFileName: "2026-02-19-bridge-interativa-do-codex.md",
       specTitle: "Bridge interativa do Codex",
       specSummary: "Sessao /plan com parser e callbacks no Telegram.",
+      specOutline: createSpecOutline(),
       commitMessage: "feat(spec): add 2026-02-19-bridge-interativa-do-codex.md",
       createdAt: new Date("2026-02-19T22:04:00.000Z"),
     });
@@ -43,16 +57,26 @@ test("startSession cria trilha request/decision e writeStageResponse persiste ou
     assert.match(requestContent, /Spec planning request/u);
     assert.match(requestContent, /Bridge interativa do Codex/u);
     assert.match(requestContent, /feat\(spec\): add/u);
+    assert.match(requestContent, /Objective: Transformar o planejamento guiado/u);
+    assert.match(requestContent, /### Requirements/u);
+    assert.match(requestContent, /RF-01 - A spec deve preservar RFs e CAs aprovados\./u);
 
     const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, session.decisionPath), "utf8");
     const decision = JSON.parse(decisionRaw) as {
       action: string;
       specFileName: string;
       sessionId: number;
+      specOutline: {
+        objective: string;
+      };
     };
     assert.equal(decision.action, "create-spec");
     assert.equal(decision.sessionId, 7);
     assert.equal(decision.specFileName, "2026-02-19-bridge-interativa-do-codex.md");
+    assert.equal(
+      decision.specOutline.objective,
+      "Transformar o planejamento guiado em uma spec pronta para execucao.",
+    );
 
     await store.writeStageResponse(session.materializeResponsePath, {
       stage: "plan-spec-materialize",
@@ -95,6 +119,7 @@ test("startSession evita sobrescrita silenciosa em colisao de traceId", async ()
       specFileName: "2026-02-19-spec-planejada.md",
       specTitle: "Spec planejada",
       specSummary: "Resumo final aprovado.",
+      specOutline: createSpecOutline(),
       commitMessage: "feat(spec): add 2026-02-19-spec-planejada.md",
       createdAt: new Date("2026-02-19T22:10:00.000Z"),
     };

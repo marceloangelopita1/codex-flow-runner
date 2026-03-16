@@ -198,6 +198,64 @@ const createCodexChatSession = (
   ...value,
 });
 
+const createPlanSpecFinalBlock = (
+  value: Partial<PlanSpecFinalBlock> = {},
+): PlanSpecFinalBlock => {
+  const defaultOutline: PlanSpecFinalBlock["outline"] = {
+    objective: "Transformar o planejamento em uma spec rica e reutilizavel.",
+    actors: ["Operador do Telegram", "Runner do Codex"],
+    journey: [
+      "Operador descreve a necessidade.",
+      "Codex devolve um bloco final estruturado.",
+    ],
+    requirements: [
+      "RF-01 - Preservar RFs aprovados na spec criada.",
+      "RF-02 - Preservar CAs observaveis na materializacao.",
+    ],
+    acceptanceCriteria: [
+      "CA-01 - O resumo final mostra RFs e CAs.",
+      "CA-02 - O contexto aprovado chega inteiro na spec criada.",
+    ],
+    nonScope: ["Nao implementar a feature final nesta etapa."],
+    technicalConstraints: ["Manter o protocolo parseavel."],
+    mandatoryValidations: ["Conferir se RFs e CAs aparecem na spec."],
+    pendingManualValidations: ["Revisar a clareza final com um humano."],
+    knownRisks: ["Resumo curto demais reduz a qualidade da spec."],
+  };
+
+  return {
+    title: value.title ?? "Bridge interativa do Codex",
+    summary: value.summary ?? "Sessao /plan com parser e callbacks no Telegram.",
+    outline: {
+      objective: value.outline?.objective ?? defaultOutline.objective,
+      actors: [...(value.outline?.actors ?? defaultOutline.actors)],
+      journey: [...(value.outline?.journey ?? defaultOutline.journey)],
+      requirements: [...(value.outline?.requirements ?? defaultOutline.requirements)],
+      acceptanceCriteria: [
+        ...(value.outline?.acceptanceCriteria ?? defaultOutline.acceptanceCriteria),
+      ],
+      nonScope: [...(value.outline?.nonScope ?? defaultOutline.nonScope)],
+      technicalConstraints: [
+        ...(value.outline?.technicalConstraints ?? defaultOutline.technicalConstraints),
+      ],
+      mandatoryValidations: [
+        ...(value.outline?.mandatoryValidations ?? defaultOutline.mandatoryValidations),
+      ],
+      pendingManualValidations: [
+        ...(value.outline?.pendingManualValidations ?? defaultOutline.pendingManualValidations),
+      ],
+      knownRisks: [...(value.outline?.knownRisks ?? defaultOutline.knownRisks)],
+    },
+    actions: value.actions
+      ? value.actions.map((action) => ({ ...action }))
+      : [
+          { id: "create-spec", label: "Criar spec" },
+          { id: "refine", label: "Refinar" },
+          { id: "cancel", label: "Cancelar" },
+        ],
+  };
+};
+
 type ControlCommand =
   | "start"
   | "run_all"
@@ -4355,20 +4413,16 @@ test("pergunta parseada gera teclado inline com opcoes clicaveis (CA-07)", () =>
 
 test("bloco final parseado gera botoes Criar spec, Refinar e Cancelar (CA-09)", () => {
   const { controller } = createController();
-  const finalBlock: PlanSpecFinalBlock = {
-    title: "Bridge interativa do Codex",
-    summary: "Sessao /plan com parser e callbacks no Telegram.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  };
+  const finalBlock = createPlanSpecFinalBlock();
 
   const rendered = callBuildPlanSpecFinalReply(controller, finalBlock);
 
   assert.match(rendered.text, /Planejamento concluído/u);
   assert.match(rendered.text, /Título: Bridge interativa do Codex/u);
+  assert.match(rendered.text, /Objetivo:/u);
+  assert.match(rendered.text, /RFs:/u);
+  assert.match(rendered.text, /CAs:/u);
+  assert.match(rendered.text, /Nao-escopo:/u);
   const extra = rendered.extra as {
     reply_markup?: {
       inline_keyboard?: Array<Array<{ callback_data: string; text: string }>>;
@@ -4460,15 +4514,7 @@ test("callback final do /plan_spec destaca acao, trava botoes e confirma no chat
   const answers: string[] = [];
   const edits: Array<{ text: string; extra?: unknown }> = [];
 
-  await controller.sendPlanSpecFinalization("42", {
-    title: "Bridge interativa do Codex",
-    summary: "Sessao /plan com parser e callbacks no Telegram.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  });
+  await controller.sendPlanSpecFinalization("42", createPlanSpecFinalBlock());
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
@@ -4525,15 +4571,7 @@ test("callback final de Refinar retorna ao ciclo sem lock quando runner rejeita 
   const answers: string[] = [];
   const edits: Array<{ text: string; extra?: unknown }> = [];
 
-  await controller.sendPlanSpecFinalization("42", {
-    title: "Bridge interativa do Codex",
-    summary: "Sessao /plan com parser e callbacks no Telegram.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  });
+  await controller.sendPlanSpecFinalization("42", createPlanSpecFinalBlock());
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
@@ -4721,15 +4759,7 @@ test("callback de /plan_spec registra decision com reason tipado e sessionId (CA
   });
   const sentMessages = mockSendMessage(controller, { startingMessageId: 1100 });
 
-  await controller.sendPlanSpecFinalization("42", {
-    title: "Bridge interativa do Codex",
-    summary: "Sessao /plan com parser e callbacks no Telegram.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  });
+  await controller.sendPlanSpecFinalization("42", createPlanSpecFinalBlock());
 
   await callHandlePlanSpecCallbackQuery(controller, {
     chat: { id: 42 },
@@ -4978,15 +5008,13 @@ test("envia mensagens de pergunta/final/raw/falha do planejamento no Telegram", 
     prompt: "Qual escopo?",
     options: [{ value: "api", label: "API" }],
   });
-  await controller.sendPlanSpecFinalization("42", {
-    title: "Bridge de planejamento",
-    summary: "Resumo final da conversa.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  });
+  await controller.sendPlanSpecFinalization(
+    "42",
+    createPlanSpecFinalBlock({
+      title: "Bridge de planejamento",
+      summary: "Resumo final da conversa.",
+    }),
+  );
   await controller.sendPlanSpecRawOutput("42", "\u001b[31mConteudo bruto\u001b[0m");
   await controller.sendPlanSpecFailure("42", "sessao caiu");
 

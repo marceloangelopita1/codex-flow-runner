@@ -45,6 +45,7 @@ export interface SpecRef {
   path: string;
   plannedTitle?: string;
   plannedSummary?: string;
+  plannedOutline?: PlanSpecFinalBlock["outline"];
   commitMessage?: string;
   tracePaths?: SpecPlanningTracePaths;
 }
@@ -242,12 +243,32 @@ const PLAN_SPEC_PROTOCOL_PRIMER = [
   "[[PLAN_SPEC_FINAL]]",
   "Titulo: <titulo final da spec>",
   "Resumo: <resumo final objetivo>",
+  "Objetivo: <objetivo central da spec>",
+  "Atores:",
+  "- <ator principal>",
+  "Jornada:",
+  "- <passo principal da jornada>",
+  "RFs:",
+  "- <RF-01 descricao objetiva>",
+  "CAs:",
+  "- <CA-01 validacao observavel>",
+  "Nao-escopo:",
+  "- <item fora de escopo>",
+  "Restricoes tecnicas:",
+  "- <restricao tecnica ou 'Nenhum'>",
+  "Validacoes obrigatorias:",
+  "- <validacao obrigatoria ou 'Nenhum'>",
+  "Validacoes manuais pendentes:",
+  "- <validacao manual pendente ou 'Nenhum'>",
+  "Riscos conhecidos:",
+  "- <risco conhecido ou 'Nenhum'>",
   "Acoes:",
   "- Criar spec",
   "- Refinar",
   "- Cancelar",
   "[[/PLAN_SPEC_FINAL]]",
   "",
+  "Nao comprima RFs, CAs, jornada, riscos e nao-escopo em um unico resumo.",
   "Nao inclua texto fora dos blocos acima.",
 ].join("\n");
 const CODEX_APPROVAL_NEVER_ARGS = ["-a", "never"] as const;
@@ -724,13 +745,28 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     const commitMessage = spec.commitMessage ?? this.buildSpecCommitMessage(stage, spec.fileName);
     const plannedTitle = spec.plannedTitle?.trim() ?? "";
     const plannedSummary = spec.plannedSummary?.trim() ?? "";
+    const plannedOutline = spec.plannedOutline;
     const traceRequestPath = spec.tracePaths?.requestPath ?? "";
     const traceResponsePath = spec.tracePaths?.responsePath ?? "";
     const traceDecisionPath = spec.tracePaths?.decisionPath ?? "";
 
-    if (stage === "plan-spec-materialize" && (!plannedTitle || !plannedSummary)) {
+    if (
+      stage === "plan-spec-materialize" &&
+      (!plannedTitle ||
+        !plannedSummary ||
+        !plannedOutline ||
+        !plannedOutline.objective.trim() ||
+        plannedOutline.actors.length === 0 ||
+        plannedOutline.journey.length === 0 ||
+        plannedOutline.requirements.length === 0 ||
+        plannedOutline.acceptanceCriteria.length === 0 ||
+        plannedOutline.nonScope.length === 0)
+    ) {
       throw new Error(
-        "Etapa plan-spec-materialize exige titulo e resumo finais aprovados da sessao /plan_spec.",
+        [
+          "Etapa plan-spec-materialize exige contexto estruturado aprovado da sessao /plan_spec.",
+          "Campos minimos: titulo, resumo, objetivo, atores, jornada, RFs, CAs e nao-escopo.",
+        ].join(" "),
       );
     }
 
@@ -749,6 +785,31 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       .replace(/<COMMIT_MESSAGE>/gu, commitMessage)
       .replace(/<SPEC_TITLE>/gu, plannedTitle)
       .replace(/<SPEC_SUMMARY>/gu, plannedSummary)
+      .replace(/<SPEC_OBJECTIVE>/gu, plannedOutline?.objective.trim() ?? "")
+      .replace(/<SPEC_ACTORS>/gu, this.renderPlanSpecOutlineList(plannedOutline?.actors))
+      .replace(/<SPEC_JOURNEY>/gu, this.renderPlanSpecOutlineList(plannedOutline?.journey))
+      .replace(/<SPEC_REQUIREMENTS>/gu, this.renderPlanSpecOutlineList(plannedOutline?.requirements))
+      .replace(
+        /<SPEC_ACCEPTANCE_CRITERIA>/gu,
+        this.renderPlanSpecOutlineList(plannedOutline?.acceptanceCriteria),
+      )
+      .replace(/<SPEC_NON_SCOPE>/gu, this.renderPlanSpecOutlineList(plannedOutline?.nonScope))
+      .replace(
+        /<SPEC_TECHNICAL_CONSTRAINTS>/gu,
+        this.renderPlanSpecOutlineList(plannedOutline?.technicalConstraints),
+      )
+      .replace(
+        /<SPEC_MANDATORY_VALIDATIONS>/gu,
+        this.renderPlanSpecOutlineList(plannedOutline?.mandatoryValidations),
+      )
+      .replace(
+        /<SPEC_PENDING_MANUAL_VALIDATIONS>/gu,
+        this.renderPlanSpecOutlineList(plannedOutline?.pendingManualValidations),
+      )
+      .replace(
+        /<SPEC_KNOWN_RISKS>/gu,
+        this.renderPlanSpecOutlineList(plannedOutline?.knownRisks),
+      )
       .replace(/<TRACE_REQUEST_PATH>/gu, traceRequestPath)
       .replace(/<TRACE_RESPONSE_PATH>/gu, traceResponsePath)
       .replace(/<TRACE_DECISION_PATH>/gu, traceDecisionPath);
@@ -770,6 +831,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         ? [
             `- Titulo final aprovado: \`${plannedTitle}\``,
             `- Resumo final aprovado: \`${plannedSummary}\``,
+            `- Objetivo aprovado: \`${plannedOutline?.objective.trim() ?? ""}\``,
+            `- Atores aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.actors)}`,
+            `- RFs aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.requirements)}`,
+            `- CAs aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.acceptanceCriteria)}`,
           ]
         : []),
       ...(stage === "plan-spec-version-and-push"
@@ -781,6 +846,22 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         : []),
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
+  }
+
+  private renderPlanSpecOutlineList(values?: string[]): string {
+    if (!values || values.length === 0) {
+      return "- Nenhum";
+    }
+
+    return values.map((value) => `- ${value}`).join("\n");
+  }
+
+  private renderPlanSpecOutlineSummary(values?: string[]): string {
+    if (!values || values.length === 0) {
+      return "nenhum declarado";
+    }
+
+    return values.map((value) => `\`${value}\``).join(", ");
   }
 
   private buildPlanStageTemplate(

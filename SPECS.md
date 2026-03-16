@@ -76,6 +76,8 @@ Toda spec deve conter:
 - requisitos funcionais;
 - assumptions/defaults relevantes quando houver escolhas padrao;
 - criterios de aceitacao observaveis;
+- restricoes tecnicas relevantes quando houver;
+- validacoes obrigatorias/manuais pendentes quando houver;
 - nao-escopo;
 - status de atendimento e pendencias;
 - registro final de auditoria quando o fluxo derivado ja tiver sido executado;

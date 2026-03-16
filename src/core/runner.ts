@@ -1393,6 +1393,15 @@ export class TicketRunner {
       };
     }
 
+    const finalBlockValidationError = this.validatePlanSpecFinalBlockForMaterialization(finalBlock);
+    if (finalBlockValidationError) {
+      return {
+        status: "ignored",
+        reason: "invalid-action",
+        message: `${finalBlockValidationError} Use \`Refinar\` para completar o planejamento antes de criar a spec.`,
+      };
+    }
+
     const createdAt = this.now();
     const spec = this.buildPlannedSpecRef(finalBlock.title, createdAt);
     const commitMessage = `feat(spec): add ${spec.fileName}`;
@@ -1419,6 +1428,18 @@ export class TicketRunner {
         specFileName: spec.fileName,
         specTitle: finalBlock.title,
         specSummary: finalBlock.summary,
+        specOutline: {
+          objective: finalBlock.outline.objective,
+          actors: [...finalBlock.outline.actors],
+          journey: [...finalBlock.outline.journey],
+          requirements: [...finalBlock.outline.requirements],
+          acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
+          nonScope: [...finalBlock.outline.nonScope],
+          technicalConstraints: [...finalBlock.outline.technicalConstraints],
+          mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
+          pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
+          knownRisks: [...finalBlock.outline.knownRisks],
+        },
         commitMessage,
         createdAt,
       });
@@ -1485,6 +1506,18 @@ export class TicketRunner {
         path: spec.path,
         plannedTitle: finalBlock.title,
         plannedSummary: finalBlock.summary,
+        plannedOutline: {
+          objective: finalBlock.outline.objective,
+          actors: [...finalBlock.outline.actors],
+          journey: [...finalBlock.outline.journey],
+          requirements: [...finalBlock.outline.requirements],
+          acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
+          nonScope: [...finalBlock.outline.nonScope],
+          technicalConstraints: [...finalBlock.outline.technicalConstraints],
+          mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
+          pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
+          knownRisks: [...finalBlock.outline.knownRisks],
+        },
       });
       await traceStore.writeStageResponse(traceSession.materializeResponsePath, {
         stage: "plan-spec-materialize",
@@ -2502,6 +2535,18 @@ export class TicketRunner {
       activeSession.latestFinalBlock = {
         title: event.final.title,
         summary: event.final.summary,
+        outline: {
+          objective: event.final.outline.objective,
+          actors: [...event.final.outline.actors],
+          journey: [...event.final.outline.journey],
+          requirements: [...event.final.outline.requirements],
+          acceptanceCriteria: [...event.final.outline.acceptanceCriteria],
+          nonScope: [...event.final.outline.nonScope],
+          technicalConstraints: [...event.final.outline.technicalConstraints],
+          mandatoryValidations: [...event.final.outline.mandatoryValidations],
+          pendingManualValidations: [...event.final.outline.pendingManualValidations],
+          knownRisks: [...event.final.outline.knownRisks],
+        },
         actions: event.final.actions.map((action) => ({ ...action })),
       };
       this.setPlanSpecPhase(
@@ -4735,6 +4780,36 @@ export class TicketRunner {
       reasoningEffort,
       speed: preferences.speed ?? "standard",
     };
+  }
+
+  private validatePlanSpecFinalBlockForMaterialization(
+    finalBlock: PlanSpecFinalBlock,
+  ): string | null {
+    const missingFields: string[] = [];
+    if (!finalBlock.outline.objective.trim()) {
+      missingFields.push("objetivo");
+    }
+    if (finalBlock.outline.actors.length === 0) {
+      missingFields.push("atores");
+    }
+    if (finalBlock.outline.journey.length === 0) {
+      missingFields.push("jornada");
+    }
+    if (finalBlock.outline.requirements.length === 0) {
+      missingFields.push("RFs");
+    }
+    if (finalBlock.outline.acceptanceCriteria.length === 0) {
+      missingFields.push("CAs");
+    }
+    if (finalBlock.outline.nonScope.length === 0) {
+      missingFields.push("nao-escopo");
+    }
+
+    if (missingFields.length === 0) {
+      return null;
+    }
+
+    return `Bloco final do planejamento incompleto para materializar a spec; faltam: ${missingFields.join(", ")}.`;
   }
 
   private cloneFlowCodexPreferencesSnapshot(

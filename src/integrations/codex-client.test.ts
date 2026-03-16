@@ -29,11 +29,34 @@ const spec = {
   path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
 };
 
+const plannedOutline = {
+  objective: "Transformar a sessao /plan em uma spec rica e reutilizavel.",
+  actors: ["Operador do Telegram", "Runner do Codex"],
+  journey: [
+    "Operador descreve o objetivo em linguagem natural.",
+    "Codex devolve um bloco final estruturado.",
+  ],
+  requirements: [
+    "RF-01 - A materializacao deve preservar RFs aprovados.",
+    "RF-02 - A spec criada deve manter CAs observaveis.",
+  ],
+  acceptanceCriteria: [
+    "CA-01 - O prompt recebe RFs, CAs e jornada aprovados.",
+    "CA-02 - A spec criada nao perde nao-escopo e riscos conhecidos.",
+  ],
+  nonScope: ["Nao implementar o produto final nesta etapa."],
+  technicalConstraints: ["Manter o protocolo parseavel e sequencial."],
+  mandatoryValidations: ["Conferir se RFs e CAs aparecem na spec criada."],
+  pendingManualValidations: ["Revisar a clareza da jornada com um operador humano."],
+  knownRisks: ["Resumo curto demais reduz a qualidade da spec materializada."],
+};
+
 const plannedSpec = {
   fileName: "2026-02-19-bridge-interativa-do-codex.md",
   path: "docs/specs/2026-02-19-bridge-interativa-do-codex.md",
   plannedTitle: "Bridge interativa do Codex",
   plannedSummary: "Sessao /plan com parser e callbacks no Telegram.",
+  plannedOutline,
   tracePaths: {
     requestPath: "spec_planning/requests/20260219t220400z-s1-request.md",
     responsePath: "spec_planning/responses/20260219t220400z-s1-materialize.md",
@@ -368,7 +391,7 @@ test("runSpecStage(spec-audit) usa commit de auditoria e prompt dedicado", async
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
 });
 
-test("runSpecStage(plan-spec-materialize) injeta titulo/resumo finais e caminho da spec planejada", async () => {
+test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho da spec planejada", async () => {
   let capturedPrompt = "";
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
@@ -380,6 +403,17 @@ test("runSpecStage(plan-spec-materialize) injeta titulo/resumo finais e caminho 
         "Arquivo: <SPEC_FILE_NAME>",
         "Titulo: <SPEC_TITLE>",
         "Resumo: <SPEC_SUMMARY>",
+        "Objetivo: <SPEC_OBJECTIVE>",
+        "Atores:",
+        "<SPEC_ACTORS>",
+        "Jornada:",
+        "<SPEC_JOURNEY>",
+        "RFs:",
+        "<SPEC_REQUIREMENTS>",
+        "CAs:",
+        "<SPEC_ACCEPTANCE_CRITERIA>",
+        "Nao-escopo:",
+        "<SPEC_NON_SCOPE>",
       ].join("\n"),
     runCodexCommand: async (request) => {
       capturedPrompt = request.prompt;
@@ -393,7 +427,38 @@ test("runSpecStage(plan-spec-materialize) injeta titulo/resumo finais e caminho 
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-bridge-interativa-do-codex\.md/u);
   assert.match(capturedPrompt, /Titulo: Bridge interativa do Codex/u);
   assert.match(capturedPrompt, /Resumo: Sessao \/plan com parser e callbacks no Telegram\./u);
-  assert.doesNotMatch(capturedPrompt, /<SPEC_TITLE>|<SPEC_SUMMARY>/u);
+  assert.match(capturedPrompt, /Objetivo: Transformar a sessao \/plan em uma spec rica e reutilizavel\./u);
+  assert.match(capturedPrompt, /- Operador do Telegram/u);
+  assert.match(capturedPrompt, /- RF-01 - A materializacao deve preservar RFs aprovados\./u);
+  assert.match(capturedPrompt, /- CA-01 - O prompt recebe RFs, CAs e jornada aprovados\./u);
+  assert.match(capturedPrompt, /- Nao implementar o produto final nesta etapa\./u);
+  assert.doesNotMatch(
+    capturedPrompt,
+    /<SPEC_TITLE>|<SPEC_SUMMARY>|<SPEC_OBJECTIVE>|<SPEC_ACTORS>|<SPEC_JOURNEY>|<SPEC_REQUIREMENTS>|<SPEC_ACCEPTANCE_CRITERIA>|<SPEC_NON_SCOPE>/u,
+  );
+});
+
+test("runSpecStage(plan-spec-materialize) falha quando o contexto estruturado nao e informado", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# Prompt sem placeholders",
+    runCodexCommand: async () => ({ stdout: "ok", stderr: "" }),
+  });
+
+  await assert.rejects(
+    () =>
+      client.runSpecStage("plan-spec-materialize", {
+        fileName: plannedSpec.fileName,
+        path: plannedSpec.path,
+        plannedTitle: plannedSpec.plannedTitle,
+        plannedSummary: plannedSpec.plannedSummary,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexStageExecutionError);
+      assert.match(error.message, /contexto estruturado aprovado/u);
+      assert.equal(error.stage, "plan-spec-materialize");
+      return true;
+    },
+  );
 });
 
 test("runSpecStage(plan-spec-version-and-push) injeta commit dedicado feat(spec) e trilha spec_planning", async () => {
@@ -543,7 +608,7 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
         stdout: [
           `{"type":"thread.started","thread_id":"${threadId}"}`,
           '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"xhigh"}}',
-          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: Plano final\\nResumo: Implementar migracao para exec resume json.\\nAcoes:\\n- Criar spec\\n- Refinar\\n- Cancelar\\n[[/PLAN_SPEC_FINAL]]"}}',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: Plano final\\nResumo: Implementar migracao para exec resume json.\\nObjetivo: Criar spec rica a partir do bloco final.\\nAtores:\\n- Operador\\nJornada:\\n- Operador aprova o plano\\nRFs:\\n- RF-01 - Persistir contexto estruturado\\nCAs:\\n- CA-01 - Final estruturado parseado com sucesso\\nNao-escopo:\\n- Nenhum\\nRestricoes tecnicas:\\n- Manter protocolo parseavel\\nValidacoes obrigatorias:\\n- Conferir os campos na spec materializada\\nValidacoes manuais pendentes:\\n- Revisar o documento final\\nRiscos conhecidos:\\n- Perda de contexto entre planejamento e spec\\nAcoes:\\n- Criar spec\\n- Refinar\\n- Cancelar\\n[[/PLAN_SPEC_FINAL]]"}}',
           '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
         ].join("\n"),
         stderr: "",
@@ -608,6 +673,10 @@ test("startPlanSession usa codex exec/resume --json e parseia pergunta/final", a
   assert.equal(
     (finalEvent?.payload as { final: { title: string } }).final.title,
     "Plano final",
+  );
+  assert.equal(
+    (finalEvent?.payload as { final: { outline: { objective: string } } }).final.outline.objective,
+    "Criar spec rica a partir do bloco final.",
   );
 
   await session.cancel();

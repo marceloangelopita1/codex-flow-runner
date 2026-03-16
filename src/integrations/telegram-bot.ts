@@ -3679,6 +3679,52 @@ export class TelegramController {
       "Resumo:",
       finalBlock.summary,
       "",
+      "Objetivo:",
+      finalBlock.outline.objective,
+      "",
+      "Atores:",
+      ...this.renderPlanSpecFinalList(finalBlock.outline.actors),
+      "",
+      "Jornada:",
+      ...this.renderPlanSpecFinalList(finalBlock.outline.journey),
+      "",
+      "RFs:",
+      ...this.renderPlanSpecFinalList(finalBlock.outline.requirements),
+      "",
+      "CAs:",
+      ...this.renderPlanSpecFinalList(finalBlock.outline.acceptanceCriteria),
+      "",
+      "Nao-escopo:",
+      ...this.renderPlanSpecFinalList(finalBlock.outline.nonScope),
+      ...(finalBlock.outline.technicalConstraints.length > 0
+        ? [
+            "",
+            "Restricoes tecnicas:",
+            ...this.renderPlanSpecFinalList(finalBlock.outline.technicalConstraints),
+          ]
+        : []),
+      ...(finalBlock.outline.mandatoryValidations.length > 0
+        ? [
+            "",
+            "Validacoes obrigatorias:",
+            ...this.renderPlanSpecFinalList(finalBlock.outline.mandatoryValidations),
+          ]
+        : []),
+      ...(finalBlock.outline.pendingManualValidations.length > 0
+        ? [
+            "",
+            "Validacoes manuais pendentes:",
+            ...this.renderPlanSpecFinalList(finalBlock.outline.pendingManualValidations),
+          ]
+        : []),
+      ...(finalBlock.outline.knownRisks.length > 0
+        ? [
+            "",
+            "Riscos conhecidos:",
+            ...this.renderPlanSpecFinalList(finalBlock.outline.knownRisks),
+          ]
+        : []),
+      "",
       "Escolha a próxima ação:",
     ];
 
@@ -3699,6 +3745,10 @@ export class TelegramController {
         },
       },
     };
+  }
+
+  private renderPlanSpecFinalList(items: string[]): string[] {
+    return items.length > 0 ? items.map((item) => `- ${item}`) : ["- Nenhum declarado"];
   }
 
   private resolvePlanSpecQuestionOptions(

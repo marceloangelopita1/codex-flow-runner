@@ -386,11 +386,60 @@ const ticketB: TicketRef = {
 
 const specFileName = "2026-02-19-approved-spec-triage-run-specs.md";
 
+const createPlanSpecOutline = () => ({
+  objective: "Transformar o planejamento interativo em uma spec rica e pronta para execucao.",
+  actors: ["Operador do Telegram", "Runner do Codex"],
+  journey: [
+    "Operador descreve a necessidade em linguagem natural.",
+    "Codex devolve um bloco final estruturado.",
+  ],
+  requirements: [
+    "RF-01 - O bloco final deve carregar RFs e CAs aprovados.",
+    "RF-02 - A spec criada deve preservar jornada e nao-escopo.",
+  ],
+  acceptanceCriteria: [
+    "CA-01 - O runner injeta o contexto estruturado na materializacao.",
+    "CA-02 - A spec criada registra RFs, CAs e validacoes pendentes.",
+  ],
+  nonScope: ["Nao implementar a feature final nesta etapa."],
+  technicalConstraints: ["Manter o protocolo parseavel e sequencial."],
+  mandatoryValidations: ["Conferir se RFs e CAs aparecem na spec criada."],
+  pendingManualValidations: ["Revisar a clareza final da jornada com um humano."],
+  knownRisks: ["Resumo comprimido demais degrada a qualidade da spec resultante."],
+});
+
+const createPlanSpecFinalBlock = (): PlanSpecFinalBlock => ({
+  title: "Bridge interativa do Codex",
+  summary: "Sessao /plan com parser e callbacks no Telegram.",
+  outline: createPlanSpecOutline(),
+  actions: [
+    { id: "create-spec", label: "Criar spec" },
+    { id: "refine", label: "Refinar" },
+    { id: "cancel", label: "Cancelar" },
+  ],
+});
+
 const cloneSpecRef = (spec: SpecRef): SpecRef => ({
   fileName: spec.fileName,
   path: spec.path,
   ...(spec.plannedTitle ? { plannedTitle: spec.plannedTitle } : {}),
   ...(spec.plannedSummary ? { plannedSummary: spec.plannedSummary } : {}),
+  ...(spec.plannedOutline
+    ? {
+        plannedOutline: {
+          objective: spec.plannedOutline.objective,
+          actors: [...spec.plannedOutline.actors],
+          journey: [...spec.plannedOutline.journey],
+          requirements: [...spec.plannedOutline.requirements],
+          acceptanceCriteria: [...spec.plannedOutline.acceptanceCriteria],
+          nonScope: [...spec.plannedOutline.nonScope],
+          technicalConstraints: [...spec.plannedOutline.technicalConstraints],
+          mandatoryValidations: [...spec.plannedOutline.mandatoryValidations],
+          pendingManualValidations: [...spec.plannedOutline.pendingManualValidations],
+          knownRisks: [...spec.plannedOutline.knownRisks],
+        },
+      }
+    : {}),
   ...(spec.commitMessage ? { commitMessage: spec.commitMessage } : {}),
   ...(spec.tracePaths
     ? {
@@ -615,7 +664,11 @@ const buildTicketRef = (projectRoot: string, ticketName: string): TicketRef => (
   closedPath: path.join(projectRoot, "tickets", "closed", ticketName),
 });
 
-const createSpecFileContent = (title: string, summary: string): string =>
+const createSpecFileContent = (
+  title: string,
+  summary: string,
+  outline = createPlanSpecOutline(),
+): string =>
   [
     `# [SPEC] ${title}`,
     "",
@@ -632,6 +685,30 @@ const createSpecFileContent = (title: string, summary: string): string =>
     "",
     "## Objetivo e contexto",
     `- Problema que esta spec resolve: ${summary}`,
+    `- Resultado esperado: ${outline.objective}`,
+    `- Contexto funcional: ${outline.actors.join("; ")}`,
+    `- Restricoes tecnicas relevantes: ${outline.technicalConstraints.join("; ")}`,
+    "",
+    "## Jornada de uso",
+    ...outline.journey.map((step, index) => `${index + 1}. ${step}`),
+    "",
+    "## Requisitos funcionais",
+    ...outline.requirements.map((item) => `- ${item}`),
+    "",
+    "## Nao-escopo",
+    ...outline.nonScope.map((item) => `- ${item}`),
+    "",
+    "## Criterios de aceitacao (observaveis)",
+    ...outline.acceptanceCriteria.map((item) => `- [ ] ${item}`),
+    "",
+    "## Validacoes pendentes ou manuais",
+    "- Validacoes obrigatorias ainda nao automatizadas:",
+    ...outline.mandatoryValidations.map((item) => `  - ${item}`),
+    "- Validacoes manuais pendentes:",
+    ...outline.pendingManualValidations.map((item) => `  - ${item}`),
+    "",
+    "## Riscos e impacto",
+    `- Risco funcional: ${outline.knownRisks.join("; ")}`,
     "",
   ].join("\n");
 
@@ -3738,15 +3815,7 @@ test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec
   const runner = createRunner(logger, roundDependencies);
 
   await runner.startPlanSpecSession("42");
-  codex.lastPlanSession?.emitFinal({
-    title: "Bridge interativa do Codex",
-    summary: "Sessao /plan com parser e callbacks no Telegram.",
-    actions: [
-      { id: "create-spec", label: "Criar spec" },
-      { id: "refine", label: "Refinar" },
-      { id: "cancel", label: "Cancelar" },
-    ],
-  });
+  codex.lastPlanSession?.emitFinal(createPlanSpecFinalBlock());
   await sleep(0);
 
   const outcome = await runner.handlePlanSpecFinalActionSelection("42", "cancel");
@@ -3760,6 +3829,42 @@ test("acao final Cancelar encerra sessao /plan_spec sem executar criacao de spec
       (value) =>
         value.stage === "plan-spec-materialize" || value.stage === "plan-spec-version-and-push",
     ),
+    false,
+  );
+});
+
+test("acao final Criar spec bloqueia materializacao quando o bloco final estruturado esta incompleto", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  await runner.startPlanSpecSession("42");
+  codex.lastPlanSession?.emitFinal({
+    ...createPlanSpecFinalBlock(),
+    outline: {
+      ...createPlanSpecOutline(),
+      requirements: [],
+      acceptanceCriteria: [],
+    },
+  });
+  await sleep(0);
+
+  const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
+
+  assert.equal(outcome.status, "ignored");
+  if (outcome.status === "ignored") {
+    assert.equal(outcome.reason, "invalid-action");
+    assert.match(outcome.message, /faltam: RFs, CAs/u);
+  }
+  assert.notEqual(runner.getState().planSpecSession, null);
+  assert.equal(
+    codex.calls.some((value) => value.stage === "plan-spec-materialize"),
     false,
   );
 });
@@ -3826,7 +3931,11 @@ test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e
         await fs.mkdir(path.dirname(absoluteSpecPath), { recursive: true });
         await fs.writeFile(
           absoluteSpecPath,
-          createSpecFileContent(spec.plannedTitle ?? "", spec.plannedSummary ?? ""),
+          createSpecFileContent(
+            spec.plannedTitle ?? "",
+            spec.plannedSummary ?? "",
+            spec.plannedOutline,
+          ),
           "utf8",
         );
       },
@@ -3854,15 +3963,7 @@ test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e
     });
 
     await runner.startPlanSpecSession("42");
-    codex.lastPlanSession?.emitFinal({
-      title: "Bridge interativa do Codex",
-      summary: "Sessao /plan com parser e callbacks no Telegram.",
-      actions: [
-        { id: "create-spec", label: "Criar spec" },
-        { id: "refine", label: "Refinar" },
-        { id: "cancel", label: "Cancelar" },
-      ],
-    });
+    codex.lastPlanSession?.emitFinal(createPlanSpecFinalBlock());
     await sleep(0);
 
     const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
@@ -3879,6 +3980,11 @@ test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e
     assert.ok(materializeCall);
     assert.ok(versionCall);
     assert.equal(materializeCall?.spec?.path, `docs/specs/${expectedFileName}`);
+    assert.equal(
+      materializeCall?.spec?.plannedOutline?.objective,
+      "Transformar o planejamento interativo em uma spec rica e pronta para execucao.",
+    );
+    assert.equal(materializeCall?.spec?.plannedOutline?.requirements.length, 2);
     assert.equal(versionCall?.spec?.commitMessage, `feat(spec): add ${expectedFileName}`);
     assert.match(versionCall?.spec?.tracePaths?.requestPath ?? "", /^spec_planning\/requests\//u);
     assert.match(versionCall?.spec?.tracePaths?.responsePath ?? "", /^spec_planning\/responses\//u);
@@ -3890,6 +3996,18 @@ test("acao final Criar spec materializa arquivo, persiste trilha spec_planning e
     await fs.access(requestPath);
     await fs.access(responsePath);
     await fs.access(decisionPath);
+
+    const requestContent = await fs.readFile(requestPath, "utf8");
+    const decisionRaw = await fs.readFile(decisionPath, "utf8");
+    assert.match(requestContent, /### Requirements/u);
+    assert.match(requestContent, /RF-01 - O bloco final deve carregar RFs e CAs aprovados\./u);
+    assert.match(requestContent, /### Pending manual validations/u);
+    const decision = JSON.parse(decisionRaw) as {
+      specOutline: {
+        pendingManualValidations: string[];
+      };
+    };
+    assert.equal(decision.specOutline.pendingManualValidations.length, 1);
 
     const responseFiles = await fs.readdir(path.join(projectRoot, "spec_planning", "responses"));
     assert.equal(responseFiles.length >= 2, true);
@@ -3930,15 +4048,7 @@ test("acao Criar spec bloqueia colisao de arquivo e mantem sessao ativa para ref
     });
 
     await runner.startPlanSpecSession("42");
-    codex.lastPlanSession?.emitFinal({
-      title: "Bridge interativa do Codex",
-      summary: "Sessao /plan com parser e callbacks no Telegram.",
-      actions: [
-        { id: "create-spec", label: "Criar spec" },
-        { id: "refine", label: "Refinar" },
-        { id: "cancel", label: "Cancelar" },
-      ],
-    });
+    codex.lastPlanSession?.emitFinal(createPlanSpecFinalBlock());
     await sleep(0);
 
     const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");
@@ -3986,7 +4096,11 @@ test("falha em etapa de Criar spec encerra sessao com erro acionavel sem corromp
         await fs.mkdir(path.dirname(absoluteSpecPath), { recursive: true });
         await fs.writeFile(
           absoluteSpecPath,
-          createSpecFileContent(spec.plannedTitle ?? "", spec.plannedSummary ?? ""),
+          createSpecFileContent(
+            spec.plannedTitle ?? "",
+            spec.plannedSummary ?? "",
+            spec.plannedOutline,
+          ),
           "utf8",
         );
       },
@@ -4012,15 +4126,7 @@ test("falha em etapa de Criar spec encerra sessao com erro acionavel sem corromp
     });
 
     await runner.startPlanSpecSession("42");
-    codex.lastPlanSession?.emitFinal({
-      title: "Bridge interativa do Codex",
-      summary: "Sessao /plan com parser e callbacks no Telegram.",
-      actions: [
-        { id: "create-spec", label: "Criar spec" },
-        { id: "refine", label: "Refinar" },
-        { id: "cancel", label: "Cancelar" },
-      ],
-    });
+    codex.lastPlanSession?.emitFinal(createPlanSpecFinalBlock());
     await sleep(0);
 
     const outcome = await runner.handlePlanSpecFinalActionSelection("42", "create-spec");

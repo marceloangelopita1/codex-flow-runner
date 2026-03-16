@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { PlanSpecFinalOutline } from "./plan-spec-parser.js";
 
 const TRACE_ROOT_DIR = "spec_planning";
 const REQUESTS_DIR = "requests";
@@ -15,6 +16,7 @@ export interface SpecPlanningTraceSessionRequest {
   specFileName: string;
   specTitle: string;
   specSummary: string;
+  specOutline: PlanSpecFinalOutline;
   commitMessage: string;
   createdAt: Date;
 }
@@ -66,6 +68,7 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
           specFileName: request.specFileName,
           specTitle: request.specTitle,
           specSummary: request.specSummary,
+          specOutline: request.specOutline,
           commitMessage: request.commitMessage,
           recordedAtUtc: request.createdAt.toISOString(),
         },
@@ -112,6 +115,34 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
       "## Final block",
       `- Title: ${request.specTitle}`,
       `- Summary: ${request.specSummary}`,
+      `- Objective: ${request.specOutline.objective}`,
+      "",
+      "### Actors",
+      ...renderOutlineSection(request.specOutline.actors),
+      "",
+      "### Journey",
+      ...renderOutlineSection(request.specOutline.journey),
+      "",
+      "### Requirements",
+      ...renderOutlineSection(request.specOutline.requirements),
+      "",
+      "### Acceptance criteria",
+      ...renderOutlineSection(request.specOutline.acceptanceCriteria),
+      "",
+      "### Non-scope",
+      ...renderOutlineSection(request.specOutline.nonScope),
+      "",
+      "### Technical constraints",
+      ...renderOutlineSection(request.specOutline.technicalConstraints),
+      "",
+      "### Mandatory validations",
+      ...renderOutlineSection(request.specOutline.mandatoryValidations),
+      "",
+      "### Pending manual validations",
+      ...renderOutlineSection(request.specOutline.pendingManualValidations),
+      "",
+      "### Known risks",
+      ...renderOutlineSection(request.specOutline.knownRisks),
       "",
     ].join("\n");
   }
@@ -188,3 +219,6 @@ const formatTraceTimestamp = (value: Date): string =>
     .replace(/\.\d{3}Z$/u, "Z")
     .replace(/[-:]/gu, "")
     .toLowerCase();
+
+const renderOutlineSection = (items: string[]): string[] =>
+  items.length > 0 ? items.map((item) => `- ${item}`) : ["- Nenhum"];

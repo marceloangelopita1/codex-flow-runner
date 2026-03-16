@@ -8,6 +8,28 @@ import {
   sanitizePlanSpecRawOutput,
 } from "./plan-spec-parser.js";
 
+const createFinalOutline = () => ({
+  objective: "Transformar o planejamento interativo em uma spec rica e reutilizavel.",
+  actors: ["Operador do Telegram", "Runner do Codex"],
+  journey: [
+    "Operador inicia o planejamento no Telegram.",
+    "Codex devolve um bloco final estruturado.",
+  ],
+  requirements: [
+    "RF-01 - O bloco final deve carregar objetivo, jornada, RFs e CAs.",
+    "RF-02 - A spec materializada deve preservar o contexto aprovado.",
+  ],
+  acceptanceCriteria: [
+    "CA-01 - O parser extrai os campos estruturados do bloco final.",
+    "CA-02 - A materializacao nao comprime tudo em um resumo.",
+  ],
+  nonScope: ["Nao implementar codigo do produto final nesta etapa."],
+  technicalConstraints: ["Manter o protocolo parseavel por blocos."],
+  mandatoryValidations: ["Verificar que RFs e CAs aparecem na spec criada."],
+  pendingManualValidations: ["Conferir a legibilidade final da spec no repositório."],
+  knownRisks: ["Bloco final incompleto reduz a qualidade da spec materializada."],
+});
+
 test("parseia bloco estruturado de pergunta com opcoes clicaveis", () => {
   const output = [
     "[[PLAN_SPEC_QUESTION]]",
@@ -62,11 +84,34 @@ test("parseia pergunta em formato compacto sem quebras de linha", () => {
   ]);
 });
 
-test("parseia bloco final com titulo, resumo e acoes", () => {
+test("parseia bloco final com estrutura rica, titulo, resumo e acoes", () => {
   const output = [
     "[[PLAN_SPEC_FINAL]]",
     "Titulo: Bridge interativa do Codex no planejamento",
     "Resumo: Implementar sessao /plan stateful com parser e callbacks Telegram.",
+    "Objetivo: Transformar o planejamento em uma spec rica e reutilizavel.",
+    "Atores:",
+    "- Operador do Telegram",
+    "- Runner do Codex",
+    "Jornada:",
+    "1. Operador inicia o planejamento no Telegram.",
+    "2. Codex devolve um bloco final estruturado.",
+    "RFs:",
+    "- RF-01 - O bloco final deve carregar objetivo, jornada, RFs e CAs.",
+    "- RF-02 - A spec materializada deve preservar o contexto aprovado.",
+    "CAs:",
+    "- CA-01 - O parser extrai os campos estruturados do bloco final.",
+    "- CA-02 - A materializacao nao comprime tudo em um resumo.",
+    "Nao-escopo:",
+    "- Nao implementar codigo do produto final nesta etapa.",
+    "Restricoes tecnicas:",
+    "- Manter o protocolo parseavel por blocos.",
+    "Validacoes obrigatorias:",
+    "- Verificar que RFs e CAs aparecem na spec criada.",
+    "Validacoes manuais pendentes:",
+    "- Conferir a legibilidade final da spec no repositório.",
+    "Riscos conhecidos:",
+    "- Bloco final incompleto reduz a qualidade da spec materializada.",
     "Acoes:",
     "- Criar spec",
     "- Refinar",
@@ -83,6 +128,22 @@ test("parseia bloco final com titulo, resumo e acoes", () => {
 
   assert.equal(events[0].final.title, "Bridge interativa do Codex no planejamento");
   assert.match(events[0].final.summary, /sessao \/plan stateful/u);
+  assert.equal(
+    events[0].final.outline.objective,
+    "Transformar o planejamento em uma spec rica e reutilizavel.",
+  );
+  assert.deepEqual(events[0].final.outline.actors, ["Operador do Telegram", "Runner do Codex"]);
+  assert.deepEqual(events[0].final.outline.journey, [
+    "Operador inicia o planejamento no Telegram.",
+    "Codex devolve um bloco final estruturado.",
+  ]);
+  assert.equal(events[0].final.outline.requirements.length, 2);
+  assert.equal(events[0].final.outline.acceptanceCriteria.length, 2);
+  assert.equal(events[0].final.outline.nonScope.length, 1);
+  assert.equal(events[0].final.outline.technicalConstraints.length, 1);
+  assert.equal(events[0].final.outline.mandatoryValidations.length, 1);
+  assert.equal(events[0].final.outline.pendingManualValidations.length, 1);
+  assert.equal(events[0].final.outline.knownRisks.length, 1);
   assert.deepEqual(
     events[0].final.actions.map((action) => action.id),
     ["create-spec", "refine", "cancel"],
@@ -91,7 +152,7 @@ test("parseia bloco final com titulo, resumo e acoes", () => {
 
 test("parseia bloco final em formato compacto sem quebras de linha", () => {
   const output =
-    "[[PLAN_SPEC_FINAL]]Titulo:BridgeinterativaResumo:FluxosequencialdeplanejamentoAcoes:-Criarspec-Refinar-Cancelar[[/PLAN_SPEC_FINAL]]";
+    "[[PLAN_SPEC_FINAL]]Titulo:BridgeinterativaResumo:FluxosequencialdeplanejamentoObjetivo:MaterializarumaespecricaAtores:-OperadorJornada:-PlanejarRFs:-RF-01CAs:-CA-01Nao-escopo:-NenhumRestricoes tecnicas:-NenhumValidacoes obrigatorias:-NenhumValidacoes manuais pendentes:-NenhumRiscos conhecidos:-NenhumAcoes:-Criarspec-Refinar-Cancelar[[/PLAN_SPEC_FINAL]]";
 
   const events = parsePlanSpecOutput(output);
   assert.equal(events.length, 1);
@@ -102,10 +163,58 @@ test("parseia bloco final em formato compacto sem quebras de linha", () => {
 
   assert.equal(events[0].final.title, "Bridgeinterativa");
   assert.equal(events[0].final.summary, "Fluxosequencialdeplanejamento");
+  assert.equal(events[0].final.outline.objective, "Materializarumaespecrica");
+  assert.deepEqual(events[0].final.outline.actors, ["Operador"]);
+  assert.deepEqual(events[0].final.outline.journey, ["Planejar"]);
+  assert.deepEqual(events[0].final.outline.requirements, ["RF-01"]);
+  assert.deepEqual(events[0].final.outline.acceptanceCriteria, ["CA-01"]);
+  assert.deepEqual(events[0].final.outline.nonScope, []);
   assert.deepEqual(
     events[0].final.actions.map((action) => action.id),
     ["create-spec", "refine", "cancel"],
   );
+});
+
+test("campos opcionais vazios no bloco final viram listas vazias em vez de ruido", () => {
+  const outline = createFinalOutline();
+  const output = [
+    "[[PLAN_SPEC_FINAL]]",
+    "Titulo: Spec enxuta",
+    "Resumo: Resumo final objetivo.",
+    `Objetivo: ${outline.objective}`,
+    "Atores:",
+    ...outline.actors.map((item) => `- ${item}`),
+    "Jornada:",
+    ...outline.journey.map((item) => `- ${item}`),
+    "RFs:",
+    ...outline.requirements.map((item) => `- ${item}`),
+    "CAs:",
+    ...outline.acceptanceCriteria.map((item) => `- ${item}`),
+    "Nao-escopo:",
+    ...outline.nonScope.map((item) => `- ${item}`),
+    "Restricoes tecnicas:",
+    "- Nenhum",
+    "Validacoes obrigatorias:",
+    "- Nenhum",
+    "Validacoes manuais pendentes:",
+    "- Nenhum",
+    "Riscos conhecidos:",
+    "- Nenhum",
+    "Acoes:",
+    "- Criar spec",
+    "[[/PLAN_SPEC_FINAL]]",
+  ].join("\n");
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events[0]?.type, "final");
+  if (!events[0] || events[0].type !== "final") {
+    assert.fail("Evento final nao encontrado");
+  }
+
+  assert.deepEqual(events[0].final.outline.technicalConstraints, []);
+  assert.deepEqual(events[0].final.outline.mandatoryValidations, []);
+  assert.deepEqual(events[0].final.outline.pendingManualValidations, []);
+  assert.deepEqual(events[0].final.outline.knownRisks, []);
 });
 
 test("mantem bloco parcial em buffer e parseia quando fechamento chega", () => {

@@ -19,6 +19,7 @@
 - Problema que esta spec resolve:
 - Resultado esperado:
 - Contexto funcional:
+- Restricoes tecnicas relevantes:
 
 ## Jornada de uso
 1. Ator inicia o fluxo em <ponto de entrada>.
@@ -40,6 +41,12 @@
 - [ ] CA-01 - <comando/acao + resultado esperado>
 - [ ] CA-02 - <comando/acao + resultado esperado>
 - [ ] CA-03 - <comando/acao + resultado esperado>
+
+## Validacoes pendentes ou manuais
+- Validacoes obrigatorias ainda nao automatizadas:
+  - 
+- Validacoes manuais pendentes:
+  - 
 
 ## Status de atendimento (documento vivo)
 - Estado geral: draft | approved | in_progress | partially_attended | attended | superseded
