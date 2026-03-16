@@ -46,11 +46,15 @@ export type RunSpecsTriageTimingStage = "spec-triage" | "spec-close-and-version"
 
 export type RunSpecsTriageFinalStage = RunSpecsTriageTimingStage | "unknown";
 
-export type RunSpecsFlowTimingStage = RunSpecsTriageTimingStage | "run-all";
+export type RunSpecsFlowTimingStage = RunSpecsTriageTimingStage | "run-all" | "spec-audit";
 
 export type RunSpecsFlowFinalStage = RunSpecsFlowTimingStage | "unknown";
 
-export type RunSpecsFlowCompletionReason = "completed" | "triage-failure" | "run-all-failure";
+export type RunSpecsFlowCompletionReason =
+  | "completed"
+  | "triage-failure"
+  | "run-all-failure"
+  | "spec-audit-failure";
 
 export interface RunSpecsFlowSummary {
   flow: "run-specs";

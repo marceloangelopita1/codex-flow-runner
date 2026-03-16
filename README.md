@@ -71,7 +71,7 @@ Fluxo:
 3. responder as perguntas de refinamento que o fluxo fizer;
 4. mandar criar a spec;
 5. usar `/run_specs <arquivo>` ou selecionar a spec por `/specs`;
-6. o runner faz a triagem da spec, cria tickets ou execplans quando necessario e, em sucesso, encadeia a rodada de implementacao.
+6. o runner faz a triagem da spec, cria tickets ou execplans quando necessario, encadeia a rodada de implementacao e fecha com uma auditoria final da spec.
 
 Esse segundo caminho e o mais interessante para pessoas nao tecnicas, porque elas podem comecar pelo comportamento desejado do sistema, sem precisar escrever tarefas tecnicas logo de cara.
 
@@ -106,7 +106,8 @@ Depois que a spec existe no projeto, o caminho fica assim:
 2. `/run_specs <arquivo>` executa a triagem da spec;
 3. essa triagem pode abrir tickets em `tickets/open/` e/ou gerar execplans;
 4. quando a triagem conclui com sucesso, o fluxo encadeia a rodada de tickets;
-5. a partir dai o comportamento segue a mesma logica do `/run_all`.
+5. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositorio com a spec original;
+6. a partir dai o comportamento segue a mesma logica do `/run_all`, mas com a spec voltando a ser o gate final do ciclo.
 
 Em outras palavras:
 
@@ -1097,7 +1098,7 @@ npm run dev
 - `/run-all` -> alias legado compativel para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo
 - `/specs` -> lista specs elegiveis (`Status: approved` + `Spec treatment: pending`) do projeto ativo
-- `/run_specs <arquivo>` -> executa triagem da spec informada e, em sucesso, encadeia a rodada de tickets
+- `/run_specs <arquivo>` -> executa triagem da spec informada, encadeia a rodada de tickets e finaliza com `spec-audit`
 - `/codex_chat` -> inicia conversa livre com Codex no projeto ativo
 - `/codex-chat` -> alias legado compativel para `/codex_chat`
 - `/plan_spec` -> inicia sessao interativa para criar e refinar uma spec em linguagem natural
@@ -1114,6 +1115,8 @@ npm run dev
 - `/speed` -> escolhe a velocidade do Codex no projeto ativo entre `standard` e `fast`
 
 Modelo, reasoning e velocidade sao preferencias por projeto. O runner persiste a escolha em `.codex-flow-runner/codex-project-preferences.json` dentro de `PROJECTS_ROOT_PATH`, nao altera `~/.codex/config.toml`, aplica a mudanca no proximo turno de `/codex_chat` e `/plan_spec`, e congela um snapshot por slot durante `/run_all`, `/run_specs` e execucao unitaria de ticket.
+
+O fluxo principal tambem persiste trilhas locais em `.codex-flow-runner/flow-traces/` com `request`, `response` e `decision` por etapa de ticket/spec. Essas trilhas ficam fora do versionamento do projeto e servem para auditoria e melhoria continua dos prompts.
 
 As listas de `/models` e `/reasoning` sao lidas dinamicamente do catalogo local do Codex em `~/.codex/models_cache.json`. Se esse catalogo estiver ausente, invalido ou ilegivel, o bot responde com erro observavel em vez de usar fallback hardcoded.
 

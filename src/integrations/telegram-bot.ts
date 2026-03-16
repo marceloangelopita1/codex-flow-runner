@@ -634,7 +634,12 @@ const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
 const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as const;
 const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = ["spec-triage", "spec-close-and-version"] as const;
 const RUN_ALL_TIMING_STAGE_ORDER = ["select-ticket", "plan", "implement", "close-and-version"] as const;
-const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = ["spec-triage", "spec-close-and-version", "run-all"] as const;
+const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = [
+  "spec-triage",
+  "spec-close-and-version",
+  "run-all",
+  "spec-audit",
+] as const;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",

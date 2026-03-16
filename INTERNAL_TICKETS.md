@@ -103,9 +103,19 @@ Every ticket must include:
 - Problem summary (what happened).
 - Context (where in pipeline/workflow).
 - Observed vs expected behavior.
+- Source traceability when applicable:
+  - originating spec;
+  - originating RF/CA IDs;
+  - inherited assumptions/defaults that matter for implementation.
 - Reproduction steps (if possible).
 - Evidence links (`requestId`, log file, response artifact, test output).
 - Impact assessment (scope + risk).
+- Observable closure criteria.
+
+When a ticket is created from post-implementation audit/review, also include:
+- likely workflow root cause (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);
+- why this cause classification is the smallest plausible explanation;
+- whether the remediation is local or should update a generic repository instruction.
 
 Proposed solution is optional by design.
 

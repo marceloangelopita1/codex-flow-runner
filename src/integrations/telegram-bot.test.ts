@@ -138,14 +138,15 @@ const createRunSpecsFlowTimingSnapshot = (
   value: Partial<FlowTimingSnapshot<RunSpecsFlowTimingStage>> = {},
 ): FlowTimingSnapshot<RunSpecsFlowTimingStage> => ({
   startedAtUtc: "2026-02-19T15:00:00.000Z",
-  finishedAtUtc: "2026-02-19T15:08:00.000Z",
-  totalDurationMs: 480000,
+  finishedAtUtc: "2026-02-19T15:09:00.000Z",
+  totalDurationMs: 540000,
   durationsByStageMs: {
     "spec-triage": 90000,
     "spec-close-and-version": 90000,
     "run-all": 300000,
+    "spec-audit": 60000,
   },
-  completedStages: ["spec-triage", "spec-close-and-version", "run-all"],
+  completedStages: ["spec-triage", "spec-close-and-version", "run-all", "spec-audit"],
   interruptedStage: null,
   ...value,
 });
@@ -1920,9 +1921,9 @@ const createRunSpecsFlowSummary = (
   const base: RunSpecsFlowSummary = {
     flow: "run-specs",
     outcome: "success",
-    finalStage: "run-all",
+    finalStage: "spec-audit",
     completionReason: "completed",
-    timestampUtc: "2026-02-19T15:08:00.000Z",
+    timestampUtc: "2026-02-19T15:09:00.000Z",
     activeProjectName: "codex-flow-runner",
     activeProjectPath: "/home/mapita/projetos/codex-flow-runner",
     codexPreferences: baseCodexPreferences,
@@ -5411,6 +5412,25 @@ test("envia resumo final de fluxo /run-all com tempos para chat configurado", as
   assert.match(sentMessages[0]?.text ?? "", /- close-and-version: 50s \(50000 ms\)/u);
   assert.equal(logger.warnings.length, 0);
   assert.equal(logger.infos[0]?.message, "Resumo final de fluxo enviado no Telegram");
+});
+
+test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de sucesso", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(createRunSpecsFlowSummary());
+
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0]?.chatId, "99");
+  assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-specs/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: completed/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 9m 0s \(540000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- run-all: 5m 0s \(300000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /- spec-audit: 1m 0s \(60000 ms\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: sucesso \(queue-empty\)/u);
 });
 
 test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {

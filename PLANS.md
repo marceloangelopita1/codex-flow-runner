@@ -33,6 +33,11 @@ Exemplos:
 - Termos especificos do projeto devem ser explicados no proprio plano.
 - O plano e documento vivo: atualizar `Progress`, `Decision Log` e descobertas durante a execucao.
 - Passos arriscados devem incluir estrategia de recuperacao (retry, rollback ou alternativa segura).
+- Todo ExecPlan derivado de ticket originado por spec deve explicitar:
+  - spec de origem;
+  - RFs/CAs cobertos por este ticket;
+  - assumptions/defaults escolhidos para eliminar ambiguidade;
+  - matriz `requisito -> validacao observavel`.
 
 ## Estrutura obrigatoria do ExecPlan
 Todo arquivo em `execplans/*.md` deve conter as secoes abaixo, nesta ordem, com estes titulos:
@@ -57,9 +62,11 @@ Todo arquivo em `execplans/*.md` deve conter as secoes abaixo, nesta ordem, com 
 - `Decision Log`: decisoes tomadas com data, motivo e impacto.
 - `Outcomes & Retrospective`: resultado final, pendencias e licoes.
 - `Context and Orientation`: contexto local de codigo, caminhos e pontos de entrada.
+- `Context and Orientation`: deve incluir, quando aplicavel, spec de origem, RF/CA subset e assumptions/defaults adotados.
 - `Plan of Work`: marcos (milestones) narrativos com entregaveis claros.
 - `Concrete Steps`: passos concretos com comandos e diretorio.
 - `Validation and Acceptance`: como validar e o que comprova aceitacao.
+- `Validation and Acceptance`: deve conter matriz objetiva relacionando cada closure criterion/requisito relevante a uma evidencia observavel.
 - `Idempotence and Recovery`: como repetir sem quebrar e como recuperar falhas.
 - `Artifacts and Notes`: links para diffs, logs, snapshots, outputs relevantes.
 - `Interfaces and Dependencies`: APIs, schemas, contratos e acoplamentos impactados.
@@ -105,6 +112,9 @@ Use este template como base para novos planos em `execplans/*.md`:
 
 ## Context and Orientation
 - Arquivos principais:
+- Spec de origem:
+- RFs/CAs cobertos por este plano:
+- Assumptions / defaults adotados:
 - Fluxo atual:
 - Restricoes tecnicas:
 
@@ -124,6 +134,9 @@ Use este template como base para novos planos em `execplans/*.md`:
 3. (workdir: `<path>`) Rodar `<comando>` para validar.
 
 ## Validation and Acceptance
+- Matriz requisito -> validacao:
+  - Requisito:
+  - Evidencia observavel:
 - Comando: `<comando>`
   - Esperado: `<resultado observavel>`
 - Comando: `<comando>`
@@ -154,4 +167,6 @@ Antes de aprovar execucao, confirme:
 - Ha milestones narrativos e progresso operacional separados.
 - Ha estrategia de idempotencia e recuperacao para passos arriscados.
 - Interfaces/dependencias impactadas foram mapeadas.
+- A spec de origem, RFs/CAs cobertos e assumptions/defaults adotados ficaram explicitos.
+- Existe matriz requisito -> validacao para todos os criterios de fechamento relevantes.
 - O plano pode ser executado por outra pessoa sem decisoes adicionais.

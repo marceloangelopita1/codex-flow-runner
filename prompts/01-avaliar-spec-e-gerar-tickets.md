@@ -7,6 +7,7 @@ SPEC alvo:
 
 Regras do repositório (obrigatórias):
 - Seguir `SPECS.md`, `INTERNAL_TICKETS.md` e `tickets/templates/internal-ticket-template.md`.
+- Aplicar tambem o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
 - Tickets novos devem ser criados em `tickets/open/` com nome `YYYY-MM-DD-<slug>.md`.
 - Não incluir segredos/dados sensíveis.
 - Fluxo é sequencial.
@@ -23,7 +24,11 @@ Tarefa:
    - Mesmo contexto técnico e alta dependência: agrupar no mesmo ticket.
    - Contextos independentes ou risco diferente: separar em tickets distintos.
    - Gap grande: quebrar em tickets menores com entregáveis claros.
-5. Criar os ticket(s) em `tickets/open/` usando o template oficial.
+5. Criar os ticket(s) em `tickets/open/` usando o template oficial e preenchendo, quando aplicável:
+   - `Source spec`;
+   - `Source requirements (RFs/CAs)`;
+   - `Inherited assumptions/defaults`;
+   - closure criteria mapeados para evidências observáveis.
 6. Atualizar a spec:
    - `Last reviewed at (UTC)` com timestamp atual;
    - `Related tickets` com os novos tickets;
@@ -33,5 +38,6 @@ Tarefa:
 Saída esperada no chat:
 - Matriz RF/CA x status (atendido/parcial/não atendido).
 - Lista dos gaps priorizados (P0/P1/P2, S1/S2/S3).
+- Assumptions/defaults relevantes herdados da spec.
 - Quais tickets foram criados e por quê.
 - Caminhos dos arquivos criados/atualizados.

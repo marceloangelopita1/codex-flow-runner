@@ -12,6 +12,10 @@
 - Parent execplan (optional):
 - Parent commit (optional):
 - Request ID:
+- Source spec (when applicable):
+- Source requirements (RFs/CAs, when applicable):
+- Inherited assumptions/defaults (when applicable):
+- Workflow root cause (when applicable): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
 - Related artifacts:
   - Request file:
   - Response file:
@@ -68,6 +72,8 @@ Nao obrigatorio. Preencher somente se houver direcao clara.
 
 ## Closure criteria
 Defina evidencias objetivas para encerrar o ticket.
+- Requisito/RF/CA coberto:
+- Evidencia observavel:
 
 ## Decision log
 - YYYY-MM-DD - <decisao> - <motivo/impacto>

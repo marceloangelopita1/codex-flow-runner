@@ -30,6 +30,9 @@
 - RF-02:
 - RF-03:
 
+## Assumptions and defaults
+- 
+
 ## Nao-escopo
 - 
 
@@ -45,6 +48,16 @@
 - Pendencias em aberto:
   - 
 - Evidencias de validacao:
+  - 
+
+## Auditoria final de entrega
+- Auditoria executada em:
+- Resultado:
+- Tickets/follow-ups abertos a partir da auditoria:
+  - 
+- Causas-raiz sistemicas identificadas:
+  - 
+- Ajustes genericos promovidos ao workflow:
   - 
 
 ## Riscos e impacto

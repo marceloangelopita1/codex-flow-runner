@@ -61,6 +61,12 @@ import {
   SpecPlanningTraceStore,
 } from "../integrations/spec-planning-trace-store.js";
 import {
+  FileSystemWorkflowTraceStore,
+  WorkflowTraceSourceCommand,
+  WorkflowTraceStage,
+  WorkflowTraceStore,
+} from "../integrations/workflow-trace-store.js";
+import {
   GitSyncEvidence,
   GitSyncValidationError,
   GitVersioning,
@@ -130,6 +136,7 @@ export interface TicketRunnerOptions {
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
   specPlanningTraceStoreFactory?: (projectPath: string) => SpecPlanningTraceStore;
+  workflowTraceStoreFactory?: (projectPath: string) => WorkflowTraceStore;
   planSpecEventHandlers?: PlanSpecEventHandlers;
   codexChatEventHandlers?: CodexChatEventHandlers;
   runSpecsEventHandlers?: RunSpecsEventHandlers;
@@ -194,6 +201,31 @@ interface FlowTimingCollector<Stage extends string> {
   durationsByStageMs: Partial<Record<Stage, number>>;
   completedStages: Stage[];
   interruptedStage: Stage | null;
+}
+
+interface WorkflowTraceSuccessRequest {
+  kind: "ticket" | "spec";
+  stage: WorkflowTraceStage;
+  targetName: string;
+  targetPath: string;
+  promptTemplatePath: string;
+  promptText: string;
+  outputText: string;
+  diagnostics?: CodexStageDiagnostics;
+  summary: string;
+  metadata?: Record<string, unknown>;
+  decisionStatus?: "success" | "failure";
+  decisionErrorMessage?: string;
+}
+
+interface WorkflowTraceFailureRequest {
+  kind: "ticket" | "spec";
+  stage: WorkflowTraceStage;
+  targetName: string;
+  targetPath: string;
+  error: unknown;
+  summary?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface TicketProcessingResult {
@@ -468,6 +500,7 @@ export class TicketRunner {
   private readonly codexChatSessionTimeoutMs: number;
   private readonly codexChatOutputFlushDelayMs: number;
   private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
+  private readonly workflowTraceStoreFactory: (projectPath: string) => WorkflowTraceStore;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
@@ -508,6 +541,9 @@ export class TicketRunner {
     this.specPlanningTraceStoreFactory =
       options.specPlanningTraceStoreFactory ??
       ((projectPath: string) => new FileSystemSpecPlanningTraceStore(projectPath));
+    this.workflowTraceStoreFactory =
+      options.workflowTraceStoreFactory ??
+      ((projectPath: string) => new FileSystemWorkflowTraceStore(projectPath));
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
@@ -2988,6 +3024,21 @@ export class TicketRunner {
       }
     };
 
+    const runTimedSpecAuditStage = async (message: string): Promise<void> => {
+      const stage: Extract<RunSpecsFlowTimingStage, "spec-audit"> = "spec-audit";
+      const stageStartedAt = Date.now();
+      try {
+        slot.currentSpec = spec.fileName;
+        await this.runSpecStage(slot, stage, spec, message);
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+      } catch (error) {
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
+        throw error;
+      }
+    };
+
     try {
       await runTimedTriageStage(
         "spec-triage",
@@ -3022,11 +3073,14 @@ export class TicketRunner {
           "run-all",
           runAllSummary.timing.totalDurationMs,
         );
+        await runTimedSpecAuditStage(`Executando etapa spec-audit para ${spec.fileName}`);
+        slot.currentSpec = null;
+        this.touchSlot(slot, "idle", `Fluxo /run_specs finalizado para ${spec.fileName}`);
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
           spec,
           outcome: "success",
-          finalStage: "run-all",
+          finalStage: "spec-audit",
           completionReason: "completed",
           triageTimingCollector,
           flowTimingCollector,
@@ -3055,12 +3109,15 @@ export class TicketRunner {
     } catch (error) {
       const stage =
         error instanceof CodexStageExecutionError &&
-        (error.stage === "spec-triage" || error.stage === "spec-close-and-version")
+        (error.stage === "spec-triage" ||
+          error.stage === "spec-close-and-version" ||
+          error.stage === "spec-audit")
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       slot.isRunning = false;
-      const finalStage: RunSpecsTriageFinalStage = stage ?? "unknown";
+      const finalStage: RunSpecsTriageFinalStage =
+        stage === "spec-triage" || stage === "spec-close-and-version" ? stage : "unknown";
       const triageFailed = !triageCompleted;
 
       if (triageFailed) {
@@ -3098,6 +3155,28 @@ export class TicketRunner {
           outcome: "failure",
           finalStage,
           completionReason: "triage-failure",
+          details: errorMessage,
+          triageTimingCollector,
+          flowTimingCollector,
+          runAllSummary,
+        });
+      } else if (stage === "spec-audit") {
+        this.touchSlot(slot, "error", `Falha na auditoria final da spec ${spec.fileName}`);
+        this.logger.error("Erro no fluxo /run_specs durante spec-audit", {
+          spec: spec.fileName,
+          specPath: spec.path,
+          stage: "spec-audit",
+          error: errorMessage,
+          durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage: "spec-audit",
+          completionReason: "spec-audit-failure",
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
@@ -3937,6 +4016,7 @@ export class TicketRunner {
     const stageDiagnostics: Partial<Record<TicketFlowStage, CodexStageDiagnostics>> = {};
     slot.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
+    let closeAndVersionResult: CodexStageResult | null = null;
     const activeProject = { ...slot.project };
     this.logger.info("Processando ticket da rodada atual", {
       ticket: ticket.name,
@@ -3966,7 +4046,7 @@ export class TicketRunner {
         ticketTimingCollector,
       );
       this.recordStageDiagnostics(stageDiagnostics, "implement", implementResult.diagnostics);
-      const closeAndVersionResult = await this.runStage(
+      closeAndVersionResult = await this.runStage(
         slot,
         "close-and-version",
         ticket,
@@ -4004,6 +4084,22 @@ export class TicketRunner {
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
       });
+      await this.recordWorkflowTraceSuccess(slot, {
+        kind: "ticket",
+        stage: "close-and-version",
+        targetName: ticket.name,
+        targetPath: ticket.openPath,
+        promptTemplatePath: closeAndVersionResult.promptTemplatePath,
+        promptText: closeAndVersionResult.promptText,
+        outputText: closeAndVersionResult.output,
+        diagnostics: closeAndVersionResult.diagnostics,
+        summary: "Etapa close-and-version concluida com sucesso no runner, incluindo versionamento git.",
+        metadata: {
+          commitHash: syncEvidence.commitHash,
+          pushUpstream: syncEvidence.upstream,
+          commitPushId: syncEvidence.commitPushId,
+        },
+      });
       finalSummary = this.buildSuccessSummary(
         ticket.name,
         execPlanPath,
@@ -4038,6 +4134,25 @@ export class TicketRunner {
         activeProjectPath: activeProject.path,
         ...this.buildCodexDiagnosticsLogContext(finalStageDiagnostics),
       });
+      if (finalStage === "close-and-version" && closeAndVersionResult) {
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "ticket",
+          stage: "close-and-version",
+          targetName: ticket.name,
+          targetPath: ticket.openPath,
+          promptTemplatePath: closeAndVersionResult.promptTemplatePath,
+          promptText: closeAndVersionResult.promptText,
+          outputText: closeAndVersionResult.output,
+          diagnostics: closeAndVersionResult.diagnostics,
+          summary: "Etapa close-and-version executada pelo Codex, mas falhou na validacao posterior do runner.",
+          metadata: {
+            outcome: "runner-post-validation-failure",
+            errorMessage,
+          },
+          decisionStatus: "failure",
+          decisionErrorMessage: errorMessage,
+        });
+      }
 
       finalSummary = this.buildFailureSummary(
         ticket.name,
@@ -4343,39 +4458,190 @@ export class TicketRunner {
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
+      if (stage !== "close-and-version") {
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "ticket",
+          stage,
+          targetName: ticket.name,
+          targetPath: ticket.openPath,
+          promptTemplatePath: result.promptTemplatePath,
+          promptText: result.promptText,
+          outputText: result.output,
+          diagnostics: result.diagnostics,
+          summary: `Etapa ${stage} concluida com sucesso no runner.`,
+          metadata:
+            stage === "plan" && result.execPlanPath
+              ? {
+                  execPlanPath: result.execPlanPath,
+                }
+              : undefined,
+        });
+      }
 
       return result;
     } catch (error) {
       const durationMs = Date.now() - stageStartedAt;
       this.recordFlowStageFailure(timingCollector, stage, durationMs);
+      await this.recordWorkflowTraceFailure(slot, {
+        kind: "ticket",
+        stage,
+        targetName: ticket.name,
+        targetPath: ticket.openPath,
+        error,
+      });
       throw error;
     }
   }
 
   private async runSpecStage(
     slot: ActiveRunnerSlot,
-    stage: SpecFlowStage,
+    stage: Extract<SpecFlowStage, "spec-triage" | "spec-close-and-version" | "spec-audit">,
     spec: SpecRef,
     message: string,
   ): Promise<CodexStageResult> {
     const stageStartedAt = Date.now();
-    const phase: RunnerState["phase"] =
-      stage === "spec-triage" || stage === "spec-close-and-version"
-        ? stage
-        : "plan-spec-waiting-codex";
+    const phase: RunnerState["phase"] = stage;
     this.touchSlot(slot, phase, message);
 
-    const result = await slot.codexClient.runSpecStage(stage, spec);
-    this.logger.info("Etapa de spec concluida no runner", {
-      spec: spec.fileName,
-      specPath: spec.path,
-      stage,
-      durationMs: Date.now() - stageStartedAt,
-      activeProjectName: slot.project.name,
-      activeProjectPath: slot.project.path,
-    });
+    try {
+      const result = await slot.codexClient.runSpecStage(stage, spec);
+      this.logger.info("Etapa de spec concluida no runner", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        stage,
+        durationMs: Date.now() - stageStartedAt,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      await this.recordWorkflowTraceSuccess(slot, {
+        kind: "spec",
+        stage,
+        targetName: spec.fileName,
+        targetPath: spec.path,
+        promptTemplatePath: result.promptTemplatePath,
+        promptText: result.promptText,
+        outputText: result.output,
+        diagnostics: result.diagnostics,
+        summary: `Etapa ${stage} concluida com sucesso no runner.`,
+      });
 
-    return result;
+      return result;
+    } catch (error) {
+      await this.recordWorkflowTraceFailure(slot, {
+        kind: "spec",
+        stage,
+        targetName: spec.fileName,
+        targetPath: spec.path,
+        error,
+      });
+      throw error;
+    }
+  }
+
+  private resolveWorkflowTraceSourceCommand(
+    slot: ActiveRunnerSlot,
+  ): WorkflowTraceSourceCommand | null {
+    if (slot.kind === "run-all") {
+      return "run-all";
+    }
+
+    if (slot.kind === "run-specs") {
+      return "run-specs";
+    }
+
+    if (slot.kind === "run-ticket") {
+      return "run-ticket";
+    }
+
+    return null;
+  }
+
+  private async recordWorkflowTraceSuccess(
+    slot: ActiveRunnerSlot,
+    request: WorkflowTraceSuccessRequest,
+  ): Promise<void> {
+    await this.recordWorkflowTrace(slot, {
+      ...request,
+      decisionStatus: request.decisionStatus ?? "success",
+    });
+  }
+
+  private async recordWorkflowTraceFailure(
+    slot: ActiveRunnerSlot,
+    request: WorkflowTraceFailureRequest,
+  ): Promise<void> {
+    if (!(request.error instanceof CodexStageExecutionError)) {
+      return;
+    }
+
+    const promptTemplatePath = request.error.promptTemplatePath?.trim() ?? "";
+    const promptText = request.error.promptText?.trim() ?? "";
+    if (!promptTemplatePath || !promptText) {
+      return;
+    }
+
+    const diagnostics = request.error.diagnostics;
+    await this.recordWorkflowTrace(slot, {
+      kind: request.kind,
+      stage: request.stage,
+      targetName: request.targetName,
+      targetPath: request.targetPath,
+      promptTemplatePath,
+      promptText,
+      outputText: diagnostics?.stdoutPreview ?? "",
+      diagnostics,
+      summary: request.summary ?? `Etapa ${request.stage} falhou no runner.`,
+      metadata: request.metadata,
+      decisionStatus: "failure",
+      decisionErrorMessage: request.error.message,
+    });
+  }
+
+  private async recordWorkflowTrace(
+    slot: ActiveRunnerSlot,
+    request: WorkflowTraceSuccessRequest & {
+      decisionStatus: "success" | "failure";
+      decisionErrorMessage?: string;
+    },
+  ): Promise<void> {
+    const sourceCommand = this.resolveWorkflowTraceSourceCommand(slot);
+    if (!sourceCommand) {
+      return;
+    }
+
+    try {
+      const traceStore = this.workflowTraceStoreFactory(slot.project.path);
+      await traceStore.recordStageTrace({
+        kind: request.kind,
+        stage: request.stage,
+        sourceCommand,
+        targetName: request.targetName,
+        targetPath: request.targetPath,
+        promptTemplatePath: request.promptTemplatePath,
+        promptText: request.promptText,
+        outputText: request.outputText,
+        diagnostics: request.diagnostics,
+        decision: {
+          status: request.decisionStatus,
+          summary: request.summary,
+          ...(request.decisionErrorMessage
+            ? { errorMessage: request.decisionErrorMessage }
+            : {}),
+          ...(request.metadata ? { metadata: request.metadata } : {}),
+        },
+        recordedAt: this.now(),
+      });
+    } catch (error) {
+      this.logger.warn("Falha ao persistir trilha do fluxo principal", {
+        stage: request.stage,
+        targetName: request.targetName,
+        targetPath: request.targetPath,
+        sourceCommand,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private createFlowTimingCollector<Stage extends string>(startedAtMs = Date.now()): FlowTimingCollector<Stage> {

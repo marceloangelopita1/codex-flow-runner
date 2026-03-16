@@ -27,6 +27,10 @@ import {
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
 import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
+import {
+  WorkflowStageTraceRecordRequest,
+  WorkflowTraceStore,
+} from "../integrations/workflow-trace-store.js";
 import { ProjectRef } from "../types/project.js";
 import {
   CodexFlowPreferencesSnapshot,
@@ -134,12 +138,19 @@ class StubCodexClient implements CodexTicketFlowClient {
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
     this.calls.push({ stage, ticketName: ticket.name, target: "ticket" });
     this.onStageStart?.(stage, { name: ticket.name });
+    const stageDiagnostics = this.stageDiagnostics[stage];
 
     if (this.shouldFail?.(stage, { name: ticket.name })) {
-      throw new CodexStageExecutionError(ticket.name, stage, "falha simulada");
+      throw new CodexStageExecutionError(
+        ticket.name,
+        stage,
+        "falha simulada",
+        `/tmp/prompts/${stage}.md`,
+        `prompt:${stage}:${ticket.name}`,
+        stageDiagnostics,
+      );
     }
 
-    const stageDiagnostics = this.stageDiagnostics[stage];
     return {
       stage,
       output: `ok:${stage}`,
@@ -147,6 +158,8 @@ class StubCodexClient implements CodexTicketFlowClient {
         stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
         ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
+      promptTemplatePath: `/tmp/prompts/${stage}.md`,
+      promptText: `prompt:${stage}:${ticket.name}`,
       ...(stage === "plan" && this.includeExecPlanPath
         ? { execPlanPath: `execplans/${ticket.name.replace(/\.md$/u, "")}.md` }
         : {}),
@@ -161,14 +174,21 @@ class StubCodexClient implements CodexTicketFlowClient {
       spec: cloneSpecRef(spec),
     });
     this.onStageStart?.(stage, { name: spec.fileName });
+    const stageDiagnostics = this.stageDiagnostics[stage];
 
     if (this.shouldFail?.(stage, { name: spec.fileName })) {
-      throw new CodexStageExecutionError(spec.fileName, stage, "falha simulada");
+      throw new CodexStageExecutionError(
+        spec.fileName,
+        stage,
+        "falha simulada",
+        `/tmp/prompts/${stage}.md`,
+        `prompt:${stage}:${spec.fileName}`,
+        stageDiagnostics,
+      );
     }
 
     await this.onSpecStageRun?.(stage, spec);
 
-    const stageDiagnostics = this.stageDiagnostics[stage];
     return {
       stage,
       output: `ok:${stage}`,
@@ -176,6 +196,8 @@ class StubCodexClient implements CodexTicketFlowClient {
         stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
         ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
+      promptTemplatePath: `/tmp/prompts/${stage}.md`,
+      promptText: `prompt:${stage}:${spec.fileName}`,
     };
   }
 
@@ -431,6 +453,30 @@ const createFlowSummaryCollector = () => {
   };
 
   return { flowSummaries, runFlowEventHandlers };
+};
+
+const createWorkflowTraceCollector = () => {
+  const records: Array<{ projectPath: string; request: WorkflowStageTraceRecordRequest }> = [];
+  const workflowTraceStoreFactory = (projectPath: string): WorkflowTraceStore => ({
+    recordStageTrace: async (request) => {
+      records.push({
+        projectPath,
+        request: structuredClone(request),
+      });
+      const traceId = `trace-${records.length}`;
+      return {
+        traceId,
+        requestPath: `.codex-flow-runner/flow-traces/requests/${traceId}-request.md`,
+        responsePath: `.codex-flow-runner/flow-traces/responses/${traceId}-response.md`,
+        decisionPath: `.codex-flow-runner/flow-traces/decisions/${traceId}-decision.json`,
+      };
+    },
+  });
+
+  return {
+    records,
+    workflowTraceStoreFactory,
+  };
 };
 
 const createFlowCodexPreferencesSnapshot = (
@@ -2370,6 +2416,7 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
       `ticket:${ticketB.name}:plan`,
       `ticket:${ticketB.name}:implement`,
       `ticket:${ticketB.name}:close-and-version`,
+      `spec:${specFileName}:spec-audit`,
     ],
   );
   assert.equal(nextTicketCalls, 3);
@@ -2382,7 +2429,7 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
   assert.equal(state.isRunning, false);
   assert.equal(state.phase, "idle");
   assert.equal(state.currentSpec, null);
-  assert.equal(state.lastMessage, "Rodada /run-all finalizada: nenhum ticket aberto restante");
+  assert.equal(state.lastMessage, `Fluxo /run_specs finalizado para ${specFileName}`);
 });
 
 test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tickets", async () => {
@@ -2463,7 +2510,7 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
   if (runSpecsSummary?.flow === "run-specs") {
     assert.equal(runSpecsSummary.outcome, "success");
     assert.equal(runSpecsSummary.completionReason, "completed");
-    assert.equal(runSpecsSummary.finalStage, "run-all");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
     assert.deepEqual(
       runSpecsSummary.codexPreferences,
       createFlowCodexPreferencesSnapshot({
@@ -2478,11 +2525,12 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
       "number",
     );
     assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
     assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
     assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");
     assert.deepEqual(
       runSpecsSummary.runAllSummary?.codexPreferences,
-      createFlowCodexPreferencesSnapshot({
+        createFlowCodexPreferencesSnapshot({
         reasoningEffort: "high",
         speed: "fast",
       }),
@@ -2490,6 +2538,113 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
   } else {
     assert.fail("resumo /run_specs deveria existir");
   }
+});
+
+test("requestRunSpecs marca falha especifica quando spec-audit falha apos run-all", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient((stage) => stage === "spec-audit");
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  let nextTicketCalls = 0;
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+    },
+  });
+
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(
+    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+    [
+      `spec:${specFileName}:spec-triage`,
+      `spec:${specFileName}:spec-close-and-version`,
+      `ticket:${ticketA.name}:plan`,
+      `ticket:${ticketA.name}:implement`,
+      `ticket:${ticketA.name}:close-and-version`,
+      `spec:${specFileName}:spec-audit`,
+    ],
+  );
+  assert.equal(runner.getState().phase, "error");
+  assert.equal(runner.getState().currentSpec, null);
+
+  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+  assert.ok(runSpecsSummary);
+  if (runSpecsSummary?.flow === "run-specs") {
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(runSpecsSummary.completionReason, "spec-audit-failure");
+    assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
+    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-audit");
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
+  } else {
+    assert.fail("resumo /run_specs deveria existir");
+  }
+});
+
+test("runner persiste trilhas do fluxo principal para tickets e specs", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+  let nextTicketCalls = 0;
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      workflowTraceStoreFactory,
+    },
+  });
+
+  const request = await runner.requestRunSpecs(specFileName);
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  assert.deepEqual(
+    records.map((entry) => `${entry.request.sourceCommand}:${entry.request.kind}:${entry.request.stage}:${entry.request.decision.status}`),
+    [
+      "run-specs:spec:spec-triage:success",
+      "run-specs:spec:spec-close-and-version:success",
+      "run-specs:ticket:plan:success",
+      "run-specs:ticket:implement:success",
+      "run-specs:ticket:close-and-version:success",
+      "run-specs:spec:spec-audit:success",
+    ],
+  );
+  assert.equal(records.every((entry) => entry.projectPath === activeProjectA.path), true);
+  assert.equal(records[2]?.request.targetName, ticketA.name);
+  assert.equal(records[2]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
+  assert.equal(records[4]?.request.decision.metadata?.commitHash, "abc123");
+  assert.equal(records[4]?.request.decision.metadata?.pushUpstream, "origin/main");
 });
 
 test("requestRunSpecs expoe fase e currentSpec durante triagem e transita para fase de ticket", async () => {

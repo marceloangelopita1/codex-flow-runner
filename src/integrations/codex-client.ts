@@ -29,6 +29,7 @@ export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
   | "spec-triage"
   | "spec-close-and-version"
+  | "spec-audit"
   | "plan-spec-materialize"
   | "plan-spec-version-and-push";
 export type CodexFlowStage = TicketFlowStage | SpecFlowStage;
@@ -53,6 +54,8 @@ export interface CodexStageResult {
   output: string;
   execPlanPath?: string;
   diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
 }
 
 export interface CodexStageDiagnostics {
@@ -215,6 +218,7 @@ const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
 const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
   "spec-triage": "01-avaliar-spec-e-gerar-tickets.md",
   "spec-close-and-version": "05-encerrar-tratamento-spec-commit-push.md",
+  "spec-audit": "08-auditar-spec-apos-run-all.md",
   "plan-spec-materialize": "06-materializar-spec-planejada.md",
   "plan-spec-version-and-push": "07-versionar-spec-planejada-commit-push.md",
 };
@@ -375,9 +379,24 @@ export class CodexStageExecutionError extends Error {
     public readonly ticketName: string,
     public readonly stage: CodexFlowStage,
     details: string,
+    public readonly promptTemplatePath?: string,
+    public readonly promptText?: string,
+    public readonly diagnostics?: CodexStageDiagnostics,
   ) {
     super(`Falha na etapa ${stage} para ${ticketName}: ${details}`);
     this.name = "CodexStageExecutionError";
+  }
+}
+
+class CodexCliCommandError extends Error {
+  constructor(
+    message: string,
+    public readonly stdout: string,
+    public readonly stderr: string,
+    public readonly exitCode: number | null,
+  ) {
+    super(message);
+    this.name = "CodexCliCommandError";
   }
 }
 
@@ -505,18 +524,20 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
   async runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult> {
     const promptTemplatePath = path.join(PROMPTS_DIR, TICKET_STAGE_PROMPT_FILES[stage]);
-    const planDirectory = await this.dependencies.resolvePlanDirectoryName(this.repoPath);
-    const execPlanPath = this.expectedExecPlanPath(ticket, planDirectory);
-    const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
-    const prompt = this.buildTicketPrompt(stage, promptTemplate, ticket, planDirectory, execPlanPath);
-
-    this.logger.info("Executando etapa via Codex CLI", {
-      ticket: ticket.name,
-      stage,
-      promptTemplatePath,
-    });
-
+    let execPlanPath: string | undefined;
+    let prompt = "";
     try {
+      const planDirectory = await this.dependencies.resolvePlanDirectoryName(this.repoPath);
+      execPlanPath = this.expectedExecPlanPath(ticket, planDirectory);
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTicketPrompt(stage, promptTemplate, ticket, planDirectory, execPlanPath);
+
+      this.logger.info("Executando etapa via Codex CLI", {
+        ticket: ticket.name,
+        stage,
+        promptTemplatePath,
+      });
+
       const preferences = await this.snapshotInvocationPreferences();
       const result = await this.dependencies.runCodexCommand({
         cwd: this.repoPath,
@@ -548,27 +569,41 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         stage,
         output: result.stdout,
         ...(diagnostics ? { diagnostics } : {}),
-        ...(stage === "plan" ? { execPlanPath } : {}),
+        ...(stage === "plan" && execPlanPath ? { execPlanPath } : {}),
+        promptTemplatePath,
+        promptText: prompt,
       };
     } catch (error) {
       const details = errorMessage(error);
-      throw new CodexStageExecutionError(ticket.name, stage, details);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        ticket.name,
+        stage,
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
     }
   }
 
   async runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult> {
     const promptTemplatePath = path.join(PROMPTS_DIR, SPEC_STAGE_PROMPT_FILES[stage]);
-
-    this.logger.info("Executando etapa de spec via Codex CLI", {
-      spec: spec.fileName,
-      specPath: spec.path,
-      stage,
-      promptTemplatePath,
-    });
-
+    let prompt = "";
     try {
       const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
-      const prompt = this.buildSpecPrompt(stage, promptTemplate, spec);
+      prompt = this.buildSpecPrompt(stage, promptTemplate, spec);
+
+      this.logger.info("Executando etapa de spec via Codex CLI", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        stage,
+        promptTemplatePath,
+      });
+
       const preferences = await this.snapshotInvocationPreferences();
       const result = await this.dependencies.runCodexCommand({
         cwd: this.repoPath,
@@ -600,10 +635,23 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         stage,
         output: result.stdout,
         ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
       };
     } catch (error) {
       const details = errorMessage(error);
-      throw new CodexStageExecutionError(spec.fileName, stage, details);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        spec.fileName,
+        stage,
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
     }
   }
 
@@ -713,7 +761,9 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "Contexto adicional da spec alvo:",
       `- Spec alvo: \`${spec.path}\``,
       `- Arquivo da spec: \`${spec.fileName}\``,
-      ...(stage === "spec-close-and-version" || stage === "plan-spec-version-and-push"
+      ...(stage === "spec-close-and-version" ||
+      stage === "spec-audit" ||
+      stage === "plan-spec-version-and-push"
         ? [`- Commit esperado: \`${commitMessage}\``]
         : []),
       ...(stage === "plan-spec-materialize"
@@ -753,6 +803,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private buildSpecCommitMessage(stage: SpecFlowStage, specFileName: string): string {
     if (stage === "plan-spec-version-and-push") {
       return `feat(spec): add ${specFileName}`;
+    }
+
+    if (stage === "spec-audit") {
+      return `chore(specs): audit ${specFileName}`;
     }
 
     return `chore(specs): triage ${specFileName}`;
@@ -1427,11 +1481,14 @@ const runCodexCliCommand = async (params: {
       }
 
       reject(
-        new Error(
+        new CodexCliCommandError(
           [
             `${params.commandName} terminou com codigo ${String(code)}:`,
             summarizeCodexCliOutput(stderr) ?? summarizeCodexCliOutput(stdout) ?? "sem saida capturada",
           ].join(" "),
+          stdout,
+          stderr,
+          code,
         ),
       );
     });

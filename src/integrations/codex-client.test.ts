@@ -66,12 +66,14 @@ test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", as
       resolvePlanDirectoryName: async () => "execplans",
     });
 
-    const result = await client.runStage("plan", ticket);
+  const result = await client.runStage("plan", ticket);
 
-    assert.equal(result.stage, "plan");
-    assert.equal(result.execPlanPath, "execplans/2026-02-19-example-ticket.md");
+  assert.equal(result.stage, "plan");
+  assert.equal(result.execPlanPath, "execplans/2026-02-19-example-ticket.md");
+  assert.match(result.promptTemplatePath, /02-criar-execplan-para-ticket\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
 
-    assert.match(capturedPrompt, /tickets\/open\/2026-02-19-example-ticket\.md/u);
+  assert.match(capturedPrompt, /tickets\/open\/2026-02-19-example-ticket\.md/u);
     assert.doesNotMatch(capturedPrompt, /YYYY-MM-DD-slug/u);
     assert.match(capturedPrompt, /ExecPlan esperado: `execplans\/2026-02-19-example-ticket\.md`/u);
 
@@ -316,6 +318,8 @@ test("runSpecStage(spec-triage) substitui placeholder <SPEC_PATH>", async () => 
   const result = await client.runSpecStage("spec-triage", spec);
 
   assert.equal(result.stage, "spec-triage");
+  assert.match(result.promptTemplatePath, /01-avaliar-spec-e-gerar-tickets\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.doesNotMatch(capturedPrompt, /<SPEC_PATH>/u);
 });
@@ -333,11 +337,34 @@ test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Statu
   const result = await client.runSpecStage("spec-close-and-version", spec);
 
   assert.equal(result.stage, "spec-close-and-version");
+  assert.match(result.promptTemplatePath, /05-encerrar-tratamento-spec-commit-push\.md$/u);
   assert.match(
     capturedPrompt,
     /chore\(specs\): triage 2026-02-19-approved-spec-triage-run-specs\.md/u,
   );
   assert.match(capturedPrompt, /Status: attended/u);
+  assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+});
+
+test("runSpecStage(spec-audit) usa commit de auditoria e prompt dedicado", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-audit", spec);
+
+  assert.equal(result.stage, "spec-audit");
+  assert.match(result.promptTemplatePath, /08-auditar-spec-apos-run-all\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(
+    capturedPrompt,
+    /chore\(specs\): audit 2026-02-19-approved-spec-triage-run-specs\.md/u,
+  );
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
 });
 
@@ -413,6 +440,7 @@ test("runSpecStage(plan-spec-version-and-push) falha quando trilha spec_planning
     (error: unknown) => {
       assert.ok(error instanceof CodexStageExecutionError);
       assert.match(error.message, /trilha spec_planning completa/u);
+      assert.equal(error.stage, "plan-spec-version-and-push");
       return true;
     },
   );

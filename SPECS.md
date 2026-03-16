@@ -42,6 +42,8 @@ Regras:
 - Toda mudanca de implementacao que altera comportamento descrito em spec deve atualizar a propria spec no mesmo ciclo.
 - Toda spec em `in_progress` ou `partially_attended` deve listar pendencias objetivas.
 - Uma spec so pode ir para `attended` quando houver evidencia verificavel (ticket fechado, execplan entregue, commit ou validacao observavel).
+- Toda spec derivada para execucao deve explicitar assumptions/defaults adotados quando houver escolhas relevantes que nao estejam 100% obvias no texto original.
+- Quando uma spec vier de `/run_specs`, o fluxo deve executar auditoria final apos a rodada encadeada de tickets para decidir `attended/done` ou abrir follow-ups com causa-raiz objetiva.
 
 ## Rastreabilidade obrigatoria
 Cada spec deve manter links para os artefatos associados:
@@ -72,7 +74,9 @@ Toda spec deve conter:
 - objetivo e contexto;
 - jornada(s) de uso e atores;
 - requisitos funcionais;
+- assumptions/defaults relevantes quando houver escolhas padrao;
 - criterios de aceitacao observaveis;
 - nao-escopo;
 - status de atendimento e pendencias;
+- registro final de auditoria quando o fluxo derivado ja tiver sido executado;
 - evidencias e rastreabilidade.
