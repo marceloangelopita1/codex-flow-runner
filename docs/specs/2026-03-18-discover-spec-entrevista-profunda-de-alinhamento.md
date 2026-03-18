@@ -1,0 +1,174 @@
+# [SPEC] /discover_spec para entrevista profunda de alinhamento antes da spec
+
+## Metadata
+- Spec ID: 2026-03-18-discover-spec-entrevista-profunda-de-alinhamento
+- Status: approved
+- Spec treatment: pending
+- Owner: mapita
+- Created at (UTC): 2026-03-18 18:49Z
+- Last reviewed at (UTC): 2026-03-18 19:06Z
+- Source: product-need
+- Related tickets:
+  - tickets/open/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md
+  - tickets/open/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md
+  - tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
+- Related execplans:
+  - A definir
+- Related commits:
+  - A definir
+
+## Objetivo e contexto
+- Problema que esta spec resolve: o fluxo atual de `/plan_spec` e bom para refinamento rapido, mas pode convergir cedo demais em demandas complexas, deixando verdades nao ditas, assumptions implicitos e criterios de aceite incompletos que reduzem a qualidade do fluxo e geram retrabalho.
+- Resultado esperado: operador consegue usar um novo comando dedicado, `/discover_spec`, para conduzir uma entrevista mais profunda e estruturada antes da materializacao da spec; ao final, a spec ainda nasce diretamente como `approved`, pronta para entrar na automacao.
+- Contexto funcional: o novo fluxo deve coexistir com o `/plan_spec` atual, preservando um caminho leve para mudancas simples e oferecendo um caminho aprofundado para demandas mais ambiguas ou de maior risco.
+- Restricoes tecnicas relevantes:
+  - manter o fluxo sequencial do runner;
+  - reutilizar ao maximo a infraestrutura atual de sessao, parser, materializacao, versionamento e rastreabilidade do fluxo `/plan_spec`;
+  - nao transformar o `/plan_spec` existente em um fluxo pesado por padrao;
+  - toda spec gerada por `/discover_spec` deve continuar nascendo com `Status: approved` e `Spec treatment: pending`.
+
+## Jornada de uso
+1. Operador autorizado envia `/discover_spec`.
+2. Bot inicia uma sessao dedicada de descoberta profunda e pede o brief inicial na proxima mensagem.
+3. Operador descreve a funcionalidade, mudanca ou problema em linguagem natural.
+4. Runner abre uma sessao stateful do Codex no projeto ativo e conduz uma entrevista estruturada para eliminar ambiguidades relevantes antes da spec.
+5. O fluxo faz perguntas por texto e, quando apropriado, por opcoes clicaveis, cobrindo objetivo, atores, escopo, nao-escopo, restricoes, validacoes, riscos, assumptions/defaults e trade-offs.
+6. Enquanto existir ambiguidade critica sem tratamento explicito, o fluxo continua perguntando; quando uma indefinicao for aceitavel, ela deve ser convertida em assumption/default aprovado ou em nao-escopo declarado.
+7. Ao final, o bot apresenta um bloco final estruturado com a proposta completa da spec e as acoes `Criar spec`, `Refinar`, `Cancelar`.
+8. Operador escolhe `Criar spec`; runner materializa a spec em `docs/specs/` e executa o mesmo fluxo de versionamento/push dedicado ja usado no planejamento de spec.
+
+## Requisitos funcionais
+- RF-01: expor novo comando `/discover_spec` no Telegram para iniciar uma sessao de descoberta profunda antes da criacao da spec.
+- RF-02: expor comandos `/discover_spec_status` e `/discover_spec_cancel`.
+- RF-03: `/discover_spec` deve aceitar inicio sem argumento; nesse caso, a primeira mensagem livre subsequente deve ser tratada como brief inicial.
+- RF-04: deve existir no maximo uma sessao ativa de descoberta profunda por instancia do runner.
+- RF-05: `/discover_spec` e `/plan_spec` devem ser mutuamente exclusivos; nao pode existir sessao ativa dos dois fluxos ao mesmo tempo.
+- RF-06: com sessao `/discover_spec` ativa, comandos de execucao (`/run_all`, `/run_specs`, `/run_ticket`) e troca de projeto devem ser bloqueados com mensagem explicita, preservando consistencia do contexto.
+- RF-07: com sessao `/discover_spec` ativa, comandos de texto livre concorrentes (`/plan_spec` e `/codex_chat`) tambem devem ser bloqueados com mensagem explicita.
+- RF-08: o fluxo deve operar sempre sobre o projeto ativo global no momento em que a sessao e iniciada.
+- RF-09: a sessao de descoberta profunda deve reutilizar backend stateful com `codex exec`/`codex exec resume` e `--json`, mantendo contexto por `thread_id`.
+- RF-10: o fluxo de entrevista deve cobrir explicitamente, antes da finalizacao, as seguintes categorias de entendimento:
+  - objetivo e valor esperado;
+  - atores e jornada;
+  - escopo funcional;
+  - nao-escopo;
+  - restricoes tecnicas e dependencias;
+  - validacoes e criterios de aceite;
+  - riscos operacionais/funcionais;
+  - assumptions/defaults;
+  - decisoes e trade-offs relevantes.
+- RF-11: cada categoria obrigatoria deve ser marcada como coberta por conteudo explicito ou como `nao aplicavel`, sem depender de inferencia silenciosa.
+- RF-12: enquanto houver ambiguidade critica nao tratada, o fluxo nao deve concluir o planejamento com bloco final elegivel para `Criar spec`.
+- RF-13: quando uma resposta do operador nao fechar uma ambiguidade critica, o fluxo deve fazer follow-up em vez de avancar prematuramente para a finalizacao.
+- RF-14: quando uma ambiguidade critica for conscientemente aceita como default, o fluxo deve registra-la explicitamente como assumption/default ou nao-escopo antes da finalizacao.
+- RF-15: o bloco final estruturado de `/discover_spec` deve incluir, alem dos campos ja usados em `/plan_spec`, secoes explicitas para:
+  - assumptions/defaults aprovados;
+  - decisoes/trade-offs aprovados.
+- RF-16: ao final do planejamento, o bot deve oferecer botoes `Criar spec`, `Refinar`, `Cancelar`, com comportamento equivalente ao fluxo atual.
+- RF-17: ao escolher `Criar spec`, o runner deve reutilizar o pipeline atual de materializacao/versionamento de spec fora do modo de planejamento, sem duplicar a arquitetura.
+- RF-18: a spec criada pelo fluxo deve seguir nome `docs/specs/YYYY-MM-DD-<slug>.md`, derivado do titulo final aprovado.
+- RF-19: a spec criada por `/discover_spec` deve iniciar com `Status: approved` e `Spec treatment: pending`.
+- RF-20: a materializacao da spec deve preservar explicitamente no documento final:
+  - assumptions/defaults aprovados;
+  - decisoes e trade-offs relevantes;
+  - validacoes obrigatorias e manuais pendentes;
+  - riscos conhecidos.
+- RF-21: a trilha de rastreabilidade do fluxo deve continuar sendo persistida em `spec_planning/`, com identificacao explicita de que a sessao foi originada por `/discover_spec`.
+- RF-22: `/discover_spec_status` deve mostrar fase atual, projeto ativo, timestamps de atividade e quais categorias obrigatorias ja estao cobertas ou ainda pendentes.
+- RF-23: `/discover_spec_cancel` deve encerrar a sessao e limpar o estado associado.
+- RF-24: deve haver timeout de inatividade de 30 minutos para encerrar sessao presa.
+- RF-25: em falha da sessao de descoberta profunda, o fluxo deve abortar com orientacao de retry, sem fallback automatico para outro backend.
+- RF-26: quando a saida do Codex nao for parseavel com seguranca, o bot deve repassar conteudo bruto saneado ao Telegram, mantendo observabilidade equivalente ao `/plan_spec`.
+- RF-27: o novo fluxo deve respeitar `TELEGRAM_ALLOWED_CHAT_ID` em comandos e callbacks associados.
+- RF-28: o `/plan_spec` atual deve permanecer disponivel como caminho leve, sem forcar a entrevista profunda por padrao.
+
+## Assumptions and defaults
+- `/discover_spec` e o nome canonico inicial do novo comando.
+- O fluxo profundo sera usado quando o operador quiser maximizar alinhamento e reduzir risco de retrabalho em demandas mais ambiguas.
+- O pipeline de materializacao/versionamento atual de spec e suficientemente bom para ser reutilizado; a mudanca principal esta na fase de descoberta e na riqueza do bloco final estruturado.
+- A entrevista profunda nao precisa provar ausencia absoluta de ambiguidade; ela precisa eliminar ou explicitar toda ambiguidade critica relevante para a qualidade da spec.
+
+## Nao-escopo
+- Remover, renomear ou degradar o `/plan_spec` atual.
+- Fazer selecao automatica entre `/plan_spec` e `/discover_spec` com base em heuristica de complexidade.
+- Criar tickets ou execplans automaticamente durante a entrevista profunda.
+- Paralelizar sessoes de descoberta profunda por chat ou usuario.
+- Garantir matematicamente que nenhuma ambiguidade residual exista; o objetivo e tornar ambiguidades criticas explicitas e tratadas.
+
+## Criterios de aceitacao (observaveis)
+- [ ] CA-01 - `/discover_spec` sem argumento abre sessao e solicita o brief inicial, sem iniciar rodada de tickets.
+- [ ] CA-02 - `/plan_spec` continua disponivel e nao executa a entrevista profunda por padrao.
+- [ ] CA-03 - durante sessao `/discover_spec` ativa, `/plan_spec`, `/codex_chat`, `/run_all`, `/run_specs`, `/run_ticket` e troca de projeto retornam bloqueio explicito e nao iniciam execucao.
+- [ ] CA-04 - a entrevista profunda cobre todas as categorias obrigatorias definidas na spec, registrando conteudo explicito ou `nao aplicavel`.
+- [ ] CA-05 - com brief inicial vago ou ambiguo, o fluxo faz perguntas de follow-up em vez de emitir bloco final prematuramente.
+- [ ] CA-06 - o bloco final de `/discover_spec` inclui titulo, resumo, objetivo, atores, jornada, RFs, CAs, nao-escopo, restricoes tecnicas, validacoes obrigatorias, validacoes manuais pendentes, riscos conhecidos, assumptions/defaults e decisoes/trade-offs.
+- [ ] CA-07 - quando ainda houver ambiguidade critica sem tratamento explicito, a acao `Criar spec` e rejeitada com mensagem orientando refinamento.
+- [ ] CA-08 - ao escolher `Refinar`, a conversa retorna ao ciclo de entrevista sem criar arquivos.
+- [ ] CA-09 - ao escolher `Cancelar`, nenhuma spec e criada e a sessao e encerrada.
+- [ ] CA-10 - ao escolher `Criar spec`, runner executa pipeline dedicado fora de `/plan` e cria `docs/specs/YYYY-MM-DD-<slug>.md`.
+- [ ] CA-11 - a spec criada contem metadata inicial `Status: approved` e `Spec treatment: pending`.
+- [ ] CA-12 - a spec criada materializa explicitamente `Assumptions and defaults` e `Decisoes e trade-offs` a partir da entrevista.
+- [ ] CA-13 - a trilha da sessao e persistida em `spec_planning/` com identificacao explicita do modo `/discover_spec`.
+- [ ] CA-14 - `/discover_spec_status` exibe fase atual, projeto ativo, timestamps relevantes e cobertura das categorias obrigatorias.
+- [ ] CA-15 - `/discover_spec_cancel` encerra a sessao e limpa estado associado.
+- [ ] CA-16 - apos 30 minutos sem atividade, sessao expira automaticamente com mensagem de timeout.
+- [ ] CA-17 - com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chat nao autorizado nao consegue usar `/discover_spec`, `/discover_spec_status`, `/discover_spec_cancel` nem callbacks associados.
+- [ ] CA-18 - em falha da sessao, bot retorna erro acionavel e orienta retry sem iniciar fallback automatico.
+- [ ] CA-19 - em resposta do Codex nao parseavel, bot repassa conteudo bruto saneado no Telegram.
+- [ ] CA-20 - ao final da criacao da spec, o versionamento continua restrito a artefatos esperados da spec e da trilha da sessao, sem espalhar escopo de commit.
+
+## Validacoes pendentes ou manuais
+- Validacoes obrigatorias ainda nao automatizadas:
+  - Validar em teste automatizado a cobertura das categorias obrigatorias e o bloqueio de `Criar spec` quando houver ambiguidade critica sem tratamento explicito.
+  - Validar compatibilidade entre bloco final enriquecido de `/discover_spec` e pipeline compartilhado de materializacao/versionamento.
+- Validacoes manuais pendentes:
+  - Exercitar o fluxo completo em Telegram real com demanda simples e demanda complexa, comparando friccao do `/plan_spec` com profundidade do `/discover_spec`.
+  - Confirmar que o resumo final e o status exibido em `/discover_spec_status` permanecem legiveis em conversas longas.
+
+## Status de atendimento (documento vivo)
+- Estado geral: approved
+- Itens atendidos:
+  - A base atual de `/plan_spec` ja entrega sessao stateful via Telegram com `codex exec`/`codex exec resume --json`, preservacao de `thread_id`, timeout de 30 minutos, cancelamento, repasse de saida raw saneada e acoes finais reutilizaveis.
+  - O runner ja possui guards de texto livre global entre `/plan_spec` e `/codex_chat`, snapshot do projeto ativo no start da sessao e bloqueio de troca de projeto enquanto `/plan_spec` esta ativo.
+  - A pipeline de materializacao/versionamento de spec e a trilha `spec_planning/` ja existem, incluindo naming `docs/specs/YYYY-MM-DD-<slug>.md`, metadata inicial `Status: approved` + `Spec treatment: pending` e escopo restrito de versionamento.
+  - O `/plan_spec` atual segue disponivel como caminho leve, o que ja atende o objetivo de nao forcar a entrevista profunda por padrao.
+- Pendencias em aberto:
+  - `tickets/open/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`: falta criar a superficie Telegram de `/discover_spec`, o estado dedicado da sessao profunda e os bloqueios de concorrencia/projeto/acesso para RF-01..RF-09, RF-23..RF-27 e CA-01, CA-03, CA-09, CA-15..CA-19.
+  - `tickets/open/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`: falta implementar protocolo de entrevista profunda com categorias obrigatorias, marcacao `nao aplicavel`, assumptions/defaults, decisoes/trade-offs, follow-up de ambiguidade critica e gate final de `Criar spec` para RF-10..RF-16, RF-22 e CA-04..CA-08, CA-14.
+  - `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`: falta estender a materializacao compartilhada e a trilha `spec_planning/` para preservar os campos enriquecidos e identificar explicitamente a origem `/discover_spec` em RF-17..RF-21 e CA-10..CA-13, CA-20.
+- Evidencias de validacao:
+  - Revisao estatica consolidada em `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/types/state.ts`, `src/integrations/codex-client.ts`, `src/integrations/plan-spec-parser.ts`, `src/integrations/spec-planning-trace-store.ts`, `prompts/06-materializar-spec-planejada.md` e `prompts/07-versionar-spec-planejada-commit-push.md`.
+  - Tickets de gap derivados e vinculados na propria spec: `tickets/open/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`, `tickets/open/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` e `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
+
+## Auditoria final de entrega
+- Auditoria executada em: 2026-03-18 19:06Z
+- Resultado: triagem revisada e consistente com o estado atual do repositorio; `Status: approved` e `Spec treatment: pending` foram mantidos porque a spec ainda depende de 3 gaps funcionais/operacionais abertos e rastreados em `tickets/open/`.
+- Tickets/follow-ups abertos a partir da auditoria:
+  - tickets/open/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md
+  - tickets/open/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md
+  - tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
+- Causas-raiz sistemicas identificadas:
+  - A arquitetura atual de planejamento stateful ainda esta centrada em `/plan_spec`, com contracts, guards e UX sem extensao semantica pronta para um segundo fluxo mais profundo.
+  - A pipeline compartilhada de materializacao/versionamento e rastreabilidade ainda esta acoplada ao bloco final atual e nao preserva, por contrato, campos enriquecidos de descoberta.
+- Ajustes genericos promovidos ao workflow:
+  - Nenhum ajuste generico adicional nesta etapa; a saida correta da auditoria foi consolidar a rastreabilidade dos gaps na spec e em tickets separados.
+
+## Riscos e impacto
+- Risco funcional: a entrevista profunda virar um fluxo excessivamente longo e aumentar friccao sem ganho proporcional em demandas simples.
+- Risco operacional: duplicar demais a arquitetura entre `/plan_spec` e `/discover_spec`, aumentando custo de manutencao.
+- Risco de UX: o gate de "ambiguidade critica" ficar subjetivo demais e gerar sensacao de bloqueio arbitrario.
+- Mitigacao:
+  - manter `/plan_spec` como caminho leve e `/discover_spec` como caminho profundo;
+  - reutilizar backend, rastreabilidade e versionamento do fluxo atual;
+  - tornar explicitas as categorias obrigatorias e os criterios para permitir finalizacao.
+
+## Decisoes e trade-offs
+- 2026-03-18 - Criar um comando dedicado `/discover_spec` em vez de transformar `/plan_spec` no fluxo pesado por padrao - preserva baixa friccao para casos simples e adiciona profundidade apenas quando desejado.
+- 2026-03-18 - Manter a spec criada por `/discover_spec` nascendo diretamente como `approved` - preserva automacao e evita etapa intermediaria de draft manual.
+- 2026-03-18 - Reutilizar pipeline atual de materializacao/versionamento e trilha `spec_planning/` - reduz duplicacao arquitetural e concentra a mudanca na fase de entendimento.
+- 2026-03-18 - Tratar ambiguidades criticas por cobertura explicita, assumptions/defaults ou nao-escopo, em vez de exigir certeza absoluta - mantem o fluxo pragmatico sem mascarar lacunas relevantes.
+
+## Historico de atualizacao
+- 2026-03-18 18:49Z - Versao inicial da spec criada com escopo fechado para introduzir `/discover_spec` como entrevista profunda antes da criacao automatizada de spec.
+- 2026-03-18 18:59Z - Revisao de gaps concluida; abertos 3 tickets para sessao/Telegram, protocolo de entrevista/gate final e materializacao/rastreabilidade enriquecidas.
+- 2026-03-18 19:06Z - Validacao final da triagem concluida; mantidos `Status: approved` e `Spec treatment: pending` com 3 gaps rastreados em `tickets/open/`.
