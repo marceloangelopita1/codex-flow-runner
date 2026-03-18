@@ -12,6 +12,14 @@ import {
   createInitialState,
 } from "../types/state.js";
 import {
+  createDefaultDiscoverSpecCategoryCoverageRecord,
+  createDiscoverSpecCategoryCoverageRecord,
+  DiscoverSpecCategoryCoverageRecord,
+  DiscoverSpecPendingItem,
+  getDiscoverSpecCategoryLabel,
+  listDiscoverSpecCategoryCoverage,
+} from "../types/discover-spec.js";
+import {
   TicketFinalStage,
   TicketFinalSummary,
   TicketTimingSnapshot,
@@ -95,6 +103,14 @@ type TicketFinalSummaryHandler = (
 ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
 
 export interface DiscoverSpecEventHandlers {
+  onQuestion?: (
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "question" }>,
+  ) => Promise<void> | void;
+  onFinal?: (
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "final" }>,
+  ) => Promise<void> | void;
   onOutput: (
     chatId: string,
     event: Extract<DiscoverSpecSessionEvent, { type: "raw-sanitized" }>,
@@ -169,6 +185,7 @@ interface ActiveDiscoverSpecSession {
   session: DiscoverSpecSession;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   heartbeatHandle: ReturnType<typeof setTimeout> | null;
+  latestFinalBlock: PlanSpecFinalBlock | null;
   lastCodexActivityLogAt: Date | null;
   lastHeartbeatLifecycleMessageAt: Date | null;
   lastRawOutputForwardAt: Date | null;
@@ -654,6 +671,16 @@ export class TicketRunner {
           discoverSpecSession: {
             ...this.state.discoverSpecSession,
             activeProjectSnapshot: { ...this.state.discoverSpecSession.activeProjectSnapshot },
+            categoryCoverage: Object.fromEntries(
+              Object.entries(this.state.discoverSpecSession.categoryCoverage).map(([key, value]) => [
+                key,
+                { ...value },
+              ]),
+            ) as DiscoverSpecCategoryCoverageRecord,
+            pendingItems: this.state.discoverSpecSession.pendingItems.map((item) => ({ ...item })),
+            latestFinalBlock: this.state.discoverSpecSession.latestFinalBlock
+              ? this.clonePlanSpecFinalBlock(this.state.discoverSpecSession.latestFinalBlock)
+              : null,
             startedAt: new Date(this.state.discoverSpecSession.startedAt),
             lastActivityAt: new Date(this.state.discoverSpecSession.lastActivityAt),
             ...(this.state.discoverSpecSession.waitingCodexSinceAt
@@ -1005,6 +1032,7 @@ export class TicketRunner {
       });
 
       const now = this.now();
+      const initialCategoryCoverage = createDefaultDiscoverSpecCategoryCoverageRecord();
       this.state.discoverSpecSession = {
         sessionId,
         chatId,
@@ -1019,6 +1047,11 @@ export class TicketRunner {
         observedReasoningEffort: null,
         observedAt: null,
         activeProjectSnapshot: { ...slot.project },
+        categoryCoverage: initialCategoryCoverage,
+        pendingItems: this.buildDiscoverSpecCategoryPendingItems(initialCategoryCoverage),
+        latestFinalBlock: null,
+        createSpecEligible: false,
+        createSpecBlockReason: "A descoberta profunda ainda nao chegou a um bloco final elegivel.",
       };
       this.activeDiscoverSpecSession = {
         id: sessionId,
@@ -1029,6 +1062,7 @@ export class TicketRunner {
         session,
         timeoutHandle: null,
         heartbeatHandle: null,
+        latestFinalBlock: null,
         lastCodexActivityLogAt: null,
         lastHeartbeatLifecycleMessageAt: null,
         lastRawOutputForwardAt: null,
@@ -1679,6 +1713,55 @@ export class TicketRunner {
     };
   };
 
+  handleDiscoverSpecQuestionOptionSelection = async (
+    chatId: string,
+    optionValue: string,
+  ): Promise<PlanSpecCallbackResult> => {
+    const result = await this.submitDiscoverSpecInput(chatId, optionValue);
+    if (result.status === "accepted") {
+      return { status: "accepted" };
+    }
+
+    const reason =
+      result.status === "inactive" || result.status === "ignored-chat"
+        ? "inactive-session"
+        : "invalid-action";
+    return {
+      status: "ignored",
+      reason,
+      message: result.message,
+    };
+  };
+
+  handleDiscoverSpecFinalActionSelection = async (
+    chatId: string,
+    action: PlanSpecFinalActionId,
+  ): Promise<PlanSpecCallbackResult> => {
+    const session = this.resolveDiscoverSpecSessionForChat(chatId);
+    if ("status" in session) {
+      return {
+        status: "ignored",
+        reason: "inactive-session",
+        message: session.message,
+      };
+    }
+
+    if (action === "cancel") {
+      await this.finalizeDiscoverSpecSession(session.id, {
+        mode: "cancel",
+        phase: "idle",
+        message: DISCOVER_SPEC_CANCELLED_MESSAGE,
+      });
+      return { status: "accepted" };
+    }
+
+    if (action === "create-spec") {
+      return this.handleDiscoverSpecCreateSpecSelection(session);
+    }
+
+    return this.requestDiscoverSpecRefinement(session);
+  };
+
   handlePlanSpecQuestionOptionSelection = async (
     chatId: string,
     optionValue: string,
@@ -1698,6 +1781,100 @@ export class TicketRunner {
       message: result.message,
     };
   };
+
+  private async handleDiscoverSpecCreateSpecSelection(
+    session: ActiveDiscoverSpecSession,
+  ): Promise<PlanSpecCallbackResult> {
+    const discoverSpecSession = this.state.discoverSpecSession;
+    if (!discoverSpecSession) {
+      return {
+        status: "ignored",
+        reason: "inactive-session",
+        message: DISCOVER_SPEC_INACTIVE_MESSAGE,
+      };
+    }
+
+    if (discoverSpecSession.phase !== "awaiting-final-action") {
+      return {
+        status: "ignored",
+        reason: "invalid-action",
+        message:
+          "Acao `Criar spec` so pode ser executada apos um bloco final elegivel de /discover_spec. Use `Refinar` para continuar a entrevista.",
+      };
+    }
+
+    const finalBlock = session.latestFinalBlock ?? discoverSpecSession.latestFinalBlock;
+    if (!finalBlock) {
+      return {
+        status: "ignored",
+        reason: "invalid-action",
+        message:
+          "Bloco final da descoberta indisponivel para `Criar spec`. Solicite `Refinar` e conclua novamente.",
+      };
+    }
+
+    if (!discoverSpecSession.createSpecEligible) {
+      return {
+        status: "ignored",
+        reason: "invalid-action",
+        message: `${discoverSpecSession.createSpecBlockReason ?? "A descoberta ainda possui lacunas criticas."} Use \`Refinar\` para continuar a entrevista.`,
+      };
+    }
+
+    return {
+      status: "ignored",
+      reason: "ineligible",
+      message:
+        "A criacao da spec a partir de `/discover_spec` continua bloqueada ate o ticket de materializacao/rastreabilidade enriquecidas preservar assumptions/defaults e trade-offs no artefato final. Use `Refinar` ou aguarde o ticket irmao.",
+    };
+  }
+
+  private async requestDiscoverSpecRefinement(
+    session: ActiveDiscoverSpecSession,
+  ): Promise<PlanSpecCallbackResult> {
+    const discoverSpecSession = this.state.discoverSpecSession;
+    if (!discoverSpecSession) {
+      return {
+        status: "ignored",
+        reason: "inactive-session",
+        message: DISCOVER_SPEC_INACTIVE_MESSAGE,
+      };
+    }
+
+    const pendingItems = discoverSpecSession.pendingItems;
+    const refinementPrompt = pendingItems.length > 0
+      ? this.buildDiscoverSpecRefinementPrompt(pendingItems)
+      : [
+          "Refinar a descoberta de /discover_spec.",
+          "Revise o ultimo bloco final, valide assumptions/defaults e trade-offs, e faca a proxima pergunta objetiva necessaria.",
+        ].join("\n");
+
+    try {
+      discoverSpecSession.createSpecEligible = false;
+      discoverSpecSession.createSpecBlockReason =
+        pendingItems.length > 0
+          ? this.buildDiscoverSpecBlockReason(pendingItems)
+          : "Refinamento solicitado pelo operador.";
+      const pendingSend = session.session.sendUserInput(refinementPrompt);
+      this.setDiscoverSpecPhase(
+        "waiting-codex",
+        "discover-spec-waiting-codex",
+        "Sessao /discover_spec retomou a entrevista por solicitacao de refinamento",
+      );
+      void pendingSend.catch((error) => {
+        void this.handleDiscoverSpecSessionFailure(session.id, error);
+      });
+      return { status: "accepted" };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      await this.handleDiscoverSpecSessionFailure(session.id, error);
+      return {
+        status: "ignored",
+        reason: "inactive-session",
+        message: `Falha ao retomar a entrevista de /discover_spec: ${details}`,
+      };
+    }
+  }
 
   handlePlanSpecFinalActionSelection = async (
     chatId: string,
@@ -2933,12 +3110,58 @@ export class TicketRunner {
       return;
     }
 
-    if (event.type === "turn-complete") {
+    if (event.type === "question") {
+      discoverSpecSession.createSpecEligible = false;
+      discoverSpecSession.createSpecBlockReason =
+        discoverSpecSession.pendingItems.length > 0
+          ? this.buildDiscoverSpecBlockReason(discoverSpecSession.pendingItems)
+          : "A entrevista de /discover_spec ainda esta em andamento.";
       this.setDiscoverSpecPhase(
         "waiting-user",
         "discover-spec-waiting-user",
         "Sessao /discover_spec aguardando resposta do operador",
       );
+      await this.emitDiscoverSpecQuestion(activeSession.chatId, event);
+      return;
+    }
+
+    if (event.type === "final") {
+      const latestFinalBlock = this.clonePlanSpecFinalBlock(event.final);
+      const evaluation = this.evaluateDiscoverSpecFinalBlock(latestFinalBlock);
+      activeSession.latestFinalBlock = latestFinalBlock;
+      discoverSpecSession.latestFinalBlock = latestFinalBlock;
+      discoverSpecSession.categoryCoverage = evaluation.categoryCoverage;
+      discoverSpecSession.pendingItems = evaluation.pendingItems;
+      discoverSpecSession.createSpecEligible = evaluation.pendingItems.length === 0;
+      discoverSpecSession.createSpecBlockReason = evaluation.blockReason;
+
+      if (evaluation.pendingItems.length > 0) {
+        await this.requestDiscoverSpecFollowUpForPendingItems(
+          sessionId,
+          activeSession,
+          discoverSpecSession,
+          evaluation.pendingItems,
+        );
+        return;
+      }
+
+      this.setDiscoverSpecPhase(
+        "awaiting-final-action",
+        "discover-spec-awaiting-final-action",
+        "Sessao /discover_spec aguardando acao final do operador",
+      );
+      await this.emitDiscoverSpecFinal(activeSession.chatId, event);
+      return;
+    }
+
+    if (event.type === "turn-complete") {
+      if (discoverSpecSession.phase !== "awaiting-final-action") {
+        this.setDiscoverSpecPhase(
+          "waiting-user",
+          "discover-spec-waiting-user",
+          "Sessao /discover_spec aguardando resposta do operador",
+        );
+      }
       return;
     }
 
@@ -2965,6 +3188,147 @@ export class TicketRunner {
       activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
     });
     await this.emitDiscoverSpecOutput(activeSession.chatId, event);
+  }
+
+  private async requestDiscoverSpecFollowUpForPendingItems(
+    sessionId: number,
+    activeSession: ActiveDiscoverSpecSession,
+    discoverSpecSession: NonNullable<RunnerState["discoverSpecSession"]>,
+    pendingItems: DiscoverSpecPendingItem[],
+  ): Promise<void> {
+    const followUpPrompt = this.buildDiscoverSpecRefinementPrompt(pendingItems);
+    const lifecycleMessage = this.buildDiscoverSpecPendingItemsLifecycleMessage(pendingItems);
+    this.logger.info("Sessao /discover_spec solicitando follow-up para pendencias criticas", {
+      chatId: activeSession.chatId,
+      sessionId,
+      pendingItems: pendingItems.map((item) => ({
+        kind: item.kind,
+        key: item.key,
+        label: item.label,
+        detail: item.detail,
+      })),
+      activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+    });
+
+    try {
+      const pendingSend = activeSession.session.sendUserInput(followUpPrompt);
+      this.setDiscoverSpecPhase(
+        "waiting-codex",
+        "discover-spec-waiting-codex",
+        "Sessao /discover_spec solicitou follow-up para tratar pendencias criticas",
+      );
+      await this.emitDiscoverSpecLifecycleMessage(activeSession.chatId, lifecycleMessage);
+      void pendingSend.catch((error) => {
+        void this.handleDiscoverSpecSessionFailure(sessionId, error);
+      });
+    } catch (error) {
+      await this.handleDiscoverSpecSessionFailure(sessionId, error);
+    }
+  }
+
+  private evaluateDiscoverSpecFinalBlock(finalBlock: PlanSpecFinalBlock): {
+    categoryCoverage: DiscoverSpecCategoryCoverageRecord;
+    pendingItems: DiscoverSpecPendingItem[];
+    blockReason: string | null;
+  } {
+    const categoryCoverage = createDiscoverSpecCategoryCoverageRecord(finalBlock.categoryCoverage);
+    const pendingItems = this.buildDiscoverSpecCategoryPendingItems(categoryCoverage);
+    for (const [index, ambiguity] of finalBlock.criticalAmbiguities.entries()) {
+      const detail = ambiguity.trim();
+      if (!detail) {
+        continue;
+      }
+
+      pendingItems.push({
+        kind: "ambiguity",
+        key: `ambiguity-${index + 1}`,
+        label: `Ambiguidade critica ${index + 1}`,
+        detail,
+      });
+    }
+
+    return {
+      categoryCoverage,
+      pendingItems,
+      blockReason: pendingItems.length > 0
+        ? this.buildDiscoverSpecBlockReason(pendingItems)
+        : null,
+    };
+  }
+
+  private buildDiscoverSpecCategoryPendingItems(
+    categoryCoverage: DiscoverSpecCategoryCoverageRecord,
+  ): DiscoverSpecPendingItem[] {
+    return listDiscoverSpecCategoryCoverage(categoryCoverage)
+      .filter((item) => item.status === "pending")
+      .map((item) => ({
+        kind: "category" as const,
+        key: item.categoryId,
+        label: item.label || getDiscoverSpecCategoryLabel(item.categoryId),
+        detail: item.detail || "Categoria obrigatoria ainda sem cobertura explicita ou motivo de nao aplicabilidade.",
+      }));
+  }
+
+  private buildDiscoverSpecBlockReason(pendingItems: readonly DiscoverSpecPendingItem[]): string {
+    const details = pendingItems
+      .slice(0, 3)
+      .map((item) => `${item.label}: ${item.detail}`)
+      .join("; ");
+    const suffix = pendingItems.length > 3 ? " ..." : "";
+    return `A descoberta ainda possui lacunas criticas: ${details}${suffix}`;
+  }
+
+  private buildDiscoverSpecPendingItemsLifecycleMessage(
+    pendingItems: readonly DiscoverSpecPendingItem[],
+  ): string {
+    const lines = [
+      "🧭 A descoberta ainda possui lacunas criticas; solicitei follow-up ao Codex antes de liberar `Criar spec`.",
+      "Pendencias atuais:",
+      ...pendingItems.map((item) => `- ${item.label}: ${item.detail}`),
+    ];
+
+    return lines.join("\n");
+  }
+
+  private buildDiscoverSpecRefinementPrompt(
+    pendingItems: readonly DiscoverSpecPendingItem[],
+  ): string {
+    const lines = [
+      "Refinar a entrevista de /discover_spec.",
+      "Ainda existem pendencias criticas antes da finalizacao elegivel.",
+      "Pendencias atuais:",
+      ...pendingItems.map((item, index) => `${index + 1}. ${item.label}: ${item.detail}`),
+      "",
+      "Faca a menor pergunta objetiva necessaria para fechar a pendencia mais critica.",
+      "Se todas as pendencias ja puderem ser tratadas com defaults ou nao-escopo aprovados, devolva um novo [[PLAN_SPEC_FINAL]] completo e consistente.",
+    ];
+
+    return lines.join("\n");
+  }
+
+  private clonePlanSpecFinalBlock(finalBlock: PlanSpecFinalBlock): PlanSpecFinalBlock {
+    return {
+      title: finalBlock.title,
+      summary: finalBlock.summary,
+      outline: {
+        objective: finalBlock.outline.objective,
+        actors: [...finalBlock.outline.actors],
+        journey: [...finalBlock.outline.journey],
+        requirements: [...finalBlock.outline.requirements],
+        acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
+        nonScope: [...finalBlock.outline.nonScope],
+        technicalConstraints: [...finalBlock.outline.technicalConstraints],
+        mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
+        pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
+        knownRisks: [...finalBlock.outline.knownRisks],
+      },
+      categoryCoverage: finalBlock.categoryCoverage.map((item) => ({ ...item })),
+      assumptionsAndDefaults: [...finalBlock.assumptionsAndDefaults],
+      decisionsAndTradeOffs: [...finalBlock.decisionsAndTradeOffs],
+      criticalAmbiguities: [...finalBlock.criticalAmbiguities],
+      actions: finalBlock.actions.map((action) => ({ ...action })),
+    };
   }
 
   private recordDiscoverSpecTurnContext(
@@ -3190,6 +3554,40 @@ export class TicketRunner {
     }
   }
 
+  private async emitDiscoverSpecQuestion(
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "question" }>,
+  ): Promise<void> {
+    if (!this.discoverSpecEventHandlers?.onQuestion) {
+      return;
+    }
+
+    try {
+      await this.discoverSpecEventHandlers.onQuestion(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar pergunta de /discover_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitDiscoverSpecFinal(
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "final" }>,
+  ): Promise<void> {
+    if (!this.discoverSpecEventHandlers?.onFinal) {
+      return;
+    }
+
+    try {
+      await this.discoverSpecEventHandlers.onFinal(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar finalizacao de /discover_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async emitDiscoverSpecFailure(chatId: string, details: string): Promise<void> {
     if (!this.discoverSpecEventHandlers) {
       return;
@@ -3409,23 +3807,7 @@ export class TicketRunner {
     }
 
     if (event.type === "final") {
-      activeSession.latestFinalBlock = {
-        title: event.final.title,
-        summary: event.final.summary,
-        outline: {
-          objective: event.final.outline.objective,
-          actors: [...event.final.outline.actors],
-          journey: [...event.final.outline.journey],
-          requirements: [...event.final.outline.requirements],
-          acceptanceCriteria: [...event.final.outline.acceptanceCriteria],
-          nonScope: [...event.final.outline.nonScope],
-          technicalConstraints: [...event.final.outline.technicalConstraints],
-          mandatoryValidations: [...event.final.outline.mandatoryValidations],
-          pendingManualValidations: [...event.final.outline.pendingManualValidations],
-          knownRisks: [...event.final.outline.knownRisks],
-        },
-        actions: event.final.actions.map((action) => ({ ...action })),
-      };
+      activeSession.latestFinalBlock = this.clonePlanSpecFinalBlock(event.final);
       this.setPlanSpecPhase(
         "awaiting-final-action",
         "plan-spec-awaiting-final-action",

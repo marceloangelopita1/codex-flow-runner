@@ -1,7 +1,7 @@
 # [TICKET] Protocolo de entrevista profunda e gate final de /discover_spec ainda nao existem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S1
 - Created at (UTC): 2026-03-18 18:59Z
@@ -87,11 +87,21 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 - RF-22; CA-14: o status da sessao mostra quais categorias obrigatorias ja estao cobertas e quais ainda faltam.
 - Cobertura automatizada: testes de parser, runner e Telegram validam a matriz CA-04, CA-05, CA-06, CA-07, CA-08 e a parte de cobertura de categorias em CA-14.
 
+## Closure validation
+- Resultado final da validacao: `GO`. O escopo tecnico/funcional deste ticket foi entregue integralmente no working tree atual; o blocker residual de materializacao/rastreabilidade permanece fora de escopo e segue rastreado no ticket irmao.
+- `RF-10, RF-11, RF-15; CA-04, CA-06` - atendido. Evidencias: o protocolo profundo exige as 9 categorias obrigatorias, assumptions/defaults, trade-offs e status `[covered|not-applicable|pending]` em `src/integrations/codex-client.ts:330`, `src/integrations/codex-client.ts:335`, `src/integrations/codex-client.ts:371`, `src/integrations/codex-client.ts:376`, `src/integrations/codex-client.ts:378`, `src/integrations/codex-client.ts:388`; o parser extrai cobertura por categoria, assumptions/defaults, trade-offs e ambiguidades criticas em `src/integrations/plan-spec-parser.ts:720`, `src/integrations/plan-spec-parser.ts:721`, `src/integrations/plan-spec-parser.ts:727`, `src/integrations/plan-spec-parser.ts:733`, `src/integrations/plan-spec-parser.ts:868`, `src/integrations/plan-spec-parser.ts:929`; a renderizacao final no Telegram inclui essas secoes em `src/integrations/telegram-bot.ts:3940`, `src/integrations/telegram-bot.ts:3991`, `src/integrations/telegram-bot.ts:4000`, `src/integrations/telegram-bot.ts:4007`; testes em `src/integrations/plan-spec-parser.test.ts:153`, `src/integrations/codex-client.test.ts:790` e `src/integrations/telegram-bot.test.ts:4939`.
+- `RF-12, RF-13, RF-14; CA-05, CA-07` - atendido. Evidencias: o runner avalia o bloco final, materializa `pendingItems`, pede follow-up automatico e registra motivo de bloqueio em `src/core/runner.ts:3128`, `src/core/runner.ts:3138`, `src/core/runner.ts:3193`, `src/core/runner.ts:3230`, `src/core/runner.ts:3273`; a acao `Criar spec` permanece rejeitada enquanto houver lacuna critica em `src/core/runner.ts:1816`; teste em `src/core/runner.test.ts:3294`.
+- `RF-16; CA-08` - atendido. Evidencias: `Refinar` reenvia a conversa ao ciclo de entrevista, limpa a elegibilidade imediata e nao materializa artefatos em `src/core/runner.ts:1832`, `src/core/runner.ts:1844`, `src/core/runner.ts:1858`; testes em `src/core/runner.test.ts:3366` e `src/integrations/telegram-bot.test.ts:4939`.
+- `RF-22; CA-14` - atendido. Evidencias: o estado tipado da sessao guarda cobertura por categoria, pendencias, ultimo bloco final e gate em `src/types/state.ts:53`; o runner atualiza esse snapshot a cada finalizacao em `src/core/runner.ts:3131`; o status Telegram exibe categorias cobertas, pendentes, pendencias criticas, assumptions/defaults, trade-offs e elegibilidade em `src/integrations/telegram-bot.ts:5939`, `src/integrations/telegram-bot.ts:5967`, `src/integrations/telegram-bot.ts:5981`, `src/integrations/telegram-bot.ts:5987`, `src/integrations/telegram-bot.ts:5993`, `src/integrations/telegram-bot.ts:6000`; teste em `src/integrations/telegram-bot.test.ts:2976`.
+- Cobertura automatizada exigida pelo ticket - atendida. Evidencias: auditoria de rastreabilidade com `rg -n "CA-04|CA-05|CA-06|CA-07|CA-08|CA-14|RF-10|RF-11|RF-12|RF-13|RF-14|RF-15|RF-16|RF-22|discover-spec-entrevista-categorias-e-gate-final-gap" src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/plan-spec-parser.test.ts docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md` e matriz completa executada com sucesso em 2026-03-18 20:40Z com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/plan-spec-parser.test.ts`.
+- Validacao manual pendente: nenhuma para o aceite deste ticket. As validacoes manuais amplas da spec continuam rastreadas na propria spec e no ticket irmao de materializacao/rastreabilidade, sem bloquear este fechamento.
+
 ## Decision log
 - 2026-03-18 - Gap aberto a partir da revisao da spec `2026-03-18-discover-spec-entrevista-profunda-de-alinhamento`.
+- 2026-03-18 - Fechamento validado como `GO` apos releitura do diff, ticket, ExecPlan, spec de origem e checklist `docs/workflows/codex-quality-gates.md`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-18 20:40Z
+- Closure reason: fixed
+- Related PR/commit/execplan: `execplans/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`; commit pertencente ao mesmo changeset de fechamento que sera versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

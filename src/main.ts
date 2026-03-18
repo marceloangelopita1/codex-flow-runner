@@ -113,6 +113,24 @@ const bootstrap = async () => {
     notifyTicketFinalSummary,
     {
       discoverSpecEventHandlers: {
+        onQuestion: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Pergunta de /discover_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendDiscoverSpecQuestion(chatId, event.question);
+        },
+        onFinal: async (chatId, event) => {
+          if (!telegram) {
+            logger.warn("Finalizacao de /discover_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendDiscoverSpecFinalization(chatId, event.final);
+        },
         onOutput: async (chatId, event) => {
           if (!env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM) {
             return;
@@ -330,6 +348,8 @@ const bootstrap = async () => {
       listCodexSpeed: runner.listActiveProjectCodexSpeed,
       selectCodexSpeed: runner.selectActiveProjectCodexSpeed,
       resolveCodexProjectPreferences: runner.resolveCodexProjectPreferences,
+      onDiscoverSpecQuestionOptionSelected: runner.handleDiscoverSpecQuestionOptionSelection,
+      onDiscoverSpecFinalActionSelected: runner.handleDiscoverSpecFinalActionSelection,
       onPlanSpecQuestionOptionSelected: runner.handlePlanSpecQuestionOptionSelection,
       onPlanSpecFinalActionSelected: runner.handlePlanSpecFinalActionSelection,
       listProjects: projectSelection.listProjects.bind(projectSelection),

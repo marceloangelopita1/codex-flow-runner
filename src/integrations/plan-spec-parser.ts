@@ -1,3 +1,10 @@
+import {
+  DiscoverSpecCategoryCoverage,
+  getDiscoverSpecCategoryLabel,
+  normalizeDiscoverSpecCoverageStatus,
+  resolveDiscoverSpecCategoryId,
+} from "../types/discover-spec.js";
+
 const QUESTION_BLOCK_OPEN = "[[PLAN_SPEC_QUESTION]]";
 const QUESTION_BLOCK_CLOSE = "[[/PLAN_SPEC_QUESTION]]";
 const FINAL_BLOCK_OPEN = "[[PLAN_SPEC_FINAL]]";
@@ -51,6 +58,10 @@ const PLAN_SPEC_PROTOCOL_ECHO_COMPACT_SNIPPETS = [
   "validacoesobrigatoriasvalidacaoobrigatoriaounenhum",
   "validacoesmanuaispendentesvalidacaomanualpendenteounenhum",
   "riscosconhecidosriscoconhecidoounenhum",
+  "categoriasobrigatoriasobjectivevaluecovered",
+  "assumptionsdefaultsassumptionaprovadaounenhum",
+  "decisoesetradeoffstradeoffaprovadoounenhum",
+  "ambiguidadescriticasabertaspendenciacriticaounenhum",
   "naocomprimarfscasjornadariscosenaoescopoemumunicoresumo",
 ] as const;
 
@@ -88,6 +99,10 @@ export interface PlanSpecFinalBlock {
   title: string;
   summary: string;
   outline: PlanSpecFinalOutline;
+  categoryCoverage: DiscoverSpecCategoryCoverage[];
+  assumptionsAndDefaults: string[];
+  decisionsAndTradeOffs: string[];
+  criticalAmbiguities: string[];
   actions: PlanSpecFinalAction[];
 }
 
@@ -147,6 +162,10 @@ const FINAL_BLOCK_STOP_LABELS_PATTERN = [
   "(?:validacoes obrigatorias|mandatory validations)",
   "(?:validacoes manuais pendentes|pending manual validations|manual validations pending)",
   "(?:riscos conhecidos|known risks)",
+  "(?:categorias obrigatorias|cobertura de categorias|category coverage)",
+  "(?:assumptions/defaults|assumptions and defaults|assumptions e defaults)",
+  "(?:decisoes e trade-offs|decisions and trade-offs|trade-offs)",
+  "(?:ambiguidades criticas abertas|ambiguidade critica aberta|critical ambiguities|open critical ambiguities)",
   "(?:a[cç][oõ]es|actions)",
 ].join("|");
 
@@ -698,6 +717,25 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
       FINAL_BLOCK_STOP_LABELS_PATTERN,
     ),
   };
+  const categoryCoverage = extractCategoryCoverageField(body);
+  const assumptionsAndDefaults = parseSectionListItems(
+    extractHeaderSectionLines(
+      body,
+      "(?:assumptions/defaults|assumptions and defaults|assumptions e defaults)",
+    ),
+  );
+  const decisionsAndTradeOffs = parseSectionListItems(
+    extractHeaderSectionLines(
+      body,
+      "(?:decisoes e trade-offs|decisions and trade-offs|trade-offs)",
+    ),
+  );
+  const criticalAmbiguities = parseSectionListItems(
+    extractHeaderSectionLines(
+      body,
+      "(?:ambiguidades criticas abertas|ambiguidade critica aberta|critical ambiguities|open critical ambiguities)",
+    ),
+  );
 
   const taggedTitle = extractTaggedField(
     body,
@@ -734,6 +772,10 @@ const parseFinalBlock = (body: string): PlanSpecFinalBlock | null => {
     title,
     summary,
     outline,
+    categoryCoverage,
+    assumptionsAndDefaults,
+    decisionsAndTradeOffs,
+    criticalAmbiguities,
     actions: actions.size > 0 ? [...actions.values()] : [...DEFAULT_FINAL_ACTIONS],
   };
 
@@ -821,6 +863,124 @@ const parseFinalActionsFromBody = (body: string): PlanSpecFinalAction[] => {
   }
 
   return [...actions.values()];
+};
+
+const extractCategoryCoverageField = (
+  body: string,
+): DiscoverSpecCategoryCoverage[] => {
+  const sectionLines = extractHeaderSectionLines(
+    body,
+    "(?:categorias obrigatorias|cobertura de categorias|category coverage)",
+  );
+  if (sectionLines.length === 0) {
+    return [];
+  }
+
+  const coverageByCategory = new Map<string, DiscoverSpecCategoryCoverage>();
+  for (const line of sectionLines) {
+    const parsed = parseCategoryCoverageLine(line);
+    if (!parsed) {
+      continue;
+    }
+
+    coverageByCategory.set(parsed.categoryId, parsed);
+  }
+
+  return [...coverageByCategory.values()];
+};
+
+const parseCategoryCoverageLine = (value: string): DiscoverSpecCategoryCoverage | null => {
+  const normalized = value.replace(/^(?:[-*]|\d+[.)])\s*/u, "").trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const detailedMatch = normalized.match(
+    /^\[([^\]]+)\]\s*\[([^\]]+)\]\s*([^:]+?)\s*:\s*(.+)$/iu,
+  );
+  if (detailedMatch) {
+    return buildCategoryCoverageEntry({
+      rawCategory: detailedMatch[1] ?? "",
+      rawStatus: detailedMatch[2] ?? "",
+      rawLabel: detailedMatch[3] ?? "",
+      rawDetail: detailedMatch[4] ?? "",
+    });
+  }
+
+  const compactMatch = normalized.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.+)$/iu);
+  if (!compactMatch) {
+    return null;
+  }
+
+  return buildCategoryCoverageEntry({
+    rawCategory: compactMatch[1] ?? "",
+    rawStatus: compactMatch[2] ?? "",
+    rawLabel: "",
+    rawDetail: compactMatch[3] ?? "",
+  });
+};
+
+const buildCategoryCoverageEntry = (params: {
+  rawCategory: string;
+  rawStatus: string;
+  rawLabel: string;
+  rawDetail: string;
+}): DiscoverSpecCategoryCoverage | null => {
+  const categoryId = resolveDiscoverSpecCategoryId(params.rawCategory);
+  const status = normalizeDiscoverSpecCoverageStatus(params.rawStatus);
+  const detail = cleanupInlineSegment(params.rawDetail);
+  if (!categoryId || !status || !detail) {
+    return null;
+  }
+
+  const label = cleanupInlineSegment(params.rawLabel) || getDiscoverSpecCategoryLabel(categoryId);
+  return {
+    categoryId,
+    label,
+    status,
+    detail,
+  };
+};
+
+const extractHeaderSectionLines = (body: string, labelsPattern: string): string[] => {
+  const sectionHeaderPattern = new RegExp(`^(?:${labelsPattern})\\s*:\\s*(.*)$`, "iu");
+  const topLevelHeaderPattern = new RegExp(`^(?:${FINAL_BLOCK_STOP_LABELS_PATTERN})\\s*:`, "iu");
+  const lines = normalizeLines(body);
+  const sectionLines: string[] = [];
+  let collecting = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!collecting) {
+      const headerMatch = trimmed.match(sectionHeaderPattern);
+      if (!headerMatch) {
+        continue;
+      }
+
+      collecting = true;
+      const inlineValue = cleanupInlineSegment(headerMatch[1] ?? "");
+      if (inlineValue) {
+        sectionLines.push(inlineValue);
+      }
+      continue;
+    }
+
+    if (trimmed && topLevelHeaderPattern.test(trimmed)) {
+      break;
+    }
+
+    if (trimmed) {
+      sectionLines.push(trimmed);
+    }
+  }
+
+  return sectionLines;
+};
+
+const parseSectionListItems = (lines: readonly string[]): string[] => {
+  return lines
+    .map((line) => normalizeStructuredListItem(line))
+    .filter((line): line is string => Boolean(line));
 };
 
 const extractQuestionPromptFromBody = (body: string): string | null => {

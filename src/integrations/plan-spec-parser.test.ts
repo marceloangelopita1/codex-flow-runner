@@ -150,6 +150,77 @@ test("parseia bloco final com estrutura rica, titulo, resumo e acoes", () => {
   );
 });
 
+test("parseia bloco final enriquecido com categorias, assumptions/defaults, trade-offs e ambiguidades (CA-04, CA-06)", () => {
+  const output = [
+    "[[PLAN_SPEC_FINAL]]",
+    "Titulo: Descoberta profunda para entrevista estruturada",
+    "Resumo: Consolidar lacunas criticas e defaults aprovados antes da spec.",
+    "Objetivo: Eliminar ambiguidades criticas da entrevista antes da materializacao.",
+    "Atores:",
+    "- Operador do Telegram",
+    "Jornada:",
+    "- Operador descreve o problema",
+    "RFs:",
+    "- RF-10 - A entrevista cobre todas as categorias obrigatorias.",
+    "CAs:",
+    "- CA-04 - Cada categoria fica coberta ou nao aplicavel.",
+    "Nao-escopo:",
+    "- Nao materializar a spec nesta etapa.",
+    "Restricoes tecnicas:",
+    "- Reutilizar parser e callbacks compartilhados.",
+    "Validacoes obrigatorias:",
+    "- Rodar testes do parser, runner e Telegram.",
+    "Validacoes manuais pendentes:",
+    "- Exercitar o fluxo em conversa longa no Telegram.",
+    "Riscos conhecidos:",
+    "- Gate permissivo demais pode liberar lacunas criticas.",
+    "Categorias obrigatorias:",
+    "- [objective-value][covered] Objetivo e valor esperado: objetivo e valor explicitados pelo operador.",
+    "- [actors-journey][covered] Atores e jornada: atores centrais e jornada principal aprovados.",
+    "- [functional-scope][covered] Escopo funcional: escopo principal delimitado de forma objetiva.",
+    "- [non-scope][covered] Nao-escopo: exclusoes declaradas antes do fechamento.",
+    "- [constraints-dependencies][not-applicable] Restricoes tecnicas e dependencias: nenhuma dependencia externa relevante nesta rodada.",
+    "- [validations-acceptance][covered] Validacoes e criterios de aceite: validacoes obrigatorias e CAs listados.",
+    "- [risks][covered] Riscos operacionais e funcionais: riscos conhecidos documentados.",
+    "- [assumptions-defaults][covered] Assumptions e defaults: default consciente de projeto monorepo aprovado.",
+    "- [decisions-tradeoffs][pending] Decisoes e trade-offs: ainda falta decidir entre follow-up automatico e bloqueio manual.",
+    "Assumptions/defaults:",
+    "- Assumir monorepo Node.js 20+ como default inicial.",
+    "Decisoes e trade-offs:",
+    "- Reutilizar callbacks de /plan_spec em vez de criar um segundo protocolo.",
+    "Ambiguidades criticas abertas:",
+    "- Definir se `Criar spec` fica bloqueado ou apenas advertido antes do ticket irmao.",
+    "Acoes:",
+    "- Criar spec",
+    "- Refinar",
+    "- Cancelar",
+    "[[/PLAN_SPEC_FINAL]]",
+  ].join("\n");
+
+  const events = parsePlanSpecOutput(output);
+  assert.equal(events[0]?.type, "final");
+  if (!events[0] || events[0].type !== "final") {
+    assert.fail("Evento final nao encontrado");
+  }
+
+  assert.equal(events[0].final.categoryCoverage.length, 9);
+  assert.deepEqual(events[0].final.categoryCoverage[4], {
+    categoryId: "constraints-dependencies",
+    label: "Restricoes tecnicas e dependencias",
+    status: "not-applicable",
+    detail: "nenhuma dependencia externa relevante nesta rodada.",
+  });
+  assert.deepEqual(events[0].final.assumptionsAndDefaults, [
+    "Assumir monorepo Node.js 20+ como default inicial.",
+  ]);
+  assert.deepEqual(events[0].final.decisionsAndTradeOffs, [
+    "Reutilizar callbacks de /plan_spec em vez de criar um segundo protocolo.",
+  ]);
+  assert.deepEqual(events[0].final.criticalAmbiguities, [
+    "Definir se `Criar spec` fica bloqueado ou apenas advertido antes do ticket irmao.",
+  ]);
+});
+
 test("parseia bloco final em formato compacto sem quebras de linha", () => {
   const output =
     "[[PLAN_SPEC_FINAL]]Titulo:BridgeinterativaResumo:FluxosequencialdeplanejamentoObjetivo:MaterializarumaespecricaAtores:-OperadorJornada:-PlanejarRFs:-RF-01CAs:-CA-01Nao-escopo:-NenhumRestricoes tecnicas:-NenhumValidacoes obrigatorias:-NenhumValidacoes manuais pendentes:-NenhumRiscos conhecidos:-NenhumAcoes:-Criarspec-Refinar-Cancelar[[/PLAN_SPEC_FINAL]]";

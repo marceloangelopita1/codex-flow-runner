@@ -125,6 +125,14 @@ interface BotControls {
     chatId: string,
     action: PlanSpecFinalActionId,
   ) => Promise<PlanSpecCallbackResult> | PlanSpecCallbackResult;
+  onDiscoverSpecQuestionOptionSelected?: (
+    chatId: string,
+    optionValue: string,
+  ) => Promise<PlanSpecCallbackResult> | PlanSpecCallbackResult;
+  onDiscoverSpecFinalActionSelected?: (
+    chatId: string,
+    action: PlanSpecFinalActionId,
+  ) => Promise<PlanSpecCallbackResult> | PlanSpecCallbackResult;
 }
 
 type ProjectSelectionControlResult =
@@ -398,7 +406,10 @@ interface PlanSpecFinalActionState {
   label: string;
 }
 
+type InteractivePlanningFlow = "plan-spec" | "discover-spec";
+
 interface PlanSpecQuestionCallbackContextState {
+  flow: InteractivePlanningFlow;
   chatId: string;
   sessionId: number | null;
   messageId: number | null;
@@ -409,6 +420,7 @@ interface PlanSpecQuestionCallbackContextState {
 }
 
 interface PlanSpecFinalCallbackContextState {
+  flow: InteractivePlanningFlow;
   chatId: string;
   sessionId: number | null;
   messageId: number | null;
@@ -454,7 +466,7 @@ type PlanSpecCallbackContextValidationResult<TContext> =
       reply: string;
     };
 
-type CallbackAuditFlow = "specs" | "tickets-open" | "plan-spec" | "run-ticket";
+type CallbackAuditFlow = "specs" | "tickets-open" | "plan-spec" | "discover-spec" | "run-ticket";
 type CallbackDecisionResult = "accepted" | "blocked" | "failed";
 type CallbackValidationResult = "passed" | "blocked";
 type CallbackBlockReason =
@@ -597,6 +609,12 @@ const DISCOVER_SPEC_STATUS_INACTIVE_REPLY = "ℹ️ Nenhuma sessão /discover_sp
 const DISCOVER_SPEC_INPUT_BRIEF_ACCEPTED_REPLY =
   "✅ Brief inicial recebido na sessão /discover_spec. Aguarde a resposta do Codex.";
 const DISCOVER_SPEC_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /discover_spec.";
+const DISCOVER_SPEC_CALLBACK_INVALID_REPLY = "Ação da descoberta inválida.";
+const DISCOVER_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão /discover_spec inativa.";
+const DISCOVER_SPEC_CALLBACK_STALE_REPLY =
+  "A etapa da descoberta mudou. Aguarde a próxima mensagem do /discover_spec.";
+const DISCOVER_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY =
+  "Seleção já processada. Aguarde a próxima etapa do /discover_spec.";
 const PLAN_SPEC_CALLBACK_INVALID_REPLY = "Ação de planejamento inválida.";
 const PLAN_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão de planejamento inativa.";
 const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
@@ -1077,6 +1095,8 @@ export class TelegramController {
   }
 
   async sendDiscoverSpecFailure(chatId: string, details?: string): Promise<void> {
+    this.planSpecQuestionCallbackContexts.delete(chatId);
+    this.planSpecFinalCallbackContexts.delete(chatId);
     await this.bot.telegram.sendMessage(chatId, this.buildDiscoverSpecInteractiveFailureReply(details));
   }
 
@@ -1084,11 +1104,38 @@ export class TelegramController {
     await this.bot.telegram.sendMessage(chatId, message);
   }
 
-  async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
-    const rendered = this.buildPlanSpecQuestionReply(question);
+  async sendDiscoverSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
+    const rendered = this.buildInteractivePlanningQuestionReply("discover-spec", question);
     const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
     this.registerPlanSpecQuestionCallbackContext(
+      "discover-spec",
+      chatId,
+      question,
+      this.resolveOutgoingMessageId(sentMessage),
+      state.discoverSpecSession?.sessionId ?? null,
+    );
+  }
+
+  async sendDiscoverSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
+    const rendered = this.buildInteractivePlanningFinalReply("discover-spec", finalBlock);
+    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const state = this.getState();
+    this.registerPlanSpecFinalCallbackContext(
+      "discover-spec",
+      chatId,
+      finalBlock,
+      this.resolveOutgoingMessageId(sentMessage),
+      state.discoverSpecSession?.sessionId ?? null,
+    );
+  }
+
+  async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
+    const rendered = this.buildInteractivePlanningQuestionReply("plan-spec", question);
+    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    const state = this.getState();
+    this.registerPlanSpecQuestionCallbackContext(
+      "plan-spec",
       chatId,
       question,
       this.resolveOutgoingMessageId(sentMessage),
@@ -1097,10 +1144,11 @@ export class TelegramController {
   }
 
   async sendPlanSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
-    const rendered = this.buildPlanSpecFinalReply(finalBlock);
+    const rendered = this.buildInteractivePlanningFinalReply("plan-spec", finalBlock);
     const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
     this.registerPlanSpecFinalCallbackContext(
+      "plan-spec",
       chatId,
       finalBlock,
       this.resolveOutgoingMessageId(sentMessage),
@@ -3066,10 +3114,11 @@ export class TelegramController {
     const parsed = this.parsePlanSpecCallbackData(callbackData);
     const action = this.resolvePlanSpecCallbackAction(parsed);
     const state = this.getState();
-    const session = state.planSpecSession;
+    const flow = this.resolveInteractivePlanningFlow(state, chatId);
+    const session = this.resolveInteractivePlanningSession(state, flow);
     const callbackMessageId = this.resolveCallbackMessageId(ctx.callbackQuery);
     const auditContext = this.createCallbackAuditContext({
-      flow: "plan-spec",
+      flow,
       chatId,
       callbackData,
       action,
@@ -3102,25 +3151,29 @@ export class TelegramController {
         result: "blocked",
         blockReason: "invalid-action",
       });
-      await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INVALID_REPLY);
+      await this.safeAnswerCallbackQuery(ctx, this.resolveInteractivePlanningInvalidReply(flow));
       return;
     }
 
     this.logCallbackValidation(auditContext, "payload", "passed");
 
     if (parsed.status === "question") {
-      if (!this.controls.onPlanSpecQuestionOptionSelected) {
+      const questionHandler = flow === "discover-spec"
+        ? this.controls.onDiscoverSpecQuestionOptionSelected
+        : this.controls.onPlanSpecQuestionOptionSelected;
+      if (!questionHandler) {
         this.logCallbackValidation(auditContext, "session-handler", "blocked", "inactive-session");
         this.logCallbackDecision(auditContext, {
           result: "blocked",
           blockReason: "inactive-session",
         });
-        await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
+        await this.safeAnswerCallbackQuery(ctx, this.resolveInteractivePlanningInactiveReply(flow));
         return;
       }
 
       this.logCallbackValidation(auditContext, "session-handler", "passed");
       const contextValidation = this.validatePlanSpecQuestionCallbackContext({
+        flow,
         chatId,
         optionValue: parsed.optionValue,
         callbackMessageId,
@@ -3144,10 +3197,7 @@ export class TelegramController {
       this.logCallbackValidation(auditContext, "context", "passed");
       this.setPlanSpecQuestionContextProcessing(chatId, true);
       try {
-        const outcome = await this.controls.onPlanSpecQuestionOptionSelected(
-          chatId,
-          parsed.optionValue,
-        );
+        const outcome = await questionHandler(chatId, parsed.optionValue);
         if (outcome.status === "accepted") {
           this.setPlanSpecQuestionContextAccepted(chatId);
           await this.safeEditPlanSpecQuestionCallbackSelectionMessage(
@@ -3178,6 +3228,7 @@ export class TelegramController {
       } catch (error) {
         this.setPlanSpecQuestionContextProcessing(chatId, false);
         this.logger.error("Falha ao processar callback de pergunta do planejamento", {
+          flow,
           optionValue: parsed.optionValue,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -3185,23 +3236,27 @@ export class TelegramController {
           result: "failed",
           detail: error instanceof Error ? error.message : String(error),
         });
-        await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
+        await this.safeAnswerCallbackQuery(ctx, this.buildInteractivePlanningFailureReply(flow));
       }
       return;
     }
 
-    if (!this.controls.onPlanSpecFinalActionSelected) {
+    const finalActionHandler = flow === "discover-spec"
+      ? this.controls.onDiscoverSpecFinalActionSelected
+      : this.controls.onPlanSpecFinalActionSelected;
+    if (!finalActionHandler) {
       this.logCallbackValidation(auditContext, "session-handler", "blocked", "inactive-session");
       this.logCallbackDecision(auditContext, {
         result: "blocked",
         blockReason: "inactive-session",
       });
-      await this.safeAnswerCallbackQuery(ctx, PLAN_SPEC_CALLBACK_INACTIVE_REPLY);
+      await this.safeAnswerCallbackQuery(ctx, this.resolveInteractivePlanningInactiveReply(flow));
       return;
     }
 
     this.logCallbackValidation(auditContext, "session-handler", "passed");
     const contextValidation = this.validatePlanSpecFinalCallbackContext({
+      flow,
       chatId,
       action: parsed.action,
       callbackMessageId,
@@ -3225,7 +3280,7 @@ export class TelegramController {
     this.logCallbackValidation(auditContext, "context", "passed");
     this.setPlanSpecFinalContextProcessing(chatId, true);
     try {
-      const outcome = await this.controls.onPlanSpecFinalActionSelected(chatId, parsed.action);
+      const outcome = await finalActionHandler(chatId, parsed.action);
       if (outcome.status === "accepted") {
         this.setPlanSpecFinalContextAccepted(chatId);
         await this.safeEditPlanSpecFinalCallbackSelectionMessage(
@@ -3253,6 +3308,7 @@ export class TelegramController {
     } catch (error) {
       this.setPlanSpecFinalContextProcessing(chatId, false);
       this.logger.error("Falha ao processar callback de finalizacao do planejamento", {
+        flow,
         action: parsed.action,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -3260,7 +3316,7 @@ export class TelegramController {
         result: "failed",
         detail: error instanceof Error ? error.message : String(error),
       });
-      await this.safeAnswerCallbackQuery(ctx, this.buildPlanSpecInteractiveFailureReply());
+      await this.safeAnswerCallbackQuery(ctx, this.buildInteractivePlanningFailureReply(flow));
     }
   }
 
@@ -3840,9 +3896,16 @@ export class TelegramController {
   private buildPlanSpecQuestionReply(
     question: PlanSpecQuestionBlock,
   ): { text: string; extra: ReplyOptions } {
+    return this.buildInteractivePlanningQuestionReply("plan-spec", question);
+  }
+
+  private buildInteractivePlanningQuestionReply(
+    flow: InteractivePlanningFlow,
+    question: PlanSpecQuestionBlock,
+  ): { text: string; extra: ReplyOptions } {
     const options = this.resolvePlanSpecQuestionOptions(question);
     const lines = [
-      "❓ Pergunta do planejamento",
+      flow === "discover-spec" ? "🔎 Pergunta da descoberta" : "❓ Pergunta do planejamento",
       question.prompt,
       "",
       "Você pode responder por botão ou texto livre.",
@@ -3866,8 +3929,15 @@ export class TelegramController {
   }
 
   private buildPlanSpecFinalReply(finalBlock: PlanSpecFinalBlock): { text: string; extra: ReplyOptions } {
+    return this.buildInteractivePlanningFinalReply("plan-spec", finalBlock);
+  }
+
+  private buildInteractivePlanningFinalReply(
+    flow: InteractivePlanningFlow,
+    finalBlock: PlanSpecFinalBlock,
+  ): { text: string; extra: ReplyOptions } {
     const lines = [
-      "✅ Planejamento concluído",
+      flow === "discover-spec" ? "✅ Descoberta consolidada" : "✅ Planejamento concluído",
       `Título: ${finalBlock.title}`,
       "",
       "Resumo:",
@@ -3916,6 +3986,36 @@ export class TelegramController {
             "",
             "Riscos conhecidos:",
             ...this.renderPlanSpecFinalList(finalBlock.outline.knownRisks),
+          ]
+        : []),
+      ...(flow === "discover-spec" && finalBlock.categoryCoverage.length > 0
+        ? [
+            "",
+            "Categorias obrigatorias:",
+            ...finalBlock.categoryCoverage.map(
+              (item) => `- [${item.status}] ${item.label}: ${item.detail}`,
+            ),
+          ]
+        : []),
+      ...(flow === "discover-spec" && finalBlock.assumptionsAndDefaults.length > 0
+        ? [
+            "",
+            "Assumptions/defaults:",
+            ...this.renderPlanSpecFinalList(finalBlock.assumptionsAndDefaults),
+          ]
+        : []),
+      ...(flow === "discover-spec" && finalBlock.decisionsAndTradeOffs.length > 0
+        ? [
+            "",
+            "Decisoes e trade-offs:",
+            ...this.renderPlanSpecFinalList(finalBlock.decisionsAndTradeOffs),
+          ]
+        : []),
+      ...(flow === "discover-spec" && finalBlock.criticalAmbiguities.length > 0
+        ? [
+            "",
+            "Ambiguidades criticas abertas:",
+            ...this.renderPlanSpecFinalList(finalBlock.criticalAmbiguities),
           ]
         : []),
       "",
@@ -3973,7 +4073,7 @@ export class TelegramController {
     selectedOptionValue: string,
   ): { text: string; extra: ReplyOptions } {
     const lines = [
-      "❓ Pergunta do planejamento",
+      context.flow === "discover-spec" ? "🔎 Pergunta da descoberta" : "❓ Pergunta do planejamento",
       context.prompt,
       "",
       "Seleção confirmada:",
@@ -3984,7 +4084,7 @@ export class TelegramController {
       lines.push(`${marker} ${option.label}`);
     }
 
-    lines.push("", PLAN_SPEC_CALLBACK_LOCKED_HINT);
+    lines.push("", this.resolveInteractivePlanningLockedHint(context.flow));
 
     return {
       text: lines.join("\n"),
@@ -4001,7 +4101,7 @@ export class TelegramController {
     selectedAction: PlanSpecFinalActionId,
   ): { text: string; extra: ReplyOptions } {
     const lines = [
-      "✅ Planejamento concluído",
+      context.flow === "discover-spec" ? "✅ Descoberta consolidada" : "✅ Planejamento concluído",
       `Título: ${context.title}`,
       "",
       "Resumo:",
@@ -4015,7 +4115,7 @@ export class TelegramController {
       lines.push(`${marker} ${action.label}`);
     }
 
-    lines.push("", PLAN_SPEC_CALLBACK_LOCKED_HINT);
+    lines.push("", this.resolveInteractivePlanningLockedHint(context.flow));
 
     return {
       text: lines.join("\n"),
@@ -4041,6 +4141,42 @@ export class TelegramController {
   ): string {
     const action = context.actions.find((item) => item.id === selectedAction);
     return action?.label ?? selectedAction;
+  }
+
+  private resolveInteractivePlanningLockedHint(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? "Botões travados. Aguarde a próxima etapa do /discover_spec."
+      : PLAN_SPEC_CALLBACK_LOCKED_HINT;
+  }
+
+  private resolveInteractivePlanningInactiveReply(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? DISCOVER_SPEC_CALLBACK_INACTIVE_REPLY
+      : PLAN_SPEC_CALLBACK_INACTIVE_REPLY;
+  }
+
+  private resolveInteractivePlanningInvalidReply(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? DISCOVER_SPEC_CALLBACK_INVALID_REPLY
+      : PLAN_SPEC_CALLBACK_INVALID_REPLY;
+  }
+
+  private resolveInteractivePlanningStaleReply(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? DISCOVER_SPEC_CALLBACK_STALE_REPLY
+      : PLAN_SPEC_CALLBACK_STALE_REPLY;
+  }
+
+  private resolveInteractivePlanningAlreadyProcessedReply(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? DISCOVER_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY
+      : PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY;
+  }
+
+  private buildInteractivePlanningFailureReply(flow: InteractivePlanningFlow): string {
+    return flow === "discover-spec"
+      ? this.buildDiscoverSpecInteractiveFailureReply()
+      : this.buildPlanSpecInteractiveFailureReply();
   }
 
   private buildPlanSpecQuestionSelectionConfirmationReply(
@@ -4266,19 +4402,48 @@ export class TelegramController {
     return "invalid";
   }
 
+  private resolveInteractivePlanningFlow(
+    state: RunnerState,
+    chatId: string,
+  ): InteractivePlanningFlow {
+    const questionContext = this.planSpecQuestionCallbackContexts.get(chatId);
+    if (questionContext) {
+      return questionContext.flow;
+    }
+
+    const finalContext = this.planSpecFinalCallbackContexts.get(chatId);
+    if (finalContext) {
+      return finalContext.flow;
+    }
+
+    if (state.discoverSpecSession?.chatId === chatId) {
+      return "discover-spec";
+    }
+
+    return "plan-spec";
+  }
+
+  private resolveInteractivePlanningSession(
+    state: RunnerState,
+    flow: InteractivePlanningFlow,
+  ): RunnerState["planSpecSession"] | RunnerState["discoverSpecSession"] {
+    return flow === "discover-spec" ? state.discoverSpecSession : state.planSpecSession;
+  }
+
   private validatePlanSpecQuestionCallbackContext(params: {
+    flow: InteractivePlanningFlow;
     chatId: string;
     optionValue: string;
     callbackMessageId: number | null;
-    session: RunnerState["planSpecSession"];
+    session: RunnerState["planSpecSession"] | RunnerState["discoverSpecSession"];
   }): PlanSpecCallbackContextValidationResult<PlanSpecQuestionCallbackContextState> {
-    const { chatId, optionValue, callbackMessageId, session } = params;
+    const { flow, chatId, optionValue, callbackMessageId, session } = params;
     if (!session || session.chatId !== chatId) {
       return {
         status: "blocked",
         validation: "session",
         blockReason: "inactive-session",
-        reply: PLAN_SPEC_CALLBACK_INACTIVE_REPLY,
+        reply: this.resolveInteractivePlanningInactiveReply(flow),
       };
     }
 
@@ -4287,7 +4452,7 @@ export class TelegramController {
         status: "blocked",
         validation: "phase",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4297,7 +4462,16 @@ export class TelegramController {
         status: "blocked",
         validation: "context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
+      };
+    }
+
+    if (context.flow !== flow) {
+      return {
+        status: "blocked",
+        validation: "flow-context",
+        blockReason: "stale",
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4306,7 +4480,7 @@ export class TelegramController {
         status: "blocked",
         validation: "session-context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4315,7 +4489,7 @@ export class TelegramController {
         status: "blocked",
         validation: "message-context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4324,7 +4498,7 @@ export class TelegramController {
         status: "blocked",
         validation: "idempotency",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY,
+        reply: this.resolveInteractivePlanningAlreadyProcessedReply(flow),
       };
     }
 
@@ -4333,7 +4507,7 @@ export class TelegramController {
         status: "blocked",
         validation: "payload-context",
         blockReason: "invalid-action",
-        reply: PLAN_SPEC_CALLBACK_INVALID_REPLY,
+        reply: this.resolveInteractivePlanningInvalidReply(flow),
       };
     }
 
@@ -4344,18 +4518,19 @@ export class TelegramController {
   }
 
   private validatePlanSpecFinalCallbackContext(params: {
+    flow: InteractivePlanningFlow;
     chatId: string;
     action: PlanSpecFinalActionId;
     callbackMessageId: number | null;
-    session: RunnerState["planSpecSession"];
+    session: RunnerState["planSpecSession"] | RunnerState["discoverSpecSession"];
   }): PlanSpecCallbackContextValidationResult<PlanSpecFinalCallbackContextState> {
-    const { chatId, action, callbackMessageId, session } = params;
+    const { flow, chatId, action, callbackMessageId, session } = params;
     if (!session || session.chatId !== chatId) {
       return {
         status: "blocked",
         validation: "session",
         blockReason: "inactive-session",
-        reply: PLAN_SPEC_CALLBACK_INACTIVE_REPLY,
+        reply: this.resolveInteractivePlanningInactiveReply(flow),
       };
     }
 
@@ -4364,7 +4539,7 @@ export class TelegramController {
         status: "blocked",
         validation: "phase",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4374,7 +4549,16 @@ export class TelegramController {
         status: "blocked",
         validation: "context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
+      };
+    }
+
+    if (context.flow !== flow) {
+      return {
+        status: "blocked",
+        validation: "flow-context",
+        blockReason: "stale",
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4383,7 +4567,7 @@ export class TelegramController {
         status: "blocked",
         validation: "session-context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4392,7 +4576,7 @@ export class TelegramController {
         status: "blocked",
         validation: "message-context",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_STALE_REPLY,
+        reply: this.resolveInteractivePlanningStaleReply(flow),
       };
     }
 
@@ -4401,7 +4585,7 @@ export class TelegramController {
         status: "blocked",
         validation: "idempotency",
         blockReason: "stale",
-        reply: PLAN_SPEC_CALLBACK_ALREADY_PROCESSED_REPLY,
+        reply: this.resolveInteractivePlanningAlreadyProcessedReply(flow),
       };
     }
 
@@ -4410,7 +4594,7 @@ export class TelegramController {
         status: "blocked",
         validation: "payload-context",
         blockReason: "invalid-action",
-        reply: PLAN_SPEC_CALLBACK_INVALID_REPLY,
+        reply: this.resolveInteractivePlanningInvalidReply(flow),
       };
     }
 
@@ -4682,6 +4866,7 @@ export class TelegramController {
   }
 
   private registerPlanSpecQuestionCallbackContext(
+    flow: InteractivePlanningFlow,
     chatId: string,
     question: PlanSpecQuestionBlock,
     messageId: number | null,
@@ -4689,6 +4874,7 @@ export class TelegramController {
   ): void {
     const options = this.resolvePlanSpecQuestionOptions(question);
     this.planSpecQuestionCallbackContexts.set(chatId, {
+      flow,
       chatId,
       sessionId,
       messageId,
@@ -4701,6 +4887,7 @@ export class TelegramController {
   }
 
   private registerPlanSpecFinalCallbackContext(
+    flow: InteractivePlanningFlow,
     chatId: string,
     finalBlock: PlanSpecFinalBlock,
     messageId: number | null,
@@ -4708,6 +4895,7 @@ export class TelegramController {
   ): void {
     const actions = this.resolvePlanSpecFinalActions(finalBlock);
     this.planSpecFinalCallbackContexts.set(chatId, {
+      flow,
       chatId,
       sessionId,
       messageId,
@@ -5748,6 +5936,10 @@ export class TelegramController {
       return DISCOVER_SPEC_STATUS_INACTIVE_REPLY;
     }
 
+    const coverageItems = Object.values(session.categoryCoverage);
+    const coveredCategories = coverageItems.filter((item) => item.status !== "pending");
+    const pendingCategories = coverageItems.filter((item) => item.status === "pending");
+
     const lines = [
       "🧭 Sessão /discover_spec ativa",
       `Fase: ${session.phase}`,
@@ -5769,6 +5961,47 @@ export class TelegramController {
 
     if (session.lastCodexPreview) {
       lines.push(`Preview da última saída do Codex: ${session.lastCodexPreview}`);
+    }
+
+    lines.push("");
+    lines.push("Categorias cobertas ou explicitadas:");
+    lines.push(
+      ...(coveredCategories.length > 0
+        ? coveredCategories.map((item) => `- [${item.status}] ${item.label}: ${item.detail}`)
+        : ["- Nenhuma categoria resolvida ainda"]),
+    );
+    lines.push("");
+    lines.push("Categorias pendentes:");
+    lines.push(
+      ...(pendingCategories.length > 0
+        ? pendingCategories.map((item) => `- ${item.label}: ${item.detail || "pendente de cobertura explicita"}`)
+        : ["- Nenhuma categoria pendente"]),
+    );
+
+    if (session.pendingItems.length > 0) {
+      lines.push("");
+      lines.push("Pendencias criticas abertas:");
+      lines.push(...session.pendingItems.map((item) => `- ${item.label}: ${item.detail}`));
+    }
+
+    if (session.latestFinalBlock?.assumptionsAndDefaults.length) {
+      lines.push("");
+      lines.push("Assumptions/defaults:");
+      lines.push(...this.renderPlanSpecFinalList(session.latestFinalBlock.assumptionsAndDefaults));
+    }
+
+    if (session.latestFinalBlock?.decisionsAndTradeOffs.length) {
+      lines.push("");
+      lines.push("Decisoes e trade-offs:");
+      lines.push(...this.renderPlanSpecFinalList(session.latestFinalBlock.decisionsAndTradeOffs));
+    }
+
+    lines.push("");
+    lines.push(
+      `Criar spec elegivel agora: ${session.createSpecEligible ? "sim" : "nao"}`,
+    );
+    if (session.createSpecBlockReason) {
+      lines.push(`Motivo do gate: ${session.createSpecBlockReason}`);
     }
 
     return lines.join("\n");

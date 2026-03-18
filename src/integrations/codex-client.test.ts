@@ -787,8 +787,8 @@ test("startPlanSession falha quando codex exec --json nao retorna agent_message"
   await session.cancel();
 });
 
-test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_id", async () => {
-  const events: Array<{ type: string; text?: string; model?: string; reasoningEffort?: string }> = [];
+test("startDiscoverSession injeta protocolo estruturado e parseia pergunta/final enriquecidos (CA-04, CA-06)", async () => {
+  const events: Array<{ type: string; payload?: unknown; text?: string; model?: string; reasoningEffort?: string }> = [];
   const capturedArgs: string[][] = [];
   const threadId = "019c7f32-4dda-71a0-a33f-00b65eca7c2b";
 
@@ -801,7 +801,7 @@ test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_i
           stdout: [
             `{"type":"thread.started","thread_id":"${threadId}"}`,
             '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
-            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Primeira pergunta livre"}}',
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"[[PLAN_SPEC_QUESTION]]\\nPergunta: Qual ambiguidade devemos fechar primeiro?\\nOpcoes:\\n- [scope] Escopo funcional\\n- [tradeoff] Trade-off principal\\n[[/PLAN_SPEC_QUESTION]]"}}',
             '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
           ].join("\n"),
           stderr: "",
@@ -812,7 +812,7 @@ test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_i
         stdout: [
           `{"type":"thread.started","thread_id":"${threadId}"}`,
           '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
-          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Segunda pergunta livre"}}',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"[[PLAN_SPEC_FINAL]]\\nTitulo: Descoberta profunda consolidada\\nResumo: Entrevista estruturada com coverage explicita para /discover_spec.\\nObjetivo: Consolidar lacunas criticas antes da spec.\\nAtores:\\n- Operador do Telegram\\nJornada:\\n- Operador descreve o contexto\\nRFs:\\n- RF-10 - Cobrir categorias obrigatorias\\nCAs:\\n- CA-04 - Cada categoria fica explicita\\nNao-escopo:\\n- Nao materializar a spec nesta etapa\\nRestricoes tecnicas:\\n- Reutilizar parser compartilhado\\nValidacoes obrigatorias:\\n- Rodar testes do discover\\nValidacoes manuais pendentes:\\n- Validar o fluxo em Telegram real\\nRiscos conhecidos:\\n- Gate permissivo demais\\nCategorias obrigatorias:\\n- [objective-value][covered] Objetivo e valor esperado: objetivo e valor explicitados pelo operador\\n- [actors-journey][covered] Atores e jornada: atores centrais e jornada principal aprovados\\n- [functional-scope][covered] Escopo funcional: escopo detalhado e fechado\\n- [non-scope][covered] Nao-escopo: exclusoes explicitas\\n- [constraints-dependencies][not-applicable] Restricoes tecnicas e dependencias: nenhuma dependencia adicional nesta rodada\\n- [validations-acceptance][covered] Validacoes e criterios de aceite: validacoes e CAs listados\\n- [risks][covered] Riscos operacionais e funcionais: riscos conhecidos listados\\n- [assumptions-defaults][covered] Assumptions e defaults: default de monorepo aprovado\\n- [decisions-tradeoffs][covered] Decisoes e trade-offs: follow-up automatico escolhido para lacunas criticas\\nAssumptions/defaults:\\n- Assumir monorepo Node.js 20+ como base\\nDecisoes e trade-offs:\\n- Reutilizar callbacks de /plan_spec\\nAmbiguidades criticas abertas:\\n- Nenhum\\nAcoes:\\n- Criar spec\\n- Refinar\\n- Cancelar\\n[[/PLAN_SPEC_FINAL]]"}}',
           '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
         ].join("\n"),
         stderr: "WARN codex_core::state_db: fallback\n",
@@ -829,8 +829,13 @@ test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_i
   const session = await client.startDiscoverSession({
     callbacks: {
       onEvent: (event) => {
+        if (event.type === "question" || event.type === "final") {
+          events.push({ type: event.type, payload: event });
+          return;
+        }
+
         if (event.type === "raw-sanitized") {
-          events.push({ type: event.type, text: event.text });
+          events.push({ type: event.type, text: event.text, payload: event });
           return;
         }
 
@@ -864,7 +869,8 @@ test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_i
   assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
   assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
   assert.equal(capturedArgs[0]?.includes("/plan"), false);
-  assert.equal(capturedArgs[0]?.[capturedArgs[0].length - 1], "brief inicial");
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Brief do operador: brief inicial/u);
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /\[\[PLAN_SPEC_FINAL\]\]/u);
 
   assert.equal(capturedArgs[1]?.includes("resume"), true);
   assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
@@ -878,11 +884,34 @@ test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_i
   assert.equal(resumeThreadIdIndex >= 0, true);
   assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "mais detalhes");
 
+  const questionEvent = events.find((event) => event.type === "question");
+  assert.ok(questionEvent);
+  assert.deepEqual(
+    (questionEvent?.payload as { question: { options: Array<{ value: string; label: string }> } }).question.options,
+    [{ value: "scope", label: "Escopo funcional" }, { value: "tradeoff", label: "Trade-off principal" }],
+  );
+
+  const finalEvent = events.find((event) => event.type === "final");
+  assert.ok(finalEvent);
+  assert.deepEqual(
+    (finalEvent?.payload as { final: { assumptionsAndDefaults: string[] } }).final.assumptionsAndDefaults,
+    ["Assumir monorepo Node.js 20+ como base"],
+  );
+  assert.equal(
+    (finalEvent?.payload as { final: { categoryCoverage: Array<{ categoryId: string }> } }).final
+      .categoryCoverage.length,
+    9,
+  );
+  assert.deepEqual(
+    (finalEvent?.payload as { final: { criticalAmbiguities: string[] } }).final.criticalAmbiguities,
+    [],
+  );
+
   const rawMessages = events.filter((event) => event.type === "raw-sanitized").map((event) => event.text);
   const turnCompletions = events.filter((event) => event.type === "turn-complete");
   const turnContexts = events.filter((event) => event.type === "turn-context");
-  assert.deepEqual(rawMessages, ["Primeira pergunta livre", "Segunda pergunta livre"]);
-  assert.equal(turnCompletions.length, 2);
+  assert.deepEqual(rawMessages, []);
+  assert.equal(turnCompletions.length, 0);
   assert.deepEqual(
     turnContexts.map((event) => ({
       model: event.model,

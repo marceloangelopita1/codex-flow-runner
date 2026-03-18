@@ -5,6 +5,11 @@ import {
 } from "./ticket-final-summary.js";
 import { RunnerFlowSummary } from "./flow-timing.js";
 import { ProjectRef } from "./project.js";
+import {
+  DiscoverSpecCategoryCoverageRecord,
+  DiscoverSpecPendingItem,
+} from "./discover-spec.js";
+import { PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
 
 export type RunnerPhase =
   | "idle"
@@ -19,6 +24,7 @@ export type RunnerPhase =
   | "discover-spec-awaiting-brief"
   | "discover-spec-waiting-codex"
   | "discover-spec-waiting-user"
+  | "discover-spec-awaiting-final-action"
   | "plan-spec-awaiting-brief"
   | "plan-spec-waiting-codex"
   | "plan-spec-waiting-user"
@@ -36,7 +42,11 @@ export type PlanSpecSessionPhase =
 
 export type PlanSpecCodexStream = "stdout" | "stderr";
 
-export type DiscoverSpecSessionPhase = "awaiting-brief" | "waiting-codex" | "waiting-user";
+export type DiscoverSpecSessionPhase =
+  | "awaiting-brief"
+  | "waiting-codex"
+  | "waiting-user"
+  | "awaiting-final-action";
 
 export type DiscoverSpecCodexStream = "stdout" | "stderr";
 
@@ -54,6 +64,11 @@ export interface DiscoverSpecSessionState {
   observedReasoningEffort: string | null;
   observedAt: Date | null;
   activeProjectSnapshot: ProjectRef;
+  categoryCoverage: DiscoverSpecCategoryCoverageRecord;
+  pendingItems: DiscoverSpecPendingItem[];
+  latestFinalBlock: PlanSpecFinalBlock | null;
+  createSpecEligible: boolean;
+  createSpecBlockReason: string | null;
 }
 
 export interface PlanSpecSessionState {

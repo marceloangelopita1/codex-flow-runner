@@ -24,6 +24,7 @@ import {
 } from "./runtime-shell-guidance.js";
 import { TicketRef } from "./ticket-queue.js";
 import { CodexInvocationPreferences } from "../types/codex-preferences.js";
+import { DISCOVER_SPEC_CATEGORY_DEFINITIONS } from "../types/discover-spec.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -121,6 +122,14 @@ export interface DiscoverSpecSessionActivity {
 }
 
 export type DiscoverSpecSessionEvent =
+  | {
+      type: "question";
+      question: PlanSpecQuestionBlock;
+    }
+  | {
+      type: "final";
+      final: PlanSpecFinalBlock;
+    }
   | {
       type: "raw-sanitized";
       text: string;
@@ -315,6 +324,71 @@ const PLAN_SPEC_PROTOCOL_PRIMER = [
   "- Cancelar",
   "[[/PLAN_SPEC_FINAL]]",
   "",
+  "Nao comprima RFs, CAs, jornada, riscos e nao-escopo em um unico resumo.",
+  "Nao inclua texto fora dos blocos acima.",
+].join("\n");
+const DISCOVER_SPEC_PROTOCOL_PRIMER = [
+  "Contexto: voce esta em uma ponte Telegram para /discover_spec.",
+  "Conduza uma entrevista profunda e stateful para eliminar ambiguidades criticas antes da spec.",
+  "Responda sempre em blocos parseaveis para automacao.",
+  "",
+  "Antes de concluir, cubra explicitamente estas categorias obrigatorias:",
+  ...DISCOVER_SPEC_CATEGORY_DEFINITIONS.map(
+    (definition) => `- [${definition.id}] ${definition.label}`,
+  ),
+  "",
+  "Quando ainda houver ambiguidade critica ou categoria pendente, responda exatamente neste formato:",
+  "[[PLAN_SPEC_QUESTION]]",
+  "Pergunta: <pergunta objetiva que feche a lacuna mais critica>",
+  "Opcoes:",
+  "- [slug-opcao-1] Rotulo opcao 1",
+  "- [slug-opcao-2] Rotulo opcao 2",
+  "[[/PLAN_SPEC_QUESTION]]",
+  "",
+  "Quando concluir a descoberta, responda exatamente neste formato:",
+  "[[PLAN_SPEC_FINAL]]",
+  "Titulo: <titulo final da spec>",
+  "Resumo: <resumo final objetivo>",
+  "Objetivo: <objetivo central da spec>",
+  "Atores:",
+  "- <ator principal>",
+  "Jornada:",
+  "- <passo principal da jornada>",
+  "RFs:",
+  "- <RF-01 descricao objetiva>",
+  "CAs:",
+  "- <CA-01 validacao observavel>",
+  "Nao-escopo:",
+  "- <item fora de escopo ou default aprovado>",
+  "Restricoes tecnicas:",
+  "- <restricao tecnica ou dependencia relevante ou 'Nenhum'>",
+  "Validacoes obrigatorias:",
+  "- <validacao obrigatoria ou 'Nenhum'>",
+  "Validacoes manuais pendentes:",
+  "- <validacao manual pendente ou 'Nenhum'>",
+  "Riscos conhecidos:",
+  "- <risco conhecido ou 'Nenhum'>",
+  "Categorias obrigatorias:",
+  ...DISCOVER_SPEC_CATEGORY_DEFINITIONS.map(
+    (definition) =>
+      `- [${definition.id}][covered] ${definition.label}: <evidencia explicita, motivo de nao aplicavel ou pendencia>`,
+  ),
+  "Assumptions/defaults:",
+  "- <assumption/default aprovado ou 'Nenhum'>",
+  "Decisoes e trade-offs:",
+  "- <decisao aprovada ou 'Nenhum'>",
+  "Ambiguidades criticas abertas:",
+  "- <pendencia critica ou 'Nenhum'>",
+  "Acoes:",
+  "- Criar spec",
+  "- Refinar",
+  "- Cancelar",
+  "[[/PLAN_SPEC_FINAL]]",
+  "",
+  "Use [covered], [not-applicable] ou [pending] em cada categoria obrigatoria.",
+  "Nao marque [covered] sem conteudo explicito do operador ou default aprovado.",
+  "Use [not-applicable] apenas quando houver motivo observavel.",
+  "Se qualquer categoria permanecer [pending] ou houver ambiguidade critica aberta, prefira continuar perguntando em vez de finalizar.",
   "Nao comprima RFs, CAs, jornada, riscos e nao-escopo em um unico resumo.",
   "Nao inclua texto fora dos blocos acima.",
 ].join("\n");
@@ -1241,10 +1315,12 @@ class CodexExecResumePlanSession implements PlanSpecSession {
 }
 
 class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
+  private parserState: PlanSpecParserState = createPlanSpecParserState();
   private closed = false;
   private cancelled = false;
   private failureNotified = false;
   private threadId: string | null = null;
+  private protocolPrimerInjected = false;
   private writePipeline: Promise<void> = Promise.resolve();
 
   constructor(
@@ -1274,8 +1350,9 @@ class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
       throw new CodexDiscoverSpecSessionError("input", "A sessao interativa ja foi encerrada.");
     }
 
+    const prompt = this.decorateFirstUserInput(normalized);
     await this.enqueueWriteOperation(async () => {
-      await this.executeTurn(normalized);
+      await this.executeTurn(prompt);
     });
   }
 
@@ -1286,6 +1363,7 @@ class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
 
     this.cancelled = true;
     this.closed = true;
+    this.flushPendingParserOutput();
     this.notifyClose({
       exitCode: null,
       cancelled: true,
@@ -1359,13 +1437,17 @@ class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
       throw new CodexDiscoverSpecSessionError("runtime", details);
     }
 
-    this.emitEvent({
-      type: "raw-sanitized",
-      text: finalMessage,
-    });
-    this.emitEvent({
-      type: "turn-complete",
-    });
+    const parsedOutput = parsePlanSpecOutputChunk(this.parserState, finalMessage);
+    this.parserState = parsedOutput.state;
+    const hasStructuredEvent = parsedOutput.events.some(
+      (event) => event.type === "question" || event.type === "final",
+    );
+    for (const event of parsedOutput.events) {
+      this.forwardParserEvent(event);
+    }
+    if (!hasStructuredEvent) {
+      this.emitEvent({ type: "turn-complete" });
+    }
   }
 
   private enqueueWriteOperation(operation: () => Promise<void>): Promise<void> {
@@ -1391,11 +1473,34 @@ class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
 
   private buildActivityPreview(chunk: string): string {
     const sanitized = sanitizePlanSpecRawOutput(chunk);
-    if (!sanitized) {
+    if (!sanitized || !isPlanSpecRawOutputMeaningful(sanitized)) {
       return "";
     }
 
     return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
+  }
+
+  private forwardParserEvent(event: PlanSpecParserEvent): void {
+    if (event.type === "question") {
+      this.emitEvent({
+        type: "question",
+        question: event.question,
+      });
+      return;
+    }
+
+    if (event.type === "final") {
+      this.emitEvent({
+        type: "final",
+        final: event.final,
+      });
+      return;
+    }
+
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: event.text,
+    });
   }
 
   private emitEvent(event: DiscoverSpecSessionEvent): void {
@@ -1441,6 +1546,30 @@ class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
         error: errorMessage(error),
       });
     }
+  }
+
+  private flushPendingParserOutput(): void {
+    if (!this.parserState.pendingChunk.trim()) {
+      return;
+    }
+
+    const pending = sanitizePlanSpecRawOutput(this.parserState.pendingChunk);
+    if (pending && isPlanSpecRawOutputMeaningful(pending)) {
+      this.emitEvent({
+        type: "raw-sanitized",
+        text: pending,
+      });
+    }
+    this.parserState = createPlanSpecParserState();
+  }
+
+  private decorateFirstUserInput(input: string): string {
+    if (this.protocolPrimerInjected) {
+      return input;
+    }
+
+    this.protocolPrimerInjected = true;
+    return [DISCOVER_SPEC_PROTOCOL_PRIMER, "", `Brief do operador: ${input}`].join("\n");
   }
 
   private logVerbose(message: string, context: Record<string, unknown>): void {

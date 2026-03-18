@@ -25,6 +25,7 @@ import {
   CodexSpeedSelectionResult,
   CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
+import { createDefaultDiscoverSpecCategoryCoverageRecord } from "../types/discover-spec.js";
 import { RunnerState } from "../types/state.js";
 import {
   TicketFinalFailureSummary,
@@ -197,6 +198,11 @@ const createDiscoverSpecSession = (
   observedReasoningEffort: null,
   observedAt: null,
   activeProjectSnapshot: cloneProject(defaultActiveProject),
+  categoryCoverage: createDefaultDiscoverSpecCategoryCoverageRecord(),
+  pendingItems: [],
+  latestFinalBlock: null,
+  createSpecEligible: false,
+  createSpecBlockReason: "A descoberta ainda nao chegou a um bloco final elegivel.",
   ...value,
 });
 
@@ -268,6 +274,12 @@ const createPlanSpecFinalBlock = (
       ],
       knownRisks: [...(value.outline?.knownRisks ?? defaultOutline.knownRisks)],
     },
+    categoryCoverage: value.categoryCoverage
+      ? value.categoryCoverage.map((item) => ({ ...item }))
+      : [],
+    assumptionsAndDefaults: [...(value.assumptionsAndDefaults ?? [])],
+    decisionsAndTradeOffs: [...(value.decisionsAndTradeOffs ?? [])],
+    criticalAmbiguities: [...(value.criticalAmbiguities ?? [])],
     actions: value.actions
       ? value.actions.map((action) => ({ ...action }))
       : [
@@ -380,8 +392,11 @@ interface ControllerOptions {
   forceSelectBlockedPlanSpec?: boolean;
   forceSelectBlockedDiscoverSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
+  disableDiscoverSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
   planSpecFinalCallbackOutcome?: PlanSpecControlOutcome;
+  discoverSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
+  discoverSpecFinalCallbackOutcome?: PlanSpecControlOutcome;
 }
 
 const createDefaultProjectSnapshot = (): ProjectSelectionSnapshot => ({
@@ -590,6 +605,8 @@ const createController = (options: ControllerOptions = {}) => {
     resolveCodexProjectPreferencesCalls: [] as ProjectRef[],
     planSpecQuestionSelections: [] as string[],
     planSpecFinalActions: [] as PlanSpecFinalActionId[],
+    discoverSpecQuestionSelections: [] as string[],
+    discoverSpecFinalActions: [] as PlanSpecFinalActionId[],
   };
 
   const stateGetter = options.getState ?? (() => createState());
@@ -1144,6 +1161,26 @@ const createController = (options: ControllerOptions = {}) => {
         });
         controlState.planSpecFinalActions.push(action);
         return options.planSpecFinalCallbackOutcome ?? { status: "accepted" as const };
+      },
+    onDiscoverSpecQuestionOptionSelected: options.disableDiscoverSpecCallbacks
+      ? undefined
+      : (chatId: string, optionValue: string) => {
+        controlState.discoverSpecInputCallsByChat.push({
+          chatId,
+          input: `callback:${optionValue}`,
+        });
+        controlState.discoverSpecQuestionSelections.push(optionValue);
+        return options.discoverSpecQuestionCallbackOutcome ?? { status: "accepted" as const };
+      },
+    onDiscoverSpecFinalActionSelected: options.disableDiscoverSpecCallbacks
+      ? undefined
+      : (chatId: string, action: PlanSpecFinalActionId) => {
+        controlState.discoverSpecInputCallsByChat.push({
+          chatId,
+          input: `final:${action}`,
+        });
+        controlState.discoverSpecFinalActions.push(action);
+        return options.discoverSpecFinalCallbackOutcome ?? { status: "accepted" as const };
       },
   };
 
@@ -2934,6 +2971,71 @@ test("/discover_spec_status exibe fase, projeto e ultima atividade da sessao (CA
   assert.match(replies[0] ?? "", /Projeto da sessão: codex-flow-runner/u);
   assert.match(replies[0] ?? "", /Última atividade: 2026-03-18T12:15:00.000Z/u);
   assert.match(replies[0] ?? "", /Última atividade do Codex: \(ainda sem saída observável\)/u);
+});
+
+test("/discover_spec_status inclui cobertura de categorias, pendencias e gate final (CA-14)", async () => {
+  const categoryCoverage = createDefaultDiscoverSpecCategoryCoverageRecord();
+  categoryCoverage["objective-value"] = {
+    categoryId: "objective-value",
+    label: "Objetivo e valor esperado",
+    status: "covered",
+    detail: "Objetivo e valor aprovados pelo operador.",
+  };
+  categoryCoverage["assumptions-defaults"] = {
+    categoryId: "assumptions-defaults",
+    label: "Assumptions e defaults",
+    status: "covered",
+    detail: "Default de monorepo aprovado.",
+  };
+  categoryCoverage["decisions-tradeoffs"] = {
+    categoryId: "decisions-tradeoffs",
+    label: "Decisoes e trade-offs",
+    status: "pending",
+    detail: "Ainda falta decidir a estrategia de gate final.",
+  };
+
+  const state = createState({
+    phase: "discover-spec-waiting-user",
+    discoverSpecSession: createDiscoverSpecSession({
+      phase: "waiting-user",
+      categoryCoverage,
+      pendingItems: [
+        {
+          kind: "category",
+          key: "decisions-tradeoffs",
+          label: "Decisoes e trade-offs",
+          detail: "Ainda falta decidir a estrategia de gate final.",
+        },
+      ],
+      latestFinalBlock: createPlanSpecFinalBlock({
+        categoryCoverage: Object.values(categoryCoverage),
+        assumptionsAndDefaults: ["Assumir monorepo Node.js 20+ como base."],
+        decisionsAndTradeOffs: ["Reutilizar callbacks existentes."],
+      }),
+      createSpecEligible: false,
+      createSpecBlockReason: "A descoberta ainda possui lacunas criticas.",
+    }),
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Categorias cobertas ou explicitadas:/u);
+  assert.match(replies[0] ?? "", /\[covered\] Objetivo e valor esperado/u);
+  assert.match(replies[0] ?? "", /Categorias pendentes:/u);
+  assert.match(replies[0] ?? "", /Decisoes e trade-offs: Ainda falta decidir a estrategia de gate final/u);
+  assert.match(replies[0] ?? "", /Assumptions\/defaults:/u);
+  assert.match(replies[0] ?? "", /Criar spec elegivel agora: nao/u);
 });
 
 test("/discover_spec_cancel encerra sessao ativa (CA-15)", async () => {
@@ -4786,6 +4888,117 @@ test("bloco final parseado gera botoes Criar spec, Refinar e Cancelar (CA-09)", 
       "plan-spec:final:cancel",
     ],
   );
+});
+
+test("pergunta de /discover_spec reutiliza callback compartilhado sem misturar com /plan_spec", async () => {
+  const state = createState({
+    phase: "discover-spec-waiting-user",
+    discoverSpecSession: createDiscoverSpecSession({
+      sessionId: 31,
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 900 });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendDiscoverSpecQuestion("42", {
+    prompt: "Qual lacuna critica devemos fechar primeiro?",
+    options: [
+      { value: "scope", label: "Escopo funcional" },
+      { value: "tradeoff", label: "Trade-off principal" },
+    ],
+  });
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:question:scope",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.discoverSpecQuestionSelections, ["scope"]);
+  assert.deepEqual(controlState.planSpecQuestionSelections, []);
+  assert.equal(answers[0], "Resposta registrada.");
+  assert.match(edits[0]?.text ?? "", /Pergunta da descoberta/u);
+  assert.match(edits[0]?.text ?? "", /✅ Escopo funcional/u);
+});
+
+test("finalizacao de /discover_spec renderiza secoes enriquecidas e callback final roteia para o fluxo correto (CA-06)", async () => {
+  const state = createState({
+    phase: "discover-spec-awaiting-final-action",
+    discoverSpecSession: createDiscoverSpecSession({
+      sessionId: 33,
+      phase: "awaiting-final-action",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+    discoverSpecFinalCallbackOutcome: {
+      status: "accepted",
+    },
+  });
+  const sentMessages = mockSendMessage(controller, { startingMessageId: 930 });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await controller.sendDiscoverSpecFinalization("42", createPlanSpecFinalBlock({
+    categoryCoverage: [
+      {
+        categoryId: "objective-value",
+        label: "Objetivo e valor esperado",
+        status: "covered",
+        detail: "Objetivo aprovado pelo operador.",
+      },
+      {
+        categoryId: "decisions-tradeoffs",
+        label: "Decisoes e trade-offs",
+        status: "covered",
+        detail: "Trade-off principal ja decidido.",
+      },
+    ],
+    assumptionsAndDefaults: ["Assumir monorepo Node.js 20+ como base."],
+    decisionsAndTradeOffs: ["Reutilizar callbacks existentes."],
+  }));
+
+  assert.match(sentMessages[0]?.text ?? "", /Descoberta consolidada/u);
+  assert.match(sentMessages[0]?.text ?? "", /Categorias obrigatorias:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Assumptions\/defaults:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Decisoes e trade-offs:/u);
+
+  await callHandlePlanSpecCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: {
+      data: "plan-spec:final:refine",
+      message: { message_id: sentMessages[0]?.messageId },
+    },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.discoverSpecFinalActions, ["refine"]);
+  assert.deepEqual(controlState.planSpecFinalActions, []);
+  assert.equal(answers[0], "Resposta registrada.");
+  assert.match(edits[0]?.text ?? "", /Descoberta consolidada/u);
+  assert.match(edits[0]?.text ?? "", /✅ Refinar/u);
 });
 
 test("callback de pergunta do /plan_spec destaca escolha, trava botoes e confirma no chat (CA-12, CA-14)", async () => {

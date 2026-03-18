@@ -468,12 +468,111 @@ const createPlanSpecFinalBlock = (): PlanSpecFinalBlock => ({
   title: "Bridge interativa do Codex",
   summary: "Sessao /plan com parser e callbacks no Telegram.",
   outline: createPlanSpecOutline(),
+  categoryCoverage: [],
+  assumptionsAndDefaults: [],
+  decisionsAndTradeOffs: [],
+  criticalAmbiguities: [],
   actions: [
     { id: "create-spec", label: "Criar spec" },
     { id: "refine", label: "Refinar" },
     { id: "cancel", label: "Cancelar" },
   ],
 });
+
+const createDiscoverSpecFinalBlock = (
+  value: Partial<PlanSpecFinalBlock> = {},
+): PlanSpecFinalBlock => {
+  const base = createPlanSpecFinalBlock();
+  return {
+    ...base,
+    ...value,
+    outline: {
+      ...base.outline,
+      ...value.outline,
+      actors: [...(value.outline?.actors ?? base.outline.actors)],
+      journey: [...(value.outline?.journey ?? base.outline.journey)],
+      requirements: [...(value.outline?.requirements ?? base.outline.requirements)],
+      acceptanceCriteria: [
+        ...(value.outline?.acceptanceCriteria ?? base.outline.acceptanceCriteria),
+      ],
+      nonScope: [...(value.outline?.nonScope ?? base.outline.nonScope)],
+      technicalConstraints: [
+        ...(value.outline?.technicalConstraints ?? base.outline.technicalConstraints),
+      ],
+      mandatoryValidations: [
+        ...(value.outline?.mandatoryValidations ?? base.outline.mandatoryValidations),
+      ],
+      pendingManualValidations: [
+        ...(value.outline?.pendingManualValidations ?? base.outline.pendingManualValidations),
+      ],
+      knownRisks: [...(value.outline?.knownRisks ?? base.outline.knownRisks)],
+    },
+    categoryCoverage: value.categoryCoverage
+      ? value.categoryCoverage.map((item) => ({ ...item }))
+      : [
+          {
+            categoryId: "objective-value",
+            label: "Objetivo e valor esperado",
+            status: "covered",
+            detail: "Objetivo aprovado com valor esperado explicito.",
+          },
+          {
+            categoryId: "actors-journey",
+            label: "Atores e jornada",
+            status: "covered",
+            detail: "Atores centrais e jornada principal descritos.",
+          },
+          {
+            categoryId: "functional-scope",
+            label: "Escopo funcional",
+            status: "covered",
+            detail: "Escopo funcional delimitado.",
+          },
+          {
+            categoryId: "non-scope",
+            label: "Nao-escopo",
+            status: "covered",
+            detail: "Nao-escopo declarado.",
+          },
+          {
+            categoryId: "constraints-dependencies",
+            label: "Restricoes tecnicas e dependencias",
+            status: "covered",
+            detail: "Restricoes e dependencias resolvidas.",
+          },
+          {
+            categoryId: "validations-acceptance",
+            label: "Validacoes e criterios de aceite",
+            status: "covered",
+            detail: "Validacoes obrigatorias e CAs listados.",
+          },
+          {
+            categoryId: "risks",
+            label: "Riscos operacionais e funcionais",
+            status: "covered",
+            detail: "Riscos conhecidos registrados.",
+          },
+          {
+            categoryId: "assumptions-defaults",
+            label: "Assumptions e defaults",
+            status: "covered",
+            detail: "Defaults conscientes aprovados.",
+          },
+          {
+            categoryId: "decisions-tradeoffs",
+            label: "Decisoes e trade-offs",
+            status: "covered",
+            detail: "Trade-offs relevantes aprovados.",
+          },
+        ],
+    assumptionsAndDefaults: [...(value.assumptionsAndDefaults ?? ["Assumir monorepo Node.js 20+."])],
+    decisionsAndTradeOffs: [
+      ...(value.decisionsAndTradeOffs ?? ["Reutilizar callbacks existentes em vez de criar um novo protocolo."]),
+    ],
+    criticalAmbiguities: [...(value.criticalAmbiguities ?? [])],
+    actions: value.actions ? value.actions.map((action) => ({ ...action })) : base.actions.map((action) => ({ ...action })),
+  };
+};
 
 const cloneSpecRef = (spec: SpecRef): SpecRef => ({
   fileName: spec.fileName,
@@ -3190,6 +3289,152 @@ test("falha da sessao /discover_spec encerra estado e preserva hint de retry aci
   assert.equal(runner.getState().phase, "error");
   assert.equal(failures.length, 1);
   assert.match(failures[0] ?? "", /Use \/discover_spec para tentar novamente/u);
+});
+
+test("bloco final parcial de /discover_spec gera follow-up automatico e snapshot tipado (CA-05, CA-07, CA-14)", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const lifecycleMessages: string[] = [];
+  const finals: PlanSpecFinalBlock[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecEventHandlers: {
+        onFinal: (_chatId, event) => {
+          finals.push(event.final);
+        },
+        onOutput: () => undefined,
+        onFailure: () => undefined,
+        onLifecycleMessage: (_chatId, message) => {
+          lifecycleMessages.push(message);
+        },
+      },
+    },
+  });
+
+  await runner.startDiscoverSpecSession("42");
+  await runner.submitDiscoverSpecInput("42", "Brief inicial ainda vago");
+
+  codex.lastDiscoverSession?.emitEvent({
+    type: "final",
+    final: createDiscoverSpecFinalBlock({
+      categoryCoverage: [
+        {
+          categoryId: "objective-value",
+          label: "Objetivo e valor esperado",
+          status: "covered",
+          detail: "Objetivo consolidado.",
+        },
+        {
+          categoryId: "decisions-tradeoffs",
+          label: "Decisoes e trade-offs",
+          status: "pending",
+          detail: "Falta decidir entre follow-up automatico ou bloqueio manual.",
+        },
+      ],
+      assumptionsAndDefaults: [],
+      decisionsAndTradeOffs: [],
+      criticalAmbiguities: [
+        "Definir se o gate final bloqueia totalmente `Criar spec` antes do ticket irmao.",
+      ],
+    }),
+  });
+  await sleep(0);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "discover-spec-waiting-codex");
+  assert.equal(state.discoverSpecSession?.phase, "waiting-codex");
+  assert.equal(state.discoverSpecSession?.createSpecEligible, false);
+  assert.equal(state.discoverSpecSession?.pendingItems.length, 9);
+  assert.match(
+    state.discoverSpecSession?.createSpecBlockReason ?? "",
+    /lacunas criticas/u,
+  );
+  assert.deepEqual(finals, []);
+  assert.equal(codex.lastDiscoverSession?.sentInputs.length, 2);
+  assert.match(codex.lastDiscoverSession?.sentInputs[1] ?? "", /Pendencias atuais:/u);
+  assert.match(codex.lastDiscoverSession?.sentInputs[1] ?? "", /Decisoes e trade-offs/u);
+  assert.equal(lifecycleMessages.length, 1);
+  assert.match(lifecycleMessages[0] ?? "", /lacunas criticas/u);
+});
+
+test("acao Refinar de /discover_spec retoma a entrevista sem materializar artefatos (CA-08)", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecEventHandlers: {
+        onFinal: () => undefined,
+        onOutput: () => undefined,
+        onFailure: () => undefined,
+      },
+    },
+  });
+
+  await runner.startDiscoverSpecSession("42");
+  codex.lastDiscoverSession?.emitEvent({
+    type: "final",
+    final: createDiscoverSpecFinalBlock(),
+  });
+  await sleep(0);
+
+  const outcome = await runner.handleDiscoverSpecFinalActionSelection("42", "refine");
+  assert.deepEqual(outcome, { status: "accepted" });
+  assert.equal(runner.getState().discoverSpecSession?.phase, "waiting-codex");
+  assert.equal(codex.lastDiscoverSession?.cancelCalls, 0);
+  assert.equal(codex.calls.some((call) => call.stage === "plan-spec-materialize"), false);
+  assert.equal(codex.calls.some((call) => call.stage === "plan-spec-version-and-push"), false);
+  assert.match(
+    codex.lastDiscoverSession?.sentInputs[codex.lastDiscoverSession.sentInputs.length - 1] ?? "",
+    /Revise o ultimo bloco final/u,
+  );
+});
+
+test("acao Criar spec de /discover_spec expõe blocker explicito ate o ticket irmao", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecEventHandlers: {
+        onFinal: () => undefined,
+        onOutput: () => undefined,
+        onFailure: () => undefined,
+      },
+    },
+  });
+
+  await runner.startDiscoverSpecSession("42");
+  codex.lastDiscoverSession?.emitEvent({
+    type: "final",
+    final: createDiscoverSpecFinalBlock(),
+  });
+  await sleep(0);
+
+  const outcome = await runner.handleDiscoverSpecFinalActionSelection("42", "create-spec");
+  assert.equal(outcome.status, "ignored");
+  if (outcome.status !== "ignored") {
+    assert.fail("Resultado de callback deveria ser ignored");
+  }
+
+  assert.equal(outcome.reason, "ineligible");
+  assert.match(outcome.message, /ticket de materializacao\/rastreabilidade enriquecidas/u);
 });
 
 test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", async () => {
