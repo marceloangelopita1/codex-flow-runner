@@ -1,7 +1,7 @@
 # [TICKET] Superficie Telegram e ciclo de sessao de /discover_spec ainda nao existem
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-18 18:59Z
@@ -105,11 +105,25 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 - RF-24 e RF-25; CA-16 e CA-18: a sessao expira apos 30 minutos sem atividade, envia mensagem de timeout e falhas retornam erro acionavel com orientacao de retry, sem fallback automatico.
 - RF-26; CA-19: quando a saida do Codex nao for parseavel com seguranca, o bot repassa conteudo bruto saneado ao Telegram e registra observabilidade equivalente ao fluxo atual.
 
+## Closure validation
+- Resultado final da validacao: `GO`. O escopo tecnico/funcional deste ticket foi entregue integralmente no working tree atual.
+- `RF-01, RF-02, RF-23, RF-27; CA-01, CA-15, CA-17` - atendido. Evidencias: registro e handlers de `/discover_spec*` em `src/integrations/telegram-bot.ts:1284`, `src/integrations/telegram-bot.ts:1771`, `src/integrations/telegram-bot.ts:1790`; wiring no bootstrap em `src/main.ts:115`, `src/main.ts:286`; testes em `src/integrations/telegram-bot.test.ts:2853`, `src/integrations/telegram-bot.test.ts:2909`, `src/integrations/telegram-bot.test.ts:2939`, `src/integrations/telegram-bot.test.ts:3017`.
+- `RF-03, RF-04, RF-08, RF-09; CA-01` - atendido. Evidencias: estado e fases dedicadas em `src/types/state.ts:19`, `src/types/state.ts:43`, `src/types/state.ts:125`, `src/types/state.ts:148`; start/snapshot da sessao em `src/core/runner.ts:873`, `src/core/runner.ts:1008`; backend stateful `exec/resume --json` com `thread_id` em `src/integrations/codex-client.ts:762`, `src/integrations/codex-client.ts:1295`, `src/integrations/codex-client.ts:1341`; testes em `src/core/runner.test.ts:2995` e `src/integrations/codex-client.test.ts:790`.
+- `RF-05, RF-06, RF-07; CA-03` - atendido. Evidencias: lock global de texto livre em `src/core/runner.ts:2159`; bloqueio por slot de projeto em `src/core/runner.ts:5884`; bloqueio de troca de projeto e roteamento unico no Telegram em `src/integrations/telegram-bot.ts:2790`, `src/integrations/telegram-bot.ts:2842`, `src/integrations/telegram-bot.ts:3422`; testes em `src/core/runner.test.ts:3022`, `src/core/runner.test.ts:3103`, `src/integrations/telegram-bot.test.ts:2979`.
+- `RF-24, RF-25; CA-16, CA-18` - atendido. Evidencias: timeout/lifecycle/failure em `src/core/runner.ts:2789`, `src/core/runner.ts:2884`, `src/core/runner.ts:3061`; retry hint dedicado em `src/integrations/codex-client.ts:275`, `src/integrations/codex-client.ts:1416`; testes em `src/core/runner.test.ts:3129`, `src/core/runner.test.ts:3163`, `src/integrations/codex-client.test.ts:900`.
+- `RF-26; CA-19` - atendido. Evidencias: repasse raw saneado e observabilidade em `src/core/runner.ts:2911`, `src/integrations/telegram-bot.ts:1075`, `src/integrations/telegram-bot.ts:5809`, `src/integrations/telegram-bot.ts:6160`; testes em `src/core/runner.test.ts:3050`, `src/integrations/telegram-bot.test.ts:3053`.
+- Matriz de validacao executada com sucesso em 2026-03-18 19:47Z:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/codex-client.test.ts`
+- Validacao manual pendente: nenhuma para o escopo deste ticket. O restante da spec continua rastreado nos tickets irmaos ja abertos.
+
 ## Decision log
 - 2026-03-18 - Gap aberto a partir da revisao da spec `2026-03-18-discover-spec-entrevista-profunda-de-alinhamento`.
+- 2026-03-18 - Fechamento validado como `GO` apos releitura do diff, ticket, ExecPlan, spec de origem e checklist `docs/workflows/codex-quality-gates.md`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-18 19:47Z
+- Closure reason: fixed
+- Related PR/commit/execplan: `execplans/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`; commit pertencente ao mesmo changeset de fechamento que sera versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

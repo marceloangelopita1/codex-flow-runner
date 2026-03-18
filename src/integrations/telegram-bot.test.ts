@@ -6,6 +6,9 @@ import {
   CodexChatSessionCancelResult,
   CodexChatSessionInputResult,
   CodexChatSessionStartResult,
+  DiscoverSpecSessionCancelResult,
+  DiscoverSpecSessionInputResult,
+  DiscoverSpecSessionStartResult,
   PlanSpecCallbackIgnoredReason,
   RunSelectedTicketRequestResult,
   RunnerProjectControlResult,
@@ -77,6 +80,7 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
     used: 0,
   },
   activeSlots: [],
+  discoverSpecSession: null,
   planSpecSession: null,
   phase: "idle",
   lastMessage: "estado de teste",
@@ -178,6 +182,24 @@ const createPlanSpecSession = (
   ...value,
 });
 
+const createDiscoverSpecSession = (
+  value: Partial<NonNullable<RunnerState["discoverSpecSession"]>> = {},
+): NonNullable<RunnerState["discoverSpecSession"]> => ({
+  chatId: "42",
+  phase: "awaiting-brief",
+  startedAt: new Date("2026-03-18T12:00:00.000Z"),
+  lastActivityAt: new Date("2026-03-18T12:05:00.000Z"),
+  waitingCodexSinceAt: null,
+  lastCodexActivityAt: null,
+  lastCodexStream: null,
+  lastCodexPreview: null,
+  observedModel: null,
+  observedReasoningEffort: null,
+  observedAt: null,
+  activeProjectSnapshot: cloneProject(defaultActiveProject),
+  ...value,
+});
+
 const createCodexChatSession = (
   value: Partial<NonNullable<RunnerState["codexChatSession"]>> = {},
 ): NonNullable<RunnerState["codexChatSession"]> => ({
@@ -262,6 +284,9 @@ type ControlCommand =
   | "run-all"
   | "codex_chat"
   | "codex-chat"
+  | "discover_spec"
+  | "discover_spec_status"
+  | "discover_spec_cancel"
   | "specs"
   | "tickets_open"
   | "run_specs"
@@ -316,6 +341,9 @@ interface ControllerOptions {
   codexChatStartResult?: CodexChatSessionStartResult;
   codexChatInputResult?: CodexChatSessionInputResult;
   codexChatCancelResult?: CodexChatSessionCancelResult;
+  discoverSpecStartResult?: DiscoverSpecSessionStartResult;
+  discoverSpecInputResult?: DiscoverSpecSessionInputResult;
+  discoverSpecCancelResult?: DiscoverSpecSessionCancelResult;
   planSpecStartResult?: {
     status: "started" | "already-active" | "blocked-running" | "blocked" | "failed";
     message: string;
@@ -350,6 +378,7 @@ interface ControllerOptions {
   listCodexReasoningErrorMessage?: string;
   listCodexSpeedErrorMessage?: string;
   forceSelectBlockedPlanSpec?: boolean;
+  forceSelectBlockedDiscoverSpec?: boolean;
   disablePlanSpecCallbacks?: boolean;
   planSpecQuestionCallbackOutcome?: PlanSpecControlOutcome;
   planSpecFinalCallbackOutcome?: PlanSpecControlOutcome;
@@ -523,6 +552,12 @@ const createController = (options: ControllerOptions = {}) => {
     readOpenTicketArgs: [] as string[],
     runSelectedTicketCalls: 0,
     runSelectedTicketArgs: [] as string[],
+    discoverSpecStartCalls: 0,
+    discoverSpecStartChatIds: [] as string[],
+    discoverSpecInputCalls: 0,
+    discoverSpecInputCallsByChat: [] as { chatId: string; input: string }[],
+    discoverSpecCancelCalls: 0,
+    discoverSpecCancelChatIds: [] as string[],
     codexChatStartCalls: 0,
     codexChatStartChatIds: [] as string[],
     codexChatInputCalls: 0,
@@ -585,6 +620,42 @@ const createController = (options: ControllerOptions = {}) => {
       }
 
       return { status: "started" as const };
+    },
+    startDiscoverSpecSession: (chatId: string) => {
+      controlState.discoverSpecStartCalls += 1;
+      controlState.discoverSpecStartChatIds.push(chatId);
+      if (options.discoverSpecStartResult) {
+        return options.discoverSpecStartResult;
+      }
+
+      return {
+        status: "started" as const,
+        message: "Sessao /discover_spec iniciada. Envie a proxima mensagem com o brief inicial.",
+      };
+    },
+    submitDiscoverSpecInput: (chatId: string, input: string) => {
+      controlState.discoverSpecInputCalls += 1;
+      controlState.discoverSpecInputCallsByChat.push({ chatId, input });
+      if (options.discoverSpecInputResult) {
+        return options.discoverSpecInputResult;
+      }
+
+      return {
+        status: "accepted" as const,
+        message: "Mensagem encaminhada para a sessao /discover_spec.",
+      };
+    },
+    cancelDiscoverSpecSession: (chatId: string) => {
+      controlState.discoverSpecCancelCalls += 1;
+      controlState.discoverSpecCancelChatIds.push(chatId);
+      if (options.discoverSpecCancelResult) {
+        return options.discoverSpecCancelResult;
+      }
+
+      return {
+        status: "cancelled" as const,
+        message: "Sessao /discover_spec cancelada.",
+      };
     },
     startCodexChatSession: (chatId: string) => {
       controlState.codexChatStartCalls += 1;
@@ -1025,6 +1096,10 @@ const createController = (options: ControllerOptions = {}) => {
     selectProjectByName: (projectName: string) => {
       controlState.selectedProjectNames.push(projectName);
 
+      if (options.forceSelectBlockedDiscoverSpec) {
+        return { status: "blocked-discover-spec" as const };
+      }
+
       if (options.forceSelectBlockedPlanSpec) {
         return { status: "blocked-plan-spec" as const };
       }
@@ -1328,6 +1403,59 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandleDiscoverSpecCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleDiscoverSpecCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleDiscoverSpecCommand(context);
+};
+
+const callHandleDiscoverSpecStatusCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleDiscoverSpecStatusCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleDiscoverSpecStatusCommand(context);
+};
+
+const callHandleDiscoverSpecCancelCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleDiscoverSpecCancelCommand: (value: {
+      chat: { id: number };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleDiscoverSpecCancelCommand(context);
 };
 
 const callHandleCodexChatCommand = async (
@@ -2365,6 +2493,9 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/run_specs/u);
   assert.match(reply, /\/codex_chat/u);
   assert.match(reply, /\/codex-chat/u);
+  assert.match(reply, /\/discover_spec/u);
+  assert.match(reply, /\/discover_spec_status/u);
+  assert.match(reply, /\/discover_spec_cancel/u);
   assert.match(reply, /\/plan_spec/u);
   assert.match(reply, /\/plan_spec_status/u);
   assert.match(reply, /\/plan_spec_cancel/u);
@@ -2717,6 +2848,225 @@ test("handoff preserva /codex_chat quando comando seguinte for /plan_spec (CA-04
     replies[0] ?? "",
     /sessao global de texto livre ativa em \/codex_chat/u,
   );
+});
+
+test("/discover_spec inicia sessao e solicita brief inicial (CA-01)", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/discover_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.discoverSpecStartCalls, 1);
+  assert.deepEqual(controlState.discoverSpecStartChatIds, ["42"]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessao \/discover_spec iniciada/u);
+  assert.match(replies[0] ?? "", /brief inicial/u);
+});
+
+test("primeira mensagem livre apos /discover_spec e roteada como brief inicial (CA-01)", async () => {
+  const state = createState({
+    phase: "discover-spec-awaiting-brief",
+    discoverSpecSession: createDiscoverSpecSession({
+      phase: "awaiting-brief",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandleActiveFreeTextMessage(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "Precisamos descobrir melhor o fluxo de entrevista e seus bloqueios.",
+      entities: [],
+    },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.discoverSpecInputCalls, 1);
+  assert.equal(controlState.planSpecInputCalls, 0);
+  assert.equal(controlState.codexChatInputCalls, 0);
+  assert.deepEqual(controlState.discoverSpecInputCallsByChat, [{
+    chatId: "42",
+    input: "Precisamos descobrir melhor o fluxo de entrevista e seus bloqueios.",
+  }]);
+  assert.deepEqual(replies, [
+    "✅ Brief inicial recebido na sessão /discover_spec. Aguarde a resposta do Codex.",
+  ]);
+});
+
+test("/discover_spec_status exibe fase, projeto e ultima atividade da sessao (CA-15)", async () => {
+  const state = createState({
+    phase: "discover-spec-waiting-user",
+    discoverSpecSession: createDiscoverSpecSession({
+      phase: "waiting-user",
+      startedAt: new Date("2026-03-18T12:00:00.000Z"),
+      lastActivityAt: new Date("2026-03-18T12:15:00.000Z"),
+    }),
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessão \/discover_spec ativa/u);
+  assert.match(replies[0] ?? "", /Fase: waiting-user/u);
+  assert.match(replies[0] ?? "", /Projeto da sessão: codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Última atividade: 2026-03-18T12:15:00.000Z/u);
+  assert.match(replies[0] ?? "", /Última atividade do Codex: \(ainda sem saída observável\)/u);
+});
+
+test("/discover_spec_cancel encerra sessao ativa (CA-15)", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.discoverSpecCancelCalls, 1);
+  assert.deepEqual(controlState.discoverSpecCancelChatIds, ["42"]);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Sessao \/discover_spec cancelada/u);
+});
+
+test("/discover_spec_cancel informa ausencia de sessao ativa", async () => {
+  const { controller, controlState } = createController({
+    discoverSpecCancelResult: {
+      status: "inactive",
+      message: "Nenhuma sessão /discover_spec ativa no momento.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.discoverSpecCancelCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Nenhuma sessão /discover_spec ativa no momento.");
+});
+
+test("durante sessao /discover_spec ativa, troca de projeto por comando e callback fica bloqueada (CA-03)", async () => {
+  const state = createState({
+    discoverSpecSession: createDiscoverSpecSession({
+      phase: "waiting-user",
+    }),
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+  });
+  const commandReplies: string[] = [];
+  const callbackReplies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      commandReplies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:page:1" },
+    answerCbQuery: async (text) => {
+      callbackReplies.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async () => Promise.resolve(),
+  });
+
+  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.equal(commandReplies.length, 1);
+  assert.match(commandReplies[0] ?? "", /sessão \/discover_spec ativa/u);
+  assert.equal(callbackReplies.length, 1);
+  assert.match(callbackReplies[0] ?? "", /sessão \/discover_spec ativa/u);
+});
+
+test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao usa /discover_spec* (CA-17)", async () => {
+  const { controller, controlState } = createController({ allowedChatId: "42" });
+  const replies: string[] = [];
+
+  await callHandleDiscoverSpecCommand(controller, {
+    chat: { id: 99 },
+    message: { text: "/discover_spec" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+  await callHandleDiscoverSpecStatusCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+  await callHandleDiscoverSpecCancelCommand(controller, {
+    chat: { id: 99 },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.discoverSpecStartCalls, 0);
+  assert.equal(controlState.discoverSpecCancelCalls, 0);
+  assert.deepEqual(replies, [
+    "Acesso não autorizado.",
+    "Acesso não autorizado.",
+    "Acesso não autorizado.",
+  ]);
+});
+
+test("saida raw e falha de /discover_spec sao enviadas ao Telegram com labels dedicadas (CA-18, CA-19)", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendDiscoverSpecOutput("42", "Entrevista em andamento.");
+  await controller.sendDiscoverSpecFailure("42", "Falha ao iniciar sessao /discover_spec: timeout no codex.");
+
+  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages[0]?.chatId, "42");
+  assert.equal(
+    sentMessages[0]?.text,
+    "🧩 Saída textual do /discover_spec:\nEntrevista em andamento.",
+  );
+  assert.equal(sentMessages[1]?.chatId, "42");
+  assert.match(sentMessages[1]?.text ?? "", /Falha na sessão interativa \/discover_spec/u);
+  assert.match(sentMessages[1]?.text ?? "", /timeout no codex/u);
+  assert.match(sentMessages[1]?.text ?? "", /Use \/discover_spec para tentar novamente/u);
 });
 
 test("/plan_spec inicia sessao e solicita brief inicial (CA-01)", async () => {

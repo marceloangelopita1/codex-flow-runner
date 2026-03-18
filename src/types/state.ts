@@ -16,6 +16,9 @@ export type RunnerPhase =
   | "plan"
   | "implement"
   | "close-and-version"
+  | "discover-spec-awaiting-brief"
+  | "discover-spec-waiting-codex"
+  | "discover-spec-waiting-user"
   | "plan-spec-awaiting-brief"
   | "plan-spec-waiting-codex"
   | "plan-spec-waiting-user"
@@ -32,6 +35,26 @@ export type PlanSpecSessionPhase =
   | "awaiting-final-action";
 
 export type PlanSpecCodexStream = "stdout" | "stderr";
+
+export type DiscoverSpecSessionPhase = "awaiting-brief" | "waiting-codex" | "waiting-user";
+
+export type DiscoverSpecCodexStream = "stdout" | "stderr";
+
+export interface DiscoverSpecSessionState {
+  sessionId?: number;
+  chatId: string;
+  phase: DiscoverSpecSessionPhase;
+  startedAt: Date;
+  lastActivityAt: Date;
+  waitingCodexSinceAt: Date | null;
+  lastCodexActivityAt: Date | null;
+  lastCodexStream: DiscoverSpecCodexStream | null;
+  lastCodexPreview: string | null;
+  observedModel: string | null;
+  observedReasoningEffort: string | null;
+  observedAt: Date | null;
+  activeProjectSnapshot: ProjectRef;
+}
 
 export interface PlanSpecSessionState {
   sessionId?: number;
@@ -99,7 +122,13 @@ export interface RunnerLastNotificationFailure {
   failure: TicketNotificationFailure;
 }
 
-export type RunnerSlotKind = "run-all" | "run-specs" | "run-ticket" | "plan-spec" | "codex-chat";
+export type RunnerSlotKind =
+  | "run-all"
+  | "run-specs"
+  | "run-ticket"
+  | "discover-spec"
+  | "plan-spec"
+  | "codex-chat";
 
 export interface RunnerActiveSlotState {
   project: ProjectRef;
@@ -124,6 +153,7 @@ export interface RunnerState {
   activeProject: ProjectRef | null;
   capacity: RunnerCapacitySnapshot;
   activeSlots: RunnerActiveSlotState[];
+  discoverSpecSession: DiscoverSpecSessionState | null;
   planSpecSession: PlanSpecSessionState | null;
   codexChatSession: CodexChatSessionState | null;
   lastCodexChatSessionClosure: CodexChatSessionLastClosureState | null;
@@ -149,6 +179,7 @@ export const createInitialState = (
     used: 0,
   },
   activeSlots: [],
+  discoverSpecSession: null,
   planSpecSession: null,
   codexChatSession: null,
   lastCodexChatSessionClosure: null,

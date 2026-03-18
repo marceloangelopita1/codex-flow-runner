@@ -5,6 +5,7 @@ import { ProjectRef } from "../types/project.js";
 import {
   CodexChatSessionClosureReason,
   CodexChatSessionPhase,
+  DiscoverSpecSessionPhase,
   PlanSpecSessionPhase,
   RunnerSlotKind,
   RunnerState,
@@ -40,10 +41,14 @@ import {
   CodexStageDiagnostics,
   CodexChatSessionError,
   CodexChatSessionEvent,
+  CodexDiscoverSpecSessionError,
   CodexPlanSessionError,
   CodexStageResult,
   CodexStageExecutionError,
   CodexTicketFlowClient,
+  DiscoverSpecSession,
+  DiscoverSpecSessionCloseResult,
+  DiscoverSpecSessionEvent,
   PlanSpecSession,
   PlanSpecSessionCloseResult,
   PlanSpecSessionEvent,
@@ -89,6 +94,15 @@ type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
 ) => Promise<TicketNotificationDelivery | null> | TicketNotificationDelivery | null;
 
+export interface DiscoverSpecEventHandlers {
+  onOutput: (
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "raw-sanitized" }>,
+  ) => Promise<void> | void;
+  onFailure: (chatId: string, details: string) => Promise<void> | void;
+  onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
+}
+
 export interface PlanSpecEventHandlers {
   onQuestion: (chatId: string, event: Extract<PlanSpecSessionEvent, { type: "question" }>) => Promise<void> | void;
   onFinal: (chatId: string, event: Extract<PlanSpecSessionEvent, { type: "final" }>) => Promise<void> | void;
@@ -129,6 +143,7 @@ export interface RunFlowEventHandlers {
 }
 
 export interface TicketRunnerOptions {
+  discoverSpecSessionTimeoutMs?: number;
   planSpecSessionTimeoutMs?: number;
   codexChatSessionTimeoutMs?: number;
   codexChatOutputFlushDelayMs?: number;
@@ -137,11 +152,27 @@ export interface TicketRunnerOptions {
   clearTimer?: typeof clearTimeout;
   specPlanningTraceStoreFactory?: (projectPath: string) => SpecPlanningTraceStore;
   workflowTraceStoreFactory?: (projectPath: string) => WorkflowTraceStore;
+  discoverSpecEventHandlers?: DiscoverSpecEventHandlers;
   planSpecEventHandlers?: PlanSpecEventHandlers;
   codexChatEventHandlers?: CodexChatEventHandlers;
   runSpecsEventHandlers?: RunSpecsEventHandlers;
   runFlowEventHandlers?: RunFlowEventHandlers;
   codexPreferencesService?: CodexPreferencesService;
+}
+
+interface ActiveDiscoverSpecSession {
+  id: number;
+  chatId: string;
+  project: ProjectRef;
+  slotKey: string;
+  codexClient: CodexTicketFlowClient;
+  session: DiscoverSpecSession;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
+  heartbeatHandle: ReturnType<typeof setTimeout> | null;
+  lastCodexActivityLogAt: Date | null;
+  lastHeartbeatLifecycleMessageAt: Date | null;
+  lastRawOutputForwardAt: Date | null;
+  suppressedRawOutputCount: number;
 }
 
 interface ActivePlanSpecSession {
@@ -253,6 +284,16 @@ type CodexChatSessionChatRejectedResult =
       message: string;
     };
 
+type DiscoverSpecSessionChatRejectedResult =
+  | {
+      status: "inactive";
+      message: string;
+    }
+  | {
+      status: "ignored-chat";
+      message: string;
+    };
+
 interface TicketLineageMetadata {
   status: string | null;
   parentTicketPath: string | null;
@@ -292,10 +333,17 @@ interface ResolvedTicketContent {
 }
 
 const RUNNER_SLOT_LIMIT = 5;
+const DISCOVER_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const PLAN_SPEC_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_CHAT_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_NO_GO_RECOVERIES_PER_TICKET = 3;
 const MAX_TICKET_PARENT_CHAIN_DEPTH = 100;
+const DISCOVER_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /discover_spec ativa no momento.";
+const DISCOVER_SPEC_CHAT_MISMATCH_MESSAGE =
+  "Sessão /discover_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
+const DISCOVER_SPEC_TIMEOUT_MESSAGE =
+  "Sessao /discover_spec encerrada por inatividade de 30 minutos.";
+const DISCOVER_SPEC_CANCELLED_MESSAGE = "Sessao /discover_spec cancelada.";
 const PLAN_SPEC_INACTIVE_MESSAGE = "Nenhuma sessão /plan_spec ativa no momento.";
 const PLAN_SPEC_CHAT_MISMATCH_MESSAGE =
   "Sessão /plan_spec em andamento em outro chat. Use o chat que iniciou a sessão.";
@@ -377,6 +425,7 @@ type RunSlotStartPreflightResult =
 
 export type SyncActiveProjectResult =
   | { status: "updated" }
+  | { status: "blocked-discover-spec" }
   | { status: "blocked-plan-spec" };
 
 export type RunnerProjectControlAction = "pause" | "resume";
@@ -413,6 +462,33 @@ export type PlanSpecSessionStartResult =
       activeProjects?: ProjectRef[];
     }
   | { status: "failed"; message: string };
+
+export type DiscoverSpecSessionStartResult =
+  | { status: "started"; message: string }
+  | { status: "already-active"; message: string }
+  | {
+      status: "blocked";
+      reason:
+        | "active-project-unavailable"
+        | "codex-auth-missing"
+        | "global-free-text-busy"
+        | "project-slot-busy"
+        | "runner-capacity-maxed"
+        | "codex-preferences-unavailable"
+        | "shutdown-in-progress";
+      message: string;
+      activeProjects?: ProjectRef[];
+    }
+  | { status: "failed"; message: string };
+
+export type DiscoverSpecSessionInputResult =
+  | { status: "accepted"; message: string }
+  | { status: "ignored-empty"; message: string }
+  | DiscoverSpecSessionChatRejectedResult;
+
+export type DiscoverSpecSessionCancelResult =
+  | { status: "cancelled"; message: string }
+  | DiscoverSpecSessionChatRejectedResult;
 
 export type PlanSpecSessionInputResult =
   | { status: "accepted"; message: string }
@@ -496,18 +572,22 @@ export class TicketRunner {
   private readonly now: () => Date;
   private readonly setTimer: typeof setTimeout;
   private readonly clearTimer: typeof clearTimeout;
+  private readonly discoverSpecSessionTimeoutMs: number;
   private readonly planSpecSessionTimeoutMs: number;
   private readonly codexChatSessionTimeoutMs: number;
   private readonly codexChatOutputFlushDelayMs: number;
   private readonly specPlanningTraceStoreFactory: (projectPath: string) => SpecPlanningTraceStore;
   private readonly workflowTraceStoreFactory: (projectPath: string) => WorkflowTraceStore;
+  private readonly discoverSpecEventHandlers?: DiscoverSpecEventHandlers;
   private readonly planSpecEventHandlers?: PlanSpecEventHandlers;
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
   private readonly runFlowEventHandlers?: RunFlowEventHandlers;
   private readonly codexPreferencesService?: CodexPreferencesService;
+  private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
+  private nextDiscoverSpecSessionId = 1;
   private nextPlanSpecSessionId = 1;
   private nextCodexChatSessionId = 1;
   private isShuttingDown = false;
@@ -532,6 +612,8 @@ export class TicketRunner {
     this.now = options.now ?? (() => new Date());
     this.setTimer = options.setTimer ?? setTimeout;
     this.clearTimer = options.clearTimer ?? clearTimeout;
+    this.discoverSpecSessionTimeoutMs =
+      options.discoverSpecSessionTimeoutMs ?? DISCOVER_SPEC_SESSION_TIMEOUT_MS;
     this.planSpecSessionTimeoutMs =
       options.planSpecSessionTimeoutMs ?? PLAN_SPEC_SESSION_TIMEOUT_MS;
     this.codexChatSessionTimeoutMs =
@@ -544,6 +626,7 @@ export class TicketRunner {
     this.workflowTraceStoreFactory =
       options.workflowTraceStoreFactory ??
       ((projectPath: string) => new FileSystemWorkflowTraceStore(projectPath));
+    this.discoverSpecEventHandlers = options.discoverSpecEventHandlers;
     this.planSpecEventHandlers = options.planSpecEventHandlers;
     this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
@@ -564,6 +647,31 @@ export class TicketRunner {
     ...(this.state.activeProject
       ? {
           activeProject: { ...this.state.activeProject },
+        }
+      : {}),
+    ...(this.state.discoverSpecSession
+      ? {
+          discoverSpecSession: {
+            ...this.state.discoverSpecSession,
+            activeProjectSnapshot: { ...this.state.discoverSpecSession.activeProjectSnapshot },
+            startedAt: new Date(this.state.discoverSpecSession.startedAt),
+            lastActivityAt: new Date(this.state.discoverSpecSession.lastActivityAt),
+            ...(this.state.discoverSpecSession.waitingCodexSinceAt
+              ? {
+                  waitingCodexSinceAt: new Date(this.state.discoverSpecSession.waitingCodexSinceAt),
+                }
+              : {}),
+            ...(this.state.discoverSpecSession.lastCodexActivityAt
+              ? {
+                  lastCodexActivityAt: new Date(this.state.discoverSpecSession.lastCodexActivityAt),
+                }
+              : {}),
+            ...(this.state.discoverSpecSession.observedAt
+              ? {
+                  observedAt: new Date(this.state.discoverSpecSession.observedAt),
+                }
+              : {}),
+          },
         }
       : {}),
     ...(this.state.planSpecSession
@@ -730,6 +838,10 @@ export class TicketRunner {
   };
 
   syncActiveProject = (project: ProjectRef): SyncActiveProjectResult => {
+    if (this.isDiscoverSpecSessionActive()) {
+      return { status: "blocked-discover-spec" };
+    }
+
     if (this.isPlanSpecSessionActive()) {
       return { status: "blocked-plan-spec" };
     }
@@ -758,11 +870,280 @@ export class TicketRunner {
     return { ...this.state.activeProject };
   }
 
+  startDiscoverSpecSession = async (
+    chatId: string,
+  ): Promise<DiscoverSpecSessionStartResult> => {
+    this.logger.info("Solicitacao de inicio de sessao /discover_spec recebida", {
+      chatId,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+    });
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/discover_spec");
+    }
+
+    if (this.isDiscoverSpecSessionActive()) {
+      return {
+        status: "already-active",
+        message: "Ja existe uma sessao /discover_spec em andamento nesta instancia.",
+      };
+    }
+
+    const globalFreeTextBusy = this.buildGlobalFreeTextBusyResult("/discover_spec");
+    if (globalFreeTextBusy) {
+      return globalFreeTextBusy;
+    }
+
+    let roundDependencies: RunnerRoundDependencies;
+    try {
+      roundDependencies = await this.resolveRoundDependencies();
+      this.state.activeProject = { ...roundDependencies.activeProject };
+      this.syncStateFromSlots();
+    } catch (error) {
+      const message = this.buildActiveProjectResolutionErrorMessage(error, "discover-spec");
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver projeto ativo para iniciar /discover_spec", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message,
+      };
+    }
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/discover_spec");
+    }
+
+    const globalFreeTextBusyAfterResolution = this.buildGlobalFreeTextBusyResult("/discover_spec");
+    if (globalFreeTextBusyAfterResolution) {
+      return globalFreeTextBusyAfterResolution;
+    }
+
+    const reservation = this.reserveSlot(roundDependencies, "discover-spec");
+    if (reservation.status === "blocked") {
+      return {
+        status: "blocked",
+        reason: reservation.reason,
+        message: reservation.message,
+        ...(reservation.activeProjects ? { activeProjects: reservation.activeProjects } : {}),
+      };
+    }
+
+    const slot = reservation.slot;
+    try {
+      await slot.codexClient.ensureAuthenticated();
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message =
+        error instanceof CodexAuthenticationError
+          ? error.message
+          : [
+              "Falha ao validar autenticacao do Codex CLI.",
+              "Execute `codex login` no mesmo usuario que roda o runner e tente novamente.",
+            ].join(" ");
+      this.touch("error", message);
+      this.logger.error("Falha de autenticacao do Codex CLI ao iniciar /discover_spec", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-auth-missing",
+        message,
+      };
+    }
+
+    try {
+      await slot.codexClient.snapshotInvocationPreferences();
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const message = this.buildCodexPreferencesResolutionErrorMessage(slot.project, error);
+      this.touch("error", message);
+      this.logger.error("Falha ao resolver preferencias do Codex ao iniciar /discover_spec", {
+        error: error instanceof Error ? error.message : String(error),
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+      return {
+        status: "blocked",
+        reason: "codex-preferences-unavailable",
+        message,
+      };
+    }
+
+    if (this.isShuttingDown) {
+      this.releaseSlot(slot.key);
+      return this.buildShutdownBlockedResult("/discover_spec");
+    }
+
+    const sessionId = this.nextDiscoverSpecSessionId;
+    this.nextDiscoverSpecSessionId += 1;
+
+    try {
+      const session = await slot.codexClient.startDiscoverSession({
+        callbacks: {
+          onEvent: (event) => {
+            void this.handleDiscoverSpecSessionEvent(sessionId, event);
+          },
+          onFailure: (error) => {
+            void this.handleDiscoverSpecSessionFailure(sessionId, error);
+          },
+          onClose: (result) => {
+            void this.handleDiscoverSpecSessionClose(sessionId, result);
+          },
+        },
+      });
+
+      const now = this.now();
+      this.state.discoverSpecSession = {
+        sessionId,
+        chatId,
+        phase: "awaiting-brief",
+        startedAt: now,
+        lastActivityAt: now,
+        waitingCodexSinceAt: null,
+        lastCodexActivityAt: null,
+        lastCodexStream: null,
+        lastCodexPreview: null,
+        observedModel: null,
+        observedReasoningEffort: null,
+        observedAt: null,
+        activeProjectSnapshot: { ...slot.project },
+      };
+      this.activeDiscoverSpecSession = {
+        id: sessionId,
+        chatId,
+        project: { ...slot.project },
+        slotKey: slot.key,
+        codexClient: slot.codexClient,
+        session,
+        timeoutHandle: null,
+        heartbeatHandle: null,
+        lastCodexActivityLogAt: null,
+        lastHeartbeatLifecycleMessageAt: null,
+        lastRawOutputForwardAt: null,
+        suppressedRawOutputCount: 0,
+      };
+
+      slot.isStarting = false;
+      slot.isRunning = true;
+      slot.phase = "discover-spec-awaiting-brief";
+      this.syncStateFromSlots();
+
+      this.refreshDiscoverSpecTimeout(sessionId);
+      this.touchSlot(
+        slot,
+        "discover-spec-awaiting-brief",
+        "Sessao /discover_spec iniciada e aguardando brief inicial",
+      );
+
+      return {
+        status: "started",
+        message: "Sessao /discover_spec iniciada. Envie a proxima mensagem com o brief inicial.",
+      };
+    } catch (error) {
+      this.releaseSlot(slot.key);
+      const details = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof CodexDiscoverSpecSessionError
+          ? error.message
+          : `Falha ao iniciar sessao /discover_spec: ${details}`;
+      this.touch("error", message);
+      this.logger.error("Falha ao iniciar sessao interativa /discover_spec", {
+        error: details,
+      });
+      await this.emitDiscoverSpecFailure(chatId, message);
+      return {
+        status: "failed",
+        message,
+      };
+    }
+  };
+
+  submitDiscoverSpecInput = async (
+    chatId: string,
+    input: string,
+  ): Promise<DiscoverSpecSessionInputResult> => {
+    const session = this.resolveDiscoverSpecSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    const normalizedInput = input.trim();
+    if (!normalizedInput) {
+      return {
+        status: "ignored-empty",
+        message: "Mensagem vazia ignorada na sessao /discover_spec.",
+      };
+    }
+
+    const isInitialBrief = this.state.discoverSpecSession?.phase === "awaiting-brief";
+    try {
+      const pendingSend = session.session.sendUserInput(normalizedInput);
+      this.setDiscoverSpecPhase(
+        "waiting-codex",
+        "discover-spec-waiting-codex",
+        isInitialBrief
+          ? "Brief inicial enviado ao Codex na sessao /discover_spec"
+          : "Mensagem enviada ao Codex na sessao /discover_spec",
+      );
+
+      void pendingSend.catch((error) => {
+        void this.handleDiscoverSpecSessionFailure(session.id, error);
+      });
+
+      return {
+        status: "accepted",
+        message: isInitialBrief
+          ? "Brief inicial enviado para o Codex."
+          : "Mensagem encaminhada para a sessao /discover_spec.",
+      };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      await this.handleDiscoverSpecSessionFailure(session.id, error);
+      return {
+        status: "inactive",
+        message: `Falha ao encaminhar mensagem para a sessao /discover_spec: ${details}`,
+      };
+    }
+  };
+
+  cancelDiscoverSpecSession = async (
+    chatId: string,
+  ): Promise<DiscoverSpecSessionCancelResult> => {
+    const session = this.resolveDiscoverSpecSessionForChat(chatId);
+    if ("status" in session) {
+      return session;
+    }
+
+    await this.finalizeDiscoverSpecSession(session.id, {
+      mode: "cancel",
+      phase: "idle",
+      message: DISCOVER_SPEC_CANCELLED_MESSAGE,
+    });
+
+    return {
+      status: "cancelled",
+      message: DISCOVER_SPEC_CANCELLED_MESSAGE,
+    };
+  };
+
   startPlanSpecSession = async (chatId: string): Promise<PlanSpecSessionStartResult> => {
     this.logger.info("Solicitacao de inicio de sessao /plan_spec recebida", {
       chatId,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
       hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
       hasActiveCodexChatSession: this.isCodexChatSessionActive(),
       activeProjectName: this.state.activeProject?.name,
@@ -1023,6 +1404,7 @@ export class TicketRunner {
       chatId,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
       hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
       hasActiveCodexChatSession: this.isCodexChatSessionActive(),
       activeProjectName: this.state.activeProject?.name,
@@ -1774,18 +2156,23 @@ export class TicketRunner {
     }
   };
 
-  private buildGlobalFreeTextBusyResult(requestedCommand: "/plan_spec" | "/codex_chat"): {
+  private buildGlobalFreeTextBusyResult(
+    requestedCommand: "/discover_spec" | "/plan_spec" | "/codex_chat",
+  ): {
     status: "blocked";
     reason: "global-free-text-busy";
     message: string;
   } | null {
+    const hasActiveDiscoverSpecSession = this.isDiscoverSpecSessionActive();
     const hasActivePlanSpecSession = this.isPlanSpecSessionActive();
     const hasActiveCodexChatSession = this.isCodexChatSessionActive();
-    const activeCommand = hasActivePlanSpecSession
-      ? "/plan_spec"
-      : hasActiveCodexChatSession
-      ? "/codex_chat"
-      : null;
+    const activeCommand = hasActiveDiscoverSpecSession
+      ? "/discover_spec"
+      : hasActivePlanSpecSession
+        ? "/plan_spec"
+        : hasActiveCodexChatSession
+          ? "/codex_chat"
+          : null;
 
     if (!activeCommand || activeCommand === requestedCommand) {
       return null;
@@ -1798,6 +2185,7 @@ export class TicketRunner {
     this.logger.warn("Solicitacao de sessao interativa bloqueada por lock global de texto livre", {
       requestedCommand,
       activeCommand,
+      hasActiveDiscoverSpecSession,
       hasActivePlanSpecSession,
       hasActiveCodexChatSession,
       activeProjectName: this.state.activeProject?.name,
@@ -1809,6 +2197,30 @@ export class TicketRunner {
       reason: "global-free-text-busy",
       message,
     };
+  }
+
+  private isDiscoverSpecSessionActive(): boolean {
+    return Boolean(this.activeDiscoverSpecSession && this.state.discoverSpecSession);
+  }
+
+  private resolveDiscoverSpecSessionForChat(
+    chatId: string,
+  ): ActiveDiscoverSpecSession | DiscoverSpecSessionChatRejectedResult {
+    if (!this.activeDiscoverSpecSession || !this.state.discoverSpecSession) {
+      return {
+        status: "inactive",
+        message: DISCOVER_SPEC_INACTIVE_MESSAGE,
+      };
+    }
+
+    if (this.activeDiscoverSpecSession.chatId !== chatId) {
+      return {
+        status: "ignored-chat",
+        message: DISCOVER_SPEC_CHAT_MISMATCH_MESSAGE,
+      };
+    }
+
+    return this.activeDiscoverSpecSession;
   }
 
   private isPlanSpecSessionActive(): boolean {
@@ -2336,6 +2748,471 @@ export class TicketRunner {
       await this.codexChatEventHandlers.onLifecycleMessage(chatId, message);
     } catch (error) {
       this.logger.warn("Falha ao enviar mensagem de lifecycle de /codex_chat", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private setDiscoverSpecPhase(
+    phase: DiscoverSpecSessionPhase,
+    runnerPhase: RunnerState["phase"],
+    message: string,
+  ): void {
+    const discoverSpecSession = this.state.discoverSpecSession;
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!discoverSpecSession || !activeSession) {
+      return;
+    }
+
+    const now = this.now();
+    discoverSpecSession.phase = phase;
+    discoverSpecSession.lastActivityAt = now;
+    if (phase === "waiting-codex") {
+      if (!discoverSpecSession.waitingCodexSinceAt) {
+        discoverSpecSession.waitingCodexSinceAt = now;
+      }
+    } else {
+      discoverSpecSession.waitingCodexSinceAt = null;
+    }
+    this.refreshDiscoverSpecTimeout(activeSession.id);
+    this.refreshDiscoverSpecCodexHeartbeat(activeSession.id);
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      this.touchSlot(slot, runnerPhase, message);
+      return;
+    }
+
+    this.touch(runnerPhase, message);
+  }
+
+  private refreshDiscoverSpecTimeout(sessionId: number): void {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+
+    activeSession.timeoutHandle = this.setTimer(() => {
+      void this.handleDiscoverSpecSessionTimeout(sessionId);
+    }, this.discoverSpecSessionTimeoutMs);
+    activeSession.timeoutHandle.unref?.();
+  }
+
+  private refreshDiscoverSpecCodexHeartbeat(sessionId: number): void {
+    const activeSession = this.activeDiscoverSpecSession;
+    const discoverSpecSession = this.state.discoverSpecSession;
+    if (!activeSession || !discoverSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    this.clearDiscoverSpecCodexHeartbeat(sessionId);
+    if (discoverSpecSession.phase !== "waiting-codex") {
+      return;
+    }
+
+    activeSession.heartbeatHandle = this.setTimer(() => {
+      void this.handleDiscoverSpecCodexHeartbeat(sessionId);
+    }, PLAN_SPEC_WAITING_CODEX_HEARTBEAT_MS);
+    activeSession.heartbeatHandle.unref?.();
+  }
+
+  private clearDiscoverSpecCodexHeartbeat(sessionId: number): void {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId || !activeSession.heartbeatHandle) {
+      return;
+    }
+
+    this.clearTimer(activeSession.heartbeatHandle);
+    activeSession.heartbeatHandle = null;
+  }
+
+  private async handleDiscoverSpecCodexHeartbeat(sessionId: number): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    const discoverSpecSession = this.state.discoverSpecSession;
+    if (!activeSession || !discoverSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    activeSession.heartbeatHandle = null;
+    if (discoverSpecSession.phase !== "waiting-codex") {
+      return;
+    }
+
+    const now = this.now();
+    const waitingSince =
+      discoverSpecSession.waitingCodexSinceAt ?? discoverSpecSession.lastActivityAt;
+    const waitingMs = Math.max(0, now.getTime() - waitingSince.getTime());
+    const lastCodexAgeMs = discoverSpecSession.lastCodexActivityAt
+      ? Math.max(0, now.getTime() - discoverSpecSession.lastCodexActivityAt.getTime())
+      : null;
+
+    this.logger.info("Sessao /discover_spec ainda aguardando retorno do Codex", {
+      chatId: activeSession.chatId,
+      phase: discoverSpecSession.phase,
+      waitingMs,
+      timeoutMs: this.discoverSpecSessionTimeoutMs,
+      lastCodexAgeMs,
+      lastCodexStream: discoverSpecSession.lastCodexStream,
+      lastCodexPreview: discoverSpecSession.lastCodexPreview,
+      activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+    });
+
+    const lastLifecycleAt = activeSession.lastHeartbeatLifecycleMessageAt;
+    if (
+      !lastLifecycleAt ||
+      now.getTime() - lastLifecycleAt.getTime() >= PLAN_SPEC_WAITING_CODEX_LIFECYCLE_NOTIFY_EVERY_MS
+    ) {
+      activeSession.lastHeartbeatLifecycleMessageAt = now;
+      const waitingSeconds = Math.floor(waitingMs / 1000);
+      const codexTail = discoverSpecSession.lastCodexPreview
+        ? ` Última saída observada (${discoverSpecSession.lastCodexStream ?? "stdout"}): ${discoverSpecSession.lastCodexPreview.slice(0, 160)}`
+        : " Ainda sem saída observável do Codex CLI.";
+      await this.emitDiscoverSpecLifecycleMessage(
+        activeSession.chatId,
+        `Sessao /discover_spec aguardando resposta do Codex ha ${String(waitingSeconds)}s.${codexTail}`,
+      );
+    }
+
+    this.refreshDiscoverSpecCodexHeartbeat(sessionId);
+  }
+
+  private async handleDiscoverSpecSessionTimeout(sessionId: number): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    this.logger.warn("Sessao /discover_spec expirada por inatividade", {
+      chatId: activeSession.chatId,
+      timeoutMs: this.discoverSpecSessionTimeoutMs,
+      phase: this.state.discoverSpecSession?.phase,
+      waitingCodexSinceAt: this.state.discoverSpecSession?.waitingCodexSinceAt?.toISOString() ?? null,
+      lastCodexActivityAt:
+        this.state.discoverSpecSession?.lastCodexActivityAt?.toISOString() ?? null,
+      lastCodexStream: this.state.discoverSpecSession?.lastCodexStream ?? null,
+      lastCodexPreview: this.state.discoverSpecSession?.lastCodexPreview ?? null,
+      activeProjectName: this.state.discoverSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.discoverSpecSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizeDiscoverSpecSession(sessionId, {
+      mode: "cancel",
+      phase: "idle",
+      message: DISCOVER_SPEC_TIMEOUT_MESSAGE,
+      notifyMessage: DISCOVER_SPEC_TIMEOUT_MESSAGE,
+    });
+  }
+
+  private async handleDiscoverSpecSessionEvent(
+    sessionId: number,
+    event: DiscoverSpecSessionEvent,
+  ): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    const discoverSpecSession = this.state.discoverSpecSession;
+    if (!activeSession || !discoverSpecSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    discoverSpecSession.lastActivityAt = this.now();
+    this.refreshDiscoverSpecTimeout(sessionId);
+
+    if (event.type === "activity") {
+      this.recordDiscoverSpecCodexActivity(activeSession, discoverSpecSession, event);
+      this.refreshDiscoverSpecCodexHeartbeat(sessionId);
+      return;
+    }
+
+    if (event.type === "turn-context") {
+      this.recordDiscoverSpecTurnContext(activeSession, discoverSpecSession, sessionId, event);
+      this.refreshDiscoverSpecCodexHeartbeat(sessionId);
+      return;
+    }
+
+    if (event.type === "turn-complete") {
+      this.setDiscoverSpecPhase(
+        "waiting-user",
+        "discover-spec-waiting-user",
+        "Sessao /discover_spec aguardando resposta do operador",
+      );
+      return;
+    }
+
+    if (discoverSpecSession.phase === "awaiting-brief") {
+      this.logger.info(
+        "Saida raw da sessao /discover_spec suprimida durante aguardando brief inicial",
+        {
+          chatId: activeSession.chatId,
+          preview: event.text.slice(0, 180),
+        },
+      );
+      return;
+    }
+
+    if (this.shouldThrottleDiscoverSpecRawOutput(activeSession, discoverSpecSession)) {
+      return;
+    }
+
+    this.logger.info("Sessao /discover_spec recebeu saida textual do Codex", {
+      chatId: activeSession.chatId,
+      phase: discoverSpecSession.phase,
+      preview: event.text.slice(0, 180),
+      activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+    });
+    await this.emitDiscoverSpecOutput(activeSession.chatId, event);
+  }
+
+  private recordDiscoverSpecTurnContext(
+    activeSession: ActiveDiscoverSpecSession,
+    discoverSpecSession: NonNullable<RunnerState["discoverSpecSession"]>,
+    sessionId: number,
+    event: Extract<DiscoverSpecSessionEvent, { type: "turn-context" }>,
+  ): void {
+    const observedAt = this.now();
+    discoverSpecSession.observedModel = event.model;
+    discoverSpecSession.observedReasoningEffort = event.reasoningEffort;
+    discoverSpecSession.observedAt = observedAt;
+    discoverSpecSession.lastActivityAt = observedAt;
+
+    this.logger.info("Lifecycle /discover_spec: turn-context observado", {
+      chatId: activeSession.chatId,
+      sessionId,
+      model: event.model,
+      reasoningEffort: event.reasoningEffort,
+      activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+    });
+  }
+
+  private shouldThrottleDiscoverSpecRawOutput(
+    activeSession: ActiveDiscoverSpecSession,
+    discoverSpecSession: NonNullable<RunnerState["discoverSpecSession"]>,
+  ): boolean {
+    if (discoverSpecSession.phase !== "waiting-codex") {
+      return false;
+    }
+
+    const now = this.now();
+    const lastForwardAt = activeSession.lastRawOutputForwardAt;
+    if (
+      lastForwardAt &&
+      now.getTime() - lastForwardAt.getTime() < PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS
+    ) {
+      activeSession.suppressedRawOutputCount += 1;
+      return true;
+    }
+
+    if (activeSession.suppressedRawOutputCount > 0) {
+      this.logger.info("Saida raw do Codex suprimida para evitar flood na sessao /discover_spec", {
+        chatId: activeSession.chatId,
+        phase: discoverSpecSession.phase,
+        suppressedChunks: activeSession.suppressedRawOutputCount,
+        minIntervalMs: PLAN_SPEC_RAW_OUTPUT_FORWARD_MIN_INTERVAL_MS,
+        activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+        activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+      });
+      activeSession.suppressedRawOutputCount = 0;
+    }
+
+    activeSession.lastRawOutputForwardAt = now;
+    return false;
+  }
+
+  private recordDiscoverSpecCodexActivity(
+    activeSession: ActiveDiscoverSpecSession,
+    discoverSpecSession: NonNullable<RunnerState["discoverSpecSession"]>,
+    event: Extract<DiscoverSpecSessionEvent, { type: "activity" }>,
+  ): void {
+    const now = this.now();
+    const preview = event.activity.preview.trim();
+    discoverSpecSession.lastCodexActivityAt = now;
+    if (preview.length > 0) {
+      discoverSpecSession.lastCodexStream = event.activity.source;
+      discoverSpecSession.lastCodexPreview = preview;
+    } else {
+      return;
+    }
+
+    const shouldLogActivity =
+      !activeSession.lastCodexActivityLogAt ||
+      now.getTime() - activeSession.lastCodexActivityLogAt.getTime() >=
+        PLAN_SPEC_CODEX_ACTIVITY_LOG_INTERVAL_MS;
+    if (!shouldLogActivity) {
+      return;
+    }
+
+    activeSession.lastCodexActivityLogAt = now;
+    this.logger.info("Atividade do Codex observada na sessao /discover_spec", {
+      chatId: activeSession.chatId,
+      phase: discoverSpecSession.phase,
+      source: event.activity.source,
+      bytes: event.activity.bytes,
+      preview: discoverSpecSession.lastCodexPreview,
+      activeProjectName: discoverSpecSession.activeProjectSnapshot.name,
+      activeProjectPath: discoverSpecSession.activeProjectSnapshot.path,
+    });
+  }
+
+  private async handleDiscoverSpecSessionFailure(
+    sessionId: number,
+    error: unknown,
+  ): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    const details = error instanceof Error ? error.message : String(error);
+    this.logger.error("Falha na sessao /discover_spec", {
+      chatId: activeSession.chatId,
+      error: details,
+      phase: this.state.discoverSpecSession?.phase,
+      activeProjectName: this.state.discoverSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.discoverSpecSession?.activeProjectSnapshot.path,
+    });
+
+    await this.finalizeDiscoverSpecSession(sessionId, {
+      mode: "cancel",
+      phase: "error",
+      message: "Falha na sessao /discover_spec",
+    });
+    await this.emitDiscoverSpecFailure(activeSession.chatId, details);
+  }
+
+  private async handleDiscoverSpecSessionClose(
+    sessionId: number,
+    result: DiscoverSpecSessionCloseResult,
+  ): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (result.cancelled) {
+      await this.finalizeDiscoverSpecSession(sessionId, {
+        mode: "closed",
+        phase: "idle",
+        message: DISCOVER_SPEC_CANCELLED_MESSAGE,
+      });
+      return;
+    }
+
+    const message = `Sessao /discover_spec encerrada inesperadamente (exit code: ${String(result.exitCode)}).`;
+    this.logger.warn("Sessao /discover_spec encerrada sem cancelamento explicito", {
+      chatId: activeSession.chatId,
+      exitCode: result.exitCode,
+      activeProjectName: this.state.discoverSpecSession?.activeProjectSnapshot.name,
+      activeProjectPath: this.state.discoverSpecSession?.activeProjectSnapshot.path,
+    });
+    await this.finalizeDiscoverSpecSession(sessionId, {
+      mode: "closed",
+      phase: "error",
+      message,
+    });
+    await this.emitDiscoverSpecFailure(activeSession.chatId, message);
+  }
+
+  private async finalizeDiscoverSpecSession(
+    sessionId: number,
+    options: {
+      mode: "cancel" | "closed";
+      phase: RunnerState["phase"];
+      message: string;
+      notifyMessage?: string;
+      releaseSlot?: boolean;
+    },
+  ): Promise<void> {
+    const activeSession = this.activeDiscoverSpecSession;
+    if (!activeSession || activeSession.id !== sessionId) {
+      return;
+    }
+
+    if (activeSession.timeoutHandle) {
+      this.clearTimer(activeSession.timeoutHandle);
+    }
+    if (activeSession.heartbeatHandle) {
+      this.clearTimer(activeSession.heartbeatHandle);
+    }
+
+    this.activeDiscoverSpecSession = null;
+    this.state.discoverSpecSession = null;
+
+    if (options.mode === "cancel") {
+      try {
+        await activeSession.session.cancel();
+      } catch (error) {
+        this.logger.warn("Falha ao cancelar processo da sessao /discover_spec", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const shouldReleaseSlot = options.releaseSlot ?? true;
+    if (shouldReleaseSlot) {
+      this.releaseSlot(activeSession.slotKey);
+    }
+
+    const slot = this.activeSlots.get(activeSession.slotKey);
+    if (slot) {
+      slot.phase = options.phase;
+      slot.isStarting = false;
+      slot.isRunning = true;
+      this.syncStateFromSlots();
+      this.touchSlot(slot, options.phase, options.message);
+    } else {
+      this.touch(options.phase, options.message);
+    }
+
+    if (options.notifyMessage) {
+      await this.emitDiscoverSpecLifecycleMessage(activeSession.chatId, options.notifyMessage);
+    }
+  }
+
+  private async emitDiscoverSpecOutput(
+    chatId: string,
+    event: Extract<DiscoverSpecSessionEvent, { type: "raw-sanitized" }>,
+  ): Promise<void> {
+    if (!this.discoverSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.discoverSpecEventHandlers.onOutput(chatId, event);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar saida de /discover_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitDiscoverSpecFailure(chatId: string, details: string): Promise<void> {
+    if (!this.discoverSpecEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.discoverSpecEventHandlers.onFailure(chatId, details);
+    } catch (error) {
+      this.logger.warn("Falha ao encaminhar erro de /discover_spec para integracao", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async emitDiscoverSpecLifecycleMessage(chatId: string, message: string): Promise<void> {
+    if (!this.discoverSpecEventHandlers?.onLifecycleMessage) {
+      return;
+    }
+
+    try {
+      await this.discoverSpecEventHandlers.onLifecycleMessage(chatId, message);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar mensagem de lifecycle de /discover_spec", {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -3837,6 +4714,7 @@ export class TicketRunner {
       timeoutMs,
       activeSlotsCount: this.activeSlots.size,
       runSlotsCount: this.getRunSlots().length,
+      hasDiscoverSpecSession: Boolean(this.activeDiscoverSpecSession),
       hasPlanSpecSession: Boolean(this.activePlanSpecSession),
       hasCodexChatSession: Boolean(this.activeCodexChatSession),
     });
@@ -3924,6 +4802,18 @@ export class TicketRunner {
       drainTasks.push({
         name: `plan-spec-session:${String(activePlanSpecSession.id)}`,
         promise: this.finalizePlanSpecSession(activePlanSpecSession.id, {
+          mode: "cancel",
+          phase: "idle",
+          message: "Desligamento solicitado",
+        }),
+      });
+    }
+
+    const activeDiscoverSpecSession = this.activeDiscoverSpecSession;
+    if (activeDiscoverSpecSession) {
+      drainTasks.push({
+        name: `discover-spec-session:${String(activeDiscoverSpecSession.id)}`,
+        promise: this.finalizeDiscoverSpecSession(activeDiscoverSpecSession.id, {
           mode: "cancel",
           phase: "idle",
           message: "Desligamento solicitado",
@@ -5086,7 +5976,12 @@ export class TicketRunner {
     }
 
     const slot = this.activeSlots.get(this.buildSlotKey(activeProject));
-    if (!slot || slot.kind === "plan-spec" || slot.kind === "codex-chat") {
+    if (
+      !slot ||
+      slot.kind === "discover-spec" ||
+      slot.kind === "plan-spec" ||
+      slot.kind === "codex-chat"
+    ) {
       this.logger.info("Controle de runner ignorado: sem slot de execucao no projeto ativo", {
         action,
         activeProjectName: activeProject.name,
@@ -5154,6 +6049,10 @@ export class TicketRunner {
       return "/codex_chat";
     }
 
+    if (kind === "discover-spec") {
+      return "/discover_spec";
+    }
+
     return "/plan_spec";
   }
 
@@ -5184,7 +6083,13 @@ export class TicketRunner {
 
   private buildActiveProjectResolutionErrorMessage(
     error: unknown,
-    source: "run-all" | "run-specs" | "run-ticket" | "plan-spec" | "codex-chat",
+    source:
+      | "run-all"
+      | "run-specs"
+      | "run-ticket"
+      | "discover-spec"
+      | "plan-spec"
+      | "codex-chat",
   ): string {
     const details = error instanceof Error ? error.message : String(error);
     const command =
@@ -5194,6 +6099,8 @@ export class TicketRunner {
           ? "/run_specs"
           : source === "run-ticket"
             ? "/run_ticket"
+            : source === "discover-spec"
+              ? "/discover_spec"
             : source === "plan-spec"
               ? "/plan_spec"
               : "/codex_chat";
@@ -5252,6 +6159,7 @@ export class TicketRunner {
         this.state.currentTicket = null;
         this.state.currentSpec = null;
         if (
+          !this.isDiscoverSpecSessionActive() &&
           !this.isPlanSpecSessionActive() &&
           !this.isCodexChatSessionActive() &&
           this.state.phase !== "error"

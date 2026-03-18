@@ -12,9 +12,14 @@ import {
   CodexStageDiagnostics,
   CodexChatSessionEvent,
   CodexChatSessionStartRequest,
+  CodexDiscoverSpecSessionError,
   CodexPlanSessionError,
   CodexStageExecutionError,
   CodexStageResult,
+  DiscoverSpecSession,
+  DiscoverSpecSessionCloseResult,
+  DiscoverSpecSessionEvent,
+  DiscoverSpecSessionStartRequest,
   PlanSpecSession,
   PlanSpecSessionCloseResult,
   PlanSpecSessionEvent,
@@ -79,8 +84,10 @@ class StubCodexClient implements CodexTicketFlowClient {
     spec?: SpecRef;
   }> = [];
   public authChecks = 0;
+  public discoverSessionStartCalls = 0;
   public planSessionStartCalls = 0;
   public freeChatSessionStartCalls = 0;
+  public lastDiscoverSession: StubDiscoverSession | null = null;
   public lastPlanSession: StubPlanSession | null = null;
   public lastFreeChatSession: StubCodexChatSession | null = null;
   public invocationPreferences: CodexInvocationPreferences | null;
@@ -212,6 +219,17 @@ class StubCodexClient implements CodexTicketFlowClient {
     return session;
   }
 
+  async startDiscoverSession(request: DiscoverSpecSessionStartRequest): Promise<DiscoverSpecSession> {
+    this.discoverSessionStartCalls += 1;
+    if (this.failPlanSessionStart) {
+      throw new CodexDiscoverSpecSessionError("start", "falha simulada");
+    }
+
+    const session = new StubDiscoverSession(request);
+    this.lastDiscoverSession = session;
+    return session;
+  }
+
   async startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession> {
     this.freeChatSessionStartCalls += 1;
     if (this.failFreeChatSessionStart) {
@@ -221,6 +239,44 @@ class StubCodexClient implements CodexTicketFlowClient {
     const session = new StubCodexChatSession(request);
     this.lastFreeChatSession = session;
     return session;
+  }
+}
+
+class StubDiscoverSession implements DiscoverSpecSession {
+  public readonly sentInputs: string[] = [];
+  public cancelCalls = 0;
+
+  constructor(private readonly request: DiscoverSpecSessionStartRequest) {}
+
+  async sendUserInput(input: string): Promise<void> {
+    this.sentInputs.push(input);
+  }
+
+  async cancel(): Promise<void> {
+    this.cancelCalls += 1;
+    this.request.callbacks.onClose?.({
+      exitCode: null,
+      cancelled: true,
+    });
+  }
+
+  emitEvent(event: DiscoverSpecSessionEvent): void {
+    this.request.callbacks.onEvent(event);
+  }
+
+  emitRawOutput(text: string): void {
+    this.emitEvent({
+      type: "raw-sanitized",
+      text,
+    });
+  }
+
+  fail(details: string): void {
+    this.request.callbacks.onFailure(new CodexDiscoverSpecSessionError("runtime", details));
+  }
+
+  close(result: DiscoverSpecSessionCloseResult): void {
+    this.request.callbacks.onClose?.(result);
   }
 }
 
@@ -606,6 +662,22 @@ const waitForPlanSpecSessionToClose = async (
   }
 
   assert.fail("sessao /plan_spec nao encerrou dentro do timeout esperado");
+};
+
+const waitForDiscoverSpecSessionToClose = async (
+  runner: TicketRunner,
+  timeoutMs = 2000,
+): Promise<void> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!runner.getState().discoverSpecSession) {
+      return;
+    }
+
+    await sleep(5);
+  }
+
+  assert.fail("sessao /discover_spec nao encerrou dentro do timeout esperado");
 };
 
 const waitForCodexChatSessionToClose = async (
@@ -2918,6 +2990,206 @@ test("runner mantém ultimo evento entregue ao registrar nova falha definitiva d
   assert.equal(callbackCalls, 2);
   assert.equal(state.lastNotifiedEvent?.summary.ticket, ticketA.name);
   assert.equal(state.lastNotificationFailure?.summary.ticket, ticketB.name);
+});
+
+test("startDiscoverSpecSession inicia sessao unica global com snapshot de projeto", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+
+  const firstStart = await runner.startDiscoverSpecSession("42");
+  const secondStart = await runner.startDiscoverSpecSession("42");
+
+  assert.equal(firstStart.status, "started");
+  assert.equal(secondStart.status, "already-active");
+  assert.equal(codex.discoverSessionStartCalls, 1);
+  assert.equal(codex.authChecks, 1);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "discover-spec-awaiting-brief");
+  assert.equal(state.discoverSpecSession?.chatId, "42");
+  assert.equal(state.discoverSpecSession?.phase, "awaiting-brief");
+  assert.equal(state.discoverSpecSession?.activeProjectSnapshot.name, activeProjectA.name);
+  assert.equal(state.discoverSpecSession?.activeProjectSnapshot.path, activeProjectA.path);
+});
+
+test("sessao /discover_spec bloqueia /plan_spec e /codex_chat concorrentes", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startDiscoverSpecSession("42");
+
+  const planSpecResult = await runner.startPlanSpecSession("42");
+  const codexChatResult = await runner.startCodexChatSession("42");
+
+  assert.equal(planSpecResult.status, "blocked");
+  if (planSpecResult.status === "blocked") {
+    assert.equal(planSpecResult.reason, "global-free-text-busy");
+    assert.match(planSpecResult.message, /sessao global de texto livre ativa em \/discover_spec/u);
+  }
+
+  assert.equal(codexChatResult.status, "blocked");
+  if (codexChatResult.status === "blocked") {
+    assert.equal(codexChatResult.reason, "global-free-text-busy");
+    assert.match(codexChatResult.message, /sessao global de texto livre ativa em \/discover_spec/u);
+  }
+});
+
+test("submitDiscoverSpecInput encaminha brief, repassa saida textual e volta para waiting-user", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const outputs: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecEventHandlers: {
+        onOutput: (_chatId, event) => {
+          outputs.push(event.text);
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+  await runner.startDiscoverSpecSession("42");
+
+  const inputResult = await runner.submitDiscoverSpecInput("42", "Brief inicial da descoberta");
+  assert.equal(inputResult.status, "accepted");
+  assert.deepEqual(codex.lastDiscoverSession?.sentInputs, ["Brief inicial da descoberta"]);
+
+  codex.lastDiscoverSession?.emitEvent({
+    type: "activity",
+    activity: {
+      source: "stdout",
+      bytes: 42,
+      preview: "seguindo entrevista",
+    },
+  });
+  codex.lastDiscoverSession?.emitEvent({
+    type: "turn-context",
+    model: "gpt-5.4",
+    reasoningEffort: "high",
+  });
+  codex.lastDiscoverSession?.emitRawOutput("Pergunta livre do discover");
+  codex.lastDiscoverSession?.emitEvent({ type: "turn-complete" });
+  await sleep(0);
+
+  const state = runner.getState();
+  assert.equal(state.phase, "discover-spec-waiting-user");
+  assert.equal(state.discoverSpecSession?.phase, "waiting-user");
+  assert.equal(state.discoverSpecSession?.lastCodexStream, "stdout");
+  assert.equal(state.discoverSpecSession?.lastCodexPreview, "seguindo entrevista");
+  assert.equal(state.discoverSpecSession?.observedModel, "gpt-5.4");
+  assert.equal(state.discoverSpecSession?.observedReasoningEffort, "high");
+  assert.deepEqual(outputs, ["Pergunta livre do discover"]);
+});
+
+test("requestRunAll, requestRunSpecs, requestRunSelectedTicket e syncActiveProject ficam bloqueados durante /discover_spec", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies);
+  await runner.startDiscoverSpecSession("42");
+
+  const runAllResult = await runner.requestRunAll();
+  const runSpecsResult = await runner.requestRunSpecs(specFileName);
+  const runTicketResult = await runner.requestRunSelectedTicket(ticketA.name);
+  const syncResult = runner.syncActiveProject(activeProjectB);
+
+  assert.equal(runAllResult.status, "blocked");
+  assert.equal(runAllResult.reason, "project-slot-busy");
+  assert.equal(runSpecsResult.status, "blocked");
+  assert.equal(runSpecsResult.reason, "project-slot-busy");
+  assert.equal(runTicketResult.status, "blocked");
+  assert.equal(runTicketResult.reason, "project-slot-busy");
+  assert.deepEqual(syncResult, { status: "blocked-discover-spec" });
+});
+
+test("sessao /discover_spec expira por inatividade e notifica timeout", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const lifecycleMessages: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecSessionTimeoutMs: 20,
+      discoverSpecEventHandlers: {
+        onOutput: () => undefined,
+        onFailure: () => undefined,
+        onLifecycleMessage: (_chatId, message) => {
+          lifecycleMessages.push(message);
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.startDiscoverSpecSession("42");
+  assert.equal(startResult.status, "started");
+  await waitForDiscoverSpecSessionToClose(runner, 1000);
+  await sleep(0);
+
+  assert.equal(runner.getState().discoverSpecSession, null);
+  assert.equal(runner.getState().phase, "idle");
+  assert.equal(lifecycleMessages.length, 1);
+  assert.match(lifecycleMessages[0] ?? "", /inatividade de 30 minutos/u);
+});
+
+test("falha da sessao /discover_spec encerra estado e preserva hint de retry acionavel", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const failures: string[] = [];
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      discoverSpecEventHandlers: {
+        onOutput: () => undefined,
+        onFailure: (_chatId, details) => {
+          failures.push(details);
+        },
+      },
+    },
+  });
+  await runner.startDiscoverSpecSession("42");
+
+  codex.lastDiscoverSession?.fail("timeout no codex");
+  await waitForDiscoverSpecSessionToClose(runner, 1000);
+  await sleep(0);
+
+  assert.equal(runner.getState().discoverSpecSession, null);
+  assert.equal(runner.getState().phase, "error");
+  assert.equal(failures.length, 1);
+  assert.match(failures[0] ?? "", /Use \/discover_spec para tentar novamente/u);
 });
 
 test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", async () => {

@@ -114,6 +114,51 @@ export interface PlanSpecSession {
   cancel(): Promise<void>;
 }
 
+export interface DiscoverSpecSessionActivity {
+  source: "stdout" | "stderr";
+  bytes: number;
+  preview: string;
+}
+
+export type DiscoverSpecSessionEvent =
+  | {
+      type: "raw-sanitized";
+      text: string;
+    }
+  | {
+      type: "activity";
+      activity: DiscoverSpecSessionActivity;
+    }
+  | {
+      type: "turn-context";
+      model: string;
+      reasoningEffort: string;
+    }
+  | {
+      type: "turn-complete";
+    };
+
+export interface DiscoverSpecSessionCloseResult {
+  exitCode: number | null;
+  cancelled: boolean;
+}
+
+export interface DiscoverSpecSessionCallbacks {
+  onEvent: (event: DiscoverSpecSessionEvent) => void;
+  onFailure: (error: CodexDiscoverSpecSessionError) => void;
+  onClose?: (result: DiscoverSpecSessionCloseResult) => void;
+}
+
+export interface DiscoverSpecSessionStartRequest {
+  initialUserInput?: string;
+  callbacks: DiscoverSpecSessionCallbacks;
+}
+
+export interface DiscoverSpecSession {
+  sendUserInput(input: string): Promise<void>;
+  cancel(): Promise<void>;
+}
+
 export interface CodexChatSessionActivity {
   source: "stdout" | "stderr";
   bytes: number;
@@ -168,6 +213,7 @@ export interface CodexTicketFlowClient {
   runStage(stage: TicketFlowStage, ticket: TicketRef): Promise<CodexStageResult>;
   runSpecStage(stage: SpecFlowStage, spec: SpecRef): Promise<CodexStageResult>;
   startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession>;
+  startDiscoverSession(request: DiscoverSpecSessionStartRequest): Promise<DiscoverSpecSession>;
   startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession>;
 }
 
@@ -226,6 +272,7 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_SPEC_INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
+const DISCOVER_SPEC_INTERACTIVE_RETRY_HINT = "Use /discover_spec para tentar novamente.";
 const CODEX_CHAT_INTERACTIVE_RETRY_HINT = "Use /codex_chat para tentar novamente.";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
@@ -447,6 +494,22 @@ export class CodexPlanSessionError extends Error {
       ].join(" "),
     );
     this.name = "CodexPlanSessionError";
+  }
+}
+
+export class CodexDiscoverSpecSessionError extends Error {
+  constructor(
+    public readonly phase: "start" | "input" | "runtime",
+    details: string,
+  ) {
+    super(
+      [
+        "Falha na sessao interativa de descoberta de spec no Codex CLI.",
+        DISCOVER_SPEC_INTERACTIVE_RETRY_HINT,
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexDiscoverSpecSessionError";
   }
 }
 
@@ -693,6 +756,28 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       );
     } catch (error) {
       throw new CodexPlanSessionError("start", errorMessage(error));
+    }
+  }
+
+  async startDiscoverSession(
+    request: DiscoverSpecSessionStartRequest,
+  ): Promise<DiscoverSpecSession> {
+    this.logger.info("Iniciando sessao de descoberta de spec via Codex CLI exec/resume", {
+      repoPath: this.repoPath,
+      mode: "discover-spec",
+      interactiveVerboseLogs: isInteractiveVerboseLogsEnabled(),
+    });
+
+    try {
+      return new CodexExecResumeDiscoverSession(
+        this.repoPath,
+        request,
+        this.logger,
+        this.dependencies.runCodexExecJsonCommand,
+        this.resolveInvocationPreferences,
+      );
+    } catch (error) {
+      throw new CodexDiscoverSpecSessionError("start", errorMessage(error));
     }
   }
 
@@ -1144,6 +1229,218 @@ class CodexExecResumePlanSession implements PlanSpecSession {
 
     this.protocolPrimerInjected = true;
     return [PLAN_SPEC_PROTOCOL_PRIMER, "", `Brief do operador: ${input}`].join("\n");
+  }
+
+  private logVerbose(message: string, context: Record<string, unknown>): void {
+    if (!isInteractiveVerboseLogsEnabled()) {
+      return;
+    }
+
+    this.logger.info(message, context);
+  }
+}
+
+class CodexExecResumeDiscoverSession implements DiscoverSpecSession {
+  private closed = false;
+  private cancelled = false;
+  private failureNotified = false;
+  private threadId: string | null = null;
+  private writePipeline: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly repoPath: string,
+    private readonly request: DiscoverSpecSessionStartRequest,
+    private readonly logger: Logger,
+    private readonly runCodexExecJsonCommand: (
+      request: CodexExecJsonCommandRequest,
+    ) => Promise<CodexCommandResult>,
+    private readonly resolveInvocationPreferences: () => Promise<CodexInvocationPreferences | null>,
+  ) {
+    const initialUserInput = this.request.initialUserInput?.trim();
+    if (initialUserInput) {
+      void this.sendUserInput(initialUserInput).catch((error) => {
+        this.notifyFailure("start", errorMessage(error));
+      });
+    }
+  }
+
+  async sendUserInput(input: string): Promise<void> {
+    const normalized = input.trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (this.closed) {
+      throw new CodexDiscoverSpecSessionError("input", "A sessao interativa ja foi encerrada.");
+    }
+
+    await this.enqueueWriteOperation(async () => {
+      await this.executeTurn(normalized);
+    });
+  }
+
+  async cancel(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+
+    this.cancelled = true;
+    this.closed = true;
+    this.notifyClose({
+      exitCode: null,
+      cancelled: true,
+    });
+  }
+
+  private async executeTurn(prompt: string): Promise<void> {
+    const preferences = await this.resolveInvocationPreferences();
+    const args = this.threadId
+      ? buildFreeChatExecResumeArgs(this.threadId, prompt, preferences)
+      : buildFreeChatExecStartArgs(prompt, preferences);
+    this.logVerbose("Sessao /discover_spec executando codex exec", {
+      hasThreadId: Boolean(this.threadId),
+      promptLength: prompt.length,
+      model: preferences?.model ?? null,
+      reasoningEffort: preferences?.reasoningEffort ?? null,
+    });
+
+    let result: CodexCommandResult;
+    try {
+      result = await this.runCodexExecJsonCommand({
+        cwd: this.repoPath,
+        args,
+        env: {
+          ...process.env,
+        },
+      });
+    } catch (error) {
+      this.notifyFailure("runtime", errorMessage(error));
+      throw error;
+    }
+
+    if (this.closed) {
+      return;
+    }
+
+    const parsed = parseCodexExecJsonTranscript(result.stdout, result.stderr);
+    this.emitActivityObservation("stdout", result.stdout);
+    this.emitActivityObservation("stderr", result.stderr);
+    if (parsed.turnContext) {
+      this.emitEvent({
+        type: "turn-context",
+        model: parsed.turnContext.model,
+        reasoningEffort: parsed.turnContext.reasoningEffort,
+      });
+    }
+
+    const previousThreadId = this.threadId;
+    if (parsed.threadId) {
+      this.threadId = parsed.threadId;
+    }
+
+    if (!this.threadId) {
+      const details = "Codex exec nao retornou thread_id para manter contexto de /discover_spec.";
+      this.notifyFailure("runtime", details);
+      throw new CodexDiscoverSpecSessionError("runtime", details);
+    }
+
+    if (previousThreadId && parsed.threadId && parsed.threadId !== previousThreadId) {
+      this.logger.warn("Sessao /discover_spec recebeu thread_id diferente durante resume", {
+        previousThreadId,
+        nextThreadId: parsed.threadId,
+      });
+    }
+
+    const finalMessage = parsed.agentMessage;
+    if (!finalMessage) {
+      const details =
+        "Codex exec nao retornou agent_message no modo --json para manter resposta deterministica de /discover_spec.";
+      this.notifyFailure("runtime", details);
+      throw new CodexDiscoverSpecSessionError("runtime", details);
+    }
+
+    this.emitEvent({
+      type: "raw-sanitized",
+      text: finalMessage,
+    });
+    this.emitEvent({
+      type: "turn-complete",
+    });
+  }
+
+  private enqueueWriteOperation(operation: () => Promise<void>): Promise<void> {
+    const scheduled = this.writePipeline.then(async () => operation());
+    this.writePipeline = scheduled.catch(() => undefined);
+    return scheduled;
+  }
+
+  private emitActivityObservation(source: "stdout" | "stderr", chunk: string): void {
+    if (!chunk) {
+      return;
+    }
+
+    this.emitEvent({
+      type: "activity",
+      activity: {
+        source,
+        bytes: chunk.length,
+        preview: this.buildActivityPreview(chunk),
+      },
+    });
+  }
+
+  private buildActivityPreview(chunk: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(chunk);
+    if (!sanitized) {
+      return "";
+    }
+
+    return limit(sanitized.replace(/\r/gu, "\\r").replace(/\n/gu, "\\n"));
+  }
+
+  private emitEvent(event: DiscoverSpecSessionEvent): void {
+    if (this.closed && event.type !== "activity") {
+      return;
+    }
+
+    try {
+      this.request.callbacks.onEvent(event);
+    } catch (error) {
+      this.logger.warn("Falha ao entregar evento da sessao interativa", {
+        eventType: event.type,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  private notifyFailure(phase: "start" | "input" | "runtime", details: string): void {
+    if (this.failureNotified) {
+      return;
+    }
+
+    this.failureNotified = true;
+    const error = new CodexDiscoverSpecSessionError(phase, details);
+    try {
+      this.request.callbacks.onFailure(error);
+    } catch (callbackError) {
+      this.logger.warn("Falha ao executar callback de erro da sessao interativa", {
+        error: errorMessage(callbackError),
+      });
+    }
+  }
+
+  private notifyClose(result: DiscoverSpecSessionCloseResult): void {
+    if (!this.request.callbacks.onClose) {
+      return;
+    }
+
+    try {
+      this.request.callbacks.onClose(result);
+    } catch (error) {
+      this.logger.warn("Falha ao executar callback onClose da sessao interativa", {
+        error: errorMessage(error),
+      });
+    }
   }
 
   private logVerbose(message: string, context: Record<string, unknown>): void {

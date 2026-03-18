@@ -6,6 +6,7 @@ import {
   CodexAuthenticationError,
   CodexChatSessionError,
   CodexCliTicketFlowClient,
+  CodexDiscoverSpecSessionError,
   CodexPlanSessionError,
   CodexStageExecutionError,
 } from "./codex-client.js";
@@ -784,6 +785,138 @@ test("startPlanSession falha quando codex exec --json nao retorna agent_message"
   assert.match(failures[0]?.message ?? "", /nao retornou agent_message/u);
 
   await session.cancel();
+});
+
+test("startDiscoverSession usa codex exec/resume e mantém contexto por thread_id", async () => {
+  const events: Array<{ type: string; text?: string; model?: string; reasoningEffort?: string }> = [];
+  const capturedArgs: string[][] = [];
+  const threadId = "019c7f32-4dda-71a0-a33f-00b65eca7c2b";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexExecJsonCommand: async (request) => {
+      capturedArgs.push([...request.args]);
+      const isResume = request.args.includes("resume");
+      if (!isResume) {
+        return {
+          stdout: [
+            `{"type":"thread.started","thread_id":"${threadId}"}`,
+            '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Primeira pergunta livre"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+          ].join("\n"),
+          stderr: "",
+        };
+      }
+
+      return {
+        stdout: [
+          `{"type":"thread.started","thread_id":"${threadId}"}`,
+          '{"type":"turn_context","payload":{"model":"gpt-5.4","effort":"high"}}',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Segunda pergunta livre"}}',
+          '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+        ].join("\n"),
+        stderr: "WARN codex_core::state_db: fallback\n",
+      };
+    },
+  }, {
+    resolveInvocationPreferences: async () => ({
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+      speed: "fast",
+    }),
+  });
+
+  const session = await client.startDiscoverSession({
+    callbacks: {
+      onEvent: (event) => {
+        if (event.type === "raw-sanitized") {
+          events.push({ type: event.type, text: event.text });
+          return;
+        }
+
+        if (event.type === "turn-context") {
+          events.push({
+            type: event.type,
+            model: event.model,
+            reasoningEffort: event.reasoningEffort,
+          });
+          return;
+        }
+
+        events.push({ type: event.type });
+      },
+      onFailure: (error) => {
+        throw error;
+      },
+    },
+  });
+
+  await session.sendUserInput("brief inicial");
+  await session.sendUserInput("mais detalhes");
+
+  assert.equal(capturedArgs.length, 2);
+  assert.equal(capturedArgs[0]?.includes("resume"), false);
+  assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("-s"), true);
+  assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
+  assert.equal(capturedArgs[0]?.includes("-m"), true);
+  assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
+  assert.equal(capturedArgs[0]?.includes("/plan"), false);
+  assert.equal(capturedArgs[0]?.[capturedArgs[0].length - 1], "brief inicial");
+
+  assert.equal(capturedArgs[1]?.includes("resume"), true);
+  assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(capturedArgs[1]?.includes("-s"), false);
+  assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
+  assert.equal(capturedArgs[1]?.includes("-m"), true);
+  assert.equal(capturedArgs[1]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[1]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[1]?.includes('service_tier="fast"'), true);
+  const resumeThreadIdIndex = capturedArgs[1]?.findIndex((value) => value === threadId) ?? -1;
+  assert.equal(resumeThreadIdIndex >= 0, true);
+  assert.equal(capturedArgs[1]?.[capturedArgs[1].length - 1], "mais detalhes");
+
+  const rawMessages = events.filter((event) => event.type === "raw-sanitized").map((event) => event.text);
+  const turnCompletions = events.filter((event) => event.type === "turn-complete");
+  const turnContexts = events.filter((event) => event.type === "turn-context");
+  assert.deepEqual(rawMessages, ["Primeira pergunta livre", "Segunda pergunta livre"]);
+  assert.equal(turnCompletions.length, 2);
+  assert.deepEqual(
+    turnContexts.map((event) => ({
+      model: event.model,
+      reasoningEffort: event.reasoningEffort,
+    })),
+    [
+      { model: "gpt-5.4", reasoningEffort: "high" },
+      { model: "gpt-5.4", reasoningEffort: "high" },
+    ],
+  );
+
+  await session.cancel();
+});
+
+test("falha da sessao discover retorna hint de retry para /discover_spec", async () => {
+  const failures: CodexDiscoverSpecSessionError[] = [];
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexExecJsonCommand: async () => {
+      throw new Error("codex exec terminou com codigo 1: unauthorized");
+    },
+  });
+
+  const session = await client.startDiscoverSession({
+    callbacks: {
+      onEvent: () => undefined,
+      onFailure: (error) => failures.push(error),
+    },
+  });
+  await assert.rejects(() => session.sendUserInput("falhar"), /codex exec terminou com codigo 1/u);
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.phase, "runtime");
+  assert.match(failures[0]?.message ?? "", /Use \/discover_spec para tentar novamente/u);
 });
 
 test("startFreeChatSession usa codex exec/resume e mantém contexto por thread_id", async () => {

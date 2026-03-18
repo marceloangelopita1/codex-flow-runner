@@ -112,6 +112,41 @@ const bootstrap = async () => {
     () => resolveRunnerRoundDependencies("run-all"),
     notifyTicketFinalSummary,
     {
+      discoverSpecEventHandlers: {
+        onOutput: async (chatId, event) => {
+          if (!env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM) {
+            return;
+          }
+
+          if (!telegram) {
+            logger.warn("Saida de /discover_spec nao enviada: Telegram indisponivel", {
+              chatId,
+            });
+            return;
+          }
+          await telegram.sendDiscoverSpecOutput(chatId, event.text);
+        },
+        onFailure: async (chatId, details) => {
+          if (!telegram) {
+            logger.warn("Falha de /discover_spec nao enviada: Telegram indisponivel", {
+              chatId,
+              details,
+            });
+            return;
+          }
+          await telegram.sendDiscoverSpecFailure(chatId, details);
+        },
+        onLifecycleMessage: async (chatId, message) => {
+          if (!telegram) {
+            logger.warn("Mensagem de lifecycle de /discover_spec nao enviada: Telegram indisponivel", {
+              chatId,
+              message,
+            });
+            return;
+          }
+          await telegram.sendDiscoverSpecMessage(chatId, message);
+        },
+      },
       planSpecEventHandlers: {
         onQuestion: async (chatId, event) => {
           if (!telegram) {
@@ -248,6 +283,9 @@ const bootstrap = async () => {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
       runSelectedTicket: runner.requestRunSelectedTicket,
+      startDiscoverSpecSession: runner.startDiscoverSpecSession,
+      submitDiscoverSpecInput: runner.submitDiscoverSpecInput,
+      cancelDiscoverSpecSession: runner.cancelDiscoverSpecSession,
       startCodexChatSession: runner.startCodexChatSession,
       submitCodexChatInput: runner.submitCodexChatInput,
       cancelCodexChatSession: runner.cancelCodexChatSession,

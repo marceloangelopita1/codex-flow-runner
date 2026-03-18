@@ -9,6 +9,9 @@ import type {
   CodexChatSessionCancelResult,
   CodexChatSessionInputResult,
   CodexChatSessionStartResult,
+  DiscoverSpecSessionCancelResult,
+  DiscoverSpecSessionInputResult,
+  DiscoverSpecSessionStartResult,
   PlanSpecCallbackIgnoredReason,
   PlanSpecCallbackResult,
   PlanSpecSessionCancelResult,
@@ -53,6 +56,16 @@ interface BotControls {
   runSelectedTicket: (
     ticketFileName: string,
   ) => Promise<RunSelectedTicketRequestResult> | RunSelectedTicketRequestResult;
+  startDiscoverSpecSession: (
+    chatId: string,
+  ) => Promise<DiscoverSpecSessionStartResult> | DiscoverSpecSessionStartResult;
+  submitDiscoverSpecInput: (
+    chatId: string,
+    input: string,
+  ) => Promise<DiscoverSpecSessionInputResult> | DiscoverSpecSessionInputResult;
+  cancelDiscoverSpecSession: (
+    chatId: string,
+  ) => Promise<DiscoverSpecSessionCancelResult> | DiscoverSpecSessionCancelResult;
   startCodexChatSession: (
     chatId: string,
   ) => Promise<CodexChatSessionStartResult> | CodexChatSessionStartResult;
@@ -116,6 +129,9 @@ interface BotControls {
 
 type ProjectSelectionControlResult =
   | ProjectSelectionResult
+  | {
+      status: "blocked-discover-spec";
+    }
   | {
       status: "blocked-plan-spec";
     };
@@ -574,6 +590,13 @@ const PLAN_SPEC_CALLBACK_QUESTION_PREFIX = "plan-spec:question:";
 const PLAN_SPEC_CALLBACK_FINAL_PREFIX = "plan-spec:final:";
 const CODEX_CHAT_CALLBACK_PREFIX = "codex-chat:";
 const CODEX_CHAT_CALLBACK_CLOSE_PREFIX = "codex-chat:close:";
+const DISCOVER_SPEC_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa /discover_spec:";
+const DISCOVER_SPEC_FLOW_FAILED_RETRY_SUFFIX = "Use /discover_spec para tentar novamente.";
+const DISCOVER_SPEC_RAW_OUTPUT_REPLY_PREFIX = "🧩 Saída textual do /discover_spec:";
+const DISCOVER_SPEC_STATUS_INACTIVE_REPLY = "ℹ️ Nenhuma sessão /discover_spec ativa no momento.";
+const DISCOVER_SPEC_INPUT_BRIEF_ACCEPTED_REPLY =
+  "✅ Brief inicial recebido na sessão /discover_spec. Aguarde a resposta do Codex.";
+const DISCOVER_SPEC_INPUT_ACCEPTED_REPLY = "✅ Mensagem enviada para a sessão /discover_spec.";
 const PLAN_SPEC_CALLBACK_INVALID_REPLY = "Ação de planejamento inválida.";
 const PLAN_SPEC_CALLBACK_INACTIVE_REPLY = "Sessão de planejamento inativa.";
 const PLAN_SPEC_CALLBACK_ACCEPTED_REPLY = "Resposta registrada.";
@@ -600,6 +623,8 @@ const CODEX_CHAT_FLOW_FAILED_RETRY_SUFFIX = "Use /codex_chat para tentar novamen
 const CODEX_CHAT_EMPTY_OUTPUT_REPLY = "ℹ️ O Codex não retornou conteúdo nesta resposta.";
 const SELECT_PROJECT_USAGE_REPLY =
   "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
+const SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY =
+  "❌ Não é possível trocar o projeto ativo durante uma sessão /discover_spec ativa.";
 const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
   "❌ Não é possível trocar o projeto ativo durante uma sessão /plan_spec ativa.";
 const LIST_PROJECTS_FAILED_REPLY =
@@ -652,6 +677,9 @@ const START_REPLY_LINES = [
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
   "/codex_chat - inicia conversa livre com Codex (alias legado: /codex-chat)",
+  "/discover_spec - inicia sessão stateful de descoberta profunda de spec",
+  "/discover_spec_status - mostra status detalhado da sessão /discover_spec",
+  "/discover_spec_cancel - cancela a sessão /discover_spec ativa",
   "/plan_spec - inicia sessão interativa de planejamento de spec",
   "/plan_spec_status - mostra status detalhado da sessão /plan_spec",
   "/plan_spec_cancel - cancela a sessão /plan_spec ativa",
@@ -1044,6 +1072,18 @@ export class TelegramController {
     return String(error);
   }
 
+  async sendDiscoverSpecOutput(chatId: string, rawOutput: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, this.buildDiscoverSpecRawOutputReply(rawOutput));
+  }
+
+  async sendDiscoverSpecFailure(chatId: string, details?: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, this.buildDiscoverSpecInteractiveFailureReply(details));
+  }
+
+  async sendDiscoverSpecMessage(chatId: string, message: string): Promise<void> {
+    await this.bot.telegram.sendMessage(chatId, message);
+  }
+
   async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
     const rendered = this.buildPlanSpecQuestionReply(question);
     const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
@@ -1239,6 +1279,18 @@ export class TelegramController {
 
     this.bot.hears(CODEX_CHAT_LEGACY_PATTERN, async (ctx) => {
       await this.handleCodexChatCommand(ctx as unknown as CommandContext, "codex-chat");
+    });
+
+    this.bot.command("discover_spec", async (ctx) => {
+      await this.handleDiscoverSpecCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("discover_spec_status", async (ctx) => {
+      await this.handleDiscoverSpecStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("discover_spec_cancel", async (ctx) => {
+      await this.handleDiscoverSpecCancelCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("plan_spec", async (ctx) => {
@@ -1440,6 +1492,7 @@ export class TelegramController {
       !session ||
       session.chatId !== chatId ||
       this.isCodexChatEntryCommand(command) ||
+      this.isDiscoverSpecEntryCommand(command) ||
       this.isPlanSpecEntryCommand(command)
     ) {
       await next();
@@ -1503,6 +1556,11 @@ export class TelegramController {
 
     const chatId = ctx.chat.id.toString();
     const route = this.resolveActiveFreeTextRoute(this.getState(), chatId);
+    if (route === "discover-spec") {
+      await this.handleDiscoverSpecTextMessage(ctx);
+      return;
+    }
+
     if (route === "plan-spec") {
       await this.handlePlanSpecTextMessage(ctx);
       return;
@@ -1685,6 +1743,107 @@ export class TelegramController {
     }
 
     await ctx.reply(outcome.reply);
+  }
+
+  private async handleDiscoverSpecCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /discover_spec recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "discover_spec",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.startDiscoverSpecSession(chatId);
+    this.captureNotificationChat(chatId);
+    await ctx.reply(this.buildDiscoverSpecStartReply(result));
+  }
+
+  private async handleDiscoverSpecStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /discover_spec_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "discover_spec_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const state = this.getState();
+    await ctx.reply(this.buildDiscoverSpecStatusReply(state));
+  }
+
+  private async handleDiscoverSpecCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /discover_spec_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "discover_spec_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelDiscoverSpecSession(chatId);
+    await ctx.reply(this.buildDiscoverSpecCancelReply(result));
+  }
+
+  private async handleDiscoverSpecTextMessage(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    const stateBeforeInput = this.getState();
+    if (!stateBeforeInput.discoverSpecSession) {
+      return;
+    }
+
+    const messageText = (ctx.message?.text ?? "").trim();
+    if (!messageText || this.isCommandMessage(ctx.message)) {
+      return;
+    }
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "discover_spec",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.submitDiscoverSpecInput(chatId, messageText);
+    if (result.status === "accepted") {
+      const acceptedReply =
+        stateBeforeInput.discoverSpecSession.phase === "awaiting-brief"
+          ? DISCOVER_SPEC_INPUT_BRIEF_ACCEPTED_REPLY
+          : DISCOVER_SPEC_INPUT_ACCEPTED_REPLY;
+      await ctx.reply(acceptedReply);
+      return;
+    }
+
+    if (result.status === "ignored-empty") {
+      return;
+    }
+
+    await ctx.reply(result.message);
   }
 
   private async handlePlanSpecCommand(ctx: CommandContext): Promise<void> {
@@ -2629,6 +2788,11 @@ export class TelegramController {
     }
 
     const state = this.getState();
+    if (state.discoverSpecSession) {
+      await ctx.reply(SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY);
+      return;
+    }
+
     if (state.planSpecSession) {
       await ctx.reply(SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
       return;
@@ -2676,6 +2840,11 @@ export class TelegramController {
     }
 
     const state = this.getState();
+    if (state.discoverSpecSession) {
+      await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY);
+      return;
+    }
+
     if (state.planSpecSession) {
       await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
       return;
@@ -3124,6 +3293,11 @@ export class TelegramController {
       }
 
       const selectionResult = await this.controls.selectProjectByName(targetProject.name);
+      if (selectionResult.status === "blocked-discover-spec") {
+        await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY);
+        return;
+      }
+
       if (selectionResult.status === "blocked-plan-spec") {
         await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
         return;
@@ -3237,6 +3411,10 @@ export class TelegramController {
     return command === "codex_chat" || command === "codex-chat";
   }
 
+  private isDiscoverSpecEntryCommand(command: string): boolean {
+    return command === "discover_spec";
+  }
+
   private isPlanSpecEntryCommand(command: string): boolean {
     return command === "plan_spec";
   }
@@ -3244,24 +3422,32 @@ export class TelegramController {
   private resolveActiveFreeTextRoute(
     state: RunnerState,
     chatId: string,
-  ): "plan-spec" | "codex-chat" | null {
+  ): "discover-spec" | "plan-spec" | "codex-chat" | null {
+    const discoverSpecSession = state.discoverSpecSession;
     const planSpecSession = state.planSpecSession;
     const codexChatSession = state.codexChatSession;
-    if (!planSpecSession && !codexChatSession) {
+    if (!discoverSpecSession && !planSpecSession && !codexChatSession) {
       return null;
     }
 
-    if (planSpecSession && codexChatSession) {
+    const activeSessionsCount = [discoverSpecSession, planSpecSession, codexChatSession].filter(Boolean).length;
+    if (activeSessionsCount > 1) {
       this.logger.warn(
         "Conflito de sessoes de texto livre detectado; roteamento unico sera aplicado",
         {
           chatId,
-          planSpecSessionChatId: planSpecSession.chatId,
-          planSpecSessionId: planSpecSession.sessionId ?? null,
-          codexChatSessionChatId: codexChatSession.chatId,
-          codexChatSessionId: codexChatSession.sessionId ?? null,
+          discoverSpecSessionChatId: discoverSpecSession?.chatId ?? null,
+          discoverSpecSessionId: discoverSpecSession?.sessionId ?? null,
+          planSpecSessionChatId: planSpecSession?.chatId ?? null,
+          planSpecSessionId: planSpecSession?.sessionId ?? null,
+          codexChatSessionChatId: codexChatSession?.chatId ?? null,
+          codexChatSessionId: codexChatSession?.sessionId ?? null,
         },
       );
+    }
+
+    if (discoverSpecSession && discoverSpecSession.chatId === chatId) {
+      return "discover-spec";
     }
 
     if (planSpecSession && planSpecSession.chatId === chatId) {
@@ -3270,6 +3456,10 @@ export class TelegramController {
 
     if (codexChatSession && codexChatSession.chatId === chatId) {
       return "codex-chat";
+    }
+
+    if (discoverSpecSession) {
+      return "discover-spec";
     }
 
     if (planSpecSession) {
@@ -3387,6 +3577,10 @@ export class TelegramController {
   }
 
   private buildSelectProjectReply(result: ProjectSelectionControlResult): string {
+    if (result.status === "blocked-discover-spec") {
+      return SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY;
+    }
+
     if (result.status === "blocked-plan-spec") {
       return SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY;
     }
@@ -5404,6 +5598,34 @@ export class TelegramController {
     return `❌ ${result.message}`;
   }
 
+  private buildDiscoverSpecStartReply(result: DiscoverSpecSessionStartResult): string {
+    if (result.status === "started") {
+      return `🧭 ${result.message}`;
+    }
+
+    if (result.status === "already-active") {
+      return `ℹ️ ${result.message}`;
+    }
+
+    if (result.status === "blocked") {
+      return `❌ ${result.message}`;
+    }
+
+    return this.buildDiscoverSpecInteractiveFailureReply(result.message);
+  }
+
+  private buildDiscoverSpecCancelReply(result: DiscoverSpecSessionCancelResult): string {
+    if (result.status === "cancelled") {
+      return `✅ ${result.message}`;
+    }
+
+    if (result.status === "inactive") {
+      return DISCOVER_SPEC_STATUS_INACTIVE_REPLY;
+    }
+
+    return `ℹ️ ${result.message}`;
+  }
+
   private buildTicketRunSelectionToast(result: RunSelectedTicketRequestResult): string {
     if (result.status === "started") {
       return TICKET_RUN_CALLBACK_STARTED_REPLY;
@@ -5520,6 +5742,38 @@ export class TelegramController {
     return `ℹ️ Nenhum runner em execução no projeto ativo ${projectName}.`;
   }
 
+  private buildDiscoverSpecStatusReply(state: RunnerState): string {
+    const session = state.discoverSpecSession;
+    if (!session) {
+      return DISCOVER_SPEC_STATUS_INACTIVE_REPLY;
+    }
+
+    const lines = [
+      "🧭 Sessão /discover_spec ativa",
+      `Fase: ${session.phase}`,
+      `Projeto da sessão: ${session.activeProjectSnapshot.name}`,
+      `Caminho do projeto da sessão: ${session.activeProjectSnapshot.path}`,
+      `Chat da sessão: ${session.chatId}`,
+      `Iniciada em: ${session.startedAt.toISOString()}`,
+      `Última atividade: ${session.lastActivityAt.toISOString()}`,
+      `Última atividade do Codex: ${session.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
+    ];
+
+    if (session.waitingCodexSinceAt) {
+      lines.push(`Aguardando Codex desde: ${session.waitingCodexSinceAt.toISOString()}`);
+    }
+
+    if (session.lastCodexStream) {
+      lines.push(`Último stream do Codex: ${session.lastCodexStream}`);
+    }
+
+    if (session.lastCodexPreview) {
+      lines.push(`Preview da última saída do Codex: ${session.lastCodexPreview}`);
+    }
+
+    return lines.join("\n");
+  }
+
   private buildPlanSpecStatusReply(state: RunnerState): string {
     const session = state.planSpecSession;
     if (!session) {
@@ -5550,6 +5804,23 @@ export class TelegramController {
     }
 
     return lines.join("\n");
+  }
+
+  private buildDiscoverSpecRawOutputReply(rawOutput: string): string {
+    const sanitized = sanitizePlanSpecRawOutput(rawOutput);
+    if (!sanitized) {
+      return DISCOVER_SPEC_RAW_OUTPUT_REPLY_PREFIX;
+    }
+
+    return [DISCOVER_SPEC_RAW_OUTPUT_REPLY_PREFIX, sanitized].join("\n");
+  }
+
+  private buildDiscoverSpecInteractiveFailureReply(details?: string): string {
+    return [
+      DISCOVER_SPEC_FLOW_FAILED_REPLY_PREFIX,
+      details?.trim() || "nao foi possivel interpretar a sessao atual.",
+      DISCOVER_SPEC_FLOW_FAILED_RETRY_SUFFIX,
+    ].join(" ");
   }
 
   private buildStartReply(): string {
@@ -5826,6 +6097,7 @@ export class TelegramController {
     };
 
     registerProject(state.activeProject);
+    registerProject(state.discoverSpecSession?.activeProjectSnapshot);
     registerProject(state.planSpecSession?.activeProjectSnapshot);
     registerProject(state.codexChatSession?.activeProjectSnapshot);
 
@@ -5860,6 +6132,7 @@ export class TelegramController {
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
+      `Sessão /discover_spec: ${state.discoverSpecSession ? "ativa" : "inativa"}`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Sessão /codex_chat: ${state.codexChatSession ? "ativa" : "inativa"}`,
       `Última mensagem: ${state.lastMessage}`,
@@ -5881,6 +6154,48 @@ export class TelegramController {
           `spec: ${slot.currentSpec ?? "nenhuma"}`,
         ];
         lines.push(details.join(" | "));
+      }
+    }
+
+    if (state.discoverSpecSession) {
+      lines.push(
+        `Fase /discover_spec: ${state.discoverSpecSession.phase}`,
+        `Projeto da sessão /discover_spec: ${state.discoverSpecSession.activeProjectSnapshot.name}`,
+        `Início da sessão /discover_spec: ${state.discoverSpecSession.startedAt.toISOString()}`,
+        `Última atividade /discover_spec: ${state.discoverSpecSession.lastActivityAt.toISOString()}`,
+        `Última atividade Codex /discover_spec: ${state.discoverSpecSession.lastCodexActivityAt?.toISOString() ?? "(ainda sem saída observável)"}`,
+      );
+      this.appendStatusCodexPreferences(
+        lines,
+        "Seleção atual /discover_spec",
+        state.discoverSpecSession.activeProjectSnapshot,
+        codexPreferencesByProject,
+      );
+      if (
+        state.discoverSpecSession.observedModel &&
+        state.discoverSpecSession.observedReasoningEffort
+      ) {
+        lines.push(
+          `Último turn_context /discover_spec: ${state.discoverSpecSession.observedModel} | reasoning ${state.discoverSpecSession.observedReasoningEffort}`,
+        );
+      }
+      if (state.discoverSpecSession.observedAt) {
+        lines.push(
+          `Turn_context observado em /discover_spec: ${state.discoverSpecSession.observedAt.toISOString()}`,
+        );
+      }
+      if (state.discoverSpecSession.waitingCodexSinceAt) {
+        lines.push(
+          `Aguardando Codex /discover_spec desde: ${state.discoverSpecSession.waitingCodexSinceAt.toISOString()}`,
+        );
+      }
+      if (state.discoverSpecSession.lastCodexStream) {
+        lines.push(`Último stream Codex /discover_spec: ${state.discoverSpecSession.lastCodexStream}`);
+      }
+      if (state.discoverSpecSession.lastCodexPreview) {
+        lines.push(
+          `Preview da última saída Codex /discover_spec: ${state.discoverSpecSession.lastCodexPreview}`,
+        );
       }
     }
 
@@ -6131,6 +6446,10 @@ export class TelegramController {
 
     if (kind === "codex-chat") {
       return "/codex_chat";
+    }
+
+    if (kind === "discover-spec") {
+      return "/discover_spec";
     }
 
     return "/plan_spec";
