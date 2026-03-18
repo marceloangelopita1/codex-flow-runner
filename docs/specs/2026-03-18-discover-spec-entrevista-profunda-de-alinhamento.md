@@ -6,15 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-18 18:49Z
-- Last reviewed at (UTC): 2026-03-18 20:40Z
+- Last reviewed at (UTC): 2026-03-18 21:05Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md
   - tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md
-  - tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
+  - tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
 - Related execplans:
   - execplans/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md
   - execplans/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md
+  - execplans/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
 - Related commits:
   - A definir
 
@@ -106,21 +107,21 @@
 - [x] CA-07 - quando ainda houver ambiguidade critica sem tratamento explicito, a acao `Criar spec` e rejeitada com mensagem orientando refinamento.
 - [x] CA-08 - ao escolher `Refinar`, a conversa retorna ao ciclo de entrevista sem criar arquivos.
 - [ ] CA-09 - ao escolher `Cancelar`, nenhuma spec e criada e a sessao e encerrada.
-- [ ] CA-10 - ao escolher `Criar spec`, runner executa pipeline dedicado fora de `/plan` e cria `docs/specs/YYYY-MM-DD-<slug>.md`.
-- [ ] CA-11 - a spec criada contem metadata inicial `Status: approved` e `Spec treatment: pending`.
-- [ ] CA-12 - a spec criada materializa explicitamente `Assumptions and defaults` e `Decisoes e trade-offs` a partir da entrevista.
-- [ ] CA-13 - a trilha da sessao e persistida em `spec_planning/` com identificacao explicita do modo `/discover_spec`.
+- [x] CA-10 - ao escolher `Criar spec`, runner executa pipeline dedicado fora de `/plan` e cria `docs/specs/YYYY-MM-DD-<slug>.md`.
+- [x] CA-11 - a spec criada contem metadata inicial `Status: approved` e `Spec treatment: pending`.
+- [x] CA-12 - a spec criada materializa explicitamente `Assumptions and defaults` e `Decisoes e trade-offs` a partir da entrevista.
+- [x] CA-13 - a trilha da sessao e persistida em `spec_planning/` com identificacao explicita do modo `/discover_spec`.
 - [x] CA-14 - `/discover_spec_status` exibe fase atual, projeto ativo, timestamps relevantes e cobertura das categorias obrigatorias.
 - [x] CA-15 - `/discover_spec_cancel` encerra a sessao e limpa estado associado.
 - [x] CA-16 - apos 30 minutos sem atividade, sessao expira automaticamente com mensagem de timeout.
 - [x] CA-17 - com `TELEGRAM_ALLOWED_CHAT_ID` configurado, chat nao autorizado nao consegue usar `/discover_spec`, `/discover_spec_status`, `/discover_spec_cancel` nem callbacks associados.
 - [x] CA-18 - em falha da sessao, bot retorna erro acionavel e orienta retry sem iniciar fallback automatico.
 - [x] CA-19 - em resposta do Codex nao parseavel, bot repassa conteudo bruto saneado no Telegram.
-- [ ] CA-20 - ao final da criacao da spec, o versionamento continua restrito a artefatos esperados da spec e da trilha da sessao, sem espalhar escopo de commit.
+- [x] CA-20 - ao final da criacao da spec, o versionamento continua restrito a artefatos esperados da spec e da trilha da sessao, sem espalhar escopo de commit.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Validar compatibilidade entre bloco final enriquecido de `/discover_spec` e pipeline compartilhado de materializacao/versionamento.
+  - Exercitar o fluxo completo com Telegram, Codex CLI autenticado e git remoto real para revalidar materializacao, trilha `spec_planning/*` e push dedicado fora do ambiente de testes.
 - Validacoes manuais pendentes:
   - Exercitar o fluxo completo em Telegram real com demanda simples e demanda complexa, comparando friccao do `/plan_spec` com profundidade do `/discover_spec`.
   - Confirmar que o resumo final e o status exibido em `/discover_spec_status` permanecem legiveis em conversas longas.
@@ -134,12 +135,15 @@
   - O `/plan_spec` atual segue disponivel como caminho leve, o que ja atende o objetivo de nao forcar a entrevista profunda por padrao.
   - O working tree atual implementa o subconjunto de sessao/Telegram/bloqueios de `/discover_spec` para RF-01..RF-09 e RF-23..RF-27, com comandos `/discover_spec`, `/discover_spec_status` e `/discover_spec_cancel`, sessao global unica, snapshot do projeto ativo, timeout, cancelamento, retry hint dedicado, raw output saneado e bloqueios explicitos para `/plan_spec`, `/codex_chat`, execucoes e troca de projeto.
   - O working tree atual implementa o subconjunto de entrevista profunda de `/discover_spec` para RF-10..RF-16 e RF-22, com primer estruturado, parsing compartilhado de pergunta/bloco final enriquecidos, cobertura tipada das 9 categorias obrigatorias, assumptions/defaults, decisoes/trade-offs, ambiguidades criticas, follow-up automatico, gate de elegibilidade, `Refinar` discover-specific e `/discover_spec_status` com cobertura/pedencias/gate observaveis.
+  - O working tree atual implementa o subconjunto de materializacao/rastreabilidade enriquecidas para RF-17..RF-21 e CA-10..CA-13, CA-20, liberando `Criar spec` em `/discover_spec` sobre a pipeline compartilhada, estendendo `SpecRef`, `spec_planning/requests|responses|decisions` e o prompt de materializacao com `sourceCommand`, assumptions/defaults e decisoes/trade-offs sem quebrar `/plan_spec`.
   - A cobertura automatizada observavel desse subconjunto foi consolidada em `src/integrations/plan-spec-parser.test.ts`, `src/integrations/codex-client.test.ts`, `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts`, executadas com sucesso durante o ExecPlan `execplans/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`.
+  - A cobertura automatizada observavel do subconjunto RF-17..RF-21 / CA-10..CA-13 / CA-20 foi consolidada em `src/integrations/spec-planning-trace-store.test.ts`, `src/integrations/codex-client.test.ts` e `src/core/runner.test.ts`, executadas com sucesso durante o ExecPlan `execplans/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
   - O ticket `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` foi revalidado como `GO` e fechado em 2026-03-18 20:40Z, consolidando o subconjunto RF-10..RF-16 e RF-22 sem follow-up local.
+  - O ticket `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md` foi revalidado como `GO` e fechado em 2026-03-18 21:10Z, consolidando o subconjunto RF-17..RF-21 / CA-10..CA-13 / CA-20; permaneceu apenas validacao manual operacional do fluxo real.
   - A cobertura automatizada observavel deste subconjunto foi consolidada em `src/core/runner.test.ts`, `src/integrations/codex-client.test.ts` e `src/integrations/telegram-bot.test.ts`, executadas com sucesso durante o ExecPlan `execplans/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`.
   - O ticket `tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md` foi validado como `GO` e fechado em 2026-03-18 19:47Z, consolidando este subconjunto da spec sem follow-up local.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`: falta estender a materializacao compartilhada e a trilha `spec_planning/` para preservar os campos enriquecidos, identificar explicitamente a origem `/discover_spec` e liberar `Criar spec` sem perda de assumptions/defaults e trade-offs em RF-17..RF-21 e CA-10..CA-13, CA-20.
+  - Nao ha ticket funcional aberto remanescente para RF-17..RF-21 / CA-10..CA-13 / CA-20; resta apenas a revalidacao operacional manual do fluxo real com Telegram, Codex CLI autenticado e git remoto, ja registrada em `Validacoes pendentes ou manuais`.
 - Evidencias de validacao:
   - Revisao estatica consolidada em `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/types/state.ts`, `src/integrations/codex-client.ts`, `src/integrations/plan-spec-parser.ts`, `src/integrations/spec-planning-trace-store.ts`, `prompts/06-materializar-spec-planejada.md` e `prompts/07-versionar-spec-planejada-commit-push.md`.
   - Validacoes automatizadas executadas em 2026-03-18 19:47Z:
@@ -152,16 +156,22 @@
   - Validacoes automatizadas executadas em 2026-03-18 20:40Z:
     - `rg -n "CA-04|CA-05|CA-06|CA-07|CA-08|CA-14|RF-10|RF-11|RF-12|RF-13|RF-14|RF-15|RF-16|RF-22|discover-spec-entrevista-categorias-e-gate-final-gap" src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/plan-spec-parser.test.ts docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md`
     - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/plan-spec-parser.test.ts`
-  - Tickets de gap derivados e vinculados na propria spec: `tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`, `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` e `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
+  - Validacoes automatizadas executadas em 2026-03-18 21:05Z:
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/spec-planning-trace-store.test.ts src/integrations/codex-client.test.ts`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts`
+    - `rg -n "RF-17|RF-18|RF-19|RF-20|RF-21|CA-10|CA-11|CA-12|CA-13|CA-20|discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap" docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md src/core/runner.test.ts src/integrations/codex-client.test.ts src/integrations/spec-planning-trace-store.test.ts`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/spec-planning-trace-store.test.ts src/integrations/codex-client.test.ts src/core/runner.test.ts`
+  - Tickets de gap derivados e vinculados na propria spec: `tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md`, `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` e `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
 
 ## Auditoria final de entrega
 - Auditoria executada em: 2026-03-18 19:47Z
 - Resultado: triagem revisada e consistente com o estado do repositorio na auditoria de 2026-03-18 19:47Z; `Status: approved` e `Spec treatment: pending` foram mantidos porque a spec ainda dependia de 2 gaps funcionais/operacionais rastreados em tickets, enquanto o gap de sessao/Telegram ja havia sido entregue e fechado em `tickets/closed/`.
 - Tickets/follow-ups abertos a partir da auditoria:
   - tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md (aberto na auditoria de 19:47Z; fechado depois em 20:40Z)
-  - tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
+  - tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md (aberto na auditoria de 19:47Z; fechado depois em 21:10Z)
 - Tickets/follow-ups concluidos a partir da auditoria:
   - tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md
+  - tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md
 - Causas-raiz sistemicas identificadas:
   - A arquitetura atual de planejamento stateful ainda esta centrada em `/plan_spec`, com contracts, guards e UX sem extensao semantica pronta para um segundo fluxo mais profundo.
   - A pipeline compartilhada de materializacao/versionamento e rastreabilidade ainda esta acoplada ao bloco final atual e nao preserva, por contrato, campos enriquecidos de descoberta.
@@ -191,3 +201,5 @@
 - 2026-03-18 19:47Z - Ticket `tickets/closed/2026-03-18-discover-spec-sessao-telegram-e-bloqueios-gap.md` fechado como `fixed` apos revalidacao `GO`; permaneceram abertos apenas os gaps de entrevista profunda e materializacao/rastreabilidade enriquecidas.
 - 2026-03-18 20:33Z - ExecPlan `execplans/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` executado no working tree; RF-10..RF-16 e RF-22 passaram a contar com protocolo estruturado, estado/gate tipados, follow-up automatico, callbacks de finalizacao e status enriquecido, enquanto `Criar spec` segue bloqueado ate o ticket irmao de materializacao/rastreabilidade enriquecidas.
 - 2026-03-18 20:40Z - Ticket `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md` fechado como `fixed` apos revalidacao `GO`; permaneceu aberto apenas o gap de materializacao/rastreabilidade enriquecidas.
+- 2026-03-18 21:05Z - ExecPlan `execplans/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md` executado no working tree; `/discover_spec` passou a reutilizar a pipeline compartilhada de `create-spec` com origem explicita e materializacao/trilha enriquecidas, enquanto o ticket correspondente permaneceu aberto apenas porque esta etapa nao fecha ticket nem faz commit/push.
+- 2026-03-18 21:10Z - Ticket `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md` fechado como `fixed` apos revalidacao `GO`; restou apenas validacao manual operacional do fluxo real.

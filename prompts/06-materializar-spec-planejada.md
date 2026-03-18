@@ -8,6 +8,9 @@ Spec alvo:
 Arquivo da spec:
 - <SPEC_FILE_NAME>
 
+Fluxo de origem:
+- <SPEC_SOURCE_COMMAND>
+
 Titulo final aprovado:
 - <SPEC_TITLE>
 
@@ -44,6 +47,12 @@ Validacoes manuais pendentes:
 Riscos conhecidos:
 <SPEC_KNOWN_RISKS>
 
+Assumptions and defaults aprovados:
+<SPEC_ASSUMPTIONS_AND_DEFAULTS>
+
+Decisoes e trade-offs aprovados:
+<SPEC_DECISIONS_AND_TRADE_OFFS>
+
 Regras obrigatorias:
 - Fluxo sequencial; execute somente esta etapa.
 - Nao fechar ticket interno nesta etapa.
@@ -64,8 +73,11 @@ Tarefa:
    - atores e jornada;
    - requisitos funcionais;
    - criterios de aceitacao;
+   - assumptions/defaults aprovados;
+   - decisoes e trade-offs relevantes;
    - nao-escopo;
    - restricoes tecnicas;
+   - validacoes obrigatorias;
    - validacoes manuais pendentes;
    - riscos conhecidos.
 6. Reportar no final:

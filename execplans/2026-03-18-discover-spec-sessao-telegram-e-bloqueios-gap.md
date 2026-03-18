@@ -16,7 +16,7 @@
   - atualizar a spec de origem com rastreabilidade objetiva desta entrega quando o plano for executado.
 - Fora de escopo:
 - implementar o protocolo profundo de entrevista, categorias obrigatorias, gate de `Criar spec` e status de cobertura por categoria (ticket irmao `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`);
-  - enriquecer materializacao de spec e trilha `spec_planning/` com campos finais de `/discover_spec` (ticket irmao `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`);
+  - enriquecer materializacao de spec e trilha `spec_planning/` com campos finais de `/discover_spec` (ticket irmao `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`);
   - mudar o comportamento default de `/plan_spec` ou introduzir selecao automatica entre os dois fluxos;
   - tratar o `Cancelar` do bloco final enriquecido da entrevista; este plano cobre o comando `/discover_spec_cancel`.
 
@@ -164,7 +164,7 @@
 - Spec de referencia: `docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md`.
 - Tickets relacionados para nao sobrepor escopo:
   - `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`
-  - `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`
+  - `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`
 - Evidencias usadas no planejamento:
   - `src/integrations/telegram-bot.ts`
   - `src/integrations/telegram-bot.test.ts`

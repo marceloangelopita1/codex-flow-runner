@@ -1,7 +1,7 @@
 # [TICKET] Materializacao e rastreabilidade do /discover_spec nao preservam os campos enriquecidos da entrevista
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S2
 - Created at (UTC): 2026-03-18 18:59Z
@@ -86,11 +86,21 @@ Nao obrigatorio. Detalhar implementacao em ExecPlan.
 - CA-20: o prompt de versionamento continua restringindo `git add`/commit aos artefatos esperados da spec e da trilha da sessao, com testes que verifiquem esse contrato tambem no novo fluxo.
 - Cobertura automatizada: `codex-client`, `runner` e `spec-planning-trace-store` validam os novos placeholders/campos e a compatibilidade do pipeline compartilhado.
 
+## Closure validation
+- Resultado final da validacao: `GO`. A entrega tecnica/funcional deste ticket foi concluida no working tree atual; resta apenas validacao manual operacional externa em ambiente real, sem gap local que justifique `NO_GO`.
+- `RF-17, RF-18, RF-19; CA-10, CA-11` - atendido. Evidencias: `/discover_spec` agora valida o bloco final e reutiliza `executeCreateSpecFromFinalBlock` com `sourceCommand: "/discover_spec"` em `src/core/runner.ts:1825`, `src/core/runner.ts:1834`, `src/core/runner.ts:1998`, `src/core/runner.ts:2121`; o teste end-to-end valida `docs/specs/YYYY-MM-DD-<slug>.md`, `Status: approved` e `Spec treatment: pending` em `src/core/runner.test.ts:3431`.
+- `RF-20; CA-12` - atendido. Evidencias: o prompt de materializacao passou a exigir `Assumptions and defaults`, `Decisoes e trade-offs` e `validacoes obrigatorias` em `prompts/06-materializar-spec-planejada.md:11`, `prompts/06-materializar-spec-planejada.md:50`, `prompts/06-materializar-spec-planejada.md:76`; o builder injeta esses campos em `src/integrations/codex-client.ts:956`, `src/integrations/codex-client.ts:988`, `src/integrations/codex-client.ts:1021`; o teste do prompt cobre placeholders e ausencia de sobras em `src/integrations/codex-client.test.ts:407`; o teste do runner valida as secoes materializadas na spec em `src/core/runner.test.ts:3431`.
+- `RF-21; CA-13` - atendido. Evidencias: `spec_planning/requests`, `responses` e `decisions` passaram a persistir `sourceCommand`, assumptions/defaults, trade-offs, category coverage e ambiguidades em `src/integrations/spec-planning-trace-store.ts:14`, `src/integrations/spec-planning-trace-store.ts:75`, `src/integrations/spec-planning-trace-store.ts:104`, `src/integrations/spec-planning-trace-store.ts:153`; testes cobrem os tres artefatos em `src/integrations/spec-planning-trace-store.test.ts:46` e no fluxo end-to-end em `src/core/runner.test.ts:3431`.
+- `CA-20` - atendido. Evidencias: o prompt de versionamento continua restringindo o escopo a `<SPEC_PATH>`, `<TRACE_REQUEST_PATH>`, `<TRACE_RESPONSE_PATH>` e `<TRACE_DECISION_PATH>` em `prompts/07-versionar-spec-planejada-commit-push.md:19`; o teste confirma o mesmo contrato no novo fluxo em `src/integrations/codex-client.test.ts:496`.
+- Cobertura automatizada exigida pelo ticket - atendida. Evidencias: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/spec-planning-trace-store.test.ts src/integrations/codex-client.test.ts src/core/runner.test.ts` passou verde em 2026-03-18 21:10Z; a auditoria de rastreabilidade foi reexecutada com `rg -n "RF-17|RF-18|RF-19|RF-20|RF-21|CA-10|CA-11|CA-12|CA-13|CA-20|discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap" docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md src/core/runner.test.ts src/integrations/codex-client.test.ts src/integrations/spec-planning-trace-store.test.ts`.
+- Validacao manual pendente: a entrega tecnica foi concluida, mas ainda e necessario exercitar o fluxo real com Telegram, Codex CLI autenticado e git remoto disponivel para confirmar a integracao ponta a ponta. Como executar: iniciar `/discover_spec`, conduzir a entrevista ate o bloco final, acionar `Criar spec`, verificar a spec gerada e os artefatos `spec_planning/*`, e deixar o runner executar o changeset/push dedicado fora desta etapa. Responsavel operacional: mantenedor/operador humano do runner com acesso ao ambiente real.
+
 ## Decision log
 - 2026-03-18 - Gap aberto a partir da revisao da spec `2026-03-18-discover-spec-entrevista-profunda-de-alinhamento`.
+- 2026-03-18 - Fechamento validado como `GO` apos releitura do diff, ticket, ExecPlan, spec de origem, `docs/workflows/codex-quality-gates.md`, `rg` de rastreabilidade e rerun da matriz de testes.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-18 21:10Z
+- Closure reason: fixed
+- Related PR/commit/execplan: `execplans/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`; commit pertencente ao mesmo changeset de fechamento que sera versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

@@ -595,6 +595,19 @@ const cloneSpecRef = (spec: SpecRef): SpecRef => ({
         },
       }
     : {}),
+  ...(spec.sourceCommand ? { sourceCommand: spec.sourceCommand } : {}),
+  ...(spec.assumptionsAndDefaults
+    ? { assumptionsAndDefaults: [...spec.assumptionsAndDefaults] }
+    : {}),
+  ...(spec.decisionsAndTradeOffs
+    ? { decisionsAndTradeOffs: [...spec.decisionsAndTradeOffs] }
+    : {}),
+  ...(spec.categoryCoverage
+    ? { categoryCoverage: spec.categoryCoverage.map((item) => ({ ...item })) }
+    : {}),
+  ...(spec.criticalAmbiguities
+    ? { criticalAmbiguities: [...spec.criticalAmbiguities] }
+    : {}),
   ...(spec.commitMessage ? { commitMessage: spec.commitMessage } : {}),
   ...(spec.tracePaths
     ? {
@@ -839,6 +852,10 @@ const createSpecFileContent = (
   title: string,
   summary: string,
   outline = createPlanSpecOutline(),
+  options: {
+    assumptionsAndDefaults?: string[];
+    decisionsAndTradeOffs?: string[];
+  } = {},
 ): string =>
   [
     `# [SPEC] ${title}`,
@@ -866,6 +883,11 @@ const createSpecFileContent = (
     "## Requisitos funcionais",
     ...outline.requirements.map((item) => `- ${item}`),
     "",
+    "## Assumptions and defaults",
+    ...(options.assumptionsAndDefaults && options.assumptionsAndDefaults.length > 0
+      ? options.assumptionsAndDefaults.map((item) => `- ${item}`)
+      : ["- Nenhum"]),
+    "",
     "## Nao-escopo",
     ...outline.nonScope.map((item) => `- ${item}`),
     "",
@@ -880,6 +902,11 @@ const createSpecFileContent = (
     "",
     "## Riscos e impacto",
     `- Risco funcional: ${outline.knownRisks.join("; ")}`,
+    "",
+    "## Decisoes e trade-offs",
+    ...(options.decisionsAndTradeOffs && options.decisionsAndTradeOffs.length > 0
+      ? options.decisionsAndTradeOffs.map((item) => `- ${item}`)
+      : ["- Nenhum"]),
     "",
   ].join("\n");
 
@@ -3401,40 +3428,132 @@ test("acao Refinar de /discover_spec retoma a entrevista sem materializar artefa
   );
 });
 
-test("acao Criar spec de /discover_spec expõe blocker explicito ate o ticket irmao", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient();
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue: defaultQueue,
-    codexClient: codex,
-    gitVersioning: new StubGitVersioning(),
-  });
-  const runner = createRunner(logger, roundDependencies, {
-    runnerOptions: {
-      discoverSpecEventHandlers: {
-        onFinal: () => undefined,
-        onOutput: () => undefined,
-        onFailure: () => undefined,
+test("acao Criar spec de /discover_spec reutiliza pipeline compartilhada e persiste origem/enriquecimento (CA-10, CA-11, CA-12, CA-13, CA-20)", async () => {
+  const projectRoot = await createTempProjectRoot();
+
+  try {
+    const logger = new SpyLogger();
+    const activeProject: ProjectRef = {
+      name: "discover-spec-project",
+      path: projectRoot,
+    };
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, spec) => {
+        if (stage !== "plan-spec-materialize") {
+          return;
+        }
+
+        const absoluteSpecPath = path.join(projectRoot, ...spec.path.split("/"));
+        await fs.mkdir(path.dirname(absoluteSpecPath), { recursive: true });
+        await fs.writeFile(
+          absoluteSpecPath,
+          createSpecFileContent(
+            spec.plannedTitle ?? "",
+            spec.plannedSummary ?? "",
+            spec.plannedOutline,
+            {
+              assumptionsAndDefaults: spec.assumptionsAndDefaults,
+              decisionsAndTradeOffs: spec.decisionsAndTradeOffs,
+            },
+          ),
+          "utf8",
+        );
       },
-    },
-  });
+    );
+    const roundDependencies = createRoundDependencies({
+      activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const lifecycleMessages: string[] = [];
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        now: () => new Date("2026-02-19T22:04:00.000Z"),
+        discoverSpecEventHandlers: {
+          onFinal: () => undefined,
+          onOutput: () => undefined,
+          onFailure: () => undefined,
+          onLifecycleMessage: (_chatId, message) => {
+            lifecycleMessages.push(message);
+          },
+        },
+      },
+    });
 
-  await runner.startDiscoverSpecSession("42");
-  codex.lastDiscoverSession?.emitEvent({
-    type: "final",
-    final: createDiscoverSpecFinalBlock(),
-  });
-  await sleep(0);
+    await runner.startDiscoverSpecSession("42");
+    codex.lastDiscoverSession?.emitEvent({
+      type: "final",
+      final: createDiscoverSpecFinalBlock(),
+    });
+    await sleep(0);
 
-  const outcome = await runner.handleDiscoverSpecFinalActionSelection("42", "create-spec");
-  assert.equal(outcome.status, "ignored");
-  if (outcome.status !== "ignored") {
-    assert.fail("Resultado de callback deveria ser ignored");
+    const outcome = await runner.handleDiscoverSpecFinalActionSelection("42", "create-spec");
+    assert.deepEqual(outcome, { status: "accepted" });
+
+    const expectedFileName = "2026-02-19-bridge-interativa-do-codex.md";
+    const expectedSpecPath = path.join(projectRoot, "docs", "specs", expectedFileName);
+    const specContent = await fs.readFile(expectedSpecPath, "utf8");
+    assert.match(specContent, /^\s*-\s*Status\s*:\s*approved\s*$/imu);
+    assert.match(specContent, /^\s*-\s*Spec treatment\s*:\s*pending\s*$/imu);
+    assert.match(specContent, /^## Assumptions and defaults$/imu);
+    assert.match(specContent, /Assumir monorepo Node\.js 20\+\./u);
+    assert.match(specContent, /^## Decisoes e trade-offs$/imu);
+    assert.match(specContent, /Reutilizar callbacks existentes em vez de criar um novo protocolo\./u);
+
+    const materializeCall = codex.calls.find((value) => value.stage === "plan-spec-materialize");
+    const versionCall = codex.calls.find((value) => value.stage === "plan-spec-version-and-push");
+    assert.ok(materializeCall);
+    assert.ok(versionCall);
+    assert.equal(materializeCall?.spec?.sourceCommand, "/discover_spec");
+    assert.equal(materializeCall?.spec?.assumptionsAndDefaults?.length, 1);
+    assert.equal(materializeCall?.spec?.decisionsAndTradeOffs?.length, 1);
+    assert.equal(versionCall?.spec?.sourceCommand, "/discover_spec");
+    assert.match(versionCall?.spec?.tracePaths?.requestPath ?? "", /^spec_planning\/requests\//u);
+    assert.match(versionCall?.spec?.tracePaths?.responsePath ?? "", /^spec_planning\/responses\//u);
+    assert.match(versionCall?.spec?.tracePaths?.decisionPath ?? "", /^spec_planning\/decisions\//u);
+
+    const requestPath = path.join(projectRoot, versionCall?.spec?.tracePaths?.requestPath ?? "");
+    const responsePath = path.join(projectRoot, versionCall?.spec?.tracePaths?.responsePath ?? "");
+    const decisionPath = path.join(projectRoot, versionCall?.spec?.tracePaths?.decisionPath ?? "");
+    await fs.access(requestPath);
+    await fs.access(responsePath);
+    await fs.access(decisionPath);
+
+    const requestContent = await fs.readFile(requestPath, "utf8");
+    const responseContent = await fs.readFile(responsePath, "utf8");
+    const decisionRaw = await fs.readFile(decisionPath, "utf8");
+    assert.match(requestContent, /Source command: \/discover_spec/u);
+    assert.match(requestContent, /### Assumptions and defaults/u);
+    assert.match(requestContent, /Assumir monorepo Node\.js 20\+\./u);
+    assert.match(requestContent, /### Decisions and trade-offs/u);
+    assert.match(responseContent, /Source command: \/discover_spec/u);
+    assert.match(responseContent, /## Final block snapshot/u);
+    assert.match(responseContent, /Reutilizar callbacks existentes/u);
+    const decision = JSON.parse(decisionRaw) as {
+      sourceCommand: string;
+      assumptionsAndDefaults: string[];
+      decisionsAndTradeOffs: string[];
+    };
+    assert.equal(decision.sourceCommand, "/discover_spec");
+    assert.equal(decision.assumptionsAndDefaults[0], "Assumir monorepo Node.js 20+.");
+    assert.match(decision.decisionsAndTradeOffs[0] ?? "", /Reutilizar callbacks existentes/u);
+
+    const responseFiles = await fs.readdir(path.join(projectRoot, "spec_planning", "responses"));
+    assert.equal(responseFiles.length >= 2, true);
+    assert.equal(runner.getState().discoverSpecSession, null);
+    assert.equal(runner.getState().phase, "idle");
+    assert.equal(codex.lastDiscoverSession?.cancelCalls, 1);
+    assert.equal(lifecycleMessages.some((value) => /Spec criada e versionada com sucesso/u.test(value)), true);
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
   }
-
-  assert.equal(outcome.reason, "ineligible");
-  assert.match(outcome.message, /ticket de materializacao\/rastreabilidade enriquecidas/u);
 });
 
 test("startPlanSpecSession inicia sessao unica global com snapshot de projeto", async () => {

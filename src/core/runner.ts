@@ -61,6 +61,7 @@ import {
   PlanSpecSessionCloseResult,
   PlanSpecSessionEvent,
   SpecFlowStage,
+  SpecPlanningSourceCommand,
   SpecRef,
   TicketFlowStage,
   isTicketFlowStage,
@@ -1821,12 +1822,30 @@ export class TicketRunner {
       };
     }
 
-    return {
-      status: "ignored",
-      reason: "ineligible",
-      message:
-        "A criacao da spec a partir de `/discover_spec` continua bloqueada ate o ticket de materializacao/rastreabilidade enriquecidas preservar assumptions/defaults e trade-offs no artefato final. Use `Refinar` ou aguarde o ticket irmao.",
-    };
+    const finalBlockValidationError = this.validatePlanSpecFinalBlockForMaterialization(finalBlock);
+    if (finalBlockValidationError) {
+      return {
+        status: "ignored",
+        reason: "invalid-action",
+        message: `${finalBlockValidationError} Use \`Refinar\` para completar a descoberta antes de criar a spec.`,
+      };
+    }
+
+    return this.executeCreateSpecFromFinalBlock({
+      sourceCommand: "/discover_spec",
+      sessionId: session.id,
+      chatId: session.chatId,
+      slotKey: session.slotKey,
+      activeProject: discoverSpecSession.activeProjectSnapshot,
+      codexClient: session.codexClient,
+      finalBlock,
+      waitingPhase: "discover-spec-waiting-codex",
+      finalizeSession: (sessionId, options) =>
+        this.finalizeDiscoverSpecSession(sessionId, options),
+      emitLifecycleMessage: (chatId, message) =>
+        this.emitDiscoverSpecLifecycleMessage(chatId, message),
+      emitFailure: (chatId, details) => this.emitDiscoverSpecFailure(chatId, details),
+    });
   }
 
   private async requestDiscoverSpecRefinement(
@@ -1961,13 +1980,51 @@ export class TicketRunner {
       };
     }
 
+    return this.executeCreateSpecFromFinalBlock({
+      sourceCommand: "/plan_spec",
+      sessionId: session.id,
+      chatId: session.chatId,
+      slotKey: session.slotKey,
+      activeProject: planSpecSession.activeProjectSnapshot,
+      codexClient: session.codexClient,
+      finalBlock,
+      waitingPhase: "plan-spec-waiting-codex",
+      finalizeSession: (sessionId, options) => this.finalizePlanSpecSession(sessionId, options),
+      emitLifecycleMessage: (chatId, message) => this.emitPlanSpecLifecycleMessage(chatId, message),
+      emitFailure: (chatId, details) => this.emitPlanSpecFailure(chatId, details),
+    });
+  }
+
+  private async executeCreateSpecFromFinalBlock(params: {
+    sourceCommand: SpecPlanningSourceCommand;
+    sessionId: number;
+    chatId: string;
+    slotKey: string;
+    activeProject: ProjectRef;
+    codexClient: CodexTicketFlowClient;
+    finalBlock: PlanSpecFinalBlock;
+    waitingPhase: Extract<RunnerState["phase"], "discover-spec-waiting-codex" | "plan-spec-waiting-codex">;
+    finalizeSession: (
+      sessionId: number,
+      options: {
+        mode: "cancel";
+        phase: RunnerState["phase"];
+        message: string;
+        notifyMessage?: string;
+        releaseSlot?: boolean;
+      },
+    ) => Promise<void>;
+    emitLifecycleMessage: (chatId: string, message: string) => Promise<void>;
+    emitFailure: (chatId: string, details: string) => Promise<void>;
+  }): Promise<PlanSpecCallbackResult> {
     const createdAt = this.now();
-    const spec = this.buildPlannedSpecRef(finalBlock.title, createdAt);
+    const spec = this.buildPlannedSpecRef(params.finalBlock.title, createdAt);
     const commitMessage = `feat(spec): add ${spec.fileName}`;
-    const activeProject = planSpecSession.activeProjectSnapshot;
+    const sourceLabel = params.sourceCommand;
+    const failureMessagePrefix = this.buildCreateSpecFailureMessage(params.sourceCommand);
 
     try {
-      await this.assertSpecPathAvailable(activeProject.path, spec.path);
+      await this.assertSpecPathAvailable(params.activeProject.path, spec.path);
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       return {
@@ -1978,35 +2035,30 @@ export class TicketRunner {
     }
 
     let traceSession: SpecPlanningTraceSession;
-    const traceStore = this.specPlanningTraceStoreFactory(activeProject.path);
+    const traceStore = this.specPlanningTraceStoreFactory(params.activeProject.path);
     try {
       traceSession = await traceStore.startSession({
-        sessionId: session.id,
-        chatId: session.chatId,
+        sourceCommand: params.sourceCommand,
+        sessionId: params.sessionId,
+        chatId: params.chatId,
         specPath: spec.path,
         specFileName: spec.fileName,
-        specTitle: finalBlock.title,
-        specSummary: finalBlock.summary,
-        specOutline: {
-          objective: finalBlock.outline.objective,
-          actors: [...finalBlock.outline.actors],
-          journey: [...finalBlock.outline.journey],
-          requirements: [...finalBlock.outline.requirements],
-          acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
-          nonScope: [...finalBlock.outline.nonScope],
-          technicalConstraints: [...finalBlock.outline.technicalConstraints],
-          mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
-          pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
-          knownRisks: [...finalBlock.outline.knownRisks],
-        },
+        specTitle: params.finalBlock.title,
+        specSummary: params.finalBlock.summary,
+        specOutline: this.clonePlanSpecFinalOutline(params.finalBlock.outline),
+        assumptionsAndDefaults: [...params.finalBlock.assumptionsAndDefaults],
+        decisionsAndTradeOffs: [...params.finalBlock.decisionsAndTradeOffs],
+        categoryCoverage: params.finalBlock.categoryCoverage.map((item) => ({ ...item })),
+        criticalAmbiguities: [...params.finalBlock.criticalAmbiguities],
         commitMessage,
         createdAt,
       });
     } catch (error) {
       const details = error instanceof Error ? error.message : String(error);
       this.logger.error("Falha ao persistir trilha spec_planning antes da acao create-spec", {
-        sessionId: session.id,
-        chatId: session.chatId,
+        sourceCommand: params.sourceCommand,
+        sessionId: params.sessionId,
+        chatId: params.chatId,
         specPath: spec.path,
         error: details,
       });
@@ -2017,89 +2069,76 @@ export class TicketRunner {
       };
     }
 
-    const slot = this.activeSlots.get(session.slotKey);
+    const slot = this.activeSlots.get(params.slotKey);
     if (slot) {
       slot.isStarting = true;
       slot.currentSpec = spec.fileName;
-      slot.phase = "plan-spec-waiting-codex";
+      slot.phase = params.waitingPhase;
       this.syncStateFromSlots();
     }
 
-    let specExecutionClient: CodexTicketFlowClient = session.codexClient;
+    let specExecutionClient: CodexTicketFlowClient = params.codexClient;
     try {
-      const fixedPreferences = await session.codexClient.snapshotInvocationPreferences();
-      specExecutionClient = session.codexClient.forkWithFixedInvocationPreferences(fixedPreferences);
-      this.logger.info("Preferencias do Codex snapshotadas para acao create-spec do /plan_spec", {
-        sessionId: session.id,
-        chatId: session.chatId,
-        activeProjectName: activeProject.name,
-        activeProjectPath: activeProject.path,
+      const fixedPreferences = await params.codexClient.snapshotInvocationPreferences();
+      specExecutionClient = params.codexClient.forkWithFixedInvocationPreferences(fixedPreferences);
+      this.logger.info(`Preferencias do Codex snapshotadas para acao create-spec de ${sourceLabel}`, {
+        sourceCommand: params.sourceCommand,
+        sessionId: params.sessionId,
+        chatId: params.chatId,
+        activeProjectName: params.activeProject.name,
+        activeProjectPath: params.activeProject.path,
         specFileName: spec.fileName,
         model: fixedPreferences?.model ?? null,
         reasoningEffort: fixedPreferences?.reasoningEffort ?? null,
         speed: fixedPreferences?.speed ?? null,
       });
 
-      await this.finalizePlanSpecSession(session.id, {
+      await params.finalizeSession(params.sessionId, {
         mode: "cancel",
-        phase: "plan-spec-waiting-codex",
-        message: `Sessao /plan_spec encerrada para executar Criar spec: ${spec.fileName}`,
+        phase: params.waitingPhase,
+        message: `Sessao ${sourceLabel} encerrada para executar Criar spec: ${spec.fileName}`,
         notifyMessage: `Executando Criar spec para ${spec.path}.`,
         releaseSlot: false,
       });
 
+      const materializeSpec = this.buildCreateSpecStageSpecRef({
+        spec,
+        finalBlock: params.finalBlock,
+        sourceCommand: params.sourceCommand,
+      });
       if (slot) {
         this.touchSlot(
           slot,
-          "plan-spec-waiting-codex",
+          params.waitingPhase,
           `Executando etapa plan-spec-materialize para ${spec.fileName}`,
         );
       } else {
         this.touch(
-          "plan-spec-waiting-codex",
+          params.waitingPhase,
           `Executando etapa plan-spec-materialize para ${spec.fileName}`,
         );
       }
-      const materializeResult = await specExecutionClient.runSpecStage("plan-spec-materialize", {
-        fileName: spec.fileName,
-        path: spec.path,
-        plannedTitle: finalBlock.title,
-        plannedSummary: finalBlock.summary,
-        plannedOutline: {
-          objective: finalBlock.outline.objective,
-          actors: [...finalBlock.outline.actors],
-          journey: [...finalBlock.outline.journey],
-          requirements: [...finalBlock.outline.requirements],
-          acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
-          nonScope: [...finalBlock.outline.nonScope],
-          technicalConstraints: [...finalBlock.outline.technicalConstraints],
-          mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
-          pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
-          knownRisks: [...finalBlock.outline.knownRisks],
-        },
-      });
-      await traceStore.writeStageResponse(traceSession.materializeResponsePath, {
-        stage: "plan-spec-materialize",
-        output: materializeResult.output,
-        recordedAt: this.now(),
-      });
-      await this.assertPlannedSpecMetadata(activeProject.path, spec.path);
+      const materializeResult = await specExecutionClient.runSpecStage(
+        "plan-spec-materialize",
+        materializeSpec,
+      );
+      await traceStore.writeStageResponse(
+        traceSession.materializeResponsePath,
+        this.buildSpecPlanningTraceStageResponse({
+          stage: "plan-spec-materialize",
+          sourceCommand: params.sourceCommand,
+          spec,
+          finalBlock: params.finalBlock,
+          output: materializeResult.output,
+          recordedAt: this.now(),
+        }),
+      );
+      await this.assertPlannedSpecMetadata(params.activeProject.path, spec.path);
 
-      if (slot) {
-        this.touchSlot(
-          slot,
-          "plan-spec-waiting-codex",
-          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
-        );
-      } else {
-        this.touch(
-          "plan-spec-waiting-codex",
-          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
-        );
-      }
-      const versionResult = await specExecutionClient.runSpecStage("plan-spec-version-and-push", {
-        fileName: spec.fileName,
-        path: spec.path,
+      const versionSpec = this.buildCreateSpecStageSpecRef({
+        spec,
+        finalBlock: params.finalBlock,
+        sourceCommand: params.sourceCommand,
         commitMessage,
         tracePaths: {
           requestPath: traceSession.requestPath,
@@ -2107,19 +2146,41 @@ export class TicketRunner {
           decisionPath: traceSession.decisionPath,
         },
       });
-      await traceStore.writeStageResponse(traceSession.versionAndPushResponsePath, {
-        stage: "plan-spec-version-and-push",
-        output: versionResult.output,
-        recordedAt: this.now(),
-      });
+      if (slot) {
+        this.touchSlot(
+          slot,
+          params.waitingPhase,
+          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
+        );
+      } else {
+        this.touch(
+          params.waitingPhase,
+          `Executando etapa plan-spec-version-and-push para ${spec.fileName}`,
+        );
+      }
+      const versionResult = await specExecutionClient.runSpecStage(
+        "plan-spec-version-and-push",
+        versionSpec,
+      );
+      await traceStore.writeStageResponse(
+        traceSession.versionAndPushResponsePath,
+        this.buildSpecPlanningTraceStageResponse({
+          stage: "plan-spec-version-and-push",
+          sourceCommand: params.sourceCommand,
+          spec,
+          finalBlock: params.finalBlock,
+          output: versionResult.output,
+          recordedAt: this.now(),
+        }),
+      );
 
       if (slot) {
         this.touchSlot(slot, "idle", `Spec criada e versionada com sucesso: ${spec.path}`);
       } else {
         this.touch("idle", `Spec criada e versionada com sucesso: ${spec.path}`);
       }
-      await this.emitPlanSpecLifecycleMessage(
-        session.chatId,
+      await params.emitLifecycleMessage(
+        params.chatId,
         `Spec criada e versionada com sucesso: ${spec.path}`,
       );
       return { status: "accepted" };
@@ -2137,18 +2198,19 @@ export class TicketRunner {
           `Falha ao executar acao Criar spec para ${spec.fileName}: ${details}`,
         );
       }
-      this.logger.error("Falha na acao final create-spec da sessao /plan_spec", {
-        sessionId: session.id,
-        chatId: session.chatId,
+      this.logger.error(`Falha na acao final create-spec da sessao ${sourceLabel}`, {
+        sourceCommand: params.sourceCommand,
+        sessionId: params.sessionId,
+        chatId: params.chatId,
         specFileName: spec.fileName,
         specPath: spec.path,
         error: details,
       });
-      await this.emitPlanSpecFailure(session.chatId, `Falha ao criar spec planejada: ${details}`);
+      await params.emitFailure(params.chatId, `${failureMessagePrefix}: ${details}`);
       return {
         status: "ignored",
         reason: "ineligible",
-        message: `Falha ao criar spec planejada: ${details}`,
+        message: `${failureMessagePrefix}: ${details}`,
       };
     } finally {
       if (slot) {
@@ -2156,7 +2218,7 @@ export class TicketRunner {
         slot.isStarting = false;
         slot.isRunning = false;
       }
-      this.releaseSlot(session.slotKey);
+      this.releaseSlot(params.slotKey);
     }
   }
 
@@ -3311,18 +3373,7 @@ export class TicketRunner {
     return {
       title: finalBlock.title,
       summary: finalBlock.summary,
-      outline: {
-        objective: finalBlock.outline.objective,
-        actors: [...finalBlock.outline.actors],
-        journey: [...finalBlock.outline.journey],
-        requirements: [...finalBlock.outline.requirements],
-        acceptanceCriteria: [...finalBlock.outline.acceptanceCriteria],
-        nonScope: [...finalBlock.outline.nonScope],
-        technicalConstraints: [...finalBlock.outline.technicalConstraints],
-        mandatoryValidations: [...finalBlock.outline.mandatoryValidations],
-        pendingManualValidations: [...finalBlock.outline.pendingManualValidations],
-        knownRisks: [...finalBlock.outline.knownRisks],
-      },
+      outline: this.clonePlanSpecFinalOutline(finalBlock.outline),
       categoryCoverage: finalBlock.categoryCoverage.map((item) => ({ ...item })),
       assumptionsAndDefaults: [...finalBlock.assumptionsAndDefaults],
       decisionsAndTradeOffs: [...finalBlock.decisionsAndTradeOffs],
@@ -4608,6 +4659,97 @@ export class TicketRunner {
     return {
       fileName,
       path: this.resolveSpecPath(fileName),
+    };
+  }
+
+  private buildCreateSpecFailureMessage(sourceCommand: SpecPlanningSourceCommand): string {
+    return sourceCommand === "/plan_spec"
+      ? "Falha ao criar spec planejada"
+      : "Falha ao criar spec a partir de /discover_spec";
+  }
+
+  private buildCreateSpecStageSpecRef(params: {
+    spec: SpecRef;
+    finalBlock: PlanSpecFinalBlock;
+    sourceCommand: SpecPlanningSourceCommand;
+    commitMessage?: string;
+    tracePaths?: SpecRef["tracePaths"];
+  }): SpecRef {
+    return {
+      fileName: params.spec.fileName,
+      path: params.spec.path,
+      plannedTitle: params.finalBlock.title,
+      plannedSummary: params.finalBlock.summary,
+      plannedOutline: this.clonePlanSpecFinalOutline(params.finalBlock.outline),
+      sourceCommand: params.sourceCommand,
+      assumptionsAndDefaults: [...params.finalBlock.assumptionsAndDefaults],
+      decisionsAndTradeOffs: [...params.finalBlock.decisionsAndTradeOffs],
+      categoryCoverage: params.finalBlock.categoryCoverage.map((item) => ({ ...item })),
+      criticalAmbiguities: [...params.finalBlock.criticalAmbiguities],
+      ...(params.commitMessage ? { commitMessage: params.commitMessage } : {}),
+      ...(params.tracePaths
+        ? {
+            tracePaths: {
+              requestPath: params.tracePaths.requestPath,
+              responsePath: params.tracePaths.responsePath,
+              decisionPath: params.tracePaths.decisionPath,
+            },
+          }
+        : {}),
+    };
+  }
+
+  private buildSpecPlanningTraceStageResponse(params: {
+    stage: "plan-spec-materialize" | "plan-spec-version-and-push";
+    sourceCommand: SpecPlanningSourceCommand;
+    spec: SpecRef;
+    finalBlock: PlanSpecFinalBlock;
+    output: string;
+    recordedAt: Date;
+  }): {
+    stage: "plan-spec-materialize" | "plan-spec-version-and-push";
+    sourceCommand: SpecPlanningSourceCommand;
+    specPath: string;
+    specFileName: string;
+    specTitle: string;
+    specSummary: string;
+    assumptionsAndDefaults: string[];
+    decisionsAndTradeOffs: string[];
+    categoryCoverage: PlanSpecFinalBlock["categoryCoverage"];
+    criticalAmbiguities: string[];
+    output: string;
+    recordedAt: Date;
+  } {
+    return {
+      stage: params.stage,
+      sourceCommand: params.sourceCommand,
+      specPath: params.spec.path,
+      specFileName: params.spec.fileName,
+      specTitle: params.finalBlock.title,
+      specSummary: params.finalBlock.summary,
+      assumptionsAndDefaults: [...params.finalBlock.assumptionsAndDefaults],
+      decisionsAndTradeOffs: [...params.finalBlock.decisionsAndTradeOffs],
+      categoryCoverage: params.finalBlock.categoryCoverage.map((item) => ({ ...item })),
+      criticalAmbiguities: [...params.finalBlock.criticalAmbiguities],
+      output: params.output,
+      recordedAt: params.recordedAt,
+    };
+  }
+
+  private clonePlanSpecFinalOutline(
+    outline: PlanSpecFinalBlock["outline"],
+  ): PlanSpecFinalBlock["outline"] {
+    return {
+      objective: outline.objective,
+      actors: [...outline.actors],
+      journey: [...outline.journey],
+      requirements: [...outline.requirements],
+      acceptanceCriteria: [...outline.acceptanceCriteria],
+      nonScope: [...outline.nonScope],
+      technicalConstraints: [...outline.technicalConstraints],
+      mandatoryValidations: [...outline.mandatoryValidations],
+      pendingManualValidations: [...outline.pendingManualValidations],
+      knownRisks: [...outline.knownRisks],
     };
   }
 

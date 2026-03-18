@@ -16,7 +16,7 @@
   - adicionar cobertura automatizada focada nos closure criteria do ticket;
   - atualizar a spec de origem com rastreabilidade objetiva desta entrega quando o plano for executado.
 - Fora de escopo:
-  - enriquecer materializacao da spec, `spec_planning/*` e prompts `06/07`; isso pertence ao ticket irmao `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`;
+  - enriquecer materializacao da spec, `spec_planning/*` e prompts `06/07`; isso pertence ao ticket irmao `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`;
   - transformar `/plan_spec` no fluxo pesado por padrao;
   - introduzir heuristica automatica para escolher entre `/plan_spec` e `/discover_spec`;
   - fechar ticket, mover arquivo para `tickets/closed/`, commitar ou dar push nesta etapa.
@@ -55,13 +55,13 @@
   - Impacto: `src/integrations/telegram-bot.ts` ganhou roteamento discover-specific sem quebrar os callbacks existentes de `/plan_spec`.
 - 2026-03-18 - Decisao: quando o bloco final de `/discover_spec` ficar semanticamente elegivel, ainda assim manter `Criar spec` bloqueado com mensagem explicita ate o ticket irmao de materializacao/rastreabilidade ser executado.
   - Motivo: permitir a criacao da spec nesta etapa induziria uma materializacao parcialmente perdida, contrariando RF-20/CA-12/CA-13 embora este plano nao deva absorver o ticket irmao.
-  - Impacto: o subconjunto deste ticket termina com gate/UX corretos e blocker objetivo documentado; a liberacao efetiva de `Criar spec` fica para `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
+  - Impacto: o subconjunto deste ticket termina com gate/UX corretos e blocker objetivo documentado; a liberacao efetiva de `Criar spec` fica para `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
 
 ## Outcomes & Retrospective
 - Status final: implementacao e validacao automatizada concluidas no working tree; fechamento formal do ticket ocorreu em etapa posterior de close-out em 2026-03-18 20:40Z.
 - O que funcionou: o contrato estruturado compartilhado suportou `/discover_spec` sem regressao visivel em `/plan_spec`; o runner passou a tratar pendencias como estado tipado e o Telegram reaproveitou os callbacks existentes com roteamento por fluxo.
 - O que ficou pendente: `Criar spec` de `/discover_spec` permanece bloqueado por design ate o ticket irmao de materializacao/rastreabilidade enriquecer os artefatos finais e a trilha `spec_planning/`.
-- Proximos passos: atacar `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md` para liberar `Criar spec` sem perda de rastreabilidade.
+- Proximos passos: atacar `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md` para liberar `Criar spec` sem perda de rastreabilidade.
 
 ## Context and Orientation
 - Arquivos principais:
@@ -170,7 +170,7 @@
 ## Artifacts and Notes
 - Ticket de origem: `tickets/closed/2026-03-18-discover-spec-entrevista-categorias-e-gate-final-gap.md`.
 - Spec de referencia: `docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md`.
-- Ticket irmao que nao deve ser absorvido por este plano: `tickets/open/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
+- Ticket irmao que nao deve ser absorvido por este plano: `tickets/closed/2026-03-18-discover-spec-materializacao-e-rastreabilidade-enriquecidas-gap.md`.
 - Documentacao/processo consultados:
   - `PLANS.md`
   - `docs/workflows/codex-quality-gates.md`

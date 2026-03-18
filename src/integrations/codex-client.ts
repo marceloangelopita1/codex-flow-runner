@@ -24,7 +24,10 @@ import {
 } from "./runtime-shell-guidance.js";
 import { TicketRef } from "./ticket-queue.js";
 import { CodexInvocationPreferences } from "../types/codex-preferences.js";
-import { DISCOVER_SPEC_CATEGORY_DEFINITIONS } from "../types/discover-spec.js";
+import {
+  DISCOVER_SPEC_CATEGORY_DEFINITIONS,
+  type DiscoverSpecCategoryCoverage,
+} from "../types/discover-spec.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -41,12 +44,19 @@ export interface SpecPlanningTracePaths {
   decisionPath: string;
 }
 
+export type SpecPlanningSourceCommand = "/plan_spec" | "/discover_spec";
+
 export interface SpecRef {
   fileName: string;
   path: string;
   plannedTitle?: string;
   plannedSummary?: string;
   plannedOutline?: PlanSpecFinalBlock["outline"];
+  sourceCommand?: SpecPlanningSourceCommand;
+  assumptionsAndDefaults?: string[];
+  decisionsAndTradeOffs?: string[];
+  categoryCoverage?: DiscoverSpecCategoryCoverage[];
+  criticalAmbiguities?: string[];
   commitMessage?: string;
   tracePaths?: SpecPlanningTracePaths;
 }
@@ -905,6 +915,11 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     const plannedTitle = spec.plannedTitle?.trim() ?? "";
     const plannedSummary = spec.plannedSummary?.trim() ?? "";
     const plannedOutline = spec.plannedOutline;
+    const sourceCommand = spec.sourceCommand ?? "/plan_spec";
+    const assumptionsAndDefaults = spec.assumptionsAndDefaults ?? [];
+    const decisionsAndTradeOffs = spec.decisionsAndTradeOffs ?? [];
+    const categoryCoverage = spec.categoryCoverage ?? [];
+    const criticalAmbiguities = spec.criticalAmbiguities ?? [];
     const traceRequestPath = spec.tracePaths?.requestPath ?? "";
     const traceResponsePath = spec.tracePaths?.responsePath ?? "";
     const traceDecisionPath = spec.tracePaths?.decisionPath ?? "";
@@ -923,7 +938,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     ) {
       throw new Error(
         [
-          "Etapa plan-spec-materialize exige contexto estruturado aprovado da sessao /plan_spec.",
+          "Etapa plan-spec-materialize exige contexto estruturado aprovado da sessao /plan_spec ou /discover_spec.",
           "Campos minimos: titulo, resumo, objetivo, atores, jornada, RFs, CAs e nao-escopo.",
         ].join(" "),
       );
@@ -944,6 +959,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       .replace(/<COMMIT_MESSAGE>/gu, commitMessage)
       .replace(/<SPEC_TITLE>/gu, plannedTitle)
       .replace(/<SPEC_SUMMARY>/gu, plannedSummary)
+      .replace(/<SPEC_SOURCE_COMMAND>/gu, sourceCommand)
       .replace(/<SPEC_OBJECTIVE>/gu, plannedOutline?.objective.trim() ?? "")
       .replace(/<SPEC_ACTORS>/gu, this.renderPlanSpecOutlineList(plannedOutline?.actors))
       .replace(/<SPEC_JOURNEY>/gu, this.renderPlanSpecOutlineList(plannedOutline?.journey))
@@ -969,6 +985,22 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         /<SPEC_KNOWN_RISKS>/gu,
         this.renderPlanSpecOutlineList(plannedOutline?.knownRisks),
       )
+      .replace(
+        /<SPEC_ASSUMPTIONS_AND_DEFAULTS>/gu,
+        this.renderPlanSpecOutlineList(assumptionsAndDefaults),
+      )
+      .replace(
+        /<SPEC_DECISIONS_AND_TRADE_OFFS>/gu,
+        this.renderPlanSpecOutlineList(decisionsAndTradeOffs),
+      )
+      .replace(
+        /<SPEC_CATEGORY_COVERAGE>/gu,
+        this.renderDiscoverSpecCategoryCoverageList(categoryCoverage),
+      )
+      .replace(
+        /<SPEC_CRITICAL_AMBIGUITIES>/gu,
+        this.renderPlanSpecOutlineList(criticalAmbiguities),
+      )
       .replace(/<TRACE_REQUEST_PATH>/gu, traceRequestPath)
       .replace(/<TRACE_RESPONSE_PATH>/gu, traceResponsePath)
       .replace(/<TRACE_DECISION_PATH>/gu, traceDecisionPath);
@@ -988,16 +1020,20 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         : []),
       ...(stage === "plan-spec-materialize"
         ? [
+            `- Fluxo de origem: \`${sourceCommand}\``,
             `- Titulo final aprovado: \`${plannedTitle}\``,
             `- Resumo final aprovado: \`${plannedSummary}\``,
             `- Objetivo aprovado: \`${plannedOutline?.objective.trim() ?? ""}\``,
             `- Atores aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.actors)}`,
             `- RFs aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.requirements)}`,
             `- CAs aprovados: ${this.renderPlanSpecOutlineSummary(plannedOutline?.acceptanceCriteria)}`,
+            `- Assumptions/defaults aprovados: ${this.renderPlanSpecOutlineSummary(assumptionsAndDefaults)}`,
+            `- Decisoes/trade-offs aprovados: ${this.renderPlanSpecOutlineSummary(decisionsAndTradeOffs)}`,
           ]
         : []),
       ...(stage === "plan-spec-version-and-push"
         ? [
+            `- Fluxo de origem: \`${sourceCommand}\``,
             `- Trilha request: \`${traceRequestPath}\``,
             `- Trilha response: \`${traceResponsePath}\``,
             `- Trilha decision: \`${traceDecisionPath}\``,
@@ -1021,6 +1057,21 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
 
     return values.map((value) => `\`${value}\``).join(", ");
+  }
+
+  private renderDiscoverSpecCategoryCoverageList(
+    values?: DiscoverSpecCategoryCoverage[],
+  ): string {
+    if (!values || values.length === 0) {
+      return "- Nenhum";
+    }
+
+    return values
+      .map((value) => {
+        const detail = value.detail.trim() || "sem detalhe adicional";
+        return `- ${value.label} [${value.status}]: ${detail}`;
+      })
+      .join("\n");
   }
 
   private buildPlanStageTemplate(

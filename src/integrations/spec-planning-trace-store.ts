@@ -1,6 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { PlanSpecFinalOutline } from "./plan-spec-parser.js";
+import type { SpecPlanningSourceCommand } from "./codex-client.js";
+import type { DiscoverSpecCategoryCoverage } from "../types/discover-spec.js";
 
 const TRACE_ROOT_DIR = "spec_planning";
 const REQUESTS_DIR = "requests";
@@ -10,6 +12,7 @@ const DECISIONS_DIR = "decisions";
 export type SpecPlanningTraceStage = "plan-spec-materialize" | "plan-spec-version-and-push";
 
 export interface SpecPlanningTraceSessionRequest {
+  sourceCommand: SpecPlanningSourceCommand;
   sessionId: number;
   chatId: string;
   specPath: string;
@@ -17,6 +20,10 @@ export interface SpecPlanningTraceSessionRequest {
   specTitle: string;
   specSummary: string;
   specOutline: PlanSpecFinalOutline;
+  assumptionsAndDefaults: string[];
+  decisionsAndTradeOffs: string[];
+  categoryCoverage: DiscoverSpecCategoryCoverage[];
+  criticalAmbiguities: string[];
   commitMessage: string;
   createdAt: Date;
 }
@@ -35,6 +42,15 @@ export interface SpecPlanningTraceStore {
     relativePath: string,
     response: {
       stage: SpecPlanningTraceStage;
+      sourceCommand: SpecPlanningSourceCommand;
+      specPath: string;
+      specFileName: string;
+      specTitle: string;
+      specSummary: string;
+      assumptionsAndDefaults: string[];
+      decisionsAndTradeOffs: string[];
+      categoryCoverage: DiscoverSpecCategoryCoverage[];
+      criticalAmbiguities: string[];
       output: string;
       recordedAt: Date;
     },
@@ -62,6 +78,7 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
       JSON.stringify(
         {
           action: "create-spec",
+          sourceCommand: request.sourceCommand,
           sessionId: request.sessionId,
           chatId: request.chatId,
           specPath: request.specPath,
@@ -69,6 +86,10 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
           specTitle: request.specTitle,
           specSummary: request.specSummary,
           specOutline: request.specOutline,
+          assumptionsAndDefaults: request.assumptionsAndDefaults,
+          decisionsAndTradeOffs: request.decisionsAndTradeOffs,
+          categoryCoverage: request.categoryCoverage,
+          criticalAmbiguities: request.criticalAmbiguities,
           commitMessage: request.commitMessage,
           recordedAtUtc: request.createdAt.toISOString(),
         },
@@ -84,6 +105,15 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
     relativePath: string,
     response: {
       stage: SpecPlanningTraceStage;
+      sourceCommand: SpecPlanningSourceCommand;
+      specPath: string;
+      specFileName: string;
+      specTitle: string;
+      specSummary: string;
+      assumptionsAndDefaults: string[];
+      decisionsAndTradeOffs: string[];
+      categoryCoverage: DiscoverSpecCategoryCoverage[];
+      criticalAmbiguities: string[];
       output: string;
       recordedAt: Date;
     },
@@ -92,7 +122,26 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
       "# Spec planning response",
       "",
       `- Stage: ${response.stage}`,
+      `- Source command: ${response.sourceCommand}`,
+      `- Spec path: ${response.specPath}`,
+      `- Spec file: ${response.specFileName}`,
       `- Recorded at (UTC): ${response.recordedAt.toISOString()}`,
+      "",
+      "## Final block snapshot",
+      `- Title: ${response.specTitle}`,
+      `- Summary: ${response.specSummary}`,
+      "",
+      "### Assumptions and defaults",
+      ...renderOutlineSection(response.assumptionsAndDefaults),
+      "",
+      "### Decisions and trade-offs",
+      ...renderOutlineSection(response.decisionsAndTradeOffs),
+      "",
+      "### Category coverage",
+      ...renderCategoryCoverageSection(response.categoryCoverage),
+      "",
+      "### Critical ambiguities",
+      ...renderOutlineSection(response.criticalAmbiguities),
       "",
       "## Output",
       response.output.trim() || "(vazio)",
@@ -105,6 +154,7 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
     return [
       "# Spec planning request",
       "",
+      `- Source command: ${request.sourceCommand}`,
       `- Session ID: ${request.sessionId}`,
       `- Chat ID: ${request.chatId}`,
       `- Recorded at (UTC): ${request.createdAt.toISOString()}`,
@@ -144,6 +194,18 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
       "### Known risks",
       ...renderOutlineSection(request.specOutline.knownRisks),
       "",
+      "### Assumptions and defaults",
+      ...renderOutlineSection(request.assumptionsAndDefaults),
+      "",
+      "### Decisions and trade-offs",
+      ...renderOutlineSection(request.decisionsAndTradeOffs),
+      "",
+      "### Category coverage",
+      ...renderCategoryCoverageSection(request.categoryCoverage),
+      "",
+      "### Critical ambiguities",
+      ...renderOutlineSection(request.criticalAmbiguities),
+      "",
     ].join("\n");
   }
 
@@ -167,7 +229,7 @@ export class FileSystemSpecPlanningTraceStore implements SpecPlanningTraceStore 
     }
 
     throw new Error(
-      "Nao foi possivel alocar identificador unico para trilha spec_planning da sessao /plan_spec.",
+      "Nao foi possivel alocar identificador unico para trilha spec_planning da sessao de create-spec.",
     );
   }
 
@@ -219,6 +281,19 @@ const formatTraceTimestamp = (value: Date): string =>
     .replace(/\.\d{3}Z$/u, "Z")
     .replace(/[-:]/gu, "")
     .toLowerCase();
+
+const renderCategoryCoverageSection = (
+  values: readonly DiscoverSpecCategoryCoverage[],
+): string[] => {
+  if (values.length === 0) {
+    return ["- Nenhum"];
+  }
+
+  return values.map((value) => {
+    const detail = value.detail.trim() || "sem detalhe adicional";
+    return `- ${value.label} [${value.status}]: ${detail}`;
+  });
+};
 
 const renderOutlineSection = (items: string[]): string[] =>
   items.length > 0 ? items.map((item) => `- ${item}`) : ["- Nenhum"];

@@ -58,6 +58,18 @@ const plannedSpec = {
   plannedTitle: "Bridge interativa do Codex",
   plannedSummary: "Sessao /plan com parser e callbacks no Telegram.",
   plannedOutline,
+  sourceCommand: "/discover_spec" as const,
+  assumptionsAndDefaults: ["Assumir monorepo Node.js 20+."],
+  decisionsAndTradeOffs: ["Reutilizar callbacks existentes em vez de abrir novo protocolo."],
+  categoryCoverage: [
+    {
+      categoryId: "assumptions-defaults" as const,
+      label: "Assumptions e defaults",
+      status: "covered" as const,
+      detail: "Defaults conscientes aprovados.",
+    },
+  ],
+  criticalAmbiguities: [],
   tracePaths: {
     requestPath: "spec_planning/requests/20260219t220400z-s1-request.md",
     responsePath: "spec_planning/responses/20260219t220400z-s1-materialize.md",
@@ -402,6 +414,7 @@ test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho 
         "",
         "Spec alvo: <SPEC_PATH>",
         "Arquivo: <SPEC_FILE_NAME>",
+        "Fluxo: <SPEC_SOURCE_COMMAND>",
         "Titulo: <SPEC_TITLE>",
         "Resumo: <SPEC_SUMMARY>",
         "Objetivo: <SPEC_OBJECTIVE>",
@@ -415,6 +428,18 @@ test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho 
         "<SPEC_ACCEPTANCE_CRITERIA>",
         "Nao-escopo:",
         "<SPEC_NON_SCOPE>",
+        "Restricoes tecnicas:",
+        "<SPEC_TECHNICAL_CONSTRAINTS>",
+        "Validacoes obrigatorias:",
+        "<SPEC_MANDATORY_VALIDATIONS>",
+        "Validacoes manuais pendentes:",
+        "<SPEC_PENDING_MANUAL_VALIDATIONS>",
+        "Riscos conhecidos:",
+        "<SPEC_KNOWN_RISKS>",
+        "Assumptions and defaults:",
+        "<SPEC_ASSUMPTIONS_AND_DEFAULTS>",
+        "Decisoes e trade-offs:",
+        "<SPEC_DECISIONS_AND_TRADE_OFFS>",
       ].join("\n"),
     runCodexCommand: async (request) => {
       capturedPrompt = request.prompt;
@@ -426,6 +451,7 @@ test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho 
 
   assert.equal(result.stage, "plan-spec-materialize");
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-bridge-interativa-do-codex\.md/u);
+  assert.match(capturedPrompt, /Fluxo: \/discover_spec/u);
   assert.match(capturedPrompt, /Titulo: Bridge interativa do Codex/u);
   assert.match(capturedPrompt, /Resumo: Sessao \/plan com parser e callbacks no Telegram\./u);
   assert.match(capturedPrompt, /Objetivo: Transformar a sessao \/plan em uma spec rica e reutilizavel\./u);
@@ -433,9 +459,14 @@ test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho 
   assert.match(capturedPrompt, /- RF-01 - A materializacao deve preservar RFs aprovados\./u);
   assert.match(capturedPrompt, /- CA-01 - O prompt recebe RFs, CAs e jornada aprovados\./u);
   assert.match(capturedPrompt, /- Nao implementar o produto final nesta etapa\./u);
+  assert.match(capturedPrompt, /- Manter o protocolo parseavel e sequencial\./u);
+  assert.match(capturedPrompt, /- Revisar a clareza da jornada com um operador humano\./u);
+  assert.match(capturedPrompt, /- Resumo curto demais reduz a qualidade da spec materializada\./u);
+  assert.match(capturedPrompt, /- Assumir monorepo Node\.js 20\+\./u);
+  assert.match(capturedPrompt, /- Reutilizar callbacks existentes em vez de abrir novo protocolo\./u);
   assert.doesNotMatch(
     capturedPrompt,
-    /<SPEC_TITLE>|<SPEC_SUMMARY>|<SPEC_OBJECTIVE>|<SPEC_ACTORS>|<SPEC_JOURNEY>|<SPEC_REQUIREMENTS>|<SPEC_ACCEPTANCE_CRITERIA>|<SPEC_NON_SCOPE>/u,
+    /<SPEC_SOURCE_COMMAND>|<SPEC_TITLE>|<SPEC_SUMMARY>|<SPEC_OBJECTIVE>|<SPEC_ACTORS>|<SPEC_JOURNEY>|<SPEC_REQUIREMENTS>|<SPEC_ACCEPTANCE_CRITERIA>|<SPEC_NON_SCOPE>|<SPEC_TECHNICAL_CONSTRAINTS>|<SPEC_MANDATORY_VALIDATIONS>|<SPEC_PENDING_MANUAL_VALIDATIONS>|<SPEC_KNOWN_RISKS>|<SPEC_ASSUMPTIONS_AND_DEFAULTS>|<SPEC_DECISIONS_AND_TRADE_OFFS>/u,
   );
 });
 
@@ -488,6 +519,7 @@ test("runSpecStage(plan-spec-version-and-push) injeta commit dedicado feat(spec)
   assert.match(capturedPrompt, /spec_planning\/requests\/20260219t220400z-s1-request\.md/u);
   assert.match(capturedPrompt, /spec_planning\/responses\/20260219t220400z-s1-materialize\.md/u);
   assert.match(capturedPrompt, /spec_planning\/decisions\/20260219t220400z-s1-decision\.json/u);
+  assert.match(capturedPrompt, /Fluxo de origem: `\/discover_spec`/u);
   assert.doesNotMatch(capturedPrompt, /<TRACE_REQUEST_PATH>|<TRACE_RESPONSE_PATH>|<TRACE_DECISION_PATH>/u);
 });
 
