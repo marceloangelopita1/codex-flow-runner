@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-19 19:45Z
-- Last reviewed at (UTC): 2026-03-19 23:23Z
+- Last reviewed at (UTC): 2026-03-19 23:29Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md
@@ -17,7 +17,10 @@
   - execplans/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md
   - execplans/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md
 - Related commits:
-  - Nenhum ainda.
+  - bb7eb5b - `chore(specs): triage 2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md`
+  - d2fad05 - `chore(tickets): close 2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md`
+  - 4462a02 - `chore(tickets): close 2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`
+  - 06cd244 - `chore(tickets): close 2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md`
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
@@ -226,10 +229,16 @@
     - `rg -n "workflowGapAnalysis|workflowImprovementTicket|Retrospectiva sistemica|Ticket transversal de workflow|Limitacao" src/types/flow-timing.ts src/core/runner.ts src/integrations/telegram-bot.ts`
     - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
     - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`
+  - Auditoria final reexecutada em 2026-03-19 23:29Z sem gaps residuais: releitura desta spec, dos 3 tickets fechados, dos 3 execplans, do wiring atual em `src/core/runner.ts`, `prompts/08-auditar-spec-apos-run-all.md` e `prompts/11-retrospectiva-workflow-apos-spec-audit.md`, mais confirmacao do estado versionado em `bb7eb5b`, `d2fad05`, `4462a02` e `06cd244`.
+  - Matriz observavel da reauditoria executada em 2026-03-19 23:29Z com sucesso:
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/codex-client.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; git log --oneline --decorate -n 12`
 
 ## Auditoria final de entrega
-- Auditoria executada em: 2026-03-19 23:23Z
-- Resultado: a releitura integral desta spec, dos tickets fechados relacionados, dos execplans relacionados, do diff atual e do estado do codigo/testes confirmou atendimento de RF-01..RF-31 e CA-01..CA-16. Nao foram encontrados gaps tecnicos residuais; a spec foi promovida para `Status: attended` e `Spec treatment: done`.
+- Auditoria executada em: 2026-03-19 23:29Z
+- Resultado: a releitura integral desta spec, dos tickets fechados relacionados, dos execplans relacionados, do wiring atual do runner/prompts, do historico versionado e do estado do codigo/testes confirmou atendimento de RF-01..RF-31 e CA-01..CA-16. Nao foram encontrados gaps tecnicos residuais; a spec permanece em `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
   - Nenhum. As validacoes manuais externas remanescentes sao auditorias operacionais recomendadas e nao configuram gap residual local nem follow-up adicional.
 - Tickets/follow-ups concluidos na linhagem auditada:
@@ -266,3 +275,4 @@
 - 2026-03-19 22:58Z - Contrato de `workflow-gap-analysis` materializado com parser/tipos/contexto novo, fallback controlado, handoff tipado para publication e observabilidade dedicada em `/run_specs`, mantendo a spec em `partially_attended` apenas pelo ticket irmao de publication.
 - 2026-03-19 23:02Z - Ticket de `workflow-gap-analysis` fechado como `fixed`; rastreabilidade atualizada para `tickets/closed/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`, mantendo a spec em `partially_attended` apenas pelo ticket irmao de publication.
 - 2026-03-19 23:23Z - `workflow-ticket-publication` passou a consumir `publicationHandoff` como fonte unica, ganhou observabilidade dedicada no summary/Telegram e cobertura automatizada same-repo/external-repo; o ticket foi fechado como `fixed`, a spec foi promovida para `Status: attended` e `Spec treatment: done`, e permaneceram apenas validacoes manuais externas nao bloqueantes.
+- 2026-03-19 23:29Z - Auditoria final reexecutada apos a rodada encadeada: releitura da spec, tickets/execplans fechados, wiring atual e matriz automatizada completa confirmou ausencia de gaps residuais; a spec permaneceu `attended/done` e a rastreabilidade de commits foi atualizada.
