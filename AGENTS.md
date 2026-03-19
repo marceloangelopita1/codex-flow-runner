@@ -27,6 +27,11 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - `docs/specs/` deve conter arquivos Markdown com especificações funcionais e jornadas de uso.
 - Cada spec em `docs/specs/` deve ser documento vivo com status explícito de atendimento.
 - As specs são a base para identificar evoluções no projeto.
+- Para elicitação de novas specs direto no Codex/VS Code, existem dois modos:
+  - fluxo leve no estilo `/plan_spec`, para refinamento rápido;
+  - fluxo profundo no estilo `/discover_spec`, para entrevista estruturada antes de materializar a spec.
+- Quando o pedido do usuário no Codex/VS Code for claramente de descoberta/refinamento de spec, conduzir a conversa no modo apropriado em vez de pular direto para implementação.
+- Quando o usuário pedir uma entrevista detalhada para criar uma spec, seguir `docs/workflows/discover-spec.md`.
 - Quando uma evolução for identificada a partir das specs:
   - Criar um ticket em `tickets/open/` quando ainda for necessário detalhar/refinar o trabalho.
   - Criar um execplan direto em `execplans/` quando o escopo já estiver claro e pronto para execução.
@@ -46,3 +51,4 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - `INTERNAL_TICKETS.md`: padrão de tickets internos e ciclo de fechamento.
 - `PLANS.md`: padrão de ExecPlan para criação e execução em `execplans/`.
 - `SPECS.md`: padrão para criação/manutenção de specs e jornada de uso em `docs/specs/`.
+- `docs/workflows/discover-spec.md`: fluxo profundo para entrevista detalhada e criação de spec no estilo `/discover_spec`.
