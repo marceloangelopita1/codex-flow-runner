@@ -5406,6 +5406,22 @@ export class TicketRunner {
         outcome: correction.outcome,
       })),
       finalOpenGapFingerprints: [...result.finalOpenGapFingerprints],
+      cycleHistory: result.snapshots.map((snapshot) => ({
+        cycleNumber: snapshot.cycleNumber,
+        phase: snapshot.phase,
+        threadId: snapshot.threadId,
+        verdict: snapshot.turnResult.verdict,
+        confidence: snapshot.turnResult.confidence,
+        summary: snapshot.turnResult.summary,
+        openGapFingerprints: [...snapshot.openGapFingerprints],
+        appliedCorrections: snapshot.appliedCorrections.map((correction) => ({
+          description: correction.description,
+          affectedArtifactPaths: [...correction.affectedArtifactPaths],
+          linkedGapTypes: [...correction.linkedGapTypes],
+          outcome: correction.outcome,
+        })),
+        realGapReductionFromPrevious: snapshot.realGapReductionFromPrevious,
+      })),
       ...(workflowImprovementTicket
         ? {
             workflowImprovementTicket:
@@ -5444,6 +5460,22 @@ export class TicketRunner {
               outcome: correction.outcome,
             })),
             finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+            cycleHistory: summary.cycleHistory.map((cycle) => ({
+              cycleNumber: cycle.cycleNumber,
+              phase: cycle.phase,
+              threadId: cycle.threadId,
+              verdict: cycle.verdict,
+              confidence: cycle.confidence,
+              summary: cycle.summary,
+              openGapFingerprints: [...cycle.openGapFingerprints],
+              appliedCorrections: cycle.appliedCorrections.map((correction) => ({
+                description: correction.description,
+                affectedArtifactPaths: [...correction.affectedArtifactPaths],
+                linkedGapTypes: [...correction.linkedGapTypes],
+                outcome: correction.outcome,
+              })),
+              realGapReductionFromPrevious: cycle.realGapReductionFromPrevious,
+            })),
             workflowImprovementTicket: summary.workflowImprovementTicket
               ? this.cloneWorkflowImprovementTicketPublicationResult(
                   summary.workflowImprovementTicket,
@@ -5530,6 +5562,31 @@ export class TicketRunner {
       ...params.packageContext.tickets.map(
         (ticket) => `  - ${ticket.relativePath} [fonte=${ticket.source}]`,
       ),
+      "",
+      "#### Historico por ciclo",
+      ...params.summary.cycleHistory.flatMap((cycle) => {
+        const reductionLabel =
+          cycle.realGapReductionFromPrevious === null
+            ? "n/a"
+            : cycle.realGapReductionFromPrevious
+              ? "sim"
+              : "nao";
+
+        return [
+          `- Ciclo ${cycle.cycleNumber} [${cycle.phase}]: ${cycle.verdict} (${cycle.confidence})`,
+          `  - Resumo: ${cycle.summary}`,
+          `  - Thread: ${cycle.threadId}`,
+          `  - Fingerprints abertos: ${cycle.openGapFingerprints.join(", ") || "nenhum"}`,
+          `  - Reducao real de gaps vs. ciclo anterior: ${reductionLabel}`,
+          `  - Correcoes deste ciclo: ${cycle.appliedCorrections.length}`,
+          ...(cycle.appliedCorrections.length === 0
+            ? []
+            : cycle.appliedCorrections.map(
+                (correction) =>
+                  `    - ${correction.description} [${correction.outcome}]`,
+              )),
+        ];
+      }),
       "",
       "#### Gaps encontrados",
       ...(params.summary.gaps.length === 0
@@ -7553,6 +7610,22 @@ export class TicketRunner {
         outcome: correction.outcome,
       })),
       finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+      cycleHistory: summary.cycleHistory.map((cycle) => ({
+        cycleNumber: cycle.cycleNumber,
+        phase: cycle.phase,
+        threadId: cycle.threadId,
+        verdict: cycle.verdict,
+        confidence: cycle.confidence,
+        summary: cycle.summary,
+        openGapFingerprints: [...cycle.openGapFingerprints],
+        appliedCorrections: cycle.appliedCorrections.map((correction) => ({
+          description: correction.description,
+          affectedArtifactPaths: [...correction.affectedArtifactPaths],
+          linkedGapTypes: [...correction.linkedGapTypes],
+          outcome: correction.outcome,
+        })),
+        realGapReductionFromPrevious: cycle.realGapReductionFromPrevious,
+      })),
       ...(summary.workflowImprovementTicket
         ? {
             workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(

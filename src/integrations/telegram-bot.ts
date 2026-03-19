@@ -6223,6 +6223,26 @@ export class TelegramController {
     lines.push(`Ciclos executados: ${summary.cyclesExecuted}`);
     lines.push(`Resumo do gate: ${summary.summary}`);
 
+    if (summary.cycleHistory.length > 1) {
+      lines.push("Historico por ciclo:");
+      for (const cycle of summary.cycleHistory) {
+        const reductionLabel =
+          cycle.realGapReductionFromPrevious === null
+            ? "n/a"
+            : cycle.realGapReductionFromPrevious
+              ? "sim"
+              : "nao";
+        lines.push(
+          `- ciclo ${cycle.cycleNumber} [${cycle.phase}]: ${cycle.verdict}/${cycle.confidence} | gaps=${cycle.openGapFingerprints.length} | reducao=${reductionLabel}`,
+        );
+        if (cycle.appliedCorrections.length > 0) {
+          lines.push(
+            `  correcoes: ${cycle.appliedCorrections.map((correction) => `${correction.description} (${correction.outcome})`).join("; ")}`,
+          );
+        }
+      }
+    }
+
     if (summary.gaps.length === 0) {
       lines.push("Gaps finais: nenhum");
     } else {

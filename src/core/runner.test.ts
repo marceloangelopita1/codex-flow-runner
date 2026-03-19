@@ -3042,6 +3042,125 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
   }
 });
 
+test("requestRunSpecs persiste historico por ciclo em summary, spec e trace quando ha revalidacao", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura explicitada na primeira tentativa.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Revalidacao ainda encontrou o mesmo gap.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["Mesmo apos a tentativa, ainda nao existe ticket dedicado suficiente."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "blocked");
+    assert.equal(runSpecsSummary.specTicketValidation?.cyclesExecuted, 1);
+    assert.equal(runSpecsSummary.specTicketValidation?.cycleHistory.length, 2);
+    assert.equal(runSpecsSummary.specTicketValidation?.cycleHistory[0]?.phase, "initial-validation");
+    assert.equal(runSpecsSummary.specTicketValidation?.cycleHistory[1]?.phase, "revalidation");
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.cycleHistory[1]?.realGapReductionFromPrevious,
+      false,
+    );
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.cycleHistory[1]?.appliedCorrections.length,
+      1,
+    );
+
+    const traceRecord = records.find((entry) => entry.request.stage === "spec-ticket-validation");
+    const traceCycleHistory = traceRecord?.request.decision.metadata?.cycleHistory as
+      | Array<{
+          cycleNumber?: number;
+          phase?: string;
+          realGapReductionFromPrevious?: boolean | null;
+        }>
+      | undefined;
+    assert.equal(traceCycleHistory?.length, 2);
+    assert.equal(traceCycleHistory?.[0]?.cycleNumber, 0);
+    assert.equal(traceCycleHistory?.[0]?.phase, "initial-validation");
+    assert.equal(traceCycleHistory?.[1]?.cycleNumber, 1);
+    assert.equal(traceCycleHistory?.[1]?.phase, "revalidation");
+    assert.equal(traceCycleHistory?.[1]?.realGapReductionFromPrevious, false);
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.match(specContent, /#### Historico por ciclo/u);
+    assert.match(specContent, /Ciclo 0 \[initial-validation\]: NO_GO \(high\)/u);
+    assert.match(specContent, /Ciclo 1 \[revalidation\]: NO_GO \(high\)/u);
+    assert.match(specContent, /Reducao real de gaps vs\. ciclo anterior: nao/u);
+    assert.match(specContent, /Correcoes deste ciclo: 1/u);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
 test("requestRunSpecs publica ticket transversal no repo atual a partir de gap sistemico visto nos snapshots", async () => {
   const fixture = await setupRunSpecsFixture([ticketA.name], {
     activeProjectName: "codex-flow-runner",

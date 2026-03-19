@@ -166,6 +166,21 @@ const createFlowCodexPreferencesSnapshot = (
   ...value,
 });
 
+const createRunSpecsTicketValidationCycleSummary = (
+  value: Partial<RunSpecsTicketValidationSummary["cycleHistory"][number]> = {},
+): RunSpecsTicketValidationSummary["cycleHistory"][number] => ({
+  cycleNumber: 0,
+  phase: "initial-validation",
+  threadId: "stub-spec-ticket-validation-thread",
+  verdict: "GO",
+  confidence: "high",
+  summary: "Pacote derivado validado com sucesso.",
+  openGapFingerprints: [],
+  appliedCorrections: [],
+  realGapReductionFromPrevious: null,
+  ...value,
+});
+
 const createRunSpecsTicketValidationSummary = (
   value: Partial<RunSpecsTicketValidationSummary> = {},
 ): RunSpecsTicketValidationSummary => ({
@@ -179,6 +194,7 @@ const createRunSpecsTicketValidationSummary = (
   gaps: [],
   appliedCorrections: [],
   finalOpenGapFingerprints: [],
+  cycleHistory: [createRunSpecsTicketValidationCycleSummary()],
   ...value,
 });
 
@@ -6208,6 +6224,72 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
   assert.match(sentMessages[0]?.text ?? "", /Gaps finais:/u);
   assert.match(sentMessages[0]?.text ?? "", /coverage-gap: RF-01 ainda sem ticket dedicado\./u);
   assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado/u);
+});
+
+test("envia historico por ciclo no resumo de /run-specs quando houve revalidacao", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      outcome: "blocked",
+      finalStage: "spec-ticket-validation",
+      completionReason: "spec-ticket-validation-no-go",
+      runAllSummary: undefined,
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        verdict: "NO_GO",
+        confidence: "high",
+        finalReason: "no-real-gap-reduction",
+        cyclesExecuted: 1,
+        summary: "Persistem gaps apos a revalidacao.",
+        cycleHistory: [
+          createRunSpecsTicketValidationCycleSummary({
+            cycleNumber: 0,
+            phase: "initial-validation",
+            verdict: "NO_GO",
+            confidence: "high",
+            summary: "Primeiro passe encontrou gap auto-corrigivel.",
+            openGapFingerprints: ["coverage-gap|tickets/open/2026-02-19-flow-a.md|rf-01"],
+            appliedCorrections: [],
+            realGapReductionFromPrevious: null,
+          }),
+          createRunSpecsTicketValidationCycleSummary({
+            cycleNumber: 1,
+            phase: "revalidation",
+            verdict: "NO_GO",
+            confidence: "high",
+            summary: "Revalidacao ainda encontrou o mesmo gap.",
+            openGapFingerprints: ["coverage-gap|tickets/open/2026-02-19-flow-a.md|rf-01"],
+            appliedCorrections: [
+              {
+                description: "Adicionar cobertura explicita de RF-01 no ticket derivado.",
+                affectedArtifactPaths: ["tickets/open/2026-02-19-flow-a.md"],
+                linkedGapTypes: ["coverage-gap"],
+                outcome: "applied",
+              },
+            ],
+            realGapReductionFromPrevious: false,
+          }),
+        ],
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Historico por ciclo:/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /ciclo 0 \[initial-validation\]: NO_GO\/high \| gaps=1 \| reducao=n\/a/u,
+  );
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /ciclo 1 \[revalidation\]: NO_GO\/high \| gaps=1 \| reducao=nao/u,
+  );
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /correcoes: Adicionar cobertura explicita de RF-01 no ticket derivado\. \(applied\)/u,
+  );
 });
 
 test("envia resumo final de /run-specs com limitacao operacional do follow-up sistemico", async () => {

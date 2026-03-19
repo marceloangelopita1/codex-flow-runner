@@ -1,6 +1,7 @@
 import { CodexFlowPreferencesSnapshot } from "./codex-preferences.js";
 import {
   SpecTicketValidationAppliedCorrection,
+  SpecTicketValidationCyclePhase,
   SpecTicketValidationConfidenceLevel,
   SpecTicketValidationFinalReason,
   SpecTicketValidationGap,
@@ -61,7 +62,20 @@ export interface RunSpecsTicketValidationSummary {
   gaps: SpecTicketValidationGap[];
   appliedCorrections: SpecTicketValidationAppliedCorrection[];
   finalOpenGapFingerprints: string[];
+  cycleHistory: RunSpecsTicketValidationCycleSummary[];
   workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
+}
+
+export interface RunSpecsTicketValidationCycleSummary {
+  cycleNumber: number;
+  phase: SpecTicketValidationCyclePhase;
+  threadId: string;
+  verdict: SpecTicketValidationVerdict;
+  confidence: SpecTicketValidationConfidenceLevel;
+  summary: string;
+  openGapFingerprints: string[];
+  appliedCorrections: SpecTicketValidationAppliedCorrection[];
+  realGapReductionFromPrevious: boolean | null;
 }
 
 export type RunSpecsTriageTimingStage =

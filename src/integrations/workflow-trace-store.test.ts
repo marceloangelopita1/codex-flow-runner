@@ -146,6 +146,18 @@ test("recordStageTrace aceita spec-ticket-validation com metadata observavel do 
           verdict: "NO_GO",
           confidence: "medium",
           cyclesExecuted: 0,
+          cycleHistory: [
+            {
+              cycleNumber: 0,
+              phase: "initial-validation",
+              verdict: "NO_GO",
+              confidence: "medium",
+              summary: "RF-01 sem ticket dedicado.",
+              openGapFingerprints: ["coverage-gap|tickets/open/example.md|rf-01"],
+              appliedCorrections: [],
+              realGapReductionFromPrevious: null,
+            },
+          ],
           gaps: [
             {
               gapType: "coverage-gap",
@@ -163,6 +175,7 @@ test("recordStageTrace aceita spec-ticket-validation com metadata observavel do 
       decision: {
         metadata?: {
           verdict?: string;
+          cycleHistory?: Array<{ phase?: string }>;
           gaps?: Array<{ gapType?: string }>;
         };
       };
@@ -170,6 +183,7 @@ test("recordStageTrace aceita spec-ticket-validation com metadata observavel do 
 
     assert.equal(decision.stage, "spec-ticket-validation");
     assert.equal(decision.decision.metadata?.verdict, "NO_GO");
+    assert.equal(decision.decision.metadata?.cycleHistory?.[0]?.phase, "initial-validation");
     assert.equal(decision.decision.metadata?.gaps?.[0]?.gapType, "coverage-gap");
   } finally {
     await cleanupTempProjectRoot(projectPath);
