@@ -1,7 +1,7 @@
 # [TICKET] Introduzir stage spec-ticket-validation com gate antes do /run-all
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-19 15:41Z
@@ -92,9 +92,22 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - o gate antes do `/run-all` nao existe na orquestracao atual nem nos artefatos de observabilidade.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 17:06Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-01`, `RF-24`, `RF-25`; `CA-01`, `CA-16`, `CA-17`: `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/types/state.ts` encadeiam `spec-ticket-validation` entre `spec-triage` e `spec-close-and-version`, e encerram o fluxo em `spec-ticket-validation` quando o veredito for `NO_GO`; `src/core/runner.test.ts` cobre o caminho `GO` (`requestRunSpecs com sucesso encadeia run-all e processa backlog existente`) e o caminho `NO_GO` (`requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a spec`); `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/spec-ticket-validation.test.ts src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts` -> pass (`227/227`).
+  - `RF-15`, `RF-16`, `RF-17`, `RF-27`; `CA-10`, `CA-11`, `CA-12`: `src/core/runner.ts` persiste a subsecao `### Ultima execucao registrada` na secao `Gate de validacao dos tickets derivados`; `src/integrations/workflow-trace-store.ts` aceita `spec-ticket-validation` com metadata observavel do gate; `src/integrations/telegram-bot.ts` inclui veredito, gaps, correcoes aplicadas e ciclos no resumo final; `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts` e `src/integrations/telegram-bot.test.ts` validam escrita idempotente na spec, traces do gate e resumo final do Telegram para `GO` e `NO_GO`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/spec-ticket-validation.test.ts src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts` -> pass (`227/227`).
+  - Regressao do fluxo principal: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` -> pass (`356/356`); `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Entrega tecnica concluida:
+  - `runSpecsAndRunAll(...)` passou a executar `spec-triage -> spec-ticket-validation -> spec-close-and-version -> /run-all -> spec-audit` apenas quando o veredito do gate for `GO`.
+  - O caminho `NO_GO` agora bloqueia `spec-close-and-version` e `/run-all` sem tratar o gate como erro tecnico generico, preservando `finalStage`, `completionReason` e timing observavel do bloqueio.
+  - A spec recebe registro deterministico do gate, e o payload observavel do veredito passa a aparecer em estado, traces e resumo final do Telegram.
+- Validacao manual externa pendente: nao.

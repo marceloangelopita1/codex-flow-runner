@@ -6,15 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-19 15:31Z
-- Last reviewed at (UTC): 2026-03-19 16:25Z
+- Last reviewed at (UTC): 2026-03-19 17:06Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
+  - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
   - tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related execplans:
   - execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
+  - execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
 - Related commits:
   - 
 
@@ -123,7 +124,7 @@
 - Alterar a semantica do `spec-audit` final para absorver o novo gate `GO/NO_GO`.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `/run_specs <arquivo>` para spec elegivel executa a sequencia `spec-triage -> spec-ticket-validation -> spec-close-and-version -> /run-all -> spec-audit` quando o pacote derivado atingir `GO`.
+- [x] CA-01 - `/run_specs <arquivo>` para spec elegivel executa a sequencia `spec-triage -> spec-ticket-validation -> spec-close-and-version -> /run-all -> spec-audit` quando o pacote derivado atingir `GO`.
 - [ ] CA-02 - `spec-triage` nao cria `execplans/` diretamente a partir da spec; a derivacao inicial cria apenas tickets em `tickets/open/`.
 - [ ] CA-03 - `AGENTS.md`, `SPECS.md`, templates e docs de workflow deixam explicito o contrato `spec -> tickets` e removem a permissao canonica de `spec -> execplan` direto.
 - [x] CA-04 - O primeiro exec de `spec-ticket-validation` e iniciado sem reutilizar implicitamente o conversation id/contexto de `spec-triage`.
@@ -132,14 +133,14 @@
 - [x] CA-07 - Quando a primeira validacao identificar gaps corrigiveis, o runner executa autocorrecao e revalidacao automaticamente.
 - [x] CA-08 - O loop de autocorrecao executa no maximo 2 ciclos completos de `corrigir -> revalidar`.
 - [x] CA-09 - O runner bloqueia a continuidade antes do `/run-all` quando, apos os ciclos permitidos, nao houver reducao real dos gaps ou a confianca para `GO` permanecer insuficiente.
-- [ ] CA-10 - O veredito `GO/NO_GO`, os gaps e as correcoes aplicadas ficam registrados na secao `Gate de validacao dos tickets derivados` da spec.
-- [ ] CA-11 - O trace/log da rodada inclui o estagio `spec-ticket-validation`, o veredito final e os ciclos de validacao/autocorrecao executados.
-- [ ] CA-12 - O resumo final do `/run_specs` enviado ao Telegram inclui veredito `GO/NO_GO`, gaps encontrados, correcoes aplicadas e resultado final da etapa.
+- [x] CA-10 - O veredito `GO/NO_GO`, os gaps e as correcoes aplicadas ficam registrados na secao `Gate de validacao dos tickets derivados` da spec.
+- [x] CA-11 - O trace/log da rodada inclui o estagio `spec-ticket-validation`, o veredito final e os ciclos de validacao/autocorrecao executados.
+- [x] CA-12 - O resumo final do `/run_specs` enviado ao Telegram inclui veredito `GO/NO_GO`, gaps encontrados, correcoes aplicadas e resultado final da etapa.
 - [ ] CA-13 - Quando houver alta confianca de causa sistemica e o projeto ativo for `codex-flow-runner`, o fluxo abre automaticamente ticket transversal nesse mesmo repositorio e executa commit/push.
 - [ ] CA-14 - Quando houver alta confianca de causa sistemica e o projeto ativo for outro repositorio, o fluxo tenta abrir o ticket transversal em `../codex-flow-runner`, executa commit/push quando bem-sucedido e registra o resultado.
 - [ ] CA-15 - Se `../codex-flow-runner` nao existir ou nao estiver acessivel, o fluxo registra limitacao operacional nao bloqueante no resumo e no trace/log, sem impedir continuidade da spec corrente.
-- [ ] CA-16 - `spec-close-and-version` nao e executado quando o veredito de `spec-ticket-validation` for `NO_GO`.
-- [ ] CA-17 - `/run-all` nao e iniciado quando o veredito de `spec-ticket-validation` for `NO_GO`, mesmo que `spec-triage` tenha criado tickets.
+- [x] CA-16 - `spec-close-and-version` nao e executado quando o veredito de `spec-ticket-validation` for `NO_GO`.
+- [x] CA-17 - `/run-all` nao e iniciado quando o veredito de `spec-ticket-validation` for `NO_GO`, mesmo que `spec-triage` tenha criado tickets.
 - [ ] CA-18 - A documentacao do projeto passa a explicitar o principio transversal: `Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.`
 - [ ] CA-19 - `spec-audit` continua ocorrendo apenas apos `/run-all` encadeado bem-sucedido, preservando semantica distinta do novo gate anterior ao `/run-all`.
 - [ ] CA-20 - Material historico nao e migrado em massa por obrigacao documental; a propria documentacao deixa claro que a correcao retroativa fica limitada a artefatos tocados depois ou com impacto funcional real.
@@ -195,19 +196,25 @@
   - `src/integrations/codex-client.ts` agora expone sessao stateful dedicada para `spec-ticket-validation`, iniciando o primeiro passe sem reutilizar `thread_id` de `spec-triage` e reaproveitando apenas o contexto local da propria validacao.
   - `src/core/spec-ticket-validation.ts` agora implementa o loop de `autocorrecao -> revalidacao` com limite de 2 ciclos completos, reducao estrita de gaps e bloqueio por confianca insuficiente para `GO`.
   - `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` consolidou `CA-04` a `CA-09` com validacao `GO` em testes focados, `npm test`, `npm run check` e `npm run build`.
+  - `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/types/state.ts` agora encadeiam `spec-ticket-validation` entre `spec-triage` e `spec-close-and-version`, distinguem `NO_GO` de falha tecnica e propagam o snapshot observavel do gate para o resumo final do fluxo.
+  - `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts` agora reconhecem `spec-ticket-validation`, persistem/verbalizam veredito, gaps, correcoes aplicadas e ciclos executados, e os testes cobrem os caminhos `GO` e `NO_GO`.
+  - `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts` e `src/integrations/telegram-bot.test.ts` agora validam a escrita idempotente da secao `Gate de validacao dos tickets derivados`, o bloqueio de `spec-close-and-version`/`/run-all` em `NO_GO` e os snapshots finais expostos ao Telegram/traces.
+  - `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` consolidou `CA-01`, `CA-10`, `CA-11`, `CA-12`, `CA-16` e `CA-17` com validacao `GO` em testes focados, `npm test`, `npm run check` e `npm run build`.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` - introduzir `spec-ticket-validation` em runner/tipos/traces/Telegram e bloquear `spec-close-and-version` e `/run-all` quando o veredito nao for `GO`.
   - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` - abrir ticket transversal em `codex-flow-runner` ou `../codex-flow-runner`, com commit/push e limitacao nao bloqueante quando o repo nao estiver acessivel.
   - `tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` - corrigir docs/templates para o contrato `spec -> tickets`, explicitar a diretriz de qualidade por token e registrar a politica de migracao historica limitada.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
+  - `src/core/runner.test.ts`
   - `src/integrations/codex-client.ts`
   - `src/integrations/spec-ticket-validation-parser.ts`
   - `src/integrations/git-client.ts`
   - `src/integrations/ticket-queue.ts`
   - `src/integrations/workflow-trace-store.ts`
+  - `src/integrations/workflow-trace-store.test.ts`
   - `src/integrations/telegram-bot.ts`
+  - `src/integrations/telegram-bot.test.ts`
   - `src/types/flow-timing.ts`
   - `src/types/spec-ticket-validation.ts`
   - `src/types/state.ts`
@@ -258,3 +265,5 @@
 - 2026-03-19 15:50Z - Validacao final da triagem concluida; consistencia documental confirmada com quatro tickets abertos e manutencao do estado `approved/pending` ate a entrega das pendencias derivadas.
 - 2026-03-19 16:17Z - Contrato base de `spec-ticket-validation` implementado e validado localmente (tipos, parser, prompt, sessao stateful e loop de autocorrecao/revalidacao), mantendo `approved/pending` ate a integracao completa no runner e o fechamento formal dos tickets relacionados.
 - 2026-03-19 16:23Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` fechado como `fixed` apos validacao `GO` com testes focados, `npm test`, `npm run check` e `npm run build`.
+- 2026-03-19 17:02Z - Orquestracao e observabilidade do stage `spec-ticket-validation` integradas ao `/run_specs`, com bloqueio `NO_GO`, secao de gate persistida na spec, traces/Telegram expandidos e validacao automatizada verde (`npx tsx --test src/core/spec-ticket-validation.test.ts src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).
+- 2026-03-19 17:06Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` fechado como `fixed` apos releitura do diff, do ExecPlan e da spec de origem, com validacao `GO` pelos testes focados do gate/orquestracao/Telegram (`227/227`), `npm test` (`356/356`), `npm run check` e `npm run build`.

@@ -1,4 +1,11 @@
 import { CodexFlowPreferencesSnapshot } from "./codex-preferences.js";
+import {
+  SpecTicketValidationAppliedCorrection,
+  SpecTicketValidationConfidenceLevel,
+  SpecTicketValidationFinalReason,
+  SpecTicketValidationGap,
+  SpecTicketValidationVerdict,
+} from "./spec-ticket-validation.js";
 
 export interface FlowTimingSnapshot<Stage extends string = string> {
   startedAtUtc: string;
@@ -42,7 +49,23 @@ export interface RunSpecsTargetRef {
   path: string;
 }
 
-export type RunSpecsTriageTimingStage = "spec-triage" | "spec-close-and-version";
+export interface RunSpecsTicketValidationSummary {
+  verdict: SpecTicketValidationVerdict;
+  confidence: SpecTicketValidationConfidenceLevel;
+  finalReason: SpecTicketValidationFinalReason;
+  cyclesExecuted: number;
+  validationThreadId: string | null;
+  triageContextInherited: boolean;
+  summary: string;
+  gaps: SpecTicketValidationGap[];
+  appliedCorrections: SpecTicketValidationAppliedCorrection[];
+  finalOpenGapFingerprints: string[];
+}
+
+export type RunSpecsTriageTimingStage =
+  | "spec-triage"
+  | "spec-ticket-validation"
+  | "spec-close-and-version";
 
 export type RunSpecsTriageFinalStage = RunSpecsTriageTimingStage | "unknown";
 
@@ -53,6 +76,8 @@ export type RunSpecsFlowFinalStage = RunSpecsFlowTimingStage | "unknown";
 export type RunSpecsFlowCompletionReason =
   | "completed"
   | "triage-failure"
+  | "spec-ticket-validation-no-go"
+  | "spec-ticket-validation-failure"
   | "run-all-failure"
   | "spec-audit-failure";
 
@@ -69,6 +94,7 @@ export interface RunSpecsFlowSummary {
   codexPreferences?: CodexFlowPreferencesSnapshot;
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
+  specTicketValidation?: RunSpecsTicketValidationSummary;
   runAllSummary?: RunAllFlowSummary;
 }
 

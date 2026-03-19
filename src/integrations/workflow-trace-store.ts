@@ -7,7 +7,10 @@ const REQUESTS_DIR = "requests";
 const RESPONSES_DIR = "responses";
 const DECISIONS_DIR = "decisions";
 
-export type WorkflowTraceStage = TicketFlowStage | Extract<SpecFlowStage, "spec-triage" | "spec-close-and-version" | "spec-audit">;
+export type WorkflowTraceStage =
+  | TicketFlowStage
+  | "spec-ticket-validation"
+  | Extract<SpecFlowStage, "spec-triage" | "spec-close-and-version" | "spec-audit">;
 export type WorkflowTraceTargetKind = "ticket" | "spec";
 export type WorkflowTraceSourceCommand = "run-all" | "run-specs" | "run-ticket";
 

@@ -124,3 +124,54 @@ test("recordStageTrace evita sobrescrita silenciosa quando o traceId colide", as
     await cleanupTempProjectRoot(projectPath);
   }
 });
+
+test("recordStageTrace aceita spec-ticket-validation com metadata observavel do gate", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordStageTrace({
+      kind: "spec",
+      stage: "spec-ticket-validation",
+      sourceCommand: "run-specs",
+      targetName: "2026-03-19-spec-ticket-validation.md",
+      targetPath: "docs/specs/2026-03-19-spec-ticket-validation.md",
+      promptTemplatePath: "/repo/prompts/09-validar-tickets-derivados-da-spec.md",
+      promptText: "Valide os tickets derivados da spec.",
+      outputText: "NO_GO com gap de cobertura.",
+      decision: {
+        status: "success",
+        summary: "Etapa spec-ticket-validation concluida com veredito NO_GO.",
+        metadata: {
+          verdict: "NO_GO",
+          confidence: "medium",
+          cyclesExecuted: 0,
+          gaps: [
+            {
+              gapType: "coverage-gap",
+              summary: "RF-01 sem ticket dedicado.",
+            },
+          ],
+        },
+      },
+      recordedAt: new Date("2026-03-19T16:45:00.000Z"),
+    });
+
+    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
+    const decision = JSON.parse(decisionRaw) as {
+      stage: string;
+      decision: {
+        metadata?: {
+          verdict?: string;
+          gaps?: Array<{ gapType?: string }>;
+        };
+      };
+    };
+
+    assert.equal(decision.stage, "spec-ticket-validation");
+    assert.equal(decision.decision.metadata?.verdict, "NO_GO");
+    assert.equal(decision.decision.metadata?.gaps?.[0]?.gapType, "coverage-gap");
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});

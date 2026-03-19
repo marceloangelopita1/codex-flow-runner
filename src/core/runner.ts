@@ -38,6 +38,7 @@ import {
   RunSpecsFlowFinalStage,
   RunSpecsFlowSummary,
   RunSpecsFlowTimingStage,
+  RunSpecsTicketValidationSummary,
   RunSpecsTriageFinalStage,
   RunSpecsTriageTimingStage,
 } from "../types/flow-timing.js";
@@ -63,6 +64,7 @@ import {
   SpecFlowStage,
   SpecPlanningSourceCommand,
   SpecRef,
+  SpecTicketValidationSessionTurnResult,
   TicketFlowStage,
   isTicketFlowStage,
 } from "../integrations/codex-client.js";
@@ -98,6 +100,8 @@ import {
   CodexSpeedSelectionResult,
   CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
+import { runSpecTicketValidation } from "./spec-ticket-validation.js";
+import { SpecTicketValidationResult } from "../types/spec-ticket-validation.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -282,6 +286,32 @@ interface TicketProcessingResult {
   finalSummary: TicketFinalSummary | null;
 }
 
+type SpecTicketValidationTicketSource = "source-spec" | "spec-related";
+
+interface SpecTicketValidationTicketSnapshot {
+  fileName: string;
+  relativePath: string;
+  absolutePath: string;
+  content: string;
+  source: SpecTicketValidationTicketSource;
+}
+
+interface SpecTicketValidationPackageContext {
+  specContent: string;
+  packageContext: string;
+  tickets: SpecTicketValidationTicketSnapshot[];
+  lineageSource: "source-spec" | "spec-related" | "hybrid";
+}
+
+class RunnerSpecTicketValidationStageError extends Error {
+  readonly stage = "spec-ticket-validation";
+
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "RunnerSpecTicketValidationStageError";
+  }
+}
+
 type PlanSpecSessionChatRejectedResult =
   | {
       status: "inactive";
@@ -385,6 +415,11 @@ const TICKET_STATUS_METADATA_PATTERN = /^\s*-\s*Status\s*:\s*(.+?)\s*$/imu;
 const TICKET_PARENT_METADATA_PATTERN =
   /^\s*-\s*Parent ticket(?:\s*\(optional\))?\s*:\s*(.+?)\s*$/imu;
 const TICKET_CLOSURE_REASON_METADATA_PATTERN = /^\s*-\s*Closure reason\s*:\s*(.+?)\s*$/imu;
+const TICKET_SOURCE_SPEC_METADATA_PATTERN =
+  /^\s*-\s*Source spec(?:\s*\(when applicable\))?\s*:\s*(.+?)\s*$/imu;
+const SPEC_RELATED_TICKETS_BLOCK_PATTERN =
+  /^\s*-\s*Related tickets\s*:\s*\n((?:^\s{2,}-\s*.+\n?)*)/imu;
+const TOP_LEVEL_SECTION_HEADING_PATTERN = /^##\s+/mu;
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -4357,12 +4392,13 @@ export class TicketRunner {
     const flowTimingCollector = this.createFlowTimingCollector<RunSpecsFlowTimingStage>();
     let runAllSummary: RunAllFlowSummary | undefined;
     let flowSummary: RunSpecsFlowSummary | null = null;
+    let specTicketValidationSummary: RunSpecsTicketValidationSummary | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
     this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
 
     const runTimedTriageStage = async (
-      stage: RunSpecsTriageTimingStage,
+      stage: Extract<RunSpecsTriageTimingStage, "spec-triage" | "spec-close-and-version">,
       message: string,
     ): Promise<void> => {
       const stageStartedAt = Date.now();
@@ -4376,6 +4412,32 @@ export class TicketRunner {
         this.recordFlowStageFailure(triageTimingCollector, stage, durationMs);
         this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
         throw error;
+      }
+    };
+
+    const runTimedSpecTicketValidationStage = async (
+      message: string,
+    ): Promise<RunSpecsTicketValidationSummary> => {
+      const stage: Extract<RunSpecsTriageTimingStage, "spec-ticket-validation"> =
+        "spec-ticket-validation";
+      const stageStartedAt = Date.now();
+      try {
+        const execution = await this.runSpecTicketValidationStage(slot, spec, message);
+        specTicketValidationSummary = execution.summary;
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        return execution.summary;
+      } catch (error) {
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageFailure(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
+        if (error instanceof RunnerSpecTicketValidationStageError) {
+          throw error;
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new RunnerSpecTicketValidationStageError(errorMessage, error);
       }
     };
 
@@ -4399,6 +4461,51 @@ export class TicketRunner {
         "spec-triage",
         `Executando etapa spec-triage para ${spec.fileName}`,
       );
+      const validationSummary = await runTimedSpecTicketValidationStage(
+        `Executando etapa spec-ticket-validation para ${spec.fileName}`,
+      );
+      if (validationSummary.verdict !== "GO") {
+        const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
+        this.logger.info("Gate spec-ticket-validation bloqueou continuidade do /run_specs", {
+          spec: spec.fileName,
+          specPath: spec.path,
+          verdict: validationSummary.verdict,
+          confidence: validationSummary.confidence,
+          finalReason: validationSummary.finalReason,
+          cyclesExecuted: validationSummary.cyclesExecuted,
+          durationMs: triageTiming.totalDurationMs,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+        });
+        await this.emitRunSpecsTriageMilestone({
+          spec: { ...spec },
+          outcome: "failure",
+          finalStage: "spec-ticket-validation",
+          nextAction:
+            "Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute /run_specs.",
+          details: validationSummary.summary,
+          timing: triageTiming,
+        });
+        slot.currentSpec = null;
+        this.touchSlot(
+          slot,
+          "idle",
+          `Fluxo /run_specs bloqueado pelo gate spec-ticket-validation para ${spec.fileName}`,
+        );
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage: "spec-ticket-validation",
+          completionReason: "spec-ticket-validation-no-go",
+          details: validationSummary.summary,
+          triageTimingCollector,
+          flowTimingCollector,
+          specTicketValidation: validationSummary,
+          runAllSummary,
+        });
+        return;
+      }
       await runTimedTriageStage(
         "spec-close-and-version",
         `Executando etapa spec-close-and-version para ${spec.fileName}`,
@@ -4415,12 +4522,17 @@ export class TicketRunner {
         spec: { ...spec },
         outcome: "success",
         finalStage: "spec-close-and-version",
-        nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+        nextAction:
+          "Triagem e gate concluidos; iniciando rodada /run-all para processar tickets abertos.",
         timing: triageTiming,
       });
       triageCompleted = true;
       slot.currentSpec = null;
-      this.touchSlot(slot, "idle", `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`);
+      this.touchSlot(
+        slot,
+        "idle",
+        `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`,
+      );
       runAllSummary = await this.runForever(slot);
       if (runAllSummary.outcome === "success") {
         this.recordFlowStageCompletion(
@@ -4439,6 +4551,7 @@ export class TicketRunner {
           completionReason: "completed",
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       } else {
@@ -4458,33 +4571,44 @@ export class TicketRunner {
             "Fluxo /run-all interrompido durante a execucao encadeada de /run_specs.",
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       }
     } catch (error) {
       const stage =
-        error instanceof CodexStageExecutionError &&
-        (error.stage === "spec-triage" ||
-          error.stage === "spec-close-and-version" ||
-          error.stage === "spec-audit")
+        (error instanceof CodexStageExecutionError &&
+          (error.stage === "spec-triage" ||
+            error.stage === "spec-close-and-version" ||
+            error.stage === "spec-audit")) ||
+        error instanceof RunnerSpecTicketValidationStageError
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
       slot.isRunning = false;
       const finalStage: RunSpecsTriageFinalStage =
-        stage === "spec-triage" || stage === "spec-close-and-version" ? stage : "unknown";
+        stage === "spec-triage" ||
+        stage === "spec-ticket-validation" ||
+        stage === "spec-close-and-version"
+          ? stage
+          : "unknown";
       const triageFailed = !triageCompleted;
 
       if (triageFailed) {
         const failedAtCloseAndVersion = stage === "spec-close-and-version";
+        const failedAtTicketValidation = stage === "spec-ticket-validation";
         const nextAction = failedAtCloseAndVersion
           ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
+          : failedAtTicketValidation
+            ? "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs."
           : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
         this.touchSlot(
           slot,
           "error",
           failedAtCloseAndVersion
             ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
+            : failedAtTicketValidation
+              ? `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada`
             : `Falha ao executar triagem da spec ${spec.fileName}`,
         );
         this.logger.error("Erro no ciclo de triagem de spec", {
@@ -4509,10 +4633,13 @@ export class TicketRunner {
           spec,
           outcome: "failure",
           finalStage,
-          completionReason: "triage-failure",
+          completionReason: failedAtTicketValidation
+            ? "spec-ticket-validation-failure"
+            : "triage-failure",
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       } else if (stage === "spec-audit") {
@@ -4535,6 +4662,7 @@ export class TicketRunner {
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       } else {
@@ -4558,6 +4686,7 @@ export class TicketRunner {
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       }
@@ -4573,12 +4702,618 @@ export class TicketRunner {
           details: "Fluxo /run_specs interrompido antes da emissao do resumo final.",
           triageTimingCollector,
           flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
       await this.emitRunFlowCompleted(summary);
       slot.currentSpec = null;
       this.syncStateFromSlots();
     }
+  }
+
+  private async runSpecTicketValidationStage(
+    slot: ActiveRunnerSlot,
+    spec: SpecRef,
+    message: string,
+  ): Promise<{ summary: RunSpecsTicketValidationSummary }> {
+    const phase: RunnerState["phase"] = "spec-ticket-validation";
+    this.touchSlot(slot, phase, message);
+
+    let packageContext: SpecTicketValidationPackageContext | null = null;
+    let latestTurn: SpecTicketValidationSessionTurnResult | null = null;
+
+    try {
+      packageContext = await this.buildSpecTicketValidationPackageContext(slot.project.path, spec);
+      const result = await runSpecTicketValidation(
+        {
+          startSession: async (request) => {
+            const session = await slot.codexClient.startSpecTicketValidationSession(request);
+            return {
+              runTurn: async (turnRequest) => {
+                const turn = await session.runTurn(turnRequest);
+                latestTurn = turn;
+                return turn;
+              },
+              getThreadId: () => session.getThreadId(),
+              cancel: async () => {
+                await session.cancel();
+              },
+            };
+          },
+          autoCorrect: async () => {
+            const refreshedPackageContext = await this.buildSpecTicketValidationPackageContext(
+              slot.project.path,
+              spec,
+            );
+            return {
+              packageContext: refreshedPackageContext.packageContext,
+              appliedCorrections: [],
+            };
+          },
+        },
+        {
+          spec,
+          initialPackageContext: packageContext.packageContext,
+          triageThreadId: null,
+        },
+      );
+
+      const summary = this.buildRunSpecsTicketValidationSummary(result);
+      await this.persistSpecTicketValidationExecution({
+        projectPath: slot.project.path,
+        spec,
+        packageContext,
+        summary,
+      });
+
+      this.logger.info("Etapa spec-ticket-validation concluida no runner", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        verdict: summary.verdict,
+        confidence: summary.confidence,
+        finalReason: summary.finalReason,
+        cyclesExecuted: summary.cyclesExecuted,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+
+      if (latestTurn !== null) {
+        const completedTurn = latestTurn as SpecTicketValidationSessionTurnResult;
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "spec",
+          stage: "spec-ticket-validation",
+          targetName: spec.fileName,
+          targetPath: spec.path,
+          promptTemplatePath: completedTurn.promptTemplatePath,
+          promptText: completedTurn.promptText,
+          outputText: completedTurn.output,
+          diagnostics: completedTurn.diagnostics,
+          summary: `Etapa spec-ticket-validation concluida com veredito ${summary.verdict}.`,
+          metadata: this.buildSpecTicketValidationTraceMetadata(summary, packageContext),
+        });
+      }
+
+      return { summary };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (latestTurn !== null) {
+        const failedTurn = latestTurn as SpecTicketValidationSessionTurnResult;
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "spec",
+          stage: "spec-ticket-validation",
+          targetName: spec.fileName,
+          targetPath: spec.path,
+          promptTemplatePath: failedTurn.promptTemplatePath,
+          promptText: failedTurn.promptText,
+          outputText: failedTurn.output,
+          diagnostics: failedTurn.diagnostics,
+          summary: "Etapa spec-ticket-validation falhou no runner.",
+          metadata: packageContext
+            ? this.buildSpecTicketValidationTraceMetadata(undefined, packageContext)
+            : undefined,
+          decisionStatus: "failure",
+          decisionErrorMessage: errorMessage,
+        });
+      }
+
+      throw error instanceof RunnerSpecTicketValidationStageError
+        ? error
+        : new RunnerSpecTicketValidationStageError(errorMessage, error);
+    }
+  }
+
+  private async buildSpecTicketValidationPackageContext(
+    projectPath: string,
+    spec: SpecRef,
+  ): Promise<SpecTicketValidationPackageContext> {
+    const specAbsolutePath = this.resolveProjectRelativePath(projectPath, spec.path);
+    let specContent = "";
+    try {
+      specContent = await fs.readFile(specAbsolutePath, "utf8");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(`Falha ao ler spec ${spec.path} para spec-ticket-validation: ${details}`);
+    }
+
+    const sourceSpecTickets = await this.listOpenTicketsForSpec(projectPath, spec);
+    const relatedTicketPaths = this.extractRelatedOpenTicketPaths(specContent);
+    const fallbackTickets = await this.resolveRelatedOpenTickets(
+      projectPath,
+      relatedTicketPaths,
+      sourceSpecTickets.length === 0,
+    );
+    const tickets = this.mergeSpecTicketValidationTickets(sourceSpecTickets, fallbackTickets);
+
+    if (tickets.length === 0) {
+      throw new Error(
+        `Nao foi possivel derivar com seguranca o pacote de tickets da spec ${spec.path}; nenhum ticket aberto da linhagem foi encontrado.`,
+      );
+    }
+
+    const lineageSource =
+      sourceSpecTickets.length > 0 && fallbackTickets.length > 0
+        ? "hybrid"
+        : sourceSpecTickets.length > 0
+          ? "source-spec"
+          : "spec-related";
+
+    return {
+      specContent,
+      tickets,
+      lineageSource,
+      packageContext: this.renderSpecTicketValidationPackageContext(
+        spec,
+        specContent,
+        tickets,
+        lineageSource,
+      ),
+    };
+  }
+
+  private async listOpenTicketsForSpec(
+    projectPath: string,
+    spec: SpecRef,
+  ): Promise<SpecTicketValidationTicketSnapshot[]> {
+    const openTicketsDir = path.join(projectPath, "tickets", "open");
+    let fileNames: string[] = [];
+
+    try {
+      fileNames = (await fs.readdir(openTicketsDir))
+        .filter((entry) => entry.endsWith(".md"))
+        .sort((left, right) => left.localeCompare(right, "pt-BR"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(`Falha ao listar tickets abertos para spec-ticket-validation: ${details}`);
+    }
+
+    const tickets: Array<SpecTicketValidationTicketSnapshot | null> = await Promise.all(
+      fileNames.map(async (fileName) => {
+        const relativePath = path.posix.join("tickets", "open", fileName);
+        const absolutePath = this.resolveProjectRelativePath(projectPath, relativePath);
+        const content = await fs.readFile(absolutePath, "utf8");
+        const sourceSpec = this.normalizeTicketReference(
+          this.normalizeTicketMetadataValue(
+            content.match(TICKET_SOURCE_SPEC_METADATA_PATTERN)?.[1],
+          ),
+        );
+        if (!this.ticketReferencesSpec(projectPath, sourceSpec, spec)) {
+          return null;
+        }
+
+        return {
+          fileName,
+          relativePath,
+          absolutePath,
+          content,
+          source: "source-spec",
+        };
+      }),
+    );
+
+    return tickets.filter((ticket): ticket is SpecTicketValidationTicketSnapshot => ticket !== null);
+  }
+
+  private extractRelatedOpenTicketPaths(specContent: string): string[] {
+    const metadataSection = this.extractTopLevelSectionContent(specContent, "Metadata");
+    if (!metadataSection) {
+      return [];
+    }
+
+    const relatedTicketsBlock = metadataSection.match(SPEC_RELATED_TICKETS_BLOCK_PATTERN)?.[1];
+    if (!relatedTicketsBlock) {
+      return [];
+    }
+
+    return relatedTicketsBlock
+      .split("\n")
+      .map((line) => line.match(/^\s*-\s*(.+?)\s*$/u)?.[1] ?? "")
+      .map((value) => this.normalizeTicketReference(value))
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.replace(/\\/gu, "/"))
+      .filter((value) => value.startsWith("tickets/open/"));
+  }
+
+  private async resolveRelatedOpenTickets(
+    projectPath: string,
+    relativePaths: string[],
+    strict: boolean,
+  ): Promise<SpecTicketValidationTicketSnapshot[]> {
+    const snapshots: SpecTicketValidationTicketSnapshot[] = [];
+    const missingPaths: string[] = [];
+
+    for (const relativePath of relativePaths) {
+      const normalizedRelativePath = this.normalizeRepositoryPathReference(projectPath, relativePath);
+      const fileName = path.posix.basename(normalizedRelativePath);
+      const absolutePath = this.resolveProjectRelativePath(projectPath, normalizedRelativePath);
+      try {
+        const content = await fs.readFile(absolutePath, "utf8");
+        snapshots.push({
+          fileName,
+          relativePath: normalizedRelativePath,
+          absolutePath,
+          content,
+          source: "spec-related",
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          missingPaths.push(normalizedRelativePath);
+          continue;
+        }
+
+        const details = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Falha ao ler ticket relacionado ${normalizedRelativePath} durante spec-ticket-validation: ${details}`,
+        );
+      }
+    }
+
+    if (strict && missingPaths.length > 0) {
+      throw new Error(
+        `A spec referencia tickets abertos inexistentes para spec-ticket-validation: ${missingPaths.join(", ")}.`,
+      );
+    }
+
+    return snapshots;
+  }
+
+  private mergeSpecTicketValidationTickets(
+    primary: SpecTicketValidationTicketSnapshot[],
+    secondary: SpecTicketValidationTicketSnapshot[],
+  ): SpecTicketValidationTicketSnapshot[] {
+    const merged = new Map<string, SpecTicketValidationTicketSnapshot>();
+
+    for (const ticket of [...primary, ...secondary]) {
+      const existing = merged.get(ticket.relativePath);
+      if (!existing) {
+        merged.set(ticket.relativePath, ticket);
+        continue;
+      }
+
+      if (existing.source === "source-spec") {
+        continue;
+      }
+
+      merged.set(ticket.relativePath, ticket);
+    }
+
+    return Array.from(merged.values()).sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath, "pt-BR"),
+    );
+  }
+
+  private renderSpecTicketValidationPackageContext(
+    spec: SpecRef,
+    specContent: string,
+    tickets: SpecTicketValidationTicketSnapshot[],
+    lineageSource: SpecTicketValidationPackageContext["lineageSource"],
+  ): string {
+    const lines = [
+      "# Pacote derivado da spec",
+      "",
+      `- Spec alvo: ${spec.path}`,
+      `- Linhagem resolvida por: ${lineageSource}`,
+      `- Tickets abertos derivados: ${tickets.length}`,
+      "",
+      "## Spec",
+      `- Caminho: ${spec.path}`,
+      "",
+      specContent.trim() || "(spec vazia)",
+      "",
+      "## Tickets derivados",
+      ...tickets.flatMap((ticket, index) => [
+        `### ${index + 1}. ${ticket.relativePath}`,
+        `- Fonte da linhagem: ${ticket.source}`,
+        "",
+        ticket.content.trim() || "(ticket vazio)",
+        "",
+      ]),
+    ];
+
+    return lines.join("\n").trim();
+  }
+
+  private buildRunSpecsTicketValidationSummary(
+    result: SpecTicketValidationResult,
+  ): RunSpecsTicketValidationSummary {
+    return {
+      verdict: result.verdict,
+      confidence: result.confidence,
+      finalReason: result.finalReason,
+      cyclesExecuted: result.cyclesExecuted,
+      validationThreadId: result.validationThreadId,
+      triageContextInherited: result.triageContextInherited,
+      summary: result.finalPass.summary,
+      gaps: result.finalPass.gaps.map((gap) => ({
+        gapType: gap.gapType,
+        summary: gap.summary,
+        affectedArtifactPaths: [...gap.affectedArtifactPaths],
+        requirementRefs: [...gap.requirementRefs],
+        evidence: [...gap.evidence],
+        probableRootCause: gap.probableRootCause,
+        isAutoCorrectable: gap.isAutoCorrectable,
+      })),
+      appliedCorrections: result.allAppliedCorrections.map((correction) => ({
+        description: correction.description,
+        affectedArtifactPaths: [...correction.affectedArtifactPaths],
+        linkedGapTypes: [...correction.linkedGapTypes],
+        outcome: correction.outcome,
+      })),
+      finalOpenGapFingerprints: [...result.finalOpenGapFingerprints],
+    };
+  }
+
+  private buildSpecTicketValidationTraceMetadata(
+    summary: RunSpecsTicketValidationSummary | undefined,
+    packageContext: SpecTicketValidationPackageContext,
+  ): Record<string, unknown> {
+    return {
+      ...(summary
+        ? {
+            verdict: summary.verdict,
+            confidence: summary.confidence,
+            finalReason: summary.finalReason,
+            cyclesExecuted: summary.cyclesExecuted,
+            validationThreadId: summary.validationThreadId,
+            triageContextInherited: summary.triageContextInherited,
+            summary: summary.summary,
+            gaps: summary.gaps.map((gap) => ({
+              gapType: gap.gapType,
+              summary: gap.summary,
+              affectedArtifactPaths: [...gap.affectedArtifactPaths],
+              requirementRefs: [...gap.requirementRefs],
+              probableRootCause: gap.probableRootCause,
+              isAutoCorrectable: gap.isAutoCorrectable,
+            })),
+            appliedCorrections: summary.appliedCorrections.map((correction) => ({
+              description: correction.description,
+              affectedArtifactPaths: [...correction.affectedArtifactPaths],
+              linkedGapTypes: [...correction.linkedGapTypes],
+              outcome: correction.outcome,
+            })),
+            finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+          }
+        : {}),
+      ticketCount: packageContext.tickets.length,
+      ticketPaths: packageContext.tickets.map((ticket) => ticket.relativePath),
+      lineageSource: packageContext.lineageSource,
+    };
+  }
+
+  private async persistSpecTicketValidationExecution(params: {
+    projectPath: string;
+    spec: SpecRef;
+    packageContext: SpecTicketValidationPackageContext;
+    summary: RunSpecsTicketValidationSummary;
+  }): Promise<void> {
+    const specAbsolutePath = this.resolveProjectRelativePath(params.projectPath, params.spec.path);
+    let originalContent = "";
+    try {
+      originalContent = await fs.readFile(specAbsolutePath, "utf8");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Falha ao reler spec ${params.spec.path} antes de persistir o gate de validacao: ${details}`,
+      );
+    }
+
+    const sectionBody = this.extractTopLevelSectionContent(
+      originalContent,
+      "Gate de validacao dos tickets derivados",
+    );
+    const executionBlock = this.renderSpecTicketValidationExecutionBlock(params);
+    const nextSectionBody = this.upsertSpecTicketValidationExecutionBlock(
+      sectionBody,
+      executionBlock,
+    );
+    const nextContent = this.replaceTopLevelSectionContent(
+      originalContent,
+      "Gate de validacao dos tickets derivados",
+      nextSectionBody,
+    );
+
+    if (nextContent === originalContent) {
+      return;
+    }
+
+    const tempPath = `${specAbsolutePath}.spec-ticket-validation.tmp`;
+    try {
+      await fs.writeFile(tempPath, nextContent, "utf8");
+      await fs.rename(tempPath, specAbsolutePath);
+    } catch (error) {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined);
+      await fs.writeFile(specAbsolutePath, originalContent, "utf8").catch(() => undefined);
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Falha ao persistir a secao \`Gate de validacao dos tickets derivados\` em ${params.spec.path}: ${details}`,
+      );
+    }
+  }
+
+  private renderSpecTicketValidationExecutionBlock(params: {
+    packageContext: SpecTicketValidationPackageContext;
+    summary: RunSpecsTicketValidationSummary;
+  }): string {
+    const systemicGaps = params.summary.gaps.filter(
+      (gap) => gap.probableRootCause === "systemic-instruction",
+    );
+    const lines = [
+      "### Ultima execucao registrada",
+      `- Executada em (UTC): ${this.now().toISOString()}`,
+      `- Veredito: ${params.summary.verdict}`,
+      `- Confianca final: ${params.summary.confidence}`,
+      `- Motivo final: ${params.summary.finalReason}`,
+      `- Resumo: ${params.summary.summary}`,
+      `- Ciclos executados: ${params.summary.cyclesExecuted}`,
+      `- Thread da validacao: ${params.summary.validationThreadId ?? "indisponivel"}`,
+      `- Contexto de triagem herdado: ${params.summary.triageContextInherited ? "sim" : "nao"}`,
+      `- Linhagem do pacote: ${params.packageContext.lineageSource}`,
+      "- Tickets avaliados:",
+      ...params.packageContext.tickets.map(
+        (ticket) => `  - ${ticket.relativePath} [fonte=${ticket.source}]`,
+      ),
+      "",
+      "#### Gaps encontrados",
+      ...(params.summary.gaps.length === 0
+        ? ["- Nenhum."]
+        : params.summary.gaps.flatMap((gap) => [
+            `- ${gap.gapType}: ${gap.summary}`,
+            `  - Artefatos afetados: ${gap.affectedArtifactPaths.join(", ") || "nenhum"}`,
+            `  - Requisitos referenciados: ${gap.requirementRefs.join(", ") || "nenhum"}`,
+            `  - Evidencias: ${gap.evidence.join(" | ") || "nenhuma"}`,
+            `  - Causa-raiz provavel: ${gap.probableRootCause}`,
+            `  - Autocorretavel: ${gap.isAutoCorrectable ? "sim" : "nao"}`,
+          ])),
+      "",
+      "#### Correcoes aplicadas",
+      ...(params.summary.appliedCorrections.length === 0
+        ? ["- Nenhuma."]
+        : params.summary.appliedCorrections.flatMap((correction) => [
+            `- ${correction.description}`,
+            `  - Artefatos afetados: ${correction.affectedArtifactPaths.join(", ") || "nenhum"}`,
+            `  - Gaps relacionados: ${correction.linkedGapTypes.join(", ") || "nenhum"}`,
+            `  - Resultado: ${correction.outcome}`,
+          ])),
+      "",
+      "#### Observacoes sobre melhoria sistemica do workflow",
+      ...(systemicGaps.length === 0
+        ? ["- Nenhuma observacao sistemica registrada nesta execucao."]
+        : [
+            `- ${systemicGaps.length} gap(s) terminaram com causa-raiz \`systemic-instruction\`; a abertura automatica de ticket transversal permanece fora do escopo deste ticket.`,
+          ]),
+    ];
+
+    return lines.join("\n");
+  }
+
+  private upsertSpecTicketValidationExecutionBlock(
+    sectionBody: string | null,
+    executionBlock: string,
+  ): string {
+    const normalizedExecutionBlock = executionBlock.trim();
+    if (!sectionBody || !sectionBody.trim()) {
+      return normalizedExecutionBlock;
+    }
+
+    const markerPattern = /^###\s+Ultima execucao registrada\s*$/imu;
+    if (!markerPattern.test(sectionBody)) {
+      return `${sectionBody.trimEnd()}\n\n${normalizedExecutionBlock}`;
+    }
+
+    return sectionBody.replace(
+      /^###\s+Ultima execucao registrada\s*$[\s\S]*$/imu,
+      normalizedExecutionBlock,
+    ).trimEnd();
+  }
+
+  private ticketReferencesSpec(
+    projectPath: string,
+    sourceSpec: string | null,
+    spec: SpecRef,
+  ): boolean {
+    if (!sourceSpec) {
+      return false;
+    }
+
+    const normalizedReference = this.normalizeRepositoryPathReference(projectPath, sourceSpec);
+    const normalizedSpecPath = this.normalizeRepositoryPathReference(projectPath, spec.path);
+    return (
+      normalizedReference === normalizedSpecPath ||
+      path.posix.basename(normalizedReference) === spec.fileName
+    );
+  }
+
+  private normalizeRepositoryPathReference(projectPath: string, reference: string): string {
+    const stripped = reference.trim().replace(/^`|`$/gu, "").replace(/\\/gu, "/");
+    if (!stripped) {
+      return stripped;
+    }
+
+    const relativeReference = path.isAbsolute(stripped)
+      ? path.relative(projectPath, stripped).replace(/\\/gu, "/")
+      : stripped;
+
+    return path.posix.normalize(relativeReference.replace(/^\.\//u, ""));
+  }
+
+  private extractTopLevelSectionContent(content: string, heading: string): string | null {
+    const range = this.findTopLevelSectionRange(content, heading);
+    if (!range) {
+      return null;
+    }
+
+    return content.slice(range.bodyStart, range.end).trimEnd();
+  }
+
+  private replaceTopLevelSectionContent(
+    content: string,
+    heading: string,
+    nextBody: string,
+  ): string {
+    const normalizedBody = nextBody.trim();
+    const range = this.findTopLevelSectionRange(content, heading);
+    if (!range) {
+      return `${content.trimEnd()}\n\n## ${heading}\n${normalizedBody}\n`;
+    }
+
+    const before = content.slice(0, range.bodyStart);
+    const after = content.slice(range.end).replace(/^\n*/u, "");
+    return `${before}${normalizedBody}${after ? `\n\n${after}` : "\n"}`;
+  }
+
+  private findTopLevelSectionRange(
+    content: string,
+    heading: string,
+  ): { bodyStart: number; end: number } | null {
+    const headingPattern = new RegExp(`^##\\s+${this.escapeRegExp(heading)}\\s*$`, "imu");
+    const headingMatch = headingPattern.exec(content);
+    if (!headingMatch || headingMatch.index === undefined) {
+      return null;
+    }
+
+    let bodyStart = headingMatch.index + headingMatch[0].length;
+    if (content.startsWith("\r\n", bodyStart)) {
+      bodyStart += 2;
+    } else if (content.startsWith("\n", bodyStart)) {
+      bodyStart += 1;
+    }
+
+    const remainder = content.slice(bodyStart);
+    const nextHeadingMatch = remainder.match(TOP_LEVEL_SECTION_HEADING_PATTERN);
+    return {
+      bodyStart,
+      end:
+        nextHeadingMatch && nextHeadingMatch.index !== undefined
+          ? bodyStart + nextHeadingMatch.index
+          : content.length,
+    };
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   }
 
   private normalizeSpecFileName(specFileName: string): string {
@@ -6324,6 +7059,7 @@ export class TicketRunner {
     details?: string;
     triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
+    specTicketValidation?: RunSpecsTicketValidationSummary;
     runAllSummary?: RunAllFlowSummary;
   }): RunSpecsFlowSummary {
     return {
@@ -6348,6 +7084,13 @@ export class TicketRunner {
         : {}),
       triageTiming: this.buildFlowTimingSnapshot(params.triageTimingCollector),
       timing: this.buildFlowTimingSnapshot(params.flowTimingCollector),
+      ...(params.specTicketValidation
+        ? {
+            specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
+              params.specTicketValidation,
+            ),
+          }
+        : {}),
       ...(params.runAllSummary
         ? {
             runAllSummary: this.cloneRunAllFlowSummary(params.runAllSummary),
@@ -6382,6 +7125,36 @@ export class TicketRunner {
     };
   }
 
+  private cloneRunSpecsTicketValidationSummary(
+    summary: RunSpecsTicketValidationSummary,
+  ): RunSpecsTicketValidationSummary {
+    return {
+      verdict: summary.verdict,
+      confidence: summary.confidence,
+      finalReason: summary.finalReason,
+      cyclesExecuted: summary.cyclesExecuted,
+      validationThreadId: summary.validationThreadId,
+      triageContextInherited: summary.triageContextInherited,
+      summary: summary.summary,
+      gaps: summary.gaps.map((gap) => ({
+        gapType: gap.gapType,
+        summary: gap.summary,
+        affectedArtifactPaths: [...gap.affectedArtifactPaths],
+        requirementRefs: [...gap.requirementRefs],
+        evidence: [...gap.evidence],
+        probableRootCause: gap.probableRootCause,
+        isAutoCorrectable: gap.isAutoCorrectable,
+      })),
+      appliedCorrections: summary.appliedCorrections.map((correction) => ({
+        description: correction.description,
+        affectedArtifactPaths: [...correction.affectedArtifactPaths],
+        linkedGapTypes: [...correction.linkedGapTypes],
+        outcome: correction.outcome,
+      })),
+      finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+    };
+  }
+
   private cloneRunnerFlowSummary(summary: RunnerFlowSummary): RunnerFlowSummary {
     if (summary.flow === "run-all") {
       return this.cloneRunAllFlowSummary(summary);
@@ -6397,6 +7170,13 @@ export class TicketRunner {
         : {}),
       triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
       timing: this.cloneFlowTimingSnapshot(summary.timing),
+      ...(summary.specTicketValidation
+        ? {
+            specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
+              summary.specTicketValidation,
+            ),
+          }
+        : {}),
       ...(summary.runAllSummary
         ? {
             runAllSummary: this.cloneRunAllFlowSummary(summary.runAllSummary),

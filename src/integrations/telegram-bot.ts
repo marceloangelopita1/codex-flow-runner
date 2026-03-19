@@ -41,7 +41,7 @@ import {
   TicketNotificationDelivery,
   TicketNotificationErrorClass,
 } from "../types/ticket-final-summary.js";
-import { FlowTimingSnapshot, RunnerFlowSummary } from "../types/flow-timing.js";
+import { FlowTimingSnapshot, RunSpecsFlowSummary, RunnerFlowSummary } from "../types/flow-timing.js";
 import {
   PlanSpecFinalActionId,
   PlanSpecFinalBlock,
@@ -675,10 +675,15 @@ const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
   "ENETUNREACH",
 ]);
 const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as const;
-const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = ["spec-triage", "spec-close-and-version"] as const;
+const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = [
+  "spec-triage",
+  "spec-ticket-validation",
+  "spec-close-and-version",
+] as const;
 const RUN_ALL_TIMING_STAGE_ORDER = ["select-ticket", "plan", "implement", "close-and-version"] as const;
 const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = [
   "spec-triage",
+  "spec-ticket-validation",
   "spec-close-and-version",
   "run-all",
   "spec-audit",
@@ -6177,6 +6182,9 @@ export class TelegramController {
     if (summary.details) {
       lines.push(`Detalhes: ${summary.details}`);
     }
+    if (summary.specTicketValidation) {
+      this.appendRunSpecsTicketValidationLines(lines, summary.specTicketValidation);
+    }
     this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
     this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
 
@@ -6194,6 +6202,41 @@ export class TelegramController {
 
   private renderOutcome(outcome: "success" | "failure"): string {
     return outcome === "success" ? "sucesso" : "falha";
+  }
+
+  private appendRunSpecsTicketValidationLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["specTicketValidation"]>,
+  ): void {
+    lines.push("Gate spec-ticket-validation");
+    lines.push(`Veredito: ${summary.verdict}`);
+    lines.push(`Confianca final: ${summary.confidence}`);
+    lines.push(`Motivo final: ${summary.finalReason}`);
+    lines.push(`Ciclos executados: ${summary.cyclesExecuted}`);
+    lines.push(`Resumo do gate: ${summary.summary}`);
+
+    if (summary.gaps.length === 0) {
+      lines.push("Gaps finais: nenhum");
+    } else {
+      lines.push("Gaps finais:");
+      for (const gap of summary.gaps) {
+        const requirementSuffix =
+          gap.requirementRefs.length > 0
+            ? ` [${gap.requirementRefs.join(", ")}]`
+            : "";
+        lines.push(`- ${gap.gapType}: ${gap.summary}${requirementSuffix}`);
+      }
+    }
+
+    if (summary.appliedCorrections.length === 0) {
+      lines.push("Correcoes aplicadas: nenhuma");
+      return;
+    }
+
+    lines.push("Correcoes aplicadas:");
+    for (const correction of summary.appliedCorrections) {
+      lines.push(`- ${correction.description} (${correction.outcome})`);
+    }
   }
 
   private appendTimingLines<Stage extends string>(

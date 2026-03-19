@@ -15,6 +15,7 @@ export type RunnerPhase =
   | "idle"
   | "select-spec"
   | "spec-triage"
+  | "spec-ticket-validation"
   | "spec-close-and-version"
   | "spec-audit"
   | "select-ticket"

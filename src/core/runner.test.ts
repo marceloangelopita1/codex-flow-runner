@@ -44,6 +44,7 @@ import {
   CodexInvocationPreferences,
 } from "../types/codex-preferences.js";
 import { RunnerFlowSummary } from "../types/flow-timing.js";
+import { SpecTicketValidationPassResult } from "../types/spec-ticket-validation.js";
 import {
   TicketFinalSummary,
   TicketNotificationDispatchError,
@@ -95,6 +96,9 @@ class StubCodexClient implements CodexTicketFlowClient {
   public lastFreeChatSession: StubCodexChatSession | null = null;
   public lastSpecTicketValidationSession: StubSpecTicketValidationSession | null = null;
   public invocationPreferences: CodexInvocationPreferences | null;
+  public specTicketValidationTurns: SpecTicketValidationPassResult[] = [
+    createSpecTicketValidationPassResult(),
+  ];
   private fixedInvocationPreferences: CodexInvocationPreferences | null | undefined;
 
   constructor(
@@ -249,7 +253,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     _request: SpecTicketValidationSessionStartRequest,
   ): Promise<SpecTicketValidationSession> {
     this.specTicketValidationSessionStartCalls += 1;
-    const session = new StubSpecTicketValidationSession();
+    const session = new StubSpecTicketValidationSession(this.specTicketValidationTurns);
     this.lastSpecTicketValidationSession = session;
     return session;
   }
@@ -390,6 +394,8 @@ class StubSpecTicketValidationSession implements SpecTicketValidationSession {
   }> = [];
   public cancelCalls = 0;
 
+  constructor(private readonly scriptedTurns: SpecTicketValidationPassResult[] = []) {}
+
   async runTurn(request: {
     packageContext: string;
     appliedCorrectionsSummary?: string[];
@@ -399,16 +405,15 @@ class StubSpecTicketValidationSession implements SpecTicketValidationSession {
       appliedCorrectionsSummary: request.appliedCorrectionsSummary ?? [],
     });
 
+    const scriptedTurn =
+      this.scriptedTurns.shift() ??
+      this.scriptedTurns[this.scriptedTurns.length - 1] ??
+      createSpecTicketValidationPassResult();
+
     return {
       threadId: "stub-spec-ticket-validation-thread",
       output: "stub",
-      parsed: {
-        verdict: "GO" as const,
-        confidence: "high" as const,
-        summary: "stub",
-        gaps: [],
-        appliedCorrections: [],
-      },
+      parsed: scriptedTurn,
       promptTemplatePath: "/tmp/prompts/09-validar-tickets-derivados-da-spec.md",
       promptText: "prompt:spec-ticket-validation",
     };
@@ -758,6 +763,17 @@ const createFlowCodexPreferencesSnapshot = (
   ...value,
 });
 
+const createSpecTicketValidationPassResult = (
+  value: Partial<SpecTicketValidationPassResult> = {},
+): SpecTicketValidationPassResult => ({
+  verdict: "GO",
+  confidence: "high",
+  summary: "Pacote derivado validado com sucesso.",
+  gaps: [],
+  appliedCorrections: [],
+  ...value,
+});
+
 const createRoundDependencies = (
   value: Partial<RunnerRoundDependencies> & Pick<RunnerRoundDependencies, "queue" | "codexClient" | "gitVersioning">,
 ): RunnerRoundDependencies => ({
@@ -877,6 +893,7 @@ const writeTicketMetadataFile = async (
     parentTicketPath?: string;
     closureReason?: string;
     priority?: "P0" | "P1" | "P2";
+    sourceSpec?: string;
   },
 ): Promise<string> => {
   const ticketPath = path.join(projectRoot, "tickets", options.directory, options.ticketName);
@@ -888,6 +905,7 @@ const writeTicketMetadataFile = async (
     `- Priority: ${options.priority ?? "P0"}`,
     `- Parent ticket (optional): ${options.parentTicketPath ?? ""}`,
     `- Closure reason: ${options.closureReason ?? ""}`,
+    `- Source spec (when applicable): ${options.sourceSpec ?? ""}`,
     "",
   ];
   await fs.mkdir(path.dirname(ticketPath), { recursive: true });
@@ -908,6 +926,8 @@ const createSpecFileContent = (
   options: {
     assumptionsAndDefaults?: string[];
     decisionsAndTradeOffs?: string[];
+    relatedTickets?: string[];
+    includeTicketValidationSection?: boolean;
   } = {},
 ): string =>
   [
@@ -922,7 +942,11 @@ const createSpecFileContent = (
     "- Last reviewed at (UTC): 2026-02-19 22:04Z",
     "- Source: product-need",
     "- Related tickets:",
-    "  - tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md",
+    ...(
+      options.relatedTickets && options.relatedTickets.length > 0
+        ? options.relatedTickets
+        : ["tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md"]
+    ).map((item) => `  - ${item}`),
     "",
     "## Objetivo e contexto",
     `- Problema que esta spec resolve: ${summary}`,
@@ -961,7 +985,60 @@ const createSpecFileContent = (
       ? options.decisionsAndTradeOffs.map((item) => `- ${item}`)
       : ["- Nenhum"]),
     "",
+    ...(options.includeTicketValidationSection
+      ? [
+          "## Gate de validacao dos tickets derivados",
+          "- Objetivo do gate: validar o pacote derivado antes do /run-all.",
+          "",
+        ]
+      : []),
   ].join("\n");
+
+const setupRunSpecsFixture = async (
+  ticketNames: string[] = [ticketA.name, ticketB.name],
+): Promise<{
+  projectRoot: string;
+  activeProject: ProjectRef;
+  tickets: TicketRef[];
+}> => {
+  const projectRoot = await createTempProjectRoot();
+  const activeProject: ProjectRef = {
+    name: activeProjectA.name,
+    path: projectRoot,
+  };
+  const tickets = ticketNames.map((ticketName) => buildTicketRef(projectRoot, ticketName));
+  const relatedTickets = ticketNames.map((ticketName) => `tickets/open/${ticketName}`);
+  const specPath = path.join(projectRoot, "docs", "specs", specFileName);
+  await fs.mkdir(path.dirname(specPath), { recursive: true });
+  await fs.writeFile(
+    specPath,
+    createSpecFileContent(
+      "Spec de teste para /run_specs",
+      "Validar encadeamento da triagem com gate antes do /run-all.",
+      createPlanSpecOutline(),
+      {
+        relatedTickets,
+        includeTicketValidationSection: true,
+      },
+    ),
+    "utf8",
+  );
+
+  for (const ticketName of ticketNames) {
+    await writeTicketMetadataFile(projectRoot, {
+      directory: "open",
+      ticketName,
+      status: "open",
+      sourceSpec: `docs/specs/${specFileName}`,
+    });
+  }
+
+  return {
+    projectRoot,
+    activeProject,
+    tickets,
+  };
+};
 
 const createDeferred = <T>() => {
   let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
@@ -2587,451 +2664,634 @@ test("startPlanSpecSession pode coexistir com /run_all em outro projeto (CA-08)"
 });
 
 test("requestRunSpecs bloqueia rodada de tickets quando spec-close-and-version falha", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
-  const gitVersioning = new StubGitVersioning();
-  let ensureStructureCalls = 0;
-  let nextTicketCalls = 0;
-  const queue: TicketQueue = {
-    ensureStructure: async () => {
-      ensureStructureCalls += 1;
-    },
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      return ticketA;
-    },
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
+    const gitVersioning = new StubGitVersioning();
+    let ensureStructureCalls = 0;
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => {
+        ensureStructureCalls += 1;
+      },
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return fixture.tickets[0] ?? null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning,
-  });
-  const runner = createRunner(logger, roundDependencies);
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
 
-  await waitForRunnerToStop(runner);
+    await waitForRunnerToStop(runner);
 
-  assert.deepEqual(
-    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
-    [
-      `spec:${specFileName}:spec-triage`,
-      `spec:${specFileName}:spec-close-and-version`,
-    ],
-  );
-  assert.equal(ensureStructureCalls, 0);
-  assert.equal(nextTicketCalls, 0);
-  assert.equal(gitVersioning.syncChecks, 0);
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-close-and-version`,
+      ],
+    );
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(ensureStructureCalls, 0);
+    assert.equal(nextTicketCalls, 0);
+    assert.equal(gitVersioning.syncChecks, 0);
 
-  const state = runner.getState();
-  assert.equal(state.isRunning, false);
-  assert.equal(state.phase, "error");
-  assert.equal(state.currentSpec, null);
-  assert.match(state.lastMessage, /rodada \/run-all bloqueada/u);
-  assert.equal(logger.errors.length, 1);
-  assert.equal(logger.errors[0]?.message, "Erro no ciclo de triagem de spec");
+    const state = runner.getState();
+    assert.equal(state.isRunning, false);
+    assert.equal(state.phase, "error");
+    assert.equal(state.currentSpec, null);
+    assert.match(state.lastMessage, /rodada \/run-all bloqueada/u);
+    assert.equal(logger.errors.length, 1);
+    assert.equal(logger.errors[0]?.message, "Erro no ciclo de triagem de spec");
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
 });
 
 test("requestRunSpecs emite milestone de falha quando spec-close-and-version falha", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
-  const milestones: RunSpecsTriageLifecycleEvent[] = [];
-  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => ticketA,
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient((stage) => stage === "spec-close-and-version");
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => fixture.tickets[0] ?? null,
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning: new StubGitVersioning(),
-  });
-  const runner = createRunner(logger, roundDependencies, {
-    runnerOptions: {
-      runSpecsEventHandlers: {
-        onTriageMilestone: async (event) => {
-          milestones.push(event);
-        },
-      } satisfies RunSpecsEventHandlers,
-      runFlowEventHandlers,
-    },
-  });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
 
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
-  await waitForRunnerToStop(runner);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
 
-  assert.equal(milestones.length, 1);
-  assert.equal(milestones[0]?.spec.fileName, specFileName);
-  assert.equal(milestones[0]?.outcome, "failure");
-  assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
-  assert.match(milestones[0]?.nextAction ?? "", /Rodada \/run-all bloqueada/u);
-  assert.match(milestones[0]?.details ?? "", /falha simulada/u);
-  assert.equal(milestones[0]?.timing.interruptedStage, "spec-close-and-version");
-  assert.deepEqual(milestones[0]?.timing.completedStages, ["spec-triage"]);
-  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
-  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
-  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
-  assert.ok(runSpecsSummary);
-  if (runSpecsSummary?.flow === "run-specs") {
-    assert.equal(runSpecsSummary.outcome, "failure");
-    assert.equal(runSpecsSummary.completionReason, "triage-failure");
-    assert.equal(runSpecsSummary.finalStage, "spec-close-and-version");
-    assert.equal(runSpecsSummary.runAllSummary, undefined);
-    assert.deepEqual(runSpecsSummary.codexPreferences, createFlowCodexPreferencesSnapshot());
-    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-close-and-version");
-    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0]?.spec.fileName, specFileName);
+    assert.equal(milestones[0]?.outcome, "failure");
+    assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
+    assert.match(milestones[0]?.nextAction ?? "", /Rodada \/run-all bloqueada/u);
+    assert.match(milestones[0]?.details ?? "", /falha simulada/u);
+    assert.equal(milestones[0]?.timing.interruptedStage, "spec-close-and-version");
+    assert.deepEqual(
+      milestones[0]?.timing.completedStages,
+      ["spec-triage", "spec-ticket-validation"],
+    );
+    assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
-      typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+      typeof milestones[0]?.timing.durationsByStageMs["spec-ticket-validation"],
       "number",
     );
-    assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
-  } else {
-    assert.fail("resumo de fluxo /run_specs deveria existir");
+    assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow === "run-specs") {
+      assert.equal(runSpecsSummary.outcome, "failure");
+      assert.equal(runSpecsSummary.completionReason, "triage-failure");
+      assert.equal(runSpecsSummary.finalStage, "spec-close-and-version");
+      assert.equal(runSpecsSummary.runAllSummary, undefined);
+      assert.deepEqual(runSpecsSummary.codexPreferences, createFlowCodexPreferencesSnapshot());
+      assert.equal(runSpecsSummary.timing.interruptedStage, "spec-close-and-version");
+      assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+      assert.equal(
+        typeof runSpecsSummary.timing.durationsByStageMs["spec-ticket-validation"],
+        "number",
+      );
+      assert.equal(
+        typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+        "number",
+      );
+      assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
+      assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+    } else {
+      assert.fail("resumo de fluxo /run_specs deveria existir");
+    }
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a spec", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "medium",
+        summary: "Persistem gaps de cobertura e fechamento observavel.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: false,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return fixture.tickets[0] ?? null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [`spec:${specFileName}:spec-triage`],
+    );
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(nextTicketCalls, 0);
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0]?.outcome, "failure");
+    assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
+    assert.match(milestones[0]?.nextAction ?? "", /NO_GO/u);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow === "run-specs") {
+      assert.equal(runSpecsSummary.outcome, "failure");
+      assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
+      assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
+      assert.equal(runSpecsSummary.runAllSummary, undefined);
+      assert.equal(runSpecsSummary.specTicketValidation?.verdict, "NO_GO");
+      assert.equal(runSpecsSummary.specTicketValidation?.finalReason, "no-auto-correctable-gaps");
+      assert.deepEqual(
+        runSpecsSummary.timing.completedStages,
+        ["spec-triage", "spec-ticket-validation"],
+      );
+      assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
+    } else {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.deepEqual(
+      records.map(
+        (entry) =>
+          `${entry.request.sourceCommand}:${entry.request.kind}:${entry.request.stage}:${entry.request.decision.status}`,
+      ),
+      [
+        "run-specs:spec:spec-triage:success",
+        "run-specs:spec:spec-ticket-validation:success",
+      ],
+    );
+    assert.equal(records[1]?.request.decision.metadata?.verdict, "NO_GO");
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.match(specContent, /^### Ultima execucao registrada$/imu);
+    assert.match(specContent, /^\s*-\s*Veredito:\s*NO_GO\s*$/imu);
+    assert.match(specContent, /RF-01 ainda sem ticket dedicado\./u);
+    assert.match(specContent, /#### Correcoes aplicadas/u);
+    assert.match(specContent, /Nenhuma observacao sistemica registrada nesta execucao\./u);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 
 test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient();
-  const gitVersioning = new StubGitVersioning();
-  const { summaries, onTicketFinalized } = createSummaryCollector();
-  let nextTicketCalls = 0;
+  const fixture = await setupRunSpecsFixture([ticketA.name, ticketB.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const gitVersioning = new StubGitVersioning();
+    const { summaries, onTicketFinalized } = createSummaryCollector();
+    let nextTicketCalls = 0;
 
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      if (nextTicketCalls === 1) {
-        return ticketA;
-      }
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        if (nextTicketCalls === 1) {
+          return fixture.tickets[0] ?? null;
+        }
 
-      if (nextTicketCalls === 2) {
-        return ticketB;
-      }
+        if (nextTicketCalls === 2) {
+          return fixture.tickets[1] ?? null;
+        }
 
-      return null;
-    },
-    closeTicket: async () => undefined,
-  };
+        return null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning,
-  });
-  const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
 
-  await waitForRunnerToStop(runner);
+    await waitForRunnerToStop(runner);
 
-  assert.deepEqual(
-    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
-    [
-      `spec:${specFileName}:spec-triage`,
-      `spec:${specFileName}:spec-close-and-version`,
-      `ticket:${ticketA.name}:plan`,
-      `ticket:${ticketA.name}:implement`,
-      `ticket:${ticketA.name}:close-and-version`,
-      `ticket:${ticketB.name}:plan`,
-      `ticket:${ticketB.name}:implement`,
-      `ticket:${ticketB.name}:close-and-version`,
-      `spec:${specFileName}:spec-audit`,
-    ],
-  );
-  assert.equal(nextTicketCalls, 3);
-  assert.equal(gitVersioning.syncChecks, 2);
-  assert.equal(summaries.length, 2);
-  assert.equal(summaries[0]?.ticket, ticketA.name);
-  assert.equal(summaries[1]?.ticket, ticketB.name);
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `ticket:${fixture.tickets[1]?.name}:plan`,
+        `ticket:${fixture.tickets[1]?.name}:implement`,
+        `ticket:${fixture.tickets[1]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+      ],
+    );
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(nextTicketCalls, 3);
+    assert.equal(gitVersioning.syncChecks, 2);
+    assert.equal(summaries.length, 2);
+    assert.equal(summaries[0]?.ticket, fixture.tickets[0]?.name);
+    assert.equal(summaries[1]?.ticket, fixture.tickets[1]?.name);
 
-  const state = runner.getState();
-  assert.equal(state.isRunning, false);
-  assert.equal(state.phase, "idle");
-  assert.equal(state.currentSpec, null);
-  assert.equal(state.lastMessage, `Fluxo /run_specs finalizado para ${specFileName}`);
+    const state = runner.getState();
+    assert.equal(state.isRunning, false);
+    assert.equal(state.phase, "idle");
+    assert.equal(state.currentSpec, null);
+    assert.equal(state.lastMessage, `Fluxo /run_specs finalizado para ${specFileName}`);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
 });
 
 test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tickets", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient();
-  codex.invocationPreferences = {
-    model: "gpt-5.4",
-    reasoningEffort: "high",
-    speed: "fast",
-  };
-  const milestones: RunSpecsTriageLifecycleEvent[] = [];
-  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
-  let nextTicketCalls = 0;
-  let firstTicketCallSawMilestone = false;
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      if (nextTicketCalls === 1) {
-        firstTicketCallSawMilestone = milestones.length === 1;
-        return ticketA;
-      }
-      return null;
-    },
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.invocationPreferences = {
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+      speed: "fast",
+    };
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    let nextTicketCalls = 0;
+    let firstTicketCallSawMilestone = false;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        if (nextTicketCalls === 1) {
+          firstTicketCallSawMilestone = milestones.length === 1;
+          return fixture.tickets[0] ?? null;
+        }
+        return null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning: new StubGitVersioning(),
-  });
-  const runner = createRunner(logger, roundDependencies, {
-    runnerOptions: {
-      runSpecsEventHandlers: {
-        onTriageMilestone: async (event) => {
-          milestones.push(event);
-        },
-      } satisfies RunSpecsEventHandlers,
-      runFlowEventHandlers,
-    },
-  });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
 
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
-  await waitForRunnerToStop(runner);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
 
-  assert.equal(milestones.length, 1);
-  assert.equal(milestones[0]?.spec.fileName, specFileName);
-  assert.equal(milestones[0]?.outcome, "success");
-  assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
-  assert.match(milestones[0]?.nextAction ?? "", /iniciando rodada \/run-all/u);
-  assert.equal(milestones[0]?.timing.interruptedStage, null);
-  assert.deepEqual(milestones[0]?.timing.completedStages, ["spec-triage", "spec-close-and-version"]);
-  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
-  assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
-  assert.equal(firstTicketCallSawMilestone, true);
-  const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
-  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
-  assert.ok(runAllSummary);
-  assert.ok(runSpecsSummary);
-  if (runAllSummary?.flow === "run-all") {
-    assert.equal(runAllSummary.outcome, "success");
-    assert.equal(runAllSummary.completionReason, "queue-empty");
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0]?.spec.fileName, specFileName);
+    assert.equal(milestones[0]?.outcome, "success");
+    assert.equal(milestones[0]?.finalStage, "spec-close-and-version");
+    assert.match(milestones[0]?.nextAction ?? "", /iniciando rodada \/run-all/u);
+    assert.equal(milestones[0]?.timing.interruptedStage, null);
     assert.deepEqual(
-      runAllSummary.codexPreferences,
-      createFlowCodexPreferencesSnapshot({
-        reasoningEffort: "high",
-        speed: "fast",
-      }),
+      milestones[0]?.timing.completedStages,
+      ["spec-triage", "spec-ticket-validation", "spec-close-and-version"],
     );
-    assert.equal(runAllSummary.timing.interruptedStage, null);
-    assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
-  } else {
-    assert.fail("resumo /run-all deveria existir no fluxo encadeado");
-  }
-  if (runSpecsSummary?.flow === "run-specs") {
-    assert.equal(runSpecsSummary.outcome, "success");
-    assert.equal(runSpecsSummary.completionReason, "completed");
-    assert.equal(runSpecsSummary.finalStage, "spec-audit");
-    assert.deepEqual(
-      runSpecsSummary.codexPreferences,
-      createFlowCodexPreferencesSnapshot({
-        reasoningEffort: "high",
-        speed: "fast",
-      }),
-    );
-    assert.equal(runSpecsSummary.timing.interruptedStage, null);
-    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+    assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
-      typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+      typeof milestones[0]?.timing.durationsByStageMs["spec-ticket-validation"],
       "number",
     );
-    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
-    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
-    assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
-    assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");
-    assert.deepEqual(
-      runSpecsSummary.runAllSummary?.codexPreferences,
+    assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
+    assert.equal(firstTicketCallSawMilestone, true);
+    const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runAllSummary);
+    assert.ok(runSpecsSummary);
+    if (runAllSummary?.flow === "run-all") {
+      assert.equal(runAllSummary.outcome, "success");
+      assert.equal(runAllSummary.completionReason, "queue-empty");
+      assert.deepEqual(
+        runAllSummary.codexPreferences,
         createFlowCodexPreferencesSnapshot({
-        reasoningEffort: "high",
-        speed: "fast",
-      }),
-    );
-  } else {
-    assert.fail("resumo /run_specs deveria existir");
+          reasoningEffort: "high",
+          speed: "fast",
+        }),
+      );
+      assert.equal(runAllSummary.timing.interruptedStage, null);
+      assert.equal(typeof runAllSummary.timing.durationsByStageMs.plan, "number");
+    } else {
+      assert.fail("resumo /run-all deveria existir no fluxo encadeado");
+    }
+    if (runSpecsSummary?.flow === "run-specs") {
+      assert.equal(runSpecsSummary.outcome, "success");
+      assert.equal(runSpecsSummary.completionReason, "completed");
+      assert.equal(runSpecsSummary.finalStage, "spec-audit");
+      assert.deepEqual(
+        runSpecsSummary.codexPreferences,
+        createFlowCodexPreferencesSnapshot({
+          reasoningEffort: "high",
+          speed: "fast",
+        }),
+      );
+      assert.equal(runSpecsSummary.timing.interruptedStage, null);
+      assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-triage"], "number");
+      assert.equal(
+        typeof runSpecsSummary.timing.durationsByStageMs["spec-ticket-validation"],
+        "number",
+      );
+      assert.equal(
+        typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
+        "number",
+      );
+      assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
+      assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
+      assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+      assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
+      assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");
+      assert.deepEqual(
+        runSpecsSummary.runAllSummary?.codexPreferences,
+        createFlowCodexPreferencesSnapshot({
+          reasoningEffort: "high",
+          speed: "fast",
+        }),
+      );
+    } else {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 
 test("requestRunSpecs marca falha especifica quando spec-audit falha apos run-all", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient((stage) => stage === "spec-audit");
-  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
-  let nextTicketCalls = 0;
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      return nextTicketCalls === 1 ? ticketA : null;
-    },
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient((stage) => stage === "spec-audit");
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning: new StubGitVersioning(),
-  });
-  const runner = createRunner(logger, roundDependencies, {
-    runnerOptions: {
-      runFlowEventHandlers,
-    },
-  });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+      },
+    });
 
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
-  await waitForRunnerToStop(runner);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
 
-  assert.deepEqual(
-    codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
-    [
-      `spec:${specFileName}:spec-triage`,
-      `spec:${specFileName}:spec-close-and-version`,
-      `ticket:${ticketA.name}:plan`,
-      `ticket:${ticketA.name}:implement`,
-      `ticket:${ticketA.name}:close-and-version`,
-      `spec:${specFileName}:spec-audit`,
-    ],
-  );
-  assert.equal(runner.getState().phase, "error");
-  assert.equal(runner.getState().currentSpec, null);
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+      ],
+    );
+    assert.equal(runner.getState().phase, "error");
+    assert.equal(runner.getState().currentSpec, null);
 
-  const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
-  assert.ok(runSpecsSummary);
-  if (runSpecsSummary?.flow === "run-specs") {
-    assert.equal(runSpecsSummary.outcome, "failure");
-    assert.equal(runSpecsSummary.finalStage, "spec-audit");
-    assert.equal(runSpecsSummary.completionReason, "spec-audit-failure");
-    assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
-    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-audit");
-    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
-  } else {
-    assert.fail("resumo /run_specs deveria existir");
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow === "run-specs") {
+      assert.equal(runSpecsSummary.outcome, "failure");
+      assert.equal(runSpecsSummary.finalStage, "spec-audit");
+      assert.equal(runSpecsSummary.completionReason, "spec-audit-failure");
+      assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+      assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
+      assert.equal(runSpecsSummary.timing.interruptedStage, "spec-audit");
+      assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
+    } else {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 
 test("runner persiste trilhas do fluxo principal para tickets e specs", async () => {
-  const logger = new SpyLogger();
-  const codex = new StubCodexClient();
-  const gitVersioning = new StubGitVersioning();
-  const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
-  let nextTicketCalls = 0;
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      return nextTicketCalls === 1 ? ticketA : null;
-    },
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const gitVersioning = new StubGitVersioning();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning,
-  });
-  const runner = createRunner(logger, roundDependencies, {
-    runnerOptions: {
-      workflowTraceStoreFactory,
-    },
-  });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+      },
+    });
 
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
-  await waitForRunnerToStop(runner);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
 
-  assert.deepEqual(
-    records.map((entry) => `${entry.request.sourceCommand}:${entry.request.kind}:${entry.request.stage}:${entry.request.decision.status}`),
-    [
-      "run-specs:spec:spec-triage:success",
-      "run-specs:spec:spec-close-and-version:success",
-      "run-specs:ticket:plan:success",
-      "run-specs:ticket:implement:success",
-      "run-specs:ticket:close-and-version:success",
-      "run-specs:spec:spec-audit:success",
-    ],
-  );
-  assert.equal(records.every((entry) => entry.projectPath === activeProjectA.path), true);
-  assert.equal(records[2]?.request.targetName, ticketA.name);
-  assert.equal(records[2]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
-  assert.equal(records[4]?.request.decision.metadata?.commitHash, "abc123");
-  assert.equal(records[4]?.request.decision.metadata?.pushUpstream, "origin/main");
+    assert.deepEqual(
+      records.map(
+        (entry) =>
+          `${entry.request.sourceCommand}:${entry.request.kind}:${entry.request.stage}:${entry.request.decision.status}`,
+      ),
+      [
+        "run-specs:spec:spec-triage:success",
+        "run-specs:spec:spec-ticket-validation:success",
+        "run-specs:spec:spec-close-and-version:success",
+        "run-specs:ticket:plan:success",
+        "run-specs:ticket:implement:success",
+        "run-specs:ticket:close-and-version:success",
+        "run-specs:spec:spec-audit:success",
+      ],
+    );
+    assert.equal(records.every((entry) => entry.projectPath === fixture.activeProject.path), true);
+    assert.equal(records[1]?.request.decision.metadata?.verdict, "GO");
+    assert.equal(records[1]?.request.decision.metadata?.cyclesExecuted, 0);
+    assert.equal(records[3]?.request.targetName, fixture.tickets[0]?.name);
+    assert.equal(records[3]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
+    assert.equal(records[5]?.request.decision.metadata?.commitHash, "abc123");
+    assert.equal(records[5]?.request.decision.metadata?.pushUpstream, "origin/main");
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
 });
 
 test("requestRunSpecs expoe fase e currentSpec durante triagem e transita para fase de ticket", async () => {
-  const logger = new SpyLogger();
-  const stageSnapshots: Array<{
-    stage: TicketFlowStage | SpecFlowStage;
-    phase: string;
-    currentSpec: string | null;
-    currentTicket: string | null;
-  }> = [];
-  let runner: TicketRunner | null = null;
-  const codex = new StubCodexClient(
-    undefined,
-    true,
-    false,
-    0,
-    (stage) => {
-      if (!runner) {
-        return;
-      }
-      const state = runner.getState();
-      stageSnapshots.push({
-        stage,
-        phase: state.phase,
-        currentSpec: state.currentSpec,
-        currentTicket: state.currentTicket,
-      });
-    },
-  );
-  let nextTicketCalls = 0;
-  const queue: TicketQueue = {
-    ensureStructure: async () => undefined,
-    nextOpenTicket: async () => {
-      nextTicketCalls += 1;
-      return nextTicketCalls === 1 ? ticketA : null;
-    },
-    closeTicket: async () => undefined,
-  };
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const stageSnapshots: Array<{
+      stage: TicketFlowStage | SpecFlowStage;
+      phase: string;
+      currentSpec: string | null;
+      currentTicket: string | null;
+    }> = [];
+    let runner: TicketRunner | null = null;
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      (stage) => {
+        if (!runner) {
+          return;
+        }
+        const state = runner.getState();
+        stageSnapshots.push({
+          stage,
+          phase: state.phase,
+          currentSpec: state.currentSpec,
+          currentTicket: state.currentTicket,
+        });
+      },
+    );
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
 
-  const roundDependencies = createRoundDependencies({
-    activeProject: activeProjectA,
-    queue,
-    codexClient: codex,
-    gitVersioning: new StubGitVersioning(),
-  });
-  runner = createRunner(logger, roundDependencies);
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    runner = createRunner(logger, roundDependencies);
 
-  const request = await runner.requestRunSpecs(specFileName);
-  assert.deepEqual(request, { status: "started" });
-  await waitForRunnerToStop(runner);
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
 
-  const specSnapshot = stageSnapshots.find((value) => value.stage === "spec-triage");
-  const ticketSnapshot = stageSnapshots.find((value) => value.stage === "plan");
-  assert.equal(specSnapshot?.phase, "spec-triage");
-  assert.equal(specSnapshot?.currentSpec, specFileName);
-  assert.equal(specSnapshot?.currentTicket, null);
-  assert.equal(ticketSnapshot?.phase, "plan");
-  assert.equal(ticketSnapshot?.currentSpec, null);
-  assert.equal(ticketSnapshot?.currentTicket, ticketA.name);
+    const specSnapshot = stageSnapshots.find((value) => value.stage === "spec-triage");
+    const ticketSnapshot = stageSnapshots.find((value) => value.stage === "plan");
+    assert.equal(specSnapshot?.phase, "spec-triage");
+    assert.equal(specSnapshot?.currentSpec, specFileName);
+    assert.equal(specSnapshot?.currentTicket, null);
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(ticketSnapshot?.phase, "plan");
+    assert.equal(ticketSnapshot?.currentSpec, null);
+    assert.equal(ticketSnapshot?.currentTicket, fixture.tickets[0]?.name ?? null);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
 });
 
 test("runner falha quando etapa plan nao retorna execPlanPath obrigatorio", async () => {

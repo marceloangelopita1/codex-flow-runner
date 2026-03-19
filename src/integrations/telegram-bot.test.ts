@@ -38,6 +38,7 @@ import {
   RunAllTimingStage,
   RunSpecsFlowSummary,
   RunSpecsFlowTimingStage,
+  RunSpecsTicketValidationSummary,
   RunSpecsTriageTimingStage,
 } from "../types/flow-timing.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock, PlanSpecQuestionBlock } from "./plan-spec-parser.js";
@@ -162,6 +163,22 @@ const createFlowCodexPreferencesSnapshot = (
   model: "gpt-5.4",
   reasoningEffort: "xhigh",
   speed: "standard",
+  ...value,
+});
+
+const createRunSpecsTicketValidationSummary = (
+  value: Partial<RunSpecsTicketValidationSummary> = {},
+): RunSpecsTicketValidationSummary => ({
+  verdict: "GO",
+  confidence: "high",
+  finalReason: "go-with-high-confidence",
+  cyclesExecuted: 0,
+  validationThreadId: "stub-spec-ticket-validation-thread",
+  triageContextInherited: false,
+  summary: "Pacote derivado validado com sucesso.",
+  gaps: [],
+  appliedCorrections: [],
+  finalOpenGapFingerprints: [],
   ...value,
 });
 
@@ -6010,7 +6027,13 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
 
-  await controller.sendRunFlowSummary(createRunSpecsFlowSummary());
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        summary: "Pacote derivado aprovado antes do /run-all.",
+      }),
+    }),
+  );
 
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]?.chatId, "99");
@@ -6018,6 +6041,9 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: completed/u);
+  assert.match(sentMessages[0]?.text ?? "", /Gate spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Veredito: GO/u);
+  assert.match(sentMessages[0]?.text ?? "", /Gaps finais: nenhum/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 9m 0s \(540000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- run-all: 5m 0s \(300000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- spec-audit: 1m 0s \(60000 ms\)/u);
@@ -6077,6 +6103,73 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
   assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: falha \(ticket-failure\)/u);
+});
+
+test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      outcome: "failure",
+      finalStage: "spec-ticket-validation",
+      completionReason: "spec-ticket-validation-no-go",
+      details: "Backlog derivado ainda nao esta seguro para seguir ao /run-all.",
+      timing: createRunSpecsFlowTimingSnapshot({
+        finishedAtUtc: "2026-02-19T15:02:15.000Z",
+        totalDurationMs: 135000,
+        durationsByStageMs: {
+          "spec-triage": 60000,
+          "spec-ticket-validation": 75000,
+        },
+        completedStages: ["spec-triage", "spec-ticket-validation"],
+        interruptedStage: null,
+      }),
+      triageTiming: {
+        ...createRunSpecsTriageTimingSnapshot(),
+        finishedAtUtc: "2026-02-19T15:02:15.000Z",
+        totalDurationMs: 135000,
+        durationsByStageMs: {
+          "spec-triage": 60000,
+          "spec-ticket-validation": 75000,
+        },
+        completedStages: ["spec-triage", "spec-ticket-validation"],
+        interruptedStage: null,
+      },
+      runAllSummary: undefined,
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        verdict: "NO_GO",
+        confidence: "medium",
+        finalReason: "no-auto-correctable-gaps",
+        cyclesExecuted: 0,
+        summary: "Persistem gaps de cobertura e fechamento observavel.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: ["tickets/open/2026-02-19-flow-a.md"],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O unico ticket aberto nao cobre o gate antes do /run-all."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: false,
+          },
+        ],
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-ticket-validation/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Motivo de encerramento: spec-ticket-validation-no-go/u,
+  );
+  assert.match(sentMessages[0]?.text ?? "", /Veredito: NO_GO/u);
+  assert.match(sentMessages[0]?.text ?? "", /Confianca final: medium/u);
+  assert.match(sentMessages[0]?.text ?? "", /Gaps finais:/u);
+  assert.match(sentMessages[0]?.text ?? "", /coverage-gap: RF-01 ainda sem ticket dedicado\./u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado/u);
 });
 
 test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {
