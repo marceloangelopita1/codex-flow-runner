@@ -1,7 +1,7 @@
 # [TICKET] Abrir ticket transversal de melhoria de workflow no run_specs
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-19 15:41Z
@@ -88,9 +88,30 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - o runner atual nao tem suporte cross-repo nem contrato nao bloqueante para follow-up sistemico.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 18:05Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-18`, `RF-19`, `RF-22`; `CA-13`: `src/core/runner.ts` agora coleta gaps sistemicos a partir de `result.snapshots`, publica o follow-up apenas em veredito `GO` e propaga `workflowImprovementTicket` para spec, trace e resumo final; `src/integrations/workflow-improvement-ticket-publisher.ts` resolve o repo atual quando `activeProjectName === codex-flow-runner` e publica o ticket com `commitAndPushPaths(...)`; `src/core/runner.test.ts` cobre `requestRunSpecs publica ticket transversal no repo atual a partir de gap sistemico visto nos snapshots`; `src/integrations/workflow-improvement-ticket-publisher.test.ts` cobre `publica ticket transversal no repositorio atual com commit/push observavel`; `src/integrations/git-client.test.ts` cobre `commitAndPushPaths publica apenas os caminhos explicitos e retorna evidencia de push`; `src/integrations/telegram-bot.test.ts` cobre `envia resumo final de /run-specs com follow-up sistemico publicado`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/workflow-improvement-ticket-publisher.test.ts src/integrations/git-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` -> pass (`238/238`).
+  - `RF-20`, `RF-22`; `CA-14`: `src/integrations/workflow-improvement-ticket-publisher.ts` resolve `../codex-flow-runner` quando o projeto ativo e externo, valida `.git` + `tickets/open/`, materializa o ticket e registra `targetRepoDisplayPath`; `src/core/runner.test.ts` cobre `requestRunSpecs publica ticket transversal no repo irmao e registra o resultado no projeto corrente`; `src/integrations/workflow-improvement-ticket-publisher.test.ts` cobre `publica ticket transversal no repositorio irmao quando o projeto ativo e externo`; `src/integrations/telegram-bot.test.ts` valida a exibicao do repo irmao e do `commit/push` no resumo final; o mesmo comando focado acima permaneceu verde (`238/238`).
+  - `RF-21`, `RF-23`; `CA-15`: `src/integrations/workflow-improvement-ticket-publisher.ts` retorna `operational-limitation` com `target-repo-missing` ou `target-repo-inaccessible` sem bloquear a rodada principal; `src/core/runner.ts` registra a limitacao como nao bloqueante quando o gate principal permanece `GO`; `src/core/runner.test.ts` cobre `requestRunSpecs registra limitacao operacional nao bloqueante quando o repo irmao nao existe`; `src/integrations/workflow-improvement-ticket-publisher.test.ts` cobre `retorna limitacao operacional quando o repositorio irmao nao existe`; `src/integrations/telegram-bot.test.ts` cobre `envia resumo final de /run-specs com limitacao operacional do follow-up sistemico`; o mesmo comando focado acima permaneceu verde (`238/238`).
+- Regressao complementar executada:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` -> pass (`368/368`).
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Entrega tecnica concluida:
+  - O runner passou a abrir/publicar follow-up sistemico no repo atual ou em `../codex-flow-runner`, com commit/push por caminhos explicitos e sem depender de `git add -A`.
+  - O resultado da publicacao agora aparece na secao `Gate de validacao dos tickets derivados` da spec, no trace/log da etapa `spec-ticket-validation` e no resumo final do Telegram.
+  - A deduplicacao conservadora por `Source spec` + overlap de fingerprints evita backlog duplicado em reruns da mesma spec.
+- Validacao manual externa pendente: sim.
+  - Entrega tecnica concluida; a pendencia restante e apenas auditoria operacional externa ao agente.
+  - Validacao necessaria: executar uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel e outra sem esse repositorio acessivel, confirmando no Telegram o resumo de sucesso e a limitacao nao bloqueante.
+  - Como executar: usar uma spec elegivel em repositorio externo, disparar `/run_specs <spec>`, observar o bloco `Follow-up sistemico` no resumo final e conferir se o ticket foi criado em `../codex-flow-runner` quando presente; repetir sem o repositorio irmao para validar `operational-limitation`.
+  - Responsavel operacional: operador/maintainer do runner em ambiente real com Telegram habilitado.

@@ -6,6 +6,7 @@ import {
   SpecTicketValidationGap,
   SpecTicketValidationVerdict,
 } from "./spec-ticket-validation.js";
+import { WorkflowImprovementTicketPublicationResult } from "./workflow-improvement-ticket.js";
 
 export interface FlowTimingSnapshot<Stage extends string = string> {
   startedAtUtc: string;
@@ -60,6 +61,7 @@ export interface RunSpecsTicketValidationSummary {
   gaps: SpecTicketValidationGap[];
   appliedCorrections: SpecTicketValidationAppliedCorrection[];
   finalOpenGapFingerprints: string[];
+  workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
 }
 
 export type RunSpecsTriageTimingStage =

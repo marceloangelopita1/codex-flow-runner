@@ -26,6 +26,11 @@ export interface GitSyncValidationFailureDetails {
 
 export interface GitVersioning {
   commitTicketClosure(ticketName: string, execPlanPath: string): Promise<void>;
+  commitAndPushPaths(
+    paths: string[],
+    subject: string,
+    bodyParagraphs?: string[],
+  ): Promise<GitSyncEvidence | null>;
   assertSyncedWithRemote(): Promise<GitSyncEvidence>;
 }
 
@@ -88,16 +93,50 @@ export class GitCliVersioning implements GitVersioning {
     await this.runGit(["push"]);
   }
 
+  async commitAndPushPaths(
+    paths: string[],
+    subject: string,
+    bodyParagraphs: string[] = [],
+  ): Promise<GitSyncEvidence | null> {
+    if (paths.length === 0) {
+      return null;
+    }
+
+    await this.runGit(["add", "--", ...paths]);
+
+    const changed = await this.hasStagedChanges();
+    if (!changed) {
+      return null;
+    }
+
+    const commitArgs = ["commit", "-m", subject];
+    for (const paragraph of bodyParagraphs) {
+      commitArgs.push("-m", paragraph);
+    }
+
+    await this.runGit(commitArgs);
+    await this.runGit(["push"]);
+    return this.collectPushEvidence({ requireCleanWorkingTree: false });
+  }
+
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
-    const workingTreeStatus = (await this.runGit(["status", "--porcelain"])).stdout.trim();
-    if (workingTreeStatus.length > 0) {
-      throw new GitSyncValidationError(
-        "working-tree-dirty",
-        "Repositorio com alteracoes locais apos close-and-version.",
-        {
-          workingTreeStatus,
-        },
-      );
+    return this.collectPushEvidence({ requireCleanWorkingTree: true });
+  }
+
+  private async collectPushEvidence(params: {
+    requireCleanWorkingTree: boolean;
+  }): Promise<GitSyncEvidence> {
+    if (params.requireCleanWorkingTree) {
+      const workingTreeStatus = (await this.runGit(["status", "--porcelain"])).stdout.trim();
+      if (workingTreeStatus.length > 0) {
+        throw new GitSyncValidationError(
+          "working-tree-dirty",
+          "Repositorio com alteracoes locais apos close-and-version.",
+          {
+            workingTreeStatus,
+          },
+        );
+      }
     }
 
     let upstream = "";

@@ -6050,6 +6050,43 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: sucesso \(queue-empty\)/u);
 });
 
+test("envia resumo final de /run-specs com follow-up sistemico publicado", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        workflowImprovementTicket: {
+          status: "created-and-pushed",
+          targetRepoKind: "workflow-sibling",
+          targetRepoPath: "/tmp/projects/codex-flow-runner",
+          targetRepoDisplayPath: "../codex-flow-runner",
+          ticketFileName: "2026-03-19-workflow-improvement.md",
+          ticketPath: "tickets/open/2026-03-19-workflow-improvement.md",
+          detail: "Ticket transversal publicado com commit/push.",
+          limitationCode: null,
+          commitHash: "abc123",
+          pushUpstream: "origin/main",
+          commitPushId: "abc123@origin/main",
+          gapFingerprints: ["coverage-gap|tickets/open/example.md|rf-18"],
+        },
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Follow-up sistemico/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: created-and-pushed/u);
+  assert.match(sentMessages[0]?.text ?? "", /Repositorio alvo: \.\.\/codex-flow-runner/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Ticket transversal: tickets\/open\/2026-03-19-workflow-improvement\.md/u,
+  );
+  assert.match(sentMessages[0]?.text ?? "", /Commit\/push: abc123@origin\/main/u);
+});
+
 test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);
@@ -6170,6 +6207,39 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
   assert.match(sentMessages[0]?.text ?? "", /Gaps finais:/u);
   assert.match(sentMessages[0]?.text ?? "", /coverage-gap: RF-01 ainda sem ticket dedicado\./u);
   assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado/u);
+});
+
+test("envia resumo final de /run-specs com limitacao operacional do follow-up sistemico", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        workflowImprovementTicket: {
+          status: "operational-limitation",
+          targetRepoKind: "workflow-sibling",
+          targetRepoPath: "/tmp/projects/codex-flow-runner",
+          targetRepoDisplayPath: "../codex-flow-runner",
+          ticketFileName: null,
+          ticketPath: null,
+          detail: "Repositorio codex-flow-runner nao encontrado em ../codex-flow-runner.",
+          limitationCode: "target-repo-missing",
+          commitHash: null,
+          pushUpstream: null,
+          commitPushId: null,
+          gapFingerprints: ["coverage-gap|tickets/open/example.md|rf-18"],
+        },
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Follow-up sistemico/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: operational-limitation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Limitacao: target-repo-missing/u);
+  assert.match(sentMessages[0]?.text ?? "", /Detalhe: Repositorio codex-flow-runner nao encontrado/u);
 });
 
 test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {

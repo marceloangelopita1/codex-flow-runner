@@ -14,6 +14,7 @@ import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js"
 import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
+import { FileSystemWorkflowImprovementTicketPublisher } from "./integrations/workflow-improvement-ticket-publisher.js";
 import {
   TicketFinalSummary,
   TicketNotificationDelivery,
@@ -112,6 +113,7 @@ const bootstrap = async () => {
     () => resolveRunnerRoundDependencies("run-all"),
     notifyTicketFinalSummary,
     {
+      workflowImprovementTicketPublisher: new FileSystemWorkflowImprovementTicketPublisher(),
       discoverSpecEventHandlers: {
         onQuestion: async (chatId, event) => {
           if (!telegram) {

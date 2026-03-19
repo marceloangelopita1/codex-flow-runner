@@ -100,8 +100,19 @@ import {
   CodexSpeedSelectionResult,
   CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
+import {
+  WorkflowImprovementTicketCandidate,
+  WorkflowImprovementTicketPublicationResult,
+} from "../types/workflow-improvement-ticket.js";
+import {
+  WorkflowImprovementTicketPublisher,
+  createWorkflowImprovementNotNeededResult,
+} from "../integrations/workflow-improvement-ticket-publisher.js";
 import { runSpecTicketValidation } from "./spec-ticket-validation.js";
-import { SpecTicketValidationResult } from "../types/spec-ticket-validation.js";
+import {
+  SpecTicketValidationResult,
+  buildSpecTicketValidationGapFingerprint,
+} from "../types/spec-ticket-validation.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -179,6 +190,7 @@ export interface TicketRunnerOptions {
   runSpecsEventHandlers?: RunSpecsEventHandlers;
   runFlowEventHandlers?: RunFlowEventHandlers;
   codexPreferencesService?: CodexPreferencesService;
+  workflowImprovementTicketPublisher?: WorkflowImprovementTicketPublisher;
 }
 
 interface ActiveDiscoverSpecSession {
@@ -637,6 +649,7 @@ export class TicketRunner {
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
   private readonly runFlowEventHandlers?: RunFlowEventHandlers;
   private readonly codexPreferencesService?: CodexPreferencesService;
+  private readonly workflowImprovementTicketPublisher: WorkflowImprovementTicketPublisher | null;
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
@@ -685,6 +698,7 @@ export class TicketRunner {
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
     this.runFlowEventHandlers = options.runFlowEventHandlers;
     this.codexPreferencesService = options.codexPreferencesService;
+    this.workflowImprovementTicketPublisher = options.workflowImprovementTicketPublisher ?? null;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -4758,7 +4772,16 @@ export class TicketRunner {
         },
       );
 
-      const summary = this.buildRunSpecsTicketValidationSummary(result);
+      const workflowImprovementTicket = await this.publishWorkflowImprovementTicketIfNeeded(
+        slot.project,
+        spec,
+        packageContext.specContent,
+        result,
+      );
+      const summary = this.buildRunSpecsTicketValidationSummary(
+        result,
+        workflowImprovementTicket,
+      );
       await this.persistSpecTicketValidationExecution({
         projectPath: slot.project.path,
         spec,
@@ -5036,8 +5059,172 @@ export class TicketRunner {
     return lines.join("\n").trim();
   }
 
+  private async publishWorkflowImprovementTicketIfNeeded(
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    specContent: string,
+    result: SpecTicketValidationResult,
+  ): Promise<WorkflowImprovementTicketPublicationResult | undefined> {
+    if (result.verdict !== "GO" || this.workflowImprovementTicketPublisher === null) {
+      return undefined;
+    }
+
+    const candidate = this.buildWorkflowImprovementTicketCandidate(
+      activeProject,
+      spec,
+      specContent,
+      result,
+    );
+    if (candidate === null) {
+      const publication = createWorkflowImprovementNotNeededResult();
+      this.logger.info("Ticket transversal de workflow nao foi necessario nesta execucao", {
+        spec: spec.fileName,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
+      });
+      return publication;
+    }
+
+    try {
+      const publication = await this.workflowImprovementTicketPublisher.publish(candidate);
+      const logContext = {
+        spec: spec.fileName,
+        sourceSpecPath: candidate.sourceSpecPath,
+        sourceRequirements: candidate.sourceRequirements,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
+        publicationStatus: publication.status,
+        targetRepoKind: publication.targetRepoKind,
+        targetRepoPath: publication.targetRepoPath,
+        targetRepoDisplayPath: publication.targetRepoDisplayPath,
+        ticketPath: publication.ticketPath,
+        commitPushId: publication.commitPushId,
+        limitationCode: publication.limitationCode,
+      };
+
+      if (publication.status === "operational-limitation") {
+        this.logger.warn("Ticket transversal de workflow registrou limitacao operacional", {
+          ...logContext,
+          detail: publication.detail,
+        });
+      } else {
+        this.logger.info("Ticket transversal de workflow processado", {
+          ...logContext,
+          detail: publication.detail,
+        });
+      }
+
+      return publication;
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const publication: WorkflowImprovementTicketPublicationResult = {
+        status: "operational-limitation",
+        targetRepoKind: activeProject.name === "codex-flow-runner" ? "current-project" : "workflow-sibling",
+        targetRepoPath:
+          activeProject.name === "codex-flow-runner"
+            ? activeProject.path
+            : path.resolve(activeProject.path, "..", "codex-flow-runner"),
+        targetRepoDisplayPath: activeProject.name === "codex-flow-runner" ? "." : "../codex-flow-runner",
+        ticketFileName: null,
+        ticketPath: null,
+        detail: `Falha inesperada ao publicar ticket transversal de workflow: ${details}`,
+        limitationCode: "unexpected-error",
+        commitHash: null,
+        pushUpstream: null,
+        commitPushId: null,
+        gapFingerprints: [...candidate.gapFingerprints],
+      };
+
+      this.logger.warn("Ticket transversal de workflow falhou de forma inesperada", {
+        spec: spec.fileName,
+        activeProjectName: activeProject.name,
+        activeProjectPath: activeProject.path,
+        error: details,
+      });
+
+      return publication;
+    }
+  }
+
+  private buildWorkflowImprovementTicketCandidate(
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    specContent: string,
+    result: SpecTicketValidationResult,
+  ): WorkflowImprovementTicketCandidate | null {
+    if (result.confidence !== "high") {
+      return null;
+    }
+
+    const systemicGaps = this.collectWorkflowImprovementSystemicGaps(result);
+    if (systemicGaps.length === 0) {
+      return null;
+    }
+
+    return {
+      activeProjectName: activeProject.name,
+      activeProjectPath: activeProject.path,
+      sourceSpecPath: spec.path,
+      sourceSpecFileName: spec.fileName,
+      sourceSpecTitle: this.extractSpecTitle(specContent, spec.fileName),
+      sourceRequirements: this.sortUniqueStrings(systemicGaps.flatMap((gap) => gap.requirementRefs)),
+      inheritedAssumptionsDefaults: this.extractTopLevelBulletItems(
+        specContent,
+        "Assumptions and defaults",
+      ),
+      validationSummary: result.finalPass.summary,
+      finalValidationConfidence: result.confidence,
+      finalValidationReason: result.finalReason,
+      gaps: systemicGaps,
+      gapFingerprints: systemicGaps.map((gap) => gap.fingerprint),
+    };
+  }
+
+  private collectWorkflowImprovementSystemicGaps(
+    result: SpecTicketValidationResult,
+  ): WorkflowImprovementTicketCandidate["gaps"] {
+    const gapsByFingerprint = new Map<string, WorkflowImprovementTicketCandidate["gaps"][number]>();
+
+    for (const snapshot of result.snapshots) {
+      for (const gap of snapshot.turnResult.gaps) {
+        if (gap.probableRootCause !== "systemic-instruction") {
+          continue;
+        }
+
+        const fingerprint = buildSpecTicketValidationGapFingerprint(gap);
+        const current = gapsByFingerprint.get(fingerprint);
+        if (!current) {
+          gapsByFingerprint.set(fingerprint, {
+            fingerprint,
+            gapType: gap.gapType,
+            summary: gap.summary,
+            affectedArtifactPaths: [...gap.affectedArtifactPaths],
+            requirementRefs: [...gap.requirementRefs],
+            evidence: [...gap.evidence],
+          });
+          continue;
+        }
+
+        current.affectedArtifactPaths = this.sortUniqueStrings([
+          ...current.affectedArtifactPaths,
+          ...gap.affectedArtifactPaths,
+        ]);
+        current.requirementRefs = this.sortUniqueStrings([
+          ...current.requirementRefs,
+          ...gap.requirementRefs,
+        ]);
+        current.evidence = this.sortUniqueStrings([...current.evidence, ...gap.evidence]);
+      }
+    }
+
+    return [...gapsByFingerprint.values()].sort((left, right) =>
+      left.fingerprint.localeCompare(right.fingerprint, "pt-BR"),
+    );
+  }
+
   private buildRunSpecsTicketValidationSummary(
     result: SpecTicketValidationResult,
+    workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult,
   ): RunSpecsTicketValidationSummary {
     return {
       verdict: result.verdict,
@@ -5063,6 +5250,12 @@ export class TicketRunner {
         outcome: correction.outcome,
       })),
       finalOpenGapFingerprints: [...result.finalOpenGapFingerprints],
+      ...(workflowImprovementTicket
+        ? {
+            workflowImprovementTicket:
+              this.cloneWorkflowImprovementTicketPublicationResult(workflowImprovementTicket),
+          }
+        : {}),
     };
   }
 
@@ -5095,6 +5288,11 @@ export class TicketRunner {
               outcome: correction.outcome,
             })),
             finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+            workflowImprovementTicket: summary.workflowImprovementTicket
+              ? this.cloneWorkflowImprovementTicketPublicationResult(
+                  summary.workflowImprovementTicket,
+                )
+              : undefined,
           }
         : {}),
       ticketCount: packageContext.tickets.length,
@@ -5160,6 +5358,7 @@ export class TicketRunner {
     const systemicGaps = params.summary.gaps.filter(
       (gap) => gap.probableRootCause === "systemic-instruction",
     );
+    const workflowImprovementTicket = params.summary.workflowImprovementTicket;
     const lines = [
       "### Ultima execucao registrada",
       `- Executada em (UTC): ${this.now().toISOString()}`,
@@ -5199,11 +5398,13 @@ export class TicketRunner {
           ])),
       "",
       "#### Observacoes sobre melhoria sistemica do workflow",
-      ...(systemicGaps.length === 0
-        ? ["- Nenhuma observacao sistemica registrada nesta execucao."]
-        : [
-            `- ${systemicGaps.length} gap(s) terminaram com causa-raiz \`systemic-instruction\`; a abertura automatica de ticket transversal permanece fora do escopo deste ticket.`,
-          ]),
+      ...(workflowImprovementTicket
+        ? this.renderWorkflowImprovementTicketLines(workflowImprovementTicket)
+        : systemicGaps.length === 0
+          ? ["- Nenhuma observacao sistemica registrada nesta execucao."]
+          : [
+              `- ${systemicGaps.length} gap(s) sistemicos foram observados, mas esta rodada nao publicou ticket transversal porque o follow-up automatico nao foi habilitado para este contexto.`,
+            ]),
     ];
 
     return lines.join("\n");
@@ -5314,6 +5515,50 @@ export class TicketRunner {
 
   private escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  }
+
+  private extractSpecTitle(specContent: string, fallback: string): string {
+    const match = specContent.match(/^#\s+\[SPEC\]\s+(.+?)\s*$/imu);
+    return match?.[1]?.trim() || fallback;
+  }
+
+  private extractTopLevelBulletItems(content: string, heading: string): string[] {
+    const sectionContent = this.extractTopLevelSectionContent(content, heading);
+    if (!sectionContent) {
+      return [];
+    }
+
+    return sectionContent
+      .split(/\r?\n/gu)
+      .map((line) => line.match(/^\s*-\s+(.+?)\s*$/u)?.[1]?.trim() ?? null)
+      .filter((value): value is string => value !== null && value.length > 0);
+  }
+
+  private sortUniqueStrings(values: string[]): string[] {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((left, right) =>
+      left.localeCompare(right, "pt-BR"),
+    );
+  }
+
+  private renderWorkflowImprovementTicketLines(
+    result: WorkflowImprovementTicketPublicationResult,
+  ): string[] {
+    const lines = [`- Resultado do ticket transversal: ${result.status}`, `  - Detalhe: ${result.detail}`];
+
+    if (result.targetRepoDisplayPath) {
+      lines.push(`  - Repositorio alvo: ${result.targetRepoDisplayPath}`);
+    }
+    if (result.ticketPath) {
+      lines.push(`  - Ticket: ${result.ticketPath}`);
+    }
+    if (result.commitPushId) {
+      lines.push(`  - Commit/push: ${result.commitPushId}`);
+    }
+    if (result.limitationCode) {
+      lines.push(`  - Limitacao: ${result.limitationCode}`);
+    }
+
+    return lines;
   }
 
   private normalizeSpecFileName(specFileName: string): string {
@@ -7152,6 +7397,32 @@ export class TicketRunner {
         outcome: correction.outcome,
       })),
       finalOpenGapFingerprints: [...summary.finalOpenGapFingerprints],
+      ...(summary.workflowImprovementTicket
+        ? {
+            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
+              summary.workflowImprovementTicket,
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private cloneWorkflowImprovementTicketPublicationResult(
+    result: WorkflowImprovementTicketPublicationResult,
+  ): WorkflowImprovementTicketPublicationResult {
+    return {
+      status: result.status,
+      targetRepoKind: result.targetRepoKind,
+      targetRepoPath: result.targetRepoPath,
+      targetRepoDisplayPath: result.targetRepoDisplayPath,
+      ticketFileName: result.ticketFileName,
+      ticketPath: result.ticketPath,
+      detail: result.detail,
+      limitationCode: result.limitationCode,
+      commitHash: result.commitHash,
+      pushUpstream: result.pushUpstream,
+      commitPushId: result.commitPushId,
+      gapFingerprints: [...result.gapFingerprints],
     };
   }
 

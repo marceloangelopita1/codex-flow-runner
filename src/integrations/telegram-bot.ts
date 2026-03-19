@@ -6230,12 +6230,31 @@ export class TelegramController {
 
     if (summary.appliedCorrections.length === 0) {
       lines.push("Correcoes aplicadas: nenhuma");
+    } else {
+      lines.push("Correcoes aplicadas:");
+      for (const correction of summary.appliedCorrections) {
+        lines.push(`- ${correction.description} (${correction.outcome})`);
+      }
+    }
+
+    if (!summary.workflowImprovementTicket) {
       return;
     }
 
-    lines.push("Correcoes aplicadas:");
-    for (const correction of summary.appliedCorrections) {
-      lines.push(`- ${correction.description} (${correction.outcome})`);
+    lines.push("Follow-up sistemico");
+    lines.push(`Resultado: ${summary.workflowImprovementTicket.status}`);
+    lines.push(`Detalhe: ${summary.workflowImprovementTicket.detail}`);
+    if (summary.workflowImprovementTicket.targetRepoDisplayPath) {
+      lines.push(`Repositorio alvo: ${summary.workflowImprovementTicket.targetRepoDisplayPath}`);
+    }
+    if (summary.workflowImprovementTicket.ticketPath) {
+      lines.push(`Ticket transversal: ${summary.workflowImprovementTicket.ticketPath}`);
+    }
+    if (summary.workflowImprovementTicket.commitPushId) {
+      lines.push(`Commit/push: ${summary.workflowImprovementTicket.commitPushId}`);
+    }
+    if (summary.workflowImprovementTicket.limitationCode) {
+      lines.push(`Limitacao: ${summary.workflowImprovementTicket.limitationCode}`);
     }
   }
 

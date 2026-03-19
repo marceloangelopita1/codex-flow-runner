@@ -38,6 +38,7 @@ import {
   WorkflowStageTraceRecordRequest,
   WorkflowTraceStore,
 } from "../integrations/workflow-trace-store.js";
+import { FileSystemWorkflowImprovementTicketPublisher } from "../integrations/workflow-improvement-ticket-publisher.js";
 import { ProjectRef } from "../types/project.js";
 import {
   CodexFlowPreferencesSnapshot,
@@ -431,6 +432,11 @@ class StubSpecTicketValidationSession implements SpecTicketValidationSession {
 class StubGitVersioning implements GitVersioning {
   public syncChecks = 0;
   public readonly commitClosures: Array<{ ticketName: string; execPlanPath: string }> = [];
+  public readonly explicitPathPublishes: Array<{
+    paths: string[];
+    subject: string;
+    bodyParagraphs: string[];
+  }> = [];
 
   constructor(
     private readonly failSyncCheck = false,
@@ -448,6 +454,23 @@ class StubGitVersioning implements GitVersioning {
     if (this.failCommitClosure) {
       throw new Error(this.commitClosureErrorMessage);
     }
+  }
+
+  async commitAndPushPaths(
+    paths: string[],
+    subject: string,
+    bodyParagraphs: string[] = [],
+  ): Promise<GitSyncEvidence | null> {
+    this.explicitPathPublishes.push({
+      paths: [...paths],
+      subject,
+      bodyParagraphs: [...bodyParagraphs],
+    });
+    if (this.failCommitClosure) {
+      throw new Error(this.commitClosureErrorMessage);
+    }
+
+    return this.evidence;
   }
 
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
@@ -884,6 +907,39 @@ const cleanupTempProjectRoot = async (rootPath: string): Promise<void> => {
   await fs.rm(rootPath, { recursive: true, force: true });
 };
 
+const ensureWorkflowImprovementRepoStructure = async (projectRoot: string): Promise<void> => {
+  await fs.mkdir(path.join(projectRoot, "tickets", "open"), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, ".git"), "gitdir: ./.git\n", "utf8");
+};
+
+const createWorkflowImprovementTicketPublisherHarness = (
+  now: Date = new Date("2026-03-19T18:00:00.000Z"),
+) => {
+  const gitClients = new Map<string, StubGitVersioning>();
+  const publisher = new FileSystemWorkflowImprovementTicketPublisher({
+    now: () => new Date(now),
+    createGitVersioning: (repoPath) => {
+      const existing = gitClients.get(repoPath);
+      if (existing) {
+        return existing;
+      }
+
+      const client = new StubGitVersioning(false, {
+        commitHash: "workflow123",
+        upstream: "origin/main",
+        commitPushId: "workflow123@origin/main",
+      });
+      gitClients.set(repoPath, client);
+      return client;
+    },
+  });
+
+  return {
+    publisher,
+    gitClients,
+  };
+};
+
 const writeTicketMetadataFile = async (
   projectRoot: string,
   options: {
@@ -996,14 +1052,18 @@ const createSpecFileContent = (
 
 const setupRunSpecsFixture = async (
   ticketNames: string[] = [ticketA.name, ticketB.name],
+  options: {
+    projectRoot?: string;
+    activeProjectName?: string;
+  } = {},
 ): Promise<{
   projectRoot: string;
   activeProject: ProjectRef;
   tickets: TicketRef[];
 }> => {
-  const projectRoot = await createTempProjectRoot();
+  const projectRoot = options.projectRoot ?? (await createTempProjectRoot());
   const activeProject: ProjectRef = {
-    name: activeProjectA.name,
+    name: options.activeProjectName ?? activeProjectA.name,
     path: projectRoot,
   };
   const tickets = ticketNames.map((ticketName) => buildTicketRef(projectRoot, ticketName));
@@ -2908,6 +2968,306 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.match(specContent, /Nenhuma observacao sistemica registrada nesta execucao\./u);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs publica ticket transversal no repo atual a partir de gap sistemico visto nos snapshots", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  try {
+    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Gap sistemico identificado antes da autocorrecao.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "A instrucao sistemica ainda nao materializa o follow-up automaticamente.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-18", "CA-13"],
+            evidence: ["O primeiro passe marcou systemic-instruction com confianca alta."],
+            probableRootCause: "systemic-instruction",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado aprovado apos a revalidacao.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const { publisher, gitClients } = createWorkflowImprovementTicketPublisherHarness();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowImprovementTicketPublisher: publisher,
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
+      "created-and-pushed",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.targetRepoDisplayPath,
+      ".",
+    );
+    assert.match(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.ticketPath ?? "",
+      /^tickets\/open\/2026-03-19-workflow-improvement-/u,
+    );
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.commitPushId,
+      "workflow123@origin/main",
+    );
+    assert.equal(runSpecsSummary.specTicketValidation?.gaps.length, 0);
+
+    const workflowGit = gitClients.get(fixture.projectRoot);
+    assert.ok(workflowGit);
+    assert.equal(workflowGit?.explicitPathPublishes.length, 1);
+    assert.match(
+      workflowGit?.explicitPathPublishes[0]?.paths[0] ?? "",
+      /^tickets\/open\/2026-03-19-workflow-improvement-/u,
+    );
+
+    const traceRecord = records.find((entry) => entry.request.stage === "spec-ticket-validation");
+    const traceWorkflowImprovementTicket = traceRecord?.request.decision.metadata
+      ?.workflowImprovementTicket as
+      | {
+          status?: string;
+          commitPushId?: string;
+        }
+      | undefined;
+    assert.equal(traceWorkflowImprovementTicket?.status, "created-and-pushed");
+    assert.equal(traceWorkflowImprovementTicket?.commitPushId, "workflow123@origin/main");
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.match(specContent, /Resultado do ticket transversal: created-and-pushed/u);
+    assert.match(specContent, /Commit\/push: workflow123@origin\/main/u);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs publica ticket transversal no repo irmao e registra o resultado no projeto corrente", async () => {
+  const workspaceRoot = await createTempProjectRoot();
+  const externalProjectRoot = path.join(workspaceRoot, "alpha-project");
+  const workflowRepoRoot = path.join(workspaceRoot, "codex-flow-runner");
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    projectRoot: externalProjectRoot,
+    activeProjectName: "alpha-project",
+  });
+  try {
+    await ensureWorkflowImprovementRepoStructure(workflowRepoRoot);
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Gap sistemico reaproveitavel confirmado.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "A abertura cross-repo do follow-up ainda depende de melhoria sistemica.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-20", "CA-14"],
+            evidence: ["A validacao marcou systemic-instruction com alta confianca."],
+            probableRootCause: "systemic-instruction",
+            isAutoCorrectable: false,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { publisher, gitClients } = createWorkflowImprovementTicketPublisherHarness();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowImprovementTicketPublisher: publisher,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
+      "created-and-pushed",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.targetRepoDisplayPath,
+      "../codex-flow-runner",
+    );
+    const workflowTicketPath =
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.ticketPath ?? "";
+    assert.match(workflowTicketPath, /^tickets\/open\/2026-03-19-workflow-improvement-/u);
+
+    const workflowGit = gitClients.get(workflowRepoRoot);
+    assert.ok(workflowGit);
+    assert.equal(workflowGit?.explicitPathPublishes.length, 1);
+    const publishedTicketExists = await fs
+      .access(path.join(workflowRepoRoot, ...workflowTicketPath.split("/")))
+      .then(() => true)
+      .catch(() => false);
+    assert.equal(publishedTicketExists, true);
+  } finally {
+    await cleanupTempProjectRoot(workspaceRoot);
+  }
+});
+
+test("requestRunSpecs registra limitacao operacional nao bloqueante quando o repo irmao nao existe", async () => {
+  const workspaceRoot = await createTempProjectRoot();
+  const externalProjectRoot = path.join(workspaceRoot, "alpha-project");
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    projectRoot: externalProjectRoot,
+    activeProjectName: "alpha-project",
+  });
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Gap sistemico reaproveitavel confirmado.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "A abertura cross-repo do follow-up ainda depende de melhoria sistemica.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-21", "CA-15"],
+            evidence: ["A validacao marcou systemic-instruction com alta confianca."],
+            probableRootCause: "systemic-instruction",
+            isAutoCorrectable: false,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { publisher } = createWorkflowImprovementTicketPublisherHarness();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowImprovementTicketPublisher: publisher,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
+      "operational-limitation",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.limitationCode,
+      "target-repo-missing",
+    );
+    assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.match(specContent, /Resultado do ticket transversal: operational-limitation/u);
+    assert.match(specContent, /Limitacao: target-repo-missing/u);
+  } finally {
+    await cleanupTempProjectRoot(workspaceRoot);
   }
 });
 

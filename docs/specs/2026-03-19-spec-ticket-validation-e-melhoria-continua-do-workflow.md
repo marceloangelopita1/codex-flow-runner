@@ -11,7 +11,7 @@
 - Related tickets:
   - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
-  - tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
+  - tickets/closed/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
   - tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related execplans:
   - execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
@@ -136,9 +136,9 @@
 - [x] CA-10 - O veredito `GO/NO_GO`, os gaps e as correcoes aplicadas ficam registrados na secao `Gate de validacao dos tickets derivados` da spec.
 - [x] CA-11 - O trace/log da rodada inclui o estagio `spec-ticket-validation`, o veredito final e os ciclos de validacao/autocorrecao executados.
 - [x] CA-12 - O resumo final do `/run_specs` enviado ao Telegram inclui veredito `GO/NO_GO`, gaps encontrados, correcoes aplicadas e resultado final da etapa.
-- [ ] CA-13 - Quando houver alta confianca de causa sistemica e o projeto ativo for `codex-flow-runner`, o fluxo abre automaticamente ticket transversal nesse mesmo repositorio e executa commit/push.
-- [ ] CA-14 - Quando houver alta confianca de causa sistemica e o projeto ativo for outro repositorio, o fluxo tenta abrir o ticket transversal em `../codex-flow-runner`, executa commit/push quando bem-sucedido e registra o resultado.
-- [ ] CA-15 - Se `../codex-flow-runner` nao existir ou nao estiver acessivel, o fluxo registra limitacao operacional nao bloqueante no resumo e no trace/log, sem impedir continuidade da spec corrente.
+- [x] CA-13 - Quando houver alta confianca de causa sistemica e o projeto ativo for `codex-flow-runner`, o fluxo abre automaticamente ticket transversal nesse mesmo repositorio e executa commit/push.
+- [x] CA-14 - Quando houver alta confianca de causa sistemica e o projeto ativo for outro repositorio, o fluxo tenta abrir o ticket transversal em `../codex-flow-runner`, executa commit/push quando bem-sucedido e registra o resultado.
+- [x] CA-15 - Se `../codex-flow-runner` nao existir ou nao estiver acessivel, o fluxo registra limitacao operacional nao bloqueante no resumo e no trace/log, sem impedir continuidade da spec corrente.
 - [x] CA-16 - `spec-close-and-version` nao e executado quando o veredito de `spec-ticket-validation` for `NO_GO`.
 - [x] CA-17 - `/run-all` nao e iniciado quando o veredito de `spec-ticket-validation` for `NO_GO`, mesmo que `spec-triage` tenha criado tickets.
 - [x] CA-18 - A documentacao do projeto passa a explicitar o principio transversal: `Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.`
@@ -175,9 +175,7 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Validar em testes automatizados os dois cenarios de ticket transversal de workflow:
-    - projeto ativo = `codex-flow-runner`;
-    - projeto ativo != `codex-flow-runner` com tentativa em `../codex-flow-runner`.
+  - Nenhuma adicional para `CA-13`, `CA-14` e `CA-15`; os cenarios `repo atual`, `repo irmao acessivel` e `repo irmao ausente` agora estao cobertos em testes automatizados.
 - Validacoes manuais pendentes:
   - Executar ao menos uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel e confirmar resumo do Telegram para abertura bem-sucedida do ticket transversal.
   - Executar ao menos uma rodada real de `/run_specs` em projeto externo sem `../codex-flow-runner` acessivel e confirmar resumo do Telegram para limitacao nao bloqueante.
@@ -185,7 +183,7 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
-- Resultado da triagem final: gaps remanescentes confirmados; `Status` permanece `approved` e `Spec treatment` permanece `pending` enquanto o ticket transversal relacionado seguir aberto.
+- Resultado da triagem final: o comportamento de ticket transversal foi implementado, validado localmente e o ticket relacionado foi fechado como `fixed`; `Status` permanece `approved` e `Spec treatment` permanece `pending` ate a auditoria final da spec.
 - Itens atendidos:
   - `src/core/runner.ts` ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`, que pode ser estendida com o novo gate sem paralelizar tickets.
   - `src/integrations/ticket-queue.ts` ja consome a fila por prioridade `P0 -> P1 -> P2`, com fallback deterministico por nome no empate.
@@ -201,8 +199,10 @@
   - `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts` e `src/integrations/telegram-bot.test.ts` agora validam a escrita idempotente da secao `Gate de validacao dos tickets derivados`, o bloqueio de `spec-close-and-version`/`/run-all` em `NO_GO` e os snapshots finais expostos ao Telegram/traces.
   - `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` consolidou `CA-01`, `CA-10`, `CA-11`, `CA-12`, `CA-16` e `CA-17` com validacao `GO` em testes focados, `npm test`, `npm run check` e `npm run build`.
   - `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` consolidou `CA-02`, `CA-03`, `CA-18` e `CA-20` com validacao textual por `git diff` e `rg`, alinhando docs, templates e prompt ao contrato `spec -> tickets`.
+  - `src/types/workflow-improvement-ticket.ts`, `src/integrations/workflow-improvement-ticket-publisher.ts`, `src/integrations/git-client.ts`, `src/core/runner.ts`, `src/integrations/telegram-bot.ts` e `src/main.ts` agora materializam/publicam o ticket transversal de workflow no repo atual ou em `../codex-flow-runner`, com commit/push por caminhos explicitos, dedupe conservador, limitacao operacional nao bloqueante e reflexo na spec, no trace e no resumo final.
+  - `src/integrations/workflow-improvement-ticket-publisher.test.ts`, `src/integrations/git-client.test.ts`, `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` agora cobrem `CA-13`, `CA-14` e `CA-15`, incluindo o caso em que o gap sistemico aparece apenas em snapshots anteriores a uma revalidacao `GO`.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` - abrir ticket transversal em `codex-flow-runner` ou `../codex-flow-runner`, com commit/push e limitacao nao bloqueante quando o repo nao estiver acessivel.
+  - Permanecem uteis as rodadas manuais em projeto externo para auditoria operacional do Telegram e do ambiente cross-repo.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
@@ -213,10 +213,13 @@
   - `src/integrations/ticket-queue.ts`
   - `src/integrations/workflow-trace-store.ts`
   - `src/integrations/workflow-trace-store.test.ts`
+  - `src/integrations/workflow-improvement-ticket-publisher.ts`
+  - `src/integrations/workflow-improvement-ticket-publisher.test.ts`
   - `src/integrations/telegram-bot.ts`
   - `src/integrations/telegram-bot.test.ts`
   - `src/types/flow-timing.ts`
   - `src/types/spec-ticket-validation.ts`
+  - `src/types/workflow-improvement-ticket.ts`
   - `src/types/state.ts`
   - `src/main.ts`
   - `prompts/01-avaliar-spec-e-gerar-tickets.md`
@@ -267,3 +270,4 @@
 - 2026-03-19 16:23Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` fechado como `fixed` apos validacao `GO` com testes focados, `npm test`, `npm run check` e `npm run build`.
 - 2026-03-19 17:02Z - Orquestracao e observabilidade do stage `spec-ticket-validation` integradas ao `/run_specs`, com bloqueio `NO_GO`, secao de gate persistida na spec, traces/Telegram expandidos e validacao automatizada verde (`npx tsx --test src/core/spec-ticket-validation.test.ts src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).
 - 2026-03-19 17:06Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` fechado como `fixed` apos releitura do diff, do ExecPlan e da spec de origem, com validacao `GO` pelos testes focados do gate/orquestracao/Telegram (`227/227`), `npm test` (`356/356`), `npm run check` e `npm run build`.
+- 2026-03-19 18:01Z - Ticket transversal de workflow implementado com publicador tipado, commit/push por caminhos explicitos, observabilidade no trace/spec/Telegram e cobertura automatizada verde para `CA-13`, `CA-14` e `CA-15` (`npx tsx --test src/integrations/workflow-improvement-ticket-publisher.test.ts src/integrations/git-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).

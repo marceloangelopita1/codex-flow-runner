@@ -78,6 +78,80 @@ test("commitTicketClosure propaga erro quando push falha", async () => {
   );
 });
 
+test("commitAndPushPaths publica apenas os caminhos explicitos e retorna evidencia de push", async () => {
+  const calls: string[][] = [];
+  const client = new GitCliVersioning("/tmp/repo", {
+    runGit: async (args): Promise<CallResult> => {
+      calls.push(args);
+      if (args[0] === "diff") {
+        throw new Error("ha alteracoes staged");
+      }
+
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "origin/main\n", stderr: "" };
+      }
+
+      if (args[0] === "rev-list") {
+        return { stdout: "0\n", stderr: "" };
+      }
+
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        return { stdout: "def456\n", stderr: "" };
+      }
+
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  const evidence = await client.commitAndPushPaths(
+    ["tickets/open/2026-03-19-workflow-gap.md"],
+    "chore(tickets): open workflow improvement",
+    ["Source spec: docs/specs/example.md"],
+  );
+
+  assert.deepEqual(calls, [
+    ["add", "--", "tickets/open/2026-03-19-workflow-gap.md"],
+    ["diff", "--cached", "--quiet"],
+    [
+      "commit",
+      "-m",
+      "chore(tickets): open workflow improvement",
+      "-m",
+      "Source spec: docs/specs/example.md",
+    ],
+    ["push"],
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    ["rev-list", "--count", "origin/main..HEAD"],
+    ["rev-parse", "HEAD"],
+  ]);
+  assert.deepEqual(evidence, {
+    commitHash: "def456",
+    upstream: "origin/main",
+    commitPushId: "def456@origin/main",
+  });
+});
+
+test("commitAndPushPaths retorna null quando nao ha alteracoes staged", async () => {
+  const calls: string[][] = [];
+  const client = new GitCliVersioning("/tmp/repo", {
+    runGit: async (args): Promise<CallResult> => {
+      calls.push(args);
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  const evidence = await client.commitAndPushPaths(
+    ["tickets/open/2026-03-19-workflow-gap.md"],
+    "chore(tickets): open workflow improvement",
+  );
+
+  assert.equal(evidence, null);
+  assert.deepEqual(calls, [
+    ["add", "--", "tickets/open/2026-03-19-workflow-gap.md"],
+    ["diff", "--cached", "--quiet"],
+  ]);
+});
+
 test("commitTicketClosure inclui stderr do git quando push falha no wrapper controlado", async () => {
   const client = new GitCliVersioning("/tmp/repo", {
     runGit: async (args): Promise<CallResult> => {
