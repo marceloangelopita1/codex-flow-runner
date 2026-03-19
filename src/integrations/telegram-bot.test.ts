@@ -6149,7 +6149,7 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
 
   await controller.sendRunFlowSummary(
     createRunSpecsFlowSummary({
-      outcome: "failure",
+      outcome: "blocked",
       finalStage: "spec-ticket-validation",
       completionReason: "spec-ticket-validation-no-go",
       details: "Backlog derivado ainda nao esta seguro para seguir ao /run-all.",
@@ -6197,6 +6197,7 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
   );
 
   assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: bloqueado/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-ticket-validation/u);
   assert.match(
     sentMessages[0]?.text ?? "",

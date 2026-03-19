@@ -27,6 +27,7 @@ export interface SpecTicketValidationAutoCorrectRequest {
 export interface SpecTicketValidationAutoCorrectResult {
   packageContext: string;
   appliedCorrections: SpecTicketValidationAppliedCorrection[];
+  materialChangesApplied: boolean;
 }
 
 export interface SpecTicketValidationRunnerDependencies {
@@ -98,6 +99,16 @@ export const runSpecTicketValidation = async (
         latestPass: turn.parsed,
         latestSnapshot,
       });
+
+      if (!autoCorrection.materialChangesApplied) {
+        return finalizeResult({
+          finalPass: turn.parsed,
+          finalReason: "no-material-auto-correction",
+          cyclesExecuted,
+          snapshots,
+          validationThreadId: turn.threadId,
+        });
+      }
 
       const nextTurn = await session.runTurn({
         packageContext: autoCorrection.packageContext,

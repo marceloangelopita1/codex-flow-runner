@@ -6200,8 +6200,16 @@ export class TelegramController {
     return lines.join("\n");
   }
 
-  private renderOutcome(outcome: "success" | "failure"): string {
-    return outcome === "success" ? "sucesso" : "falha";
+  private renderOutcome(outcome: "success" | "failure" | "blocked"): string {
+    if (outcome === "success") {
+      return "sucesso";
+    }
+
+    if (outcome === "blocked") {
+      return "bloqueado";
+    }
+
+    return "falha";
   }
 
   private appendRunSpecsTicketValidationLines(

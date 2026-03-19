@@ -25,6 +25,8 @@ import {
   PlanSpecSessionEvent,
   PlanSpecSessionStartRequest,
   CodexTicketFlowClient,
+  SpecTicketValidationAutoCorrectRequest,
+  SpecTicketValidationAutoCorrectResult,
   SpecTicketValidationSession,
   SpecTicketValidationSessionStartRequest,
   SpecFlowStage,
@@ -45,7 +47,10 @@ import {
   CodexInvocationPreferences,
 } from "../types/codex-preferences.js";
 import { RunnerFlowSummary } from "../types/flow-timing.js";
-import { SpecTicketValidationPassResult } from "../types/spec-ticket-validation.js";
+import {
+  SpecTicketValidationAppliedCorrection,
+  SpecTicketValidationPassResult,
+} from "../types/spec-ticket-validation.js";
 import {
   TicketFinalSummary,
   TicketNotificationDispatchError,
@@ -92,14 +97,25 @@ class StubCodexClient implements CodexTicketFlowClient {
   public planSessionStartCalls = 0;
   public freeChatSessionStartCalls = 0;
   public specTicketValidationSessionStartCalls = 0;
+  public specTicketValidationAutoCorrectCalls = 0;
   public lastDiscoverSession: StubDiscoverSession | null = null;
   public lastPlanSession: StubPlanSession | null = null;
   public lastFreeChatSession: StubCodexChatSession | null = null;
   public lastSpecTicketValidationSession: StubSpecTicketValidationSession | null = null;
+  public lastSpecTicketValidationAutoCorrectRequest:
+    | SpecTicketValidationAutoCorrectRequest
+    | null = null;
   public invocationPreferences: CodexInvocationPreferences | null;
   public specTicketValidationTurns: SpecTicketValidationPassResult[] = [
     createSpecTicketValidationPassResult(),
   ];
+  public specTicketValidationAutoCorrectHandler:
+    | ((
+        request: SpecTicketValidationAutoCorrectRequest,
+      ) =>
+        | Promise<SpecTicketValidationAppliedCorrection[]>
+        | SpecTicketValidationAppliedCorrection[])
+    | null = null;
   private fixedInvocationPreferences: CodexInvocationPreferences | null | undefined;
 
   constructor(
@@ -257,6 +273,27 @@ class StubCodexClient implements CodexTicketFlowClient {
     const session = new StubSpecTicketValidationSession(this.specTicketValidationTurns);
     this.lastSpecTicketValidationSession = session;
     return session;
+  }
+
+  async runSpecTicketValidationAutoCorrect(
+    request: SpecTicketValidationAutoCorrectRequest,
+  ): Promise<SpecTicketValidationAutoCorrectResult> {
+    this.specTicketValidationAutoCorrectCalls += 1;
+    this.lastSpecTicketValidationAutoCorrectRequest = {
+      ...request,
+      allowedArtifactPaths: [...request.allowedArtifactPaths],
+    };
+
+    const appliedCorrections = this.specTicketValidationAutoCorrectHandler
+      ? await this.specTicketValidationAutoCorrectHandler(request)
+      : [];
+
+    return {
+      output: "stub",
+      appliedCorrections,
+      promptTemplatePath: "/tmp/prompts/10-autocorrigir-tickets-derivados-da-spec.md",
+      promptText: "prompt:spec-ticket-validation-autocorrect",
+    };
   }
 }
 
@@ -967,6 +1004,40 @@ const writeTicketMetadataFile = async (
   await fs.mkdir(path.dirname(ticketPath), { recursive: true });
   await fs.writeFile(ticketPath, `${lines.join("\n")}\n`, "utf8");
   return ticketPath;
+};
+
+const createSpecTicketValidationAutoCorrectHandler = (
+  projectRoot: string,
+  marker = "Cobertura derivada explicitada automaticamente.",
+): ((
+  request: SpecTicketValidationAutoCorrectRequest,
+) => Promise<SpecTicketValidationAppliedCorrection[]>) => {
+  return async (request) => {
+    const targetRelativePath = request.allowedArtifactPaths[0];
+    assert.ok(targetRelativePath, "autocorrecao de teste esperava ao menos um artefato permitido");
+
+    const targetAbsolutePath = path.join(projectRoot, ...targetRelativePath.split("/"));
+    const currentContent = await fs.readFile(targetAbsolutePath, "utf8");
+    const nextContent = [
+      currentContent.trimEnd(),
+      `- Auto-correct marker: ${marker}`,
+      "",
+    ].join("\n");
+    await fs.writeFile(targetAbsolutePath, nextContent, "utf8");
+
+    const linkedGapTypes = request.latestPass.gaps
+      .filter((gap) => gap.affectedArtifactPaths.includes(targetRelativePath))
+      .map((gap) => gap.gapType);
+
+    return [
+      {
+        description: "Materializar ajuste seguro no ticket derivado apontado pelo gate.",
+        affectedArtifactPaths: [targetRelativePath],
+        linkedGapTypes: linkedGapTypes.length > 0 ? linkedGapTypes : ["coverage-gap"],
+        outcome: "applied",
+      },
+    ];
+  };
 };
 
 const buildTicketRef = (projectRoot: string, ticketName: string): TicketRef => ({
@@ -2923,14 +2994,14 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.equal(codex.specTicketValidationSessionStartCalls, 1);
     assert.equal(nextTicketCalls, 0);
     assert.equal(milestones.length, 1);
-    assert.equal(milestones[0]?.outcome, "failure");
+    assert.equal(milestones[0]?.outcome, "blocked");
     assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
     assert.match(milestones[0]?.nextAction ?? "", /NO_GO/u);
 
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
     assert.ok(runSpecsSummary);
     if (runSpecsSummary?.flow === "run-specs") {
-      assert.equal(runSpecsSummary.outcome, "failure");
+      assert.equal(runSpecsSummary.outcome, "blocked");
       assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
       assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
       assert.equal(runSpecsSummary.runAllSummary, undefined);
@@ -2979,6 +3050,11 @@ test("requestRunSpecs publica ticket transversal no repo atual a partir de gap s
     await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
     const logger = new SpyLogger();
     const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler =
+      createSpecTicketValidationAutoCorrectHandler(
+        fixture.projectRoot,
+        "Follow-up sistemico explicitado automaticamente.",
+      );
     codex.specTicketValidationTurns = [
       createSpecTicketValidationPassResult({
         verdict: "NO_GO",
@@ -3044,6 +3120,10 @@ test("requestRunSpecs publica ticket transversal no repo atual a partir de gap s
 
     assert.equal(runSpecsSummary.outcome, "success");
     assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(codex.specTicketValidationAutoCorrectCalls, 1);
+    assert.deepEqual(codex.lastSpecTicketValidationAutoCorrectRequest?.allowedArtifactPaths, [
+      `tickets/open/${ticketA.name}`,
+    ]);
     assert.equal(
       runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
       "created-and-pushed",

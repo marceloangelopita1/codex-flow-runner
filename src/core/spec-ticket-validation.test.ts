@@ -117,6 +117,7 @@ test("retorna GO no primeiro passe quando o gate conclui com alta confianca", as
         return {
           packageContext: "nao deveria ser chamado",
           appliedCorrections: [],
+          materialChangesApplied: false,
         };
       },
     },
@@ -157,6 +158,7 @@ test("executa autocorrecao e revalidacao quando o primeiro passe encontra gaps c
       autoCorrect: async () => ({
         packageContext: "tickets derivados apos correcao automatica",
         appliedCorrections: autoCorrections,
+        materialChangesApplied: true,
       }),
     },
     {
@@ -262,6 +264,7 @@ test("para no segundo ciclo completo sem terceira tentativa quando os gaps segue
         return {
           packageContext: `tickets derivados apos ciclo ${String(cycleNumber)}`,
           appliedCorrections: [buildCorrection(`Correcao do ciclo ${String(cycleNumber)}.`)],
+          materialChangesApplied: true,
         };
       },
     },
@@ -319,6 +322,7 @@ test("bloqueia a rodada quando nao ha reducao real dos gaps apos revalidacao", a
       autoCorrect: async () => ({
         packageContext: "tickets derivados apos correcao sem efeito",
         appliedCorrections: [buildCorrection("Tentativa sem efeito pratico.", "failed")],
+        materialChangesApplied: true,
       }),
     },
     {
@@ -352,6 +356,7 @@ test("normaliza GO com confianca medium ou low para NO_GO final", async () => {
       autoCorrect: async () => ({
         packageContext: "nao deveria ser chamado",
         appliedCorrections: [],
+        materialChangesApplied: false,
       }),
     },
     {
@@ -364,4 +369,49 @@ test("normaliza GO com confianca medium ou low para NO_GO final", async () => {
   assert.equal(result.finalReason, "insufficient-confidence");
   assert.equal(result.cyclesExecuted, 0);
   assert.deepEqual(result.finalOpenGapFingerprints, []);
+});
+
+test("encerra sem revalidar quando nao houve correcao material segura", async () => {
+  const initialPass = buildPass({
+    summary: "Existe gap documental auto-corrigivel, mas nenhuma correcao segura foi aplicada.",
+    gaps: [
+      {
+        gapType: "documentation-compliance-gap",
+        summary: "Ticket ainda nao deixa clara a aplicabilidade do contrato documental.",
+        affectedArtifactPaths: ["tickets/open/example.md"],
+        requirementRefs: ["RF-08"],
+        evidence: ["O pacote nao informa a origem documental do ticket."],
+        probableRootCause: "ticket",
+        isAutoCorrectable: true,
+      },
+    ],
+  });
+  const session = new StubSpecTicketValidationSession([buildTurn(initialPass)]);
+  let autoCorrectCalls = 0;
+
+  const result = await runSpecTicketValidation(
+    {
+      startSession: async () => session,
+      autoCorrect: async () => {
+        autoCorrectCalls += 1;
+        return {
+          packageContext: "mesmo pacote derivado",
+          appliedCorrections: [],
+          materialChangesApplied: false,
+        };
+      },
+    },
+    {
+      spec,
+      initialPackageContext: "tickets derivados atuais",
+    },
+  );
+
+  assert.equal(result.verdict, "NO_GO");
+  assert.equal(result.finalReason, "no-material-auto-correction");
+  assert.equal(result.cyclesExecuted, 0);
+  assert.equal(autoCorrectCalls, 1);
+  assert.equal(session.turnRequests.length, 1);
+  assert.equal(result.snapshots.length, 1);
+  assert.deepEqual(result.allAppliedCorrections, []);
 });

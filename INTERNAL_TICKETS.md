@@ -117,6 +117,8 @@ When a ticket is created from post-implementation audit/review, also include:
 - why this cause classification is the smallest plausible explanation;
 - whether the remediation is local or should update a generic repository instruction.
 
+Do not require these three extra fields for tickets created during pre-implementation derivation such as `spec-triage`, unless a canonical repository rule is updated explicitly to broaden that contract.
+
 Proposed solution is optional by design.
 
 ## Naming convention

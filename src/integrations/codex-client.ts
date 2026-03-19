@@ -14,6 +14,10 @@ import {
   sanitizePlanSpecRawOutput,
 } from "./plan-spec-parser.js";
 import {
+  parseSpecTicketValidationAutoCorrectOutput,
+  SpecTicketValidationAutoCorrectParserError,
+} from "./spec-ticket-validation-autocorrect-parser.js";
+import {
   parseSpecTicketValidationOutput,
   SpecTicketValidationParserError,
 } from "./spec-ticket-validation-parser.js";
@@ -32,7 +36,10 @@ import {
   DISCOVER_SPEC_CATEGORY_DEFINITIONS,
   type DiscoverSpecCategoryCoverage,
 } from "../types/discover-spec.js";
-import { SpecTicketValidationPassResult } from "../types/spec-ticket-validation.js";
+import {
+  SpecTicketValidationAppliedCorrection,
+  SpecTicketValidationPassResult,
+} from "../types/spec-ticket-validation.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -255,6 +262,22 @@ export interface SpecTicketValidationSession {
   cancel(): Promise<void>;
 }
 
+export interface SpecTicketValidationAutoCorrectRequest {
+  spec: SpecRef;
+  cycleNumber: number;
+  packageContext: string;
+  latestPass: SpecTicketValidationPassResult;
+  allowedArtifactPaths: string[];
+}
+
+export interface SpecTicketValidationAutoCorrectResult {
+  output: string;
+  appliedCorrections: SpecTicketValidationAppliedCorrection[];
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
@@ -269,6 +292,9 @@ export interface CodexTicketFlowClient {
   startSpecTicketValidationSession(
     request: SpecTicketValidationSessionStartRequest,
   ): Promise<SpecTicketValidationSession>;
+  runSpecTicketValidationAutoCorrect(
+    request: SpecTicketValidationAutoCorrectRequest,
+  ): Promise<SpecTicketValidationAutoCorrectResult>;
 }
 
 interface CodexCommandRequest {
@@ -331,6 +357,8 @@ const CODEX_CHAT_INTERACTIVE_RETRY_HINT = "Use /codex_chat para tentar novamente
 const SPEC_TICKET_VALIDATION_RETRY_HINT =
   "Use /run_specs para reiniciar a validacao de tickets derivados.";
 const SPEC_TICKET_VALIDATION_PROMPT_FILE = "09-validar-tickets-derivados-da-spec.md";
+const SPEC_TICKET_VALIDATION_AUTOCORRECT_PROMPT_FILE =
+  "10-autocorrigir-tickets-derivados-da-spec.md";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -678,6 +706,22 @@ export class CodexSpecTicketValidationSessionError extends Error {
   }
 }
 
+export class CodexSpecTicketValidationAutoCorrectError extends Error {
+  constructor(
+    public readonly phase: "start" | "input" | "runtime",
+    details: string,
+  ) {
+    super(
+      [
+        "Falha na etapa de autocorrecao de spec-ticket-validation no Codex CLI.",
+        SPEC_TICKET_VALIDATION_RETRY_HINT,
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexSpecTicketValidationAutoCorrectError";
+  }
+}
+
 export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   private readonly dependencies: CodexClientDependencies;
   private readonly runtimeShellGuidance: RuntimeShellGuidance;
@@ -979,6 +1023,81 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async runSpecTicketValidationAutoCorrect(
+    request: SpecTicketValidationAutoCorrectRequest,
+  ): Promise<SpecTicketValidationAutoCorrectResult> {
+    const packageContext = request.packageContext.trim();
+    if (!packageContext) {
+      throw new CodexSpecTicketValidationAutoCorrectError(
+        "input",
+        "O pacote derivado a autocorrigir nao pode ser vazio.",
+      );
+    }
+
+    this.logger.info("Executando autocorrecao do pacote derivado da spec via Codex CLI", {
+      repoPath: this.repoPath,
+      specPath: request.spec.path,
+      specFileName: request.spec.fileName,
+      cycleNumber: request.cycleNumber,
+      allowedArtifactCount: request.allowedArtifactPaths.length,
+    });
+
+    const promptTemplatePath = path.join(
+      PROMPTS_DIR,
+      SPEC_TICKET_VALIDATION_AUTOCORRECT_PROMPT_FILE,
+    );
+
+    let promptTemplate = "";
+    try {
+      promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+    } catch (error) {
+      throw new CodexSpecTicketValidationAutoCorrectError("start", errorMessage(error));
+    }
+
+    const prompt = this.buildSpecTicketValidationAutoCorrectPrompt(promptTemplate, request);
+    const preferences = await this.resolveInvocationPreferences();
+
+    let result: CodexCommandResult;
+    try {
+      result = await this.dependencies.runCodexExecJsonCommand({
+        cwd: this.repoPath,
+        args: buildSpecTicketValidationExecStartArgs(prompt, preferences),
+        env: {
+          ...process.env,
+        },
+      });
+    } catch (error) {
+      throw new CodexSpecTicketValidationAutoCorrectError("runtime", errorMessage(error));
+    }
+
+    const parsedTranscript = parseCodexExecJsonTranscript(result.stdout, result.stderr);
+    if (!parsedTranscript.agentMessage) {
+      throw new CodexSpecTicketValidationAutoCorrectError(
+        "runtime",
+        "Codex exec nao retornou agent_message no modo --json para a autocorrecao do gate.",
+      );
+    }
+
+    let appliedCorrections: SpecTicketValidationAppliedCorrection[];
+    try {
+      appliedCorrections = parseSpecTicketValidationAutoCorrectOutput(parsedTranscript.agentMessage);
+    } catch (error) {
+      if (error instanceof SpecTicketValidationAutoCorrectParserError) {
+        throw new CodexSpecTicketValidationAutoCorrectError("runtime", error.message);
+      }
+      throw error;
+    }
+
+    const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+    return {
+      output: parsedTranscript.agentMessage,
+      appliedCorrections,
+      ...(diagnostics ? { diagnostics } : {}),
+      promptTemplatePath,
+      promptText: prompt,
+    };
+  }
+
   private buildTicketPrompt(
     stage: TicketFlowStage,
     promptTemplate: string,
@@ -1134,6 +1253,45 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
             `- Trilha decision: \`${traceDecisionPath}\``,
           ]
         : []),
+      "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
+    ].join("\n");
+  }
+
+  private buildSpecTicketValidationAutoCorrectPrompt(
+    promptTemplate: string,
+    request: SpecTicketValidationAutoCorrectRequest,
+  ): string {
+    const autoCorrectableGaps = request.latestPass.gaps.filter((gap) => gap.isAutoCorrectable);
+
+    return [
+      promptTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional da autocorrecao atual:",
+      `- Spec alvo: \`${request.spec.path}\``,
+      `- Arquivo da spec: \`${request.spec.fileName}\``,
+      `- Ciclo de autocorrecao: \`${request.cycleNumber}\``,
+      "- Natureza desta rodada: pre-run-all / pacote derivado de spec-triage.",
+      "",
+      "## Artefatos permitidos para escrita",
+      ...(request.allowedArtifactPaths.length > 0
+        ? request.allowedArtifactPaths.map((entry) => `- ${entry}`)
+        : ["- Nenhum"]),
+      "",
+      "## Gaps auto-corrigiveis do ultimo passe",
+      ...(autoCorrectableGaps.length > 0
+        ? autoCorrectableGaps.flatMap((gap) => [
+            `- ${gap.gapType}: ${gap.summary}`,
+            `  - Artefatos afetados: ${gap.affectedArtifactPaths.join(", ") || "nenhum"}`,
+            `  - Requisitos: ${gap.requirementRefs.join(", ") || "nenhum"}`,
+            `  - Evidencias: ${gap.evidence.join(" | ") || "nenhuma"}`,
+          ])
+        : ["- Nenhum"]),
+      "",
+      "## Pacote derivado atual",
+      request.packageContext.trim(),
+      "",
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
   }

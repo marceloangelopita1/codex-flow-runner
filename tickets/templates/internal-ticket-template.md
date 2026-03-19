@@ -15,7 +15,9 @@
 - Source spec (when applicable):
 - Source requirements (RFs/CAs, when applicable):
 - Inherited assumptions/defaults (when applicable):
-- Workflow root cause (when applicable): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
+- Workflow root cause (required only for tickets created from post-implementation audit/review): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
+- Smallest plausible explanation (audit/review only):
+- Remediation scope (audit/review only): local | generic-repository-instruction
 - Related artifacts:
   - Request file:
   - Response file:

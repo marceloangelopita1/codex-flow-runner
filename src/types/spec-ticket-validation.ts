@@ -83,6 +83,7 @@ export interface SpecTicketValidationCycleSnapshot {
 export type SpecTicketValidationFinalReason =
   | "go-with-high-confidence"
   | "no-auto-correctable-gaps"
+  | "no-material-auto-correction"
   | "insufficient-confidence"
   | "no-real-gap-reduction"
   | "max-cycles-reached";

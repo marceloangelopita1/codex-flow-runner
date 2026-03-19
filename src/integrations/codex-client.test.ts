@@ -8,6 +8,7 @@ import {
   CodexCliTicketFlowClient,
   CodexDiscoverSpecSessionError,
   CodexPlanSessionError,
+  CodexSpecTicketValidationAutoCorrectError,
   CodexSpecTicketValidationSessionError,
   CodexStageExecutionError,
 } from "./codex-client.js";
@@ -1423,6 +1424,169 @@ test("startSpecTicketValidationSession falha deterministicamente quando o payloa
   );
 
   await session.cancel();
+});
+
+test("runSpecTicketValidationAutoCorrect executa prompt dedicado e parseia correcoes aplicadas", async () => {
+  const capturedArgs: string[][] = [];
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient(
+    "/tmp/repo",
+    new SpyLogger(),
+    {
+      loadPromptTemplate: async () => "# protocolo da autocorrecao do gate",
+      runCodexExecJsonCommand: async (request) => {
+        capturedArgs.push([...request.args]);
+        capturedPrompt = request.args[request.args.length - 1] ?? "";
+        return {
+          stdout: [
+            JSON.stringify({ type: "thread.started", thread_id: "thread-spec-ticket-validation-autocorrect" }),
+            JSON.stringify({
+              type: "item.completed",
+              item: {
+                id: "item_0",
+                type: "agent_message",
+                text: [
+                  "[[SPEC_TICKET_AUTOCORRECT]]",
+                  JSON.stringify(
+                    {
+                      appliedCorrections: [
+                        {
+                          description: "Explicitar cobertura de RF-02 no ticket derivado.",
+                          affectedArtifactPaths: ["tickets/open/example.md"],
+                          linkedGapTypes: ["coverage-gap"],
+                          outcome: "applied",
+                        },
+                      ],
+                    },
+                    null,
+                    2,
+                  ),
+                  "[[/SPEC_TICKET_AUTOCORRECT]]",
+                ].join("\n"),
+              },
+            }),
+            JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }),
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    },
+    {
+      resolveInvocationPreferences: async () => ({
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+        speed: "fast",
+      }),
+    },
+  );
+
+  const result = await client.runSpecTicketValidationAutoCorrect({
+    spec,
+    cycleNumber: 1,
+    packageContext: "Pacote derivado inicial",
+    allowedArtifactPaths: ["tickets/open/example.md"],
+    latestPass: {
+      verdict: "NO_GO",
+      confidence: "high",
+      summary: "RF-02 ainda nao esta coberto.",
+      gaps: [
+        {
+          gapType: "coverage-gap",
+          summary: "RF-02 ainda nao esta coberto.",
+          affectedArtifactPaths: ["tickets/open/example.md"],
+          requirementRefs: ["RF-02"],
+          evidence: ["Ticket atual nao menciona RF-02."],
+          probableRootCause: "ticket",
+          isAutoCorrectable: true,
+        },
+      ],
+      appliedCorrections: [],
+    },
+  });
+
+  assert.equal(result.appliedCorrections.length, 1);
+  assert.match(result.promptTemplatePath, /10-autocorrigir-tickets-derivados-da-spec\.md$/u);
+  assert.match(result.promptText, /Natureza desta rodada: pre-run-all/u);
+  assert.match(result.promptText, /## Artefatos permitidos para escrita/u);
+  assert.match(result.promptText, /tickets\/open\/example\.md/u);
+  assert.match(result.promptText, /coverage-gap: RF-02 ainda nao esta coberto\./u);
+  assert.match(capturedPrompt, /Pacote derivado inicial/u);
+  assert.equal(capturedArgs.length, 1);
+  assert.equal(capturedArgs[0]?.includes("resume"), false);
+  assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("-s"), true);
+  assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
+  assert.equal(capturedArgs[0]?.includes("-m"), true);
+  assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
+});
+
+test("runSpecTicketValidationAutoCorrect falha deterministicamente quando o payload estruturado e invalido", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# protocolo da autocorrecao do gate",
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        JSON.stringify({ type: "thread.started", thread_id: "thread-spec-ticket-validation-autocorrect-invalido" }),
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_0",
+            type: "agent_message",
+            text: [
+              "[[SPEC_TICKET_AUTOCORRECT]]",
+              JSON.stringify({
+                appliedCorrections: [
+                  {
+                    description: "Correcao invalida fora da taxonomia.",
+                    affectedArtifactPaths: ["tickets/open/example.md"],
+                    linkedGapTypes: ["invented-gap"],
+                    outcome: "applied",
+                  },
+                ],
+              }),
+              "[[/SPEC_TICKET_AUTOCORRECT]]",
+            ].join("\n"),
+          },
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  await assert.rejects(
+    () =>
+      client.runSpecTicketValidationAutoCorrect({
+        spec,
+        cycleNumber: 1,
+        packageContext: "Pacote derivado inicial",
+        allowedArtifactPaths: ["tickets/open/example.md"],
+        latestPass: {
+          verdict: "NO_GO",
+          confidence: "high",
+          summary: "RF-02 ainda nao esta coberto.",
+          gaps: [
+            {
+              gapType: "coverage-gap",
+              summary: "RF-02 ainda nao esta coberto.",
+              affectedArtifactPaths: ["tickets/open/example.md"],
+              requirementRefs: ["RF-02"],
+              evidence: ["Ticket atual nao menciona RF-02."],
+              probableRootCause: "ticket",
+              isAutoCorrectable: true,
+            },
+          ],
+          appliedCorrections: [],
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexSpecTicketValidationAutoCorrectError);
+      assert.equal(error.phase, "runtime");
+      assert.match(error.message, /linkedGapTypes invalido/u);
+      return true;
+    },
+  );
 });
 
 test("sendUserInput apos encerramento da sessao retorna erro de input", async () => {

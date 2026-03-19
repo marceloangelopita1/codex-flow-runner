@@ -6,6 +6,9 @@ Regras obrigatorias:
 - O primeiro passe desta etapa deve iniciar em contexto novo; nao reutilize implicitamente contexto ou `thread_id` de `spec-triage`.
 - Revalidacoes desta mesma etapa podem reutilizar apenas o contexto da validacao corrente.
 - Avalie o pacote derivado inteiro, nunca ticket isolado fora do contexto do backlog derivado.
+- Para `documentation-compliance-gap`, aplique o contrato documental conforme a origem do ticket:
+  - campos extras marcados em `INTERNAL_TICKETS.md` como exclusivos de `post-implementation audit/review` so sao obrigatorios quando o proprio ticket ou o contexto do gate indicarem explicitamente essa origem;
+  - tickets derivados de `spec-triage` nao devem receber `documentation-compliance-gap` por ausencia desses campos exclusivos, salvo se o contrato canonico do repositorio tiver sido ampliado explicitamente no proprio contexto fornecido.
 - Use apenas a taxonomia fixa abaixo:
   - `coverage-gap`
   - `scope-justification-gap`

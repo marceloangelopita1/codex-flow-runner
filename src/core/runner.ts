@@ -110,6 +110,7 @@ import {
 } from "../integrations/workflow-improvement-ticket-publisher.js";
 import { runSpecTicketValidation } from "./spec-ticket-validation.js";
 import {
+  SpecTicketValidationGap,
   SpecTicketValidationResult,
   buildSpecTicketValidationGapFingerprint,
 } from "../types/spec-ticket-validation.js";
@@ -155,7 +156,7 @@ export interface CodexChatEventHandlers {
   onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
 }
 
-export type RunSpecsTriageOutcome = "success" | "failure";
+export type RunSpecsTriageOutcome = "success" | "failure" | "blocked";
 
 export interface RunSpecsTriageLifecycleEvent {
   spec: SpecRef;
@@ -313,6 +314,12 @@ interface SpecTicketValidationPackageContext {
   packageContext: string;
   tickets: SpecTicketValidationTicketSnapshot[];
   lineageSource: "source-spec" | "spec-related" | "hybrid";
+}
+
+interface SpecTicketValidationArtifactSnapshot {
+  relativePath: string;
+  absolutePath: string;
+  content: string | null;
 }
 
 class RunnerSpecTicketValidationStageError extends Error {
@@ -4493,7 +4500,7 @@ export class TicketRunner {
         });
         await this.emitRunSpecsTriageMilestone({
           spec: { ...spec },
-          outcome: "failure",
+          outcome: "blocked",
           finalStage: "spec-ticket-validation",
           nextAction:
             "Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute /run_specs.",
@@ -4509,7 +4516,7 @@ export class TicketRunner {
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
           spec,
-          outcome: "failure",
+          outcome: "blocked",
           finalStage: "spec-ticket-validation",
           completionReason: "spec-ticket-validation-no-go",
           details: validationSummary.summary,
@@ -4754,15 +4761,82 @@ export class TicketRunner {
               },
             };
           },
-          autoCorrect: async () => {
-            const refreshedPackageContext = await this.buildSpecTicketValidationPackageContext(
+          autoCorrect: async (request) => {
+            const currentPackageContext = await this.buildSpecTicketValidationPackageContext(
               slot.project.path,
               spec,
             );
-            return {
-              packageContext: refreshedPackageContext.packageContext,
-              appliedCorrections: [],
-            };
+            const allowedArtifactPaths = this.collectSpecTicketValidationAutoCorrectArtifactPaths(
+              slot.project.path,
+              spec,
+              request.latestPass.gaps,
+            );
+            if (allowedArtifactPaths.length === 0) {
+              return {
+                packageContext: currentPackageContext.packageContext,
+                appliedCorrections: [],
+                materialChangesApplied: false,
+              };
+            }
+
+            const snapshots = await this.captureSpecTicketValidationArtifactSnapshots(
+              slot.project.path,
+              allowedArtifactPaths,
+            );
+            try {
+              const autoCorrection = await slot.codexClient.runSpecTicketValidationAutoCorrect({
+                spec,
+                cycleNumber: request.cycleNumber,
+                packageContext: currentPackageContext.packageContext,
+                latestPass: request.latestPass,
+                allowedArtifactPaths,
+              });
+              const refreshedPackageContext = await this.buildSpecTicketValidationPackageContext(
+                slot.project.path,
+                spec,
+              );
+              const materialChangesApplied =
+                refreshedPackageContext.packageContext !== currentPackageContext.packageContext;
+
+              if (!materialChangesApplied) {
+                await this.restoreSpecTicketValidationArtifactSnapshots(snapshots);
+                if (autoCorrection.appliedCorrections.length > 0) {
+                  this.logger.warn(
+                    "Autocorrecao do gate reportou correcoes, mas nao alterou materialmente o pacote derivado",
+                    {
+                      spec: spec.fileName,
+                      specPath: spec.path,
+                      cycleNumber: request.cycleNumber,
+                      activeProjectName: slot.project.name,
+                      activeProjectPath: slot.project.path,
+                    },
+                  );
+                }
+
+                return {
+                  packageContext: currentPackageContext.packageContext,
+                  appliedCorrections: [],
+                  materialChangesApplied: false,
+                };
+              }
+
+              if (autoCorrection.appliedCorrections.length === 0) {
+                await this.restoreSpecTicketValidationArtifactSnapshots(snapshots);
+                throw new Error(
+                  "A etapa de autocorrecao alterou materialmente o pacote derivado sem registrar `appliedCorrections`.",
+                );
+              }
+
+              packageContext = refreshedPackageContext;
+              return {
+                packageContext: refreshedPackageContext.packageContext,
+                appliedCorrections: autoCorrection.appliedCorrections,
+                materialChangesApplied: true,
+              };
+            } catch (error) {
+              await this.restoreSpecTicketValidationArtifactSnapshots(snapshots);
+              throw error;
+            }
           },
         },
         {
@@ -5040,6 +5114,12 @@ export class TicketRunner {
       `- Spec alvo: ${spec.path}`,
       `- Linhagem resolvida por: ${lineageSource}`,
       `- Tickets abertos derivados: ${tickets.length}`,
+      "- Natureza deste pacote: triagem inicial de spec antes do /run-all.",
+      "",
+      "## Notas contratuais do gate",
+      "- `documentation-compliance-gap` deve seguir o contrato canonico de `INTERNAL_TICKETS.md`.",
+      "- Campos extras exclusivos de `post-implementation audit/review` so sao obrigatorios quando essa origem estiver explicita no ticket ou no proprio contexto do gate.",
+      "- Tickets derivados de `spec-triage` nao devem receber esse gap apenas por ausencia desses campos exclusivos.",
       "",
       "## Spec",
       `- Caminho: ${spec.path}`,
@@ -5057,6 +5137,82 @@ export class TicketRunner {
     ];
 
     return lines.join("\n").trim();
+  }
+
+  private collectSpecTicketValidationAutoCorrectArtifactPaths(
+    projectPath: string,
+    spec: SpecRef,
+    gaps: readonly SpecTicketValidationGap[],
+  ): string[] {
+    const allowed = new Set<string>();
+
+    for (const gap of gaps) {
+      if (!gap.isAutoCorrectable) {
+        continue;
+      }
+
+      for (const artifactPath of gap.affectedArtifactPaths) {
+        const normalized = this.normalizeRepositoryPathReference(projectPath, artifactPath);
+        if (!normalized || normalized === spec.path || !normalized.startsWith("tickets/open/")) {
+          continue;
+        }
+
+        const absolutePath = this.resolveProjectRelativePath(projectPath, normalized);
+        const relativeFromProject = path.relative(projectPath, absolutePath);
+        if (!relativeFromProject || relativeFromProject.startsWith("..") || path.isAbsolute(relativeFromProject)) {
+          continue;
+        }
+
+        allowed.add(normalized);
+      }
+    }
+
+    return [...allowed].sort((left, right) => left.localeCompare(right, "pt-BR"));
+  }
+
+  private async captureSpecTicketValidationArtifactSnapshots(
+    projectPath: string,
+    relativePaths: readonly string[],
+  ): Promise<SpecTicketValidationArtifactSnapshot[]> {
+    return Promise.all(
+      relativePaths.map(async (relativePath) => {
+        const absolutePath = this.resolveProjectRelativePath(projectPath, relativePath);
+        try {
+          return {
+            relativePath,
+            absolutePath,
+            content: await fs.readFile(absolutePath, "utf8"),
+          } satisfies SpecTicketValidationArtifactSnapshot;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return {
+              relativePath,
+              absolutePath,
+              content: null,
+            } satisfies SpecTicketValidationArtifactSnapshot;
+          }
+
+          const details = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Falha ao capturar snapshot de ${relativePath} antes da autocorrecao do gate: ${details}`,
+          );
+        }
+      }),
+    );
+  }
+
+  private async restoreSpecTicketValidationArtifactSnapshots(
+    snapshots: readonly SpecTicketValidationArtifactSnapshot[],
+  ): Promise<void> {
+    for (const snapshot of snapshots) {
+      if (snapshot.content === null) {
+        await fs.rm(snapshot.absolutePath, { force: true }).catch(() => undefined);
+        continue;
+      }
+
+      await fs.mkdir(path.dirname(snapshot.absolutePath), { recursive: true });
+      await fs.writeFile(snapshot.absolutePath, snapshot.content, "utf8");
+    }
   }
 
   private async publishWorkflowImprovementTicketIfNeeded(

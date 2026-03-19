@@ -85,7 +85,7 @@ export type RunSpecsFlowCompletionReason =
 
 export interface RunSpecsFlowSummary {
   flow: "run-specs";
-  outcome: "success" | "failure";
+  outcome: "success" | "failure" | "blocked";
   finalStage: RunSpecsFlowFinalStage;
   completionReason: RunSpecsFlowCompletionReason;
   timestampUtc: string;
