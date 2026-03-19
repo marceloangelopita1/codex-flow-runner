@@ -6,10 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-19 15:31Z
-- Last reviewed at (UTC): 2026-03-19 15:31Z
+- Last reviewed at (UTC): 2026-03-19 15:50Z
 - Source: technical-evolution
 - Related tickets:
-  - 
+  - tickets/open/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
+  - tickets/open/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
+  - tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
+  - tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related execplans:
   - 
 - Related commits:
@@ -183,20 +186,28 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
+- Resultado da triagem final: gaps remanescentes confirmados; `Status` permanece `approved` e `Spec treatment` permanece `pending` enquanto os tickets relacionados seguirem abertos.
 - Itens atendidos:
-  - O runner atual ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`.
-  - O repositorio ja possui `docs/workflows/codex-quality-gates.md` com taxonomia de causa-raiz e orientacao para auditoria final.
-  - O fluxo atual ja registra observabilidade por fases, logs e resumo final no Telegram.
+  - `src/core/runner.ts` ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`, que pode ser estendida com o novo gate sem paralelizar tickets.
+  - `src/integrations/ticket-queue.ts` ja consome a fila por prioridade `P0 -> P1 -> P2`, com fallback deterministico por nome no empate.
+  - `docs/workflows/codex-quality-gates.md` ja oferece checklist compartilhado para triagem/auditoria e taxonomia de causa-raiz reutilizavel.
+  - `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts` ja possuem infraestrutura de trace e resumo final reutilizavel para um novo estagio de spec.
+  - `prompts/01-avaliar-spec-e-gerar-tickets.md` ja orienta a triagem da spec a criar tickets em `tickets/open/`.
 - Pendencias em aberto:
-  - Introduzir o estagio explicito `spec-ticket-validation` no runner, com timing, estado, trace e resumo final.
-  - Implementar o contrato `spec -> tickets` e remover a derivacao direta `spec -> execplan` das docs canonicas e templates afetados.
-  - Formalizar o veredito `GO/NO_GO` na spec, logs e resumo do `/run_specs`.
-  - Implementar o loop de autocorrecao com limite fixo de 2 ciclos completos.
-  - Implementar abertura automatica de ticket transversal de melhoria de workflow em `codex-flow-runner`, com commit/push e tratamento nao bloqueante de limitacoes operacionais.
-  - Atualizar `AGENTS.md` e documentacoes de workflow para refletir o principio transversal de qualidade por token da IA/Codex.
+  - `tickets/open/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` - introduzir `spec-ticket-validation` em runner/tipos/traces/Telegram e bloquear `spec-close-and-version` e `/run-all` quando o veredito nao for `GO`.
+  - `tickets/open/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` - implementar validacao com taxonomia fixa, confianca final, evidencias, autocorrecao, revalidacao stateful e limite de 2 ciclos completos.
+  - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` - abrir ticket transversal em `codex-flow-runner` ou `../codex-flow-runner`, com commit/push e limitacao nao bloqueante quando o repo nao estiver acessivel.
+  - `tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` - corrigir docs/templates para o contrato `spec -> tickets`, explicitar a diretriz de qualidade por token e registrar a politica de migracao historica limitada.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/integrations/codex-client.ts`
+  - `src/integrations/git-client.ts`
+  - `src/integrations/ticket-queue.ts`
+  - `src/integrations/workflow-trace-store.ts`
+  - `src/integrations/telegram-bot.ts`
+  - `src/types/flow-timing.ts`
+  - `src/types/state.ts`
+  - `src/main.ts`
   - `prompts/01-avaliar-spec-e-gerar-tickets.md`
   - `prompts/05-encerrar-tratamento-spec-commit-push.md`
   - `prompts/08-auditar-spec-apos-run-all.md`
@@ -238,3 +249,5 @@
 
 ## Historico de atualizacao
 - 2026-03-19 15:31Z - Versao inicial da spec criada a partir de entrevista detalhada para introduzir o gate `spec-ticket-validation`, formalizar o veredito `GO/NO_GO`, corrigir o contrato de derivacao `spec -> tickets` e explicitar o principio transversal de qualidade por token da IA/Codex.
+- 2026-03-19 15:41Z - Revisao de gaps contra o codigo atual concluida; tickets P0/P1 abertos para orquestracao/observabilidade do gate, criterios e autocorrecao, ticket transversal de workflow e alinhamento da documentacao canonica.
+- 2026-03-19 15:50Z - Validacao final da triagem concluida; consistencia documental confirmada com quatro tickets abertos e manutencao do estado `approved/pending` ate a entrega das pendencias derivadas.
