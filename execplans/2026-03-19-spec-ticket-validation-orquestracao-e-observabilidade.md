@@ -228,7 +228,7 @@
 - Tickets correlatos fora do escopo direto:
   - `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md`
   - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md`
-  - `tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
+  - `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
 - Artefatos esperados ao final da execucao:
   - spec atualizada com a secao `Gate de validacao dos tickets derivados`;
   - traces de `spec-ticket-validation` em `.codex-flow-runner/flow-traces/`;

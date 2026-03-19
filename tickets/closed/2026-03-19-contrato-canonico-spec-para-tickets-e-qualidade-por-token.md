@@ -1,7 +1,7 @@
 # [TICKET] Corrigir contrato canonico spec para tickets e qualidade por token
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-19 15:41Z
@@ -92,9 +92,24 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - as instrucoes canonicas ainda contradizem o contrato aprovado pela spec alvo.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem, `DOCUMENTATION.md` e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 17:22Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-04`, `RF-05`, `RF-06`; `CA-02`, `CA-03`: `git diff -- AGENTS.md SPECS.md docs/workflows/discover-spec.md docs/specs/templates/spec-template.md prompts/01-avaliar-spec-e-gerar-tickets.md` mostra o contrato atualizado nas superficies planejadas; `rg -n 'spec -> tickets|ticket -> execplan|apenas tickets|tickets/open/' AGENTS.md SPECS.md docs/workflows/discover-spec.md docs/specs/templates/spec-template.md prompts/01-avaliar-spec-e-gerar-tickets.md` retorna matches em `AGENTS.md`, `SPECS.md`, `docs/workflows/discover-spec.md`, `docs/specs/templates/spec-template.md` e `prompts/01-avaliar-spec-e-gerar-tickets.md`; `rg -n 'execplan direto|criar execplan direto|derivar execplan em \`execplans/\` quando o escopo' AGENTS.md SPECS.md docs/workflows/discover-spec.md docs/specs/templates/spec-template.md prompts/01-avaliar-spec-e-gerar-tickets.md` retorna zero matches para a permissao antiga.
+  - `RF-07`; `CA-18`: `rg -nF 'Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.' AGENTS.md docs/workflows/discover-spec.md docs/workflows/codex-quality-gates.md` retorna um match textual exato em `AGENTS.md`, `docs/workflows/discover-spec.md` e `docs/workflows/codex-quality-gates.md`.
+  - `RF-28`; `CA-20`: `rg -n 'material historico|migracao retroativa em massa|tocado depois|impacto funcional real' SPECS.md docs/workflows/discover-spec.md docs/workflows/codex-quality-gates.md docs/specs/templates/spec-template.md` retorna a politica historica limitada em `SPECS.md`, `docs/workflows/discover-spec.md`, `docs/workflows/codex-quality-gates.md` e `docs/specs/templates/spec-template.md`.
+- Evidencia objetiva de consistencia para versionamento:
+  - `git diff --stat` permanece restrito ao pacote documental/prompt deste ticket mais os ajustes de rastreabilidade do proprio fechamento (`tickets/closed/`, spec de origem e execplans que referenciam o ticket movido), sem alteracoes de runtime.
+- Entrega tecnica concluida:
+  - `AGENTS.md`, `SPECS.md`, `docs/workflows/discover-spec.md`, `docs/workflows/codex-quality-gates.md`, `docs/specs/templates/spec-template.md` e `prompts/01-avaliar-spec-e-gerar-tickets.md` agora refletem o contrato `spec -> tickets` e `ticket -> execplan quando necessario`.
+  - A frase oficial de qualidade por token foi registrada nas superficies canonicas exigidas.
+  - A politica de migracao historica limitada e o gate documental para tickets derivados passaram a constar explicitamente na documentacao e no template oficial.
+- Validacao manual externa pendente: nao.

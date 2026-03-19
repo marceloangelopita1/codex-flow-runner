@@ -39,6 +39,7 @@ Ao entrar neste fluxo:
 - nao assumir que a primeira descricao do usuario ja esta pronta para virar ticket ou codigo;
 - conduzir uma entrevista estruturada ate que as ambiguidades criticas estejam tratadas;
 - produzir uma spec pronta para materializacao no padrao do repositorio.
+- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.
 
 Quando a resposta do usuario ainda estiver vaga, fazer follow-up em vez de encerrar cedo.
 
@@ -96,8 +97,9 @@ Quando o fluxo for usado para criar de fato uma nova spec no projeto, o resultad
 Depois que a spec estiver pronta:
 - revisar o texto final contra `SPECS.md`;
 - materializar a spec em `docs/specs/` quando isso fizer parte da tarefa;
-- derivar ticket em `tickets/open/` quando ainda houver necessidade de refinamento tecnico;
-- derivar execplan em `execplans/` quando o escopo ja estiver claro e pronto para execucao;
+- derivar apenas tickets em `tickets/open/`, mesmo quando o escopo ja estiver claro;
+- criar execplan somente a partir do ticket, quando necessario para execucao segura;
+- alinhar material historico apenas quando ele for tocado depois ou quando houver impacto funcional real; nao existe migracao retroativa em massa por padrao;
 - seguir o fluxo sequencial normal do repositorio.
 
 ## Referencias canonicas

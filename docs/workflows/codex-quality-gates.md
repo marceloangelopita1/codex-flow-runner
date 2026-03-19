@@ -16,12 +16,16 @@ Este documento e referencia compartilhada para:
 - Todo handoff deve carregar contexto suficiente para outra IA executar sem inferencias ocultas.
 - Validacao observavel vale mais que afirmacao generica de conclusao.
 - Quando um gap permanecer, registrar a menor causa-raiz sistêmica plausivel sem overfitting.
+- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.
+- O contrato canonico de derivacao e `spec -> tickets` na triagem inicial e `ticket -> execplan` quando necessario.
+- Alinhamentos canonicos nao exigem migracao retroativa em massa; material historico so precisa ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
 ## Checklist de triagem de spec
 - Extrair RFs, CAs, assumptions/defaults e nao-escopo da spec.
 - Comparar cada RF/CA com evidencias objetivas do codigo atual.
 - Para cada gap, apontar evidencia concreta e classificar `atendido | parcial | nao atendido`.
 - Criar tickets independentes o bastante para outra IA executar sem depender de ticket irmao.
+- A derivacao inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo parecer claro.
 - Em todo ticket derivado, registrar:
   - spec de origem;
   - RFs/CAs cobertos;

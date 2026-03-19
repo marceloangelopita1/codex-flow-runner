@@ -4,6 +4,7 @@
 Definir o padrao oficial para criacao e manutencao de especificacoes funcionais e jornadas de uso em `docs/specs/`.
 
 Cada spec deve ser um **documento vivo**: alem de descrever o comportamento esperado, precisa informar de forma objetiva se ja esta atendida, parcialmente atendida ou ainda pendente.
+Contrato oficial de derivacao: `spec -> tickets` e `ticket -> execplan` quando necessario.
 
 ## Onde ficam as specs
 - Specs: `docs/specs/`
@@ -55,10 +56,11 @@ Se o trabalho ainda estiver aberto, referencie o ticket/execplan em andamento.
 
 ## Regra de derivacao (spec -> execucao)
 Ao revisar uma spec:
-- criar ticket em `tickets/open/` quando houver necessidade de refinamento;
-- criar execplan direto em `execplans/` quando o escopo estiver claro;
+- derivar apenas tickets em `tickets/open/`, mesmo quando o escopo ja estiver claro;
+- criar execplan somente a partir do ticket, quando necessario para execucao segura;
 - implementar de forma sequencial e atualizar o status da spec;
 - fechar ticket (quando existir) no mesmo commit da entrega.
+- alinhamentos canonicos e de template nao exigem migracao retroativa em massa; material historico so precisa ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
 ## Convencao de nome para specs
 Use:
@@ -76,6 +78,7 @@ Toda spec deve conter:
 - requisitos funcionais;
 - assumptions/defaults relevantes quando houver escolhas padrao;
 - criterios de aceitacao observaveis;
+- quando a spec participar de `/run_specs`, a secao `Gate de validacao dos tickets derivados` com veredito, gaps, correcoes, causa-raiz provavel e ciclos executados;
 - restricoes tecnicas relevantes quando houver;
 - validacoes obrigatorias/manuais pendentes quando houver;
 - nao-escopo;

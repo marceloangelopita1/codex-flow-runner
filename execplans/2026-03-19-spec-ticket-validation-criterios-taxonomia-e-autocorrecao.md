@@ -239,7 +239,7 @@
 - Tickets correlatos fora do escopo direto:
   - `tickets/open/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md`
   - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md`
-  - `tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
+  - `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
 - Artefatos esperados ao final da execucao:
   - novo prompt dedicado da validacao;
   - tipos do gate em `src/types`;

@@ -14,6 +14,7 @@
   - 
 - Related commits:
   - 
+- Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
 - Problema que esta spec resolve:
@@ -41,6 +42,21 @@
 - [ ] CA-01 - <comando/acao + resultado esperado>
 - [ ] CA-02 - <comando/acao + resultado esperado>
 - [ ] CA-03 - <comando/acao + resultado esperado>
+
+## Gate de validacao dos tickets derivados
+- Veredito atual: GO | NO_GO | n/a
+- Gaps encontrados:
+  - <descrever>
+- Correcoes aplicadas:
+  - <descrever>
+- Causa-raiz provavel:
+  - <descrever>
+- Ciclos executados:
+  - <descrever>
+- Observacoes de melhoria sistemica:
+  - <descrever>
+- Nota de uso: quando a spec vier de `/run_specs`, preencher esta secao com o veredito, os gaps e as correcoes do gate formal; fora desse fluxo, registrar `n/a` quando nao se aplicar.
+- Politica historica: alinhamentos desta secao nao exigem migracao retroativa em massa; material historico so deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:

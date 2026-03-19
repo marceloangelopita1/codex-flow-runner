@@ -6,6 +6,7 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 ## Documentacao para IA
 - Preserve o contexto auto-carregado para regras recorrentes, estaveis e acionaveis; detalhe, exemplos e racional devem viver em documentacao referenciada.
 - Ao criar ou alterar documentacao do projeto, siga a politica oficial em `DOCUMENTATION.md`.
+- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.
 
 ## Regras de implementação
 - Linguagem padrão: TypeScript em Node.js 20+.
@@ -33,9 +34,10 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - Quando o pedido do usuário no Codex/VS Code for claramente de descoberta/refinamento de spec, conduzir a conversa no modo apropriado em vez de pular direto para implementação.
 - Quando o usuário pedir uma entrevista detalhada para criar uma spec, seguir `docs/workflows/discover-spec.md`.
 - Quando uma evolução for identificada a partir das specs:
-  - Criar um ticket em `tickets/open/` quando ainda for necessário detalhar/refinar o trabalho.
-  - Criar um execplan direto em `execplans/` quando o escopo já estiver claro e pronto para execução.
-- O ciclo esperado é: revisar specs → criar ticket ou execplan → implementar em fluxo sequencial → fechar ticket (quando existir) e manter rastreabilidade com a spec de origem.
+  - Criar um ticket em `tickets/open/` para materializar o trabalho derivado da spec.
+  - Criar um execplan apenas a partir do ticket, quando necessario para execucao segura.
+- O contrato oficial de derivacao e `spec -> tickets` e `ticket -> execplan` quando necessario.
+- O ciclo esperado e: revisar specs -> criar ticket -> criar execplan quando necessario -> implementar em fluxo sequencial -> fechar ticket e manter rastreabilidade com a spec de origem.
 
 ## Observabilidade
 - Logs devem ser simples e legíveis (JSON opcional em evoluções futuras).

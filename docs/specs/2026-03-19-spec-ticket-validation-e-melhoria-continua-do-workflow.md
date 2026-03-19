@@ -6,13 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-19 15:31Z
-- Last reviewed at (UTC): 2026-03-19 17:06Z
+- Last reviewed at (UTC): 2026-03-19 17:22Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
-  - tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
+  - tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related execplans:
   - execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
@@ -125,8 +125,8 @@
 
 ## Criterios de aceitacao (observaveis)
 - [x] CA-01 - `/run_specs <arquivo>` para spec elegivel executa a sequencia `spec-triage -> spec-ticket-validation -> spec-close-and-version -> /run-all -> spec-audit` quando o pacote derivado atingir `GO`.
-- [ ] CA-02 - `spec-triage` nao cria `execplans/` diretamente a partir da spec; a derivacao inicial cria apenas tickets em `tickets/open/`.
-- [ ] CA-03 - `AGENTS.md`, `SPECS.md`, templates e docs de workflow deixam explicito o contrato `spec -> tickets` e removem a permissao canonica de `spec -> execplan` direto.
+- [x] CA-02 - `spec-triage` nao cria `execplans/` diretamente a partir da spec; a derivacao inicial cria apenas tickets em `tickets/open/`.
+- [x] CA-03 - `AGENTS.md`, `SPECS.md`, templates e docs de workflow deixam explicito o contrato `spec -> tickets` e removem a permissao canonica de `spec -> execplan` direto.
 - [x] CA-04 - O primeiro exec de `spec-ticket-validation` e iniciado sem reutilizar implicitamente o conversation id/contexto de `spec-triage`.
 - [x] CA-05 - Revalidacoes dentro de `spec-ticket-validation` podem reutilizar o mesmo contexto/conversation id da validacao para preservar historico local da etapa.
 - [x] CA-06 - O gate classifica gaps apenas dentro da taxonomia fixa aprovada nesta spec e registra evidencias objetivas por gap.
@@ -141,9 +141,9 @@
 - [ ] CA-15 - Se `../codex-flow-runner` nao existir ou nao estiver acessivel, o fluxo registra limitacao operacional nao bloqueante no resumo e no trace/log, sem impedir continuidade da spec corrente.
 - [x] CA-16 - `spec-close-and-version` nao e executado quando o veredito de `spec-ticket-validation` for `NO_GO`.
 - [x] CA-17 - `/run-all` nao e iniciado quando o veredito de `spec-ticket-validation` for `NO_GO`, mesmo que `spec-triage` tenha criado tickets.
-- [ ] CA-18 - A documentacao do projeto passa a explicitar o principio transversal: `Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.`
+- [x] CA-18 - A documentacao do projeto passa a explicitar o principio transversal: `Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.`
 - [ ] CA-19 - `spec-audit` continua ocorrendo apenas apos `/run-all` encadeado bem-sucedido, preservando semantica distinta do novo gate anterior ao `/run-all`.
-- [ ] CA-20 - Material historico nao e migrado em massa por obrigacao documental; a propria documentacao deixa claro que a correcao retroativa fica limitada a artefatos tocados depois ou com impacto funcional real.
+- [x] CA-20 - Material historico nao e migrado em massa por obrigacao documental; a propria documentacao deixa claro que a correcao retroativa fica limitada a artefatos tocados depois ou com impacto funcional real.
 
 ## Gate de validacao dos tickets derivados
 - Objetivo do gate:
@@ -185,7 +185,7 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
-- Resultado da triagem final: gaps remanescentes confirmados; `Status` permanece `approved` e `Spec treatment` permanece `pending` enquanto os tickets relacionados seguirem abertos.
+- Resultado da triagem final: gaps remanescentes confirmados; `Status` permanece `approved` e `Spec treatment` permanece `pending` enquanto o ticket transversal relacionado seguir aberto.
 - Itens atendidos:
   - `src/core/runner.ts` ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`, que pode ser estendida com o novo gate sem paralelizar tickets.
   - `src/integrations/ticket-queue.ts` ja consome a fila por prioridade `P0 -> P1 -> P2`, com fallback deterministico por nome no empate.
@@ -200,9 +200,9 @@
   - `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts` agora reconhecem `spec-ticket-validation`, persistem/verbalizam veredito, gaps, correcoes aplicadas e ciclos executados, e os testes cobrem os caminhos `GO` e `NO_GO`.
   - `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts` e `src/integrations/telegram-bot.test.ts` agora validam a escrita idempotente da secao `Gate de validacao dos tickets derivados`, o bloqueio de `spec-close-and-version`/`/run-all` em `NO_GO` e os snapshots finais expostos ao Telegram/traces.
   - `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` consolidou `CA-01`, `CA-10`, `CA-11`, `CA-12`, `CA-16` e `CA-17` com validacao `GO` em testes focados, `npm test`, `npm run check` e `npm run build`.
+  - `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` consolidou `CA-02`, `CA-03`, `CA-18` e `CA-20` com validacao textual por `git diff` e `rg`, alinhando docs, templates e prompt ao contrato `spec -> tickets`.
 - Pendencias em aberto:
   - `tickets/open/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` - abrir ticket transversal em `codex-flow-runner` ou `../codex-flow-runner`, com commit/push e limitacao nao bloqueante quando o repo nao estiver acessivel.
-  - `tickets/open/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` - corrigir docs/templates para o contrato `spec -> tickets`, explicitar a diretriz de qualidade por token e registrar a politica de migracao historica limitada.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
