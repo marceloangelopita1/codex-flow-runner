@@ -104,16 +104,15 @@ import {
   WorkflowImprovementTicketCandidate,
   WorkflowImprovementTicketHandoff,
   WorkflowImprovementTicketPublicationResult,
+  buildWorkflowImprovementTicketFindingFingerprint,
 } from "../types/workflow-improvement-ticket.js";
 import {
   WorkflowImprovementTicketPublisher,
-  createWorkflowImprovementNotNeededResult,
 } from "../integrations/workflow-improvement-ticket-publisher.js";
 import { runSpecTicketValidation } from "./spec-ticket-validation.js";
 import {
   SpecTicketValidationGap,
   SpecTicketValidationResult,
-  buildSpecTicketValidationGapFingerprint,
 } from "../types/spec-ticket-validation.js";
 import {
   WorkflowGapAnalysisInputMode,
@@ -313,6 +312,11 @@ interface SpecAuditStageResult {
   residualGapsDetected: boolean;
   followUpTicketsCreated: number;
   outputText: string;
+}
+
+interface WorkflowRetrospectiveStageResult {
+  analysis: WorkflowGapAnalysisResult;
+  publication?: WorkflowImprovementTicketPublicationResult;
 }
 
 interface WorkflowGapAnalysisContext {
@@ -4455,6 +4459,7 @@ export class TicketRunner {
     let flowSummary: RunSpecsFlowSummary | null = null;
     let specTicketValidationSummary: RunSpecsTicketValidationSummary | undefined;
     let workflowGapAnalysisSummary: WorkflowGapAnalysisResult | undefined;
+    let workflowImprovementTicketSummary: WorkflowImprovementTicketPublicationResult | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
     this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
@@ -4543,7 +4548,7 @@ export class TicketRunner {
       message: string,
       auditStageResult: SpecAuditStageResult,
       preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
-    ): Promise<WorkflowGapAnalysisResult> => {
+    ): Promise<WorkflowRetrospectiveStageResult> => {
       const stage: Extract<RunSpecsFlowTimingStage, "spec-workflow-retrospective"> =
         "spec-workflow-retrospective";
       const stageStartedAt = Date.now();
@@ -4576,17 +4581,40 @@ export class TicketRunner {
         });
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
-        if (!parsedResult) {
+        const finalizedParsedResult = parsedResult as WorkflowGapAnalysisResult | null;
+        if (!finalizedParsedResult) {
           throw new RunnerSpecStageContractError(
             stage,
             "workflow-gap-analysis terminou sem expor o resultado parseavel obrigatorio.",
           );
         }
-        return parsedResult;
+        if (
+          finalizedParsedResult.publicationEligibility &&
+          !finalizedParsedResult.publicationHandoff
+        ) {
+          throw new RunnerSpecStageContractError(
+            stage,
+            "workflow-gap-analysis marcou publicationEligibility=true sem publicationHandoff.",
+          );
+        }
+        const publication =
+          finalizedParsedResult.publicationEligibility &&
+          finalizedParsedResult.publicationHandoff
+            ? await this.publishWorkflowImprovementTicketIfNeeded(
+                slot.project,
+                spec,
+                finalizedParsedResult.publicationHandoff,
+              )
+            : undefined;
+
+        return {
+          analysis: finalizedParsedResult,
+          ...(publication ? { publication } : {}),
+        };
       } catch (error) {
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
-        const summary = this.convertWorkflowGapAnalysisFailureToOperationalLimitation(
+        const analysis = this.convertWorkflowGapAnalysisFailureToOperationalLimitation(
           error,
           spec,
           slot.project,
@@ -4600,11 +4628,11 @@ export class TicketRunner {
             specPath: spec.path,
             activeProjectName: slot.project.name,
             activeProjectPath: slot.project.path,
-            detail: summary.limitation?.detail,
-            limitationCode: summary.limitation?.code,
+            detail: analysis.limitation?.detail,
+            limitationCode: analysis.limitation?.code,
           },
         );
-        return summary;
+        return { analysis };
       }
     };
 
@@ -4698,11 +4726,13 @@ export class TicketRunner {
         );
         let finalStage: RunSpecsFlowFinalStage = "spec-audit";
         if (specAuditResult.residualGapsDetected) {
-          workflowGapAnalysisSummary = await runTimedSpecWorkflowRetrospectiveStage(
+          const retrospectiveResult = await runTimedSpecWorkflowRetrospectiveStage(
             `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
             specAuditResult,
             preAuditOpenTickets,
           );
+          workflowGapAnalysisSummary = retrospectiveResult.analysis;
+          workflowImprovementTicketSummary = retrospectiveResult.publication;
           finalStage = "spec-workflow-retrospective";
         }
         slot.currentSpec = null;
@@ -4717,6 +4747,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       } else {
@@ -4738,6 +4769,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       }
@@ -4809,6 +4841,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       } else if (stage === "spec-audit" || stage === "spec-workflow-retrospective") {
@@ -4847,6 +4880,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       } else {
@@ -4872,6 +4906,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       }
@@ -4889,6 +4924,7 @@ export class TicketRunner {
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
         });
       await this.emitRunFlowCompleted(summary);
@@ -5661,26 +5697,40 @@ export class TicketRunner {
   private async publishWorkflowImprovementTicketIfNeeded(
     activeProject: ProjectRef,
     spec: SpecRef,
-    specContent: string,
-    result: SpecTicketValidationResult,
+    handoff: WorkflowImprovementTicketHandoff,
   ): Promise<WorkflowImprovementTicketPublicationResult | undefined> {
-    if (result.verdict !== "GO" || this.workflowImprovementTicketPublisher === null) {
-      return undefined;
-    }
+    const candidate = this.buildWorkflowImprovementTicketCandidate(handoff);
+    const targetRepoKind =
+      activeProject.name === "codex-flow-runner" ? "current-project" : "workflow-sibling";
+    const targetRepoPath =
+      targetRepoKind === "current-project"
+        ? activeProject.path
+        : path.resolve(activeProject.path, "..", "codex-flow-runner");
+    const targetRepoDisplayPath = targetRepoKind === "current-project" ? "." : "../codex-flow-runner";
 
-    const candidate = this.buildWorkflowImprovementTicketCandidate(
-      activeProject,
-      spec,
-      specContent,
-      result,
-    );
-    if (candidate === null) {
-      const publication = createWorkflowImprovementNotNeededResult();
-      this.logger.info("Ticket transversal de workflow nao foi necessario nesta execucao", {
+    if (this.workflowImprovementTicketPublisher === null) {
+      const publication: WorkflowImprovementTicketPublicationResult = {
+        status: "operational-limitation",
+        targetRepoKind,
+        targetRepoPath,
+        targetRepoDisplayPath,
+        ticketFileName: null,
+        ticketPath: null,
+        detail: "Workflow improvement ticket publisher nao configurado no runner.",
+        limitationCode: "unexpected-error",
+        commitHash: null,
+        pushUpstream: null,
+        commitPushId: null,
+        gapFingerprints: [...candidate.gapFingerprints],
+      };
+
+      this.logger.warn("Ticket transversal de workflow nao pode ser publicado por configuracao ausente", {
         spec: spec.fileName,
+        sourceSpecPath: handoff.sourceSpecPath,
         activeProjectName: activeProject.name,
         activeProjectPath: activeProject.path,
       });
+
       return publication;
     }
 
@@ -5718,12 +5768,9 @@ export class TicketRunner {
       const details = error instanceof Error ? error.message : String(error);
       const publication: WorkflowImprovementTicketPublicationResult = {
         status: "operational-limitation",
-        targetRepoKind: activeProject.name === "codex-flow-runner" ? "current-project" : "workflow-sibling",
-        targetRepoPath:
-          activeProject.name === "codex-flow-runner"
-            ? activeProject.path
-            : path.resolve(activeProject.path, "..", "codex-flow-runner"),
-        targetRepoDisplayPath: activeProject.name === "codex-flow-runner" ? "." : "../codex-flow-runner",
+        targetRepoKind,
+        targetRepoPath,
+        targetRepoDisplayPath,
         ticketFileName: null,
         ticketPath: null,
         detail: `Falha inesperada ao publicar ticket transversal de workflow: ${details}`,
@@ -5746,79 +5793,33 @@ export class TicketRunner {
   }
 
   private buildWorkflowImprovementTicketCandidate(
-    activeProject: ProjectRef,
-    spec: SpecRef,
-    specContent: string,
-    result: SpecTicketValidationResult,
-  ): WorkflowImprovementTicketCandidate | null {
-    if (result.confidence !== "high") {
-      return null;
-    }
-
-    const systemicGaps = this.collectWorkflowImprovementSystemicGaps(result);
-    if (systemicGaps.length === 0) {
-      return null;
-    }
-
+    handoff: WorkflowImprovementTicketHandoff,
+  ): WorkflowImprovementTicketCandidate {
+    const findings = handoff.findings.map((finding) => ({
+      fingerprint: buildWorkflowImprovementTicketFindingFingerprint(finding),
+      summary: finding.summary,
+      affectedArtifactPaths: this.sortUniqueStrings([...finding.affectedArtifactPaths]),
+      requirementRefs: this.sortUniqueStrings([...finding.requirementRefs]),
+      evidence: this.sortUniqueStrings([...finding.evidence]),
+    }));
     return {
-      activeProjectName: activeProject.name,
-      activeProjectPath: activeProject.path,
-      sourceSpecPath: spec.path,
-      sourceSpecFileName: spec.fileName,
-      sourceSpecTitle: this.extractSpecTitle(specContent, spec.fileName),
-      sourceRequirements: this.sortUniqueStrings(systemicGaps.flatMap((gap) => gap.requirementRefs)),
-      inheritedAssumptionsDefaults: this.extractTopLevelBulletItems(
-        specContent,
-        "Assumptions and defaults",
-      ),
-      validationSummary: result.finalPass.summary,
-      finalValidationConfidence: result.confidence,
-      finalValidationReason: result.finalReason,
-      gaps: systemicGaps,
-      gapFingerprints: systemicGaps.map((gap) => gap.fingerprint),
+      activeProjectName: handoff.activeProjectName,
+      activeProjectPath: handoff.activeProjectPath,
+      sourceSpecPath: handoff.sourceSpecPath,
+      sourceSpecFileName: handoff.sourceSpecFileName,
+      sourceSpecTitle: handoff.sourceSpecTitle,
+      sourceRequirements: this.sortUniqueStrings(findings.flatMap((finding) => finding.requirementRefs)),
+      inheritedAssumptionsDefaults: this.sortUniqueStrings([
+        ...handoff.inheritedAssumptionsDefaults,
+      ]),
+      inputMode: handoff.inputMode,
+      analysisSummary: handoff.analysisSummary,
+      causalHypothesis: handoff.causalHypothesis,
+      benefitSummary: handoff.benefitSummary,
+      followUpTicketPaths: this.sortUniqueStrings([...handoff.followUpTicketPaths]),
+      findings,
+      gapFingerprints: findings.map((finding) => finding.fingerprint),
     };
-  }
-
-  private collectWorkflowImprovementSystemicGaps(
-    result: SpecTicketValidationResult,
-  ): WorkflowImprovementTicketCandidate["gaps"] {
-    const gapsByFingerprint = new Map<string, WorkflowImprovementTicketCandidate["gaps"][number]>();
-
-    for (const snapshot of result.snapshots) {
-      for (const gap of snapshot.turnResult.gaps) {
-        if (gap.probableRootCause !== "systemic-instruction") {
-          continue;
-        }
-
-        const fingerprint = buildSpecTicketValidationGapFingerprint(gap);
-        const current = gapsByFingerprint.get(fingerprint);
-        if (!current) {
-          gapsByFingerprint.set(fingerprint, {
-            fingerprint,
-            gapType: gap.gapType,
-            summary: gap.summary,
-            affectedArtifactPaths: [...gap.affectedArtifactPaths],
-            requirementRefs: [...gap.requirementRefs],
-            evidence: [...gap.evidence],
-          });
-          continue;
-        }
-
-        current.affectedArtifactPaths = this.sortUniqueStrings([
-          ...current.affectedArtifactPaths,
-          ...gap.affectedArtifactPaths,
-        ]);
-        current.requirementRefs = this.sortUniqueStrings([
-          ...current.requirementRefs,
-          ...gap.requirementRefs,
-        ]);
-        current.evidence = this.sortUniqueStrings([...current.evidence, ...gap.evidence]);
-      }
-    }
-
-    return [...gapsByFingerprint.values()].sort((left, right) =>
-      left.fingerprint.localeCompare(right.fingerprint, "pt-BR"),
-    );
   }
 
   private buildRunSpecsTicketValidationSummary(
@@ -7976,6 +7977,7 @@ export class TicketRunner {
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
     specTicketValidation?: RunSpecsTicketValidationSummary;
     workflowGapAnalysis?: WorkflowGapAnalysisResult;
+    workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
     runAllSummary?: RunAllFlowSummary;
   }): RunSpecsFlowSummary {
     return {
@@ -8011,6 +8013,13 @@ export class TicketRunner {
         ? {
             workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
               params.workflowGapAnalysis,
+            ),
+          }
+        : {}),
+      ...(params.workflowImprovementTicket
+        ? {
+            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
+              params.workflowImprovementTicket,
             ),
           }
         : {}),
@@ -8192,6 +8201,13 @@ export class TicketRunner {
         ? {
             workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
               summary.workflowGapAnalysis,
+            ),
+          }
+        : {}),
+      ...(summary.workflowImprovementTicket
+        ? {
+            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
+              summary.workflowImprovementTicket,
             ),
           }
         : {}),

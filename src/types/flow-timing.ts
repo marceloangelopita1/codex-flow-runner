@@ -8,6 +8,7 @@ import {
   SpecTicketValidationVerdict,
 } from "./spec-ticket-validation.js";
 import { WorkflowGapAnalysisResult } from "./workflow-gap-analysis.js";
+import { WorkflowImprovementTicketPublicationResult } from "./workflow-improvement-ticket.js";
 
 export interface FlowTimingSnapshot<Stage extends string = string> {
   startedAtUtc: string;
@@ -116,6 +117,7 @@ export interface RunSpecsFlowSummary {
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
   specTicketValidation?: RunSpecsTicketValidationSummary;
   workflowGapAnalysis?: WorkflowGapAnalysisResult;
+  workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
   runAllSummary?: RunAllFlowSummary;
 }
 

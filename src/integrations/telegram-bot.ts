@@ -6189,6 +6189,9 @@ export class TelegramController {
     if (summary.workflowGapAnalysis) {
       this.appendWorkflowGapAnalysisLines(lines, summary.workflowGapAnalysis);
     }
+    if (summary.workflowImprovementTicket) {
+      this.appendWorkflowImprovementTicketLines(lines, summary.workflowImprovementTicket);
+    }
     this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
     this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
 
@@ -6306,6 +6309,28 @@ export class TelegramController {
     if (summary.limitation) {
       lines.push(`Limitacao operacional: ${summary.limitation.code}`);
       lines.push(`Detalhe da limitacao: ${summary.limitation.detail}`);
+    }
+  }
+
+  private appendWorkflowImprovementTicketLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]>,
+  ): void {
+    lines.push("Ticket transversal de workflow");
+    lines.push(`Resultado: ${summary.status}`);
+    lines.push(`Detalhe: ${summary.detail}`);
+
+    if (summary.targetRepoDisplayPath) {
+      lines.push(`Repositorio alvo: ${summary.targetRepoDisplayPath}`);
+    }
+    if (summary.ticketPath) {
+      lines.push(`Ticket publicado/reutilizado: ${summary.ticketPath}`);
+    }
+    if (summary.commitPushId) {
+      lines.push(`Commit/push dedicado: ${summary.commitPushId}`);
+    }
+    if (summary.limitationCode) {
+      lines.push(`Limitacao de publication: ${summary.limitationCode}`);
     }
   }
 

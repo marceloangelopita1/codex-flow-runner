@@ -1,8 +1,4 @@
-import {
-  SpecTicketValidationConfidenceLevel,
-  SpecTicketValidationFinalReason,
-  SpecTicketValidationGapType,
-} from "./spec-ticket-validation.js";
+import { createHash } from "node:crypto";
 
 export type WorkflowImprovementTicketHandoffInputMode =
   | "follow-up-tickets"
@@ -49,9 +45,8 @@ export type WorkflowImprovementTicketLimitationCode =
   | "git-publish-failed"
   | "unexpected-error";
 
-export interface WorkflowImprovementTicketGapCandidate {
+export interface WorkflowImprovementTicketFindingCandidate {
   fingerprint: string;
-  gapType: SpecTicketValidationGapType;
   summary: string;
   affectedArtifactPaths: string[];
   requirementRefs: string[];
@@ -66,10 +61,12 @@ export interface WorkflowImprovementTicketCandidate {
   sourceSpecTitle: string;
   sourceRequirements: string[];
   inheritedAssumptionsDefaults: string[];
-  validationSummary: string;
-  finalValidationConfidence: SpecTicketValidationConfidenceLevel;
-  finalValidationReason: SpecTicketValidationFinalReason;
-  gaps: WorkflowImprovementTicketGapCandidate[];
+  inputMode: WorkflowImprovementTicketHandoffInputMode;
+  analysisSummary: string;
+  causalHypothesis: string;
+  benefitSummary: string;
+  followUpTicketPaths: string[];
+  findings: WorkflowImprovementTicketFindingCandidate[];
   gapFingerprints: string[];
 }
 
@@ -87,3 +84,38 @@ export interface WorkflowImprovementTicketPublicationResult {
   commitPushId: string | null;
   gapFingerprints: string[];
 }
+
+export const buildWorkflowImprovementTicketFindingFingerprint = (
+  finding: WorkflowImprovementTicketDraftFinding,
+): string => {
+  const digest = createHash("sha1")
+    .update(finding.summary.trim())
+    .update("\n")
+    .update(
+      [...finding.affectedArtifactPaths]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, "pt-BR"))
+        .join("\n"),
+    )
+    .update("\n")
+    .update(
+      [...finding.requirementRefs]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, "pt-BR"))
+        .join("\n"),
+    )
+    .update("\n")
+    .update(
+      [...finding.evidence]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .sort((left, right) => left.localeCompare(right, "pt-BR"))
+        .join("\n"),
+    )
+    .digest("hex")
+    .slice(0, 12);
+
+  return `workflow-finding|${digest}`;
+};

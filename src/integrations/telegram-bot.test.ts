@@ -215,6 +215,24 @@ const createWorkflowGapAnalysisSummary = (
   ...value,
 });
 
+const createWorkflowImprovementTicketSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]>> = {},
+): NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]> => ({
+  status: "created-and-pushed",
+  targetRepoKind: "current-project",
+  targetRepoPath: "/home/mapita/projetos/codex-flow-runner",
+  targetRepoDisplayPath: ".",
+  ticketFileName: "2026-03-19-workflow-improvement-example.md",
+  ticketPath: "tickets/open/2026-03-19-workflow-improvement-example.md",
+  detail: "Ticket transversal publicado com commit/push em tickets/open/2026-03-19-workflow-improvement-example.md.",
+  limitationCode: null,
+  commitHash: "workflow123",
+  pushUpstream: "origin/main",
+  commitPushId: "workflow123@origin/main",
+  gapFingerprints: ["workflow-finding|abc123def456"],
+  ...value,
+});
+
 const createPlanSpecSession = (
   value: Partial<NonNullable<RunnerState["planSpecSession"]>> = {},
 ): NonNullable<RunnerState["planSpecSession"]> => ({
@@ -6145,6 +6163,7 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
           },
         ],
       }),
+      workflowImprovementTicket: createWorkflowImprovementTicketSummary(),
     }),
   );
 
@@ -6160,6 +6179,13 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
     sentMessages[0]?.text ?? "",
     /Falta um contrato parseavel dedicado para workflow-gap-analysis\./u,
   );
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal de workflow/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: created-and-pushed/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Ticket publicado\/reutilizado: tickets\/open\/2026-03-19-workflow-improvement-example\.md/u,
+  );
+  assert.match(sentMessages[0]?.text ?? "", /Commit\/push dedicado: workflow123@origin\/main/u);
 });
 
 test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {
@@ -6371,6 +6397,19 @@ test("envia resumo final de /run-specs com limitacao operacional da retrospectiv
           detail: "Repositorio codex-flow-runner nao encontrado em ../codex-flow-runner.",
         },
       }),
+      workflowImprovementTicket: createWorkflowImprovementTicketSummary({
+        status: "operational-limitation",
+        targetRepoKind: "workflow-sibling",
+        targetRepoPath: "/tmp/codex-flow-runner",
+        targetRepoDisplayPath: "../codex-flow-runner",
+        ticketFileName: null,
+        ticketPath: null,
+        detail: "Repositorio codex-flow-runner nao encontrado em ../codex-flow-runner.",
+        limitationCode: "target-repo-missing",
+        commitHash: null,
+        pushUpstream: null,
+        commitPushId: null,
+      }),
     }),
   );
 
@@ -6379,6 +6418,9 @@ test("envia resumo final de /run-specs com limitacao operacional da retrospectiv
   assert.match(sentMessages[0]?.text ?? "", /Classificacao: operational-limitation/u);
   assert.match(sentMessages[0]?.text ?? "", /Limitacao operacional: workflow-repo-context-missing/u);
   assert.match(sentMessages[0]?.text ?? "", /Detalhe da limitacao: Repositorio codex-flow-runner nao encontrado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal de workflow/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: operational-limitation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Limitacao de publication: target-repo-missing/u);
 });
 
 test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {

@@ -1,7 +1,7 @@
 # [TICKET] Adaptar workflow-ticket-publication pos-auditoria para reuso, cross-repo e limites nao bloqueantes
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-19 22:03Z
@@ -24,6 +24,7 @@
   - Log file:
 - Related docs/execplans:
   - docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md
+  - execplans/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md
   - src/integrations/workflow-improvement-ticket-publisher.ts
   - src/types/workflow-improvement-ticket.ts
   - src/core/runner.ts
@@ -96,9 +97,26 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - a infraestrutura de publicacao ja existe, mas ainda esta conectada ao `spec-ticket-validation` e nao aos resultados da retrospectiva pos-auditoria.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 23:23Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-19`, `RF-20`, `RF-21`, `RF-22`, `RF-23`; `CA-10`, `CA-12`, `CA-16`: `src/core/runner.ts` passou a acionar `publishWorkflowImprovementTicketIfNeeded(...)` apenas a partir de `workflowGapAnalysis.publicationHandoff`, e `src/types/workflow-improvement-ticket.ts` agora tipa o handoff/candidato por findings com fingerprints proprios; `src/integrations/workflow-improvement-ticket-publisher.ts` preserva `current-project`, `workflow-sibling`, `created-and-pushed`, `reused-open-ticket` e deduplicacao por `Source spec` + overlap de fingerprints; `src/integrations/workflow-improvement-ticket-publisher.test.ts` cobre publish no repo atual, publish no repo irmao e reuso; `src/core/runner.test.ts` cobre publish no repo atual e no repo irmao durante `spec-workflow-retrospective`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts src/integrations/telegram-bot.test.ts` -> pass (`235/235`); `rg -n "publicationHandoff|workflowImprovementTicket|publishWorkflowImprovementTicketIfNeeded|workflow-ticket-publication|workflow-sibling|current-project" src/core/runner.ts src/integrations/workflow-improvement-ticket-publisher.ts src/types/flow-timing.ts src/integrations/telegram-bot.ts` confirma o wiring pos-auditoria, os destinos cross-repo e a entidade dedicada no summary.
+  - `RF-25`, `RF-29`, `RF-30`; `CA-10`, `CA-13`, `CA-16`: `src/types/flow-timing.ts` ganhou `workflowImprovementTicket`; `src/core/runner.ts` persiste esse resultado no `RunSpecsFlowSummary`; `src/integrations/telegram-bot.ts` renderiza bloco dedicado `Ticket transversal de workflow` com `Resultado`, `Repositorio alvo`, `Ticket publicado/reutilizado`, `Commit/push dedicado` e `Limitacao de publication`; `src/integrations/telegram-bot.test.ts` cobre os cenarios `created-and-pushed` e `operational-limitation`; `npm run check` -> pass; `npm run build` -> pass.
+  - `RF-26`, `RF-27`; `CA-11`: `src/core/runner.test.ts` adicionou o cenario `requestRunSpecs publica ticket transversal no repo irmao sem alterar a spec do projeto externo durante a retrospectiva`, com assert de ausencia de git publish no repo externo e de igualdade do conteudo da spec antes/depois da retrospectiva; `src/integrations/workflow-improvement-ticket-publisher.ts` resolve `../codex-flow-runner` como unico destino elegivel quando o projeto ativo e externo; a mesma matriz `npx tsx --test ...` passou verde e `git diff -- src/core/runner.ts src/integrations/workflow-improvement-ticket-publisher.ts src/core/runner.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts` nao mostra escrita planejada na spec do projeto externo nem wiring de commit/push para o repo auditado.
+- Entrega tecnica concluida:
+  - O runner passou a consumir `workflowGapAnalysis.publicationHandoff` como unica fonte de verdade para `workflow-ticket-publication`, sem depender mais de `SpecTicketValidationResult`.
+  - O publisher preservou reuso/deduplicacao e publicou ou reutilizou o ticket transversal no repo atual ou em `../codex-flow-runner`, com limitacao operacional nao bloqueante quando necessario.
+  - O resumo final de `/run_specs` agora distingue analise sistemica de publication do ticket transversal.
+- Validacao manual externa pendente: sim.
+  - Entrega tecnica e aceite tecnico concluidos; a pendencia remanescente e apenas operacional.
+  - Validacao manual ainda necessaria: executar uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel, outra sem o repo irmao acessivel e uma terceira no proprio `codex-flow-runner`, confirmando no Telegram o resumo final e o ticket transversal publicado/reutilizado ou a limitacao nao bloqueante.
+  - Como executar: o operador do runner deve disparar `/run_specs` para uma spec que produza gaps residuais reais e verificar os efeitos observaveis em `tickets/open/` do repo alvo e no resumo final do bot.
+  - Responsavel operacional: mantenedor/operador do runner no ambiente real.

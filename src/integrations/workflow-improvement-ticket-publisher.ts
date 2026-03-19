@@ -301,21 +301,31 @@ export class FileSystemWorkflowImprovementTicketPublisher
         ? candidate.inheritedAssumptionsDefaults.join("; ")
         : "";
 
-    const gapSummaries = candidate.gaps.map((gap) => `- ${gap.gapType}: ${gap.summary}`);
-    const gapEvidenceLines = candidate.gaps.flatMap((gap) => {
-      const lines = [`- ${gap.gapType}: ${gap.summary}`];
-      if (gap.requirementRefs.length > 0) {
-        lines.push(`  - Requisitos relacionados: ${gap.requirementRefs.join(", ")}`);
+    const findingSummaries = candidate.findings.map((finding) => `- ${finding.summary}`);
+    const findingEvidenceLines = candidate.findings.flatMap((finding) => {
+      const lines = [`- ${finding.summary}`];
+      if (finding.requirementRefs.length > 0) {
+        lines.push(`  - Requisitos relacionados: ${finding.requirementRefs.join(", ")}`);
       }
-      if (gap.affectedArtifactPaths.length > 0) {
-        lines.push(`  - Artefatos afetados: ${gap.affectedArtifactPaths.join(", ")}`);
+      if (finding.affectedArtifactPaths.length > 0) {
+        lines.push(`  - Artefatos afetados: ${finding.affectedArtifactPaths.join(", ")}`);
       }
-      if (gap.evidence.length > 0) {
-        lines.push(`  - Evidencias: ${gap.evidence.join(" | ")}`);
+      if (finding.evidence.length > 0) {
+        lines.push(`  - Evidencias: ${finding.evidence.join(" | ")}`);
       }
-      lines.push(`  - Fingerprint: ${gap.fingerprint}`);
+      lines.push(`  - Fingerprint: ${finding.fingerprint}`);
       return lines;
     });
+    const relatedArtifacts = [
+      candidate.sourceSpecPath,
+      ...candidate.followUpTicketPaths,
+      ...candidate.findings.flatMap((finding) => finding.affectedArtifactPaths),
+    ].filter(Boolean);
+    const workflowArea = "spec-workflow-retrospective -> workflow-ticket-publication";
+    const followUpSummary =
+      candidate.followUpTicketPaths.length > 0
+        ? candidate.followUpTicketPaths.join(", ")
+        : "fallback controlado em spec + resultado do spec-audit";
 
     const closureRequirementLabel =
       candidate.sourceRequirements.length > 0
@@ -347,7 +357,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
       "  - Response file:",
       "  - Log file:",
       "- Related docs/execplans:",
-      `  - ${candidate.sourceSpecPath}`,
+      ...relatedArtifacts.map((artifactPath) => `  - ${artifactPath}`),
       "",
       "## Classificacao de risco (check-up nao funcional, quando aplicavel)",
       "- Matriz aplicavel: nao",
@@ -357,54 +367,57 @@ export class FileSystemWorkflowImprovementTicketPublisher
       "- Risco operacional (1-5):",
       "- Score ponderado (10-50):",
       "- Prioridade resultante (`P0` | `P1` | `P2`):",
-      "- Justificativa objetiva (evidencias e impacto): gaps sistemicos observados com alta confianca durante spec-ticket-validation.",
+      "- Justificativa objetiva (evidencias e impacto): gaps sistemicos observados com alta confianca durante workflow-gap-analysis pos-auditoria.",
       "",
       "## Context",
-      "- Workflow area: spec-ticket-validation -> follow-up sistemico",
-      `- Scenario: o gate da spec ${candidate.sourceSpecFileName} identificou gaps sistemicos com confianca final ${candidate.finalValidationConfidence}.`,
-      "- Input constraints: a publicacao deste ticket nao deve bloquear a spec corrente quando o gate principal estiver em GO.",
+      `- Workflow area: ${workflowArea}`,
+      `- Scenario: a retrospectiva sistemica da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`,
+      "- Input constraints: a publicacao deste ticket nao deve bloquear a rodada auditada; em projeto externo, o publish deve ocorrer apenas no repositorio do workflow.",
       "",
       "## Problem statement",
-      `O workflow atual permitiu recorrencia sistemica durante a validacao dos tickets derivados da spec ${candidate.sourceSpecFileName}. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir retrabalho em specs futuras.`,
+      `A retrospectiva pos-auditoria da spec ${candidate.sourceSpecFileName} encontrou evidencia de que o workflow atual contribuiu materialmente para gaps residuais reaproveitaveis. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`,
       "",
       "## Observed behavior",
       "- O que foi observado:",
-      ...(gapSummaries.length > 0 ? gapSummaries : ["- Nenhum gap resumido."]),
+      ...(findingSummaries.length > 0 ? findingSummaries : ["- Nenhum achado resumido."]),
       "- Frequencia (unico, recorrente, intermitente): recorrente",
-      "- Como foi detectado (warning/log/test/assert): spec-ticket-validation com confianca alta",
+      "- Como foi detectado (warning/log/test/assert): workflow-gap-analysis com high confidence apos spec-audit",
       "",
       "## Expected behavior",
       `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada, reduzindo a recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes.`,
       "",
       "## Reproduction steps",
       `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
-      "2. Observar o gate spec-ticket-validation e revisar os gaps marcados com `systemic-instruction`.",
-      "3. Confirmar que a causa plausivel depende de melhoria transversal do workflow, e nao apenas do pacote local de tickets.",
+      "2. Revisar o resultado de spec-audit e os follow-ups funcionais abertos para a spec auditada.",
+      "3. Observar workflow-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
       "",
       "## Evidence",
-      `- Logs relevantes (trechos curtos e redigidos): resumo do gate = ${candidate.validationSummary}`,
+      `- Logs relevantes (trechos curtos e redigidos): resumo da retrospectiva = ${candidate.analysisSummary}`,
       "- Warnings/codes relevantes:",
-      ...gapEvidenceLines,
+      ...findingEvidenceLines,
+      `- Tickets funcionais considerados: ${followUpSummary}`,
+      `- Hipotese causal consolidada: ${candidate.causalHypothesis}`,
+      `- Beneficio esperado consolidado: ${candidate.benefitSummary}`,
       `- Comparativo antes/depois (se houver): fingerprints sistemicos = ${candidate.gapFingerprints.join(", ")}`,
       "",
       "## Impact assessment",
       "- Impacto funcional: novos pacotes derivados podem repetir a mesma lacuna sistemica.",
       "- Impacto operacional: o runner depende de follow-up manual para melhorar o proprio workflow.",
-      "- Risco de regressao: medio, porque a correcao tende a tocar instrucoes canonicas, prompts ou validacoes compartilhadas.",
-      "- Scope estimado (quais fluxos podem ser afetados): triagem/validacao de spec, tickets derivados e artefatos canonicos correlatos.",
+      "- Risco de regressao: medio, porque a correcao tende a tocar instrucoes canonicas, prompts, validacoes ou ordem das etapas compartilhadas.",
+      `- Scope estimado (quais fluxos podem ser afetados): ${candidate.findings.flatMap((finding) => finding.affectedArtifactPaths).join(", ") || "artefatos canonicos do workflow"}.`,
       "",
       "## Initial hypotheses (optional)",
-      "- O workflow precisa de ajuste generico em instrucoes, templates ou validacoes compartilhadas para prevenir a recorrencia.",
+      `- ${candidate.causalHypothesis}`,
       "",
       "## Proposed solution (optional)",
-      "- Revisar a menor instrucao sistemica plausivel, preferindo ajuste reaproveitavel nos artefatos canonicos do workflow.",
+      `- ${candidate.benefitSummary}`,
       "",
       "## Closure criteria",
       `- Requisito/RF/CA coberto: ${closureRequirementLabel}`,
-      "- Evidencia observavel: a causa sistemica registrada neste ticket deixa de reaparecer em uma rodada equivalente de spec-ticket-validation, com rastreabilidade objetiva nos artefatos afetados.",
+      "- Evidencia observavel: a causa sistemica registrada neste ticket deixa de reaparecer em uma rodada equivalente de workflow-gap-analysis/workflow-ticket-publication, com rastreabilidade objetiva nos artefatos afetados.",
       "",
       "## Decision log",
-      `- ${this.dependencies.now().toISOString().slice(0, 10)} - Ticket aberto automaticamente a partir do gate da spec - follow-up sistemico reaproveitavel identificado com alta confianca.`,
+      `- ${this.dependencies.now().toISOString().slice(0, 10)} - Ticket aberto automaticamente a partir da retrospectiva sistemica pos-auditoria - follow-up sistemico reaproveitavel identificado com high confidence.`,
       "",
       "## Closure",
       "- Closed at (UTC):",

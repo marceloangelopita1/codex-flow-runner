@@ -57,13 +57,14 @@ const createCandidate = (
   sourceSpecTitle: "Spec ticket validation",
   sourceRequirements: ["RF-18", "CA-13"],
   inheritedAssumptionsDefaults: ["Nao bloquear a rodada principal em GO."],
-  validationSummary: "Gap sistemico identificado com alta confianca.",
-  finalValidationConfidence: "high",
-  finalValidationReason: "go-with-high-confidence",
-  gaps: [
+  inputMode: "follow-up-tickets",
+  analysisSummary: "Gap sistemico identificado com alta confianca.",
+  causalHypothesis: "A retrospectiva pos-auditoria ainda nao fecha o backlog sistemico no stage correto.",
+  benefitSummary: "Mover a publication para o pos-auditoria reduz recorrencia futura.",
+  followUpTicketPaths: ["tickets/open/example.md"],
+  findings: [
     {
       fingerprint: "coverage-gap|tickets/open/example.md|rf-18",
-      gapType: "coverage-gap",
       summary: "Instrucao sistemica insuficiente para follow-up automatico.",
       affectedArtifactPaths: ["tickets/open/example.md"],
       requirementRefs: ["RF-18", "CA-13"],
@@ -122,6 +123,8 @@ test("publica ticket transversal no repositorio atual com commit/push observavel
     assert.match(ticketContent, /Source spec \(when applicable\): docs\/specs\/2026-03-19-spec-ticket-validation\.md/u);
     assert.match(ticketContent, /Systemic gap fingerprints/u);
     assert.match(ticketContent, /Workflow root cause \(when applicable\): systemic-instruction/u);
+    assert.match(ticketContent, /workflow-gap-analysis pos-auditoria/u);
+    assert.match(ticketContent, /Hipotese causal consolidada:/u);
   } finally {
     await cleanupTempWorkspace(workspacePath);
   }
