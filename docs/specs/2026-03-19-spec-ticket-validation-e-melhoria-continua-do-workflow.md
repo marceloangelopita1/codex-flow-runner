@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-19 15:31Z
-- Last reviewed at (UTC): 2026-03-19 17:22Z
+- Last reviewed at (UTC): 2026-03-19 18:10Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
@@ -16,8 +16,13 @@
 - Related execplans:
   - execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
+  - execplans/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
+  - execplans/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related commits:
-  - 
+  - `ff1b8da` - `chore(tickets): close 2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md`
+  - `5e33ed5` - `chore(tickets): close 2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md`
+  - `273e32a` - `chore(tickets): close 2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md`
+  - `0225a0e` - `chore(tickets): close 2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md`
 
 ## Objetivo e contexto
 - Problema que esta spec resolve: o fluxo atual de `/run_specs` ja possui triagem inicial da spec e auditoria final apos a rodada de tickets, mas ainda nao possui um gate formal entre "tickets gerados" e "iniciar implementacao". Isso permite mismatchs relevantes entre a spec e o pacote derivado de tickets, como cobertura incompleta, granularidade ruim, contextualizacao fraca, closure criteria vagos, heranca incompleta de assumptions/defaults e nao conformidade documental. Alem disso, a documentacao atual ainda permite em alguns pontos a derivacao direta `spec -> execplan`, o que conflita com o contrato desejado do workflow.
@@ -142,7 +147,7 @@
 - [x] CA-16 - `spec-close-and-version` nao e executado quando o veredito de `spec-ticket-validation` for `NO_GO`.
 - [x] CA-17 - `/run-all` nao e iniciado quando o veredito de `spec-ticket-validation` for `NO_GO`, mesmo que `spec-triage` tenha criado tickets.
 - [x] CA-18 - A documentacao do projeto passa a explicitar o principio transversal: `Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.`
-- [ ] CA-19 - `spec-audit` continua ocorrendo apenas apos `/run-all` encadeado bem-sucedido, preservando semantica distinta do novo gate anterior ao `/run-all`.
+- [x] CA-19 - `spec-audit` continua ocorrendo apenas apos `/run-all` encadeado bem-sucedido, preservando semantica distinta do novo gate anterior ao `/run-all`.
 - [x] CA-20 - Material historico nao e migrado em massa por obrigacao documental; a propria documentacao deixa claro que a correcao retroativa fica limitada a artefatos tocados depois ou com impacto funcional real.
 
 ## Gate de validacao dos tickets derivados
@@ -175,15 +180,15 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Nenhuma adicional para `CA-13`, `CA-14` e `CA-15`; os cenarios `repo atual`, `repo irmao acessivel` e `repo irmao ausente` agora estao cobertos em testes automatizados.
+  - Nenhuma bloqueante para o atendimento final da spec; os cenarios `repo atual`, `repo irmao acessivel`, `repo irmao ausente` e o encadeamento ate `spec-audit` agora estao cobertos em testes automatizados.
 - Validacoes manuais pendentes:
-  - Executar ao menos uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel e confirmar resumo do Telegram para abertura bem-sucedida do ticket transversal.
-  - Executar ao menos uma rodada real de `/run_specs` em projeto externo sem `../codex-flow-runner` acessivel e confirmar resumo do Telegram para limitacao nao bloqueante.
-  - Validar manualmente se o resumo do `/run_specs` comunica `GO/NO_GO`, gaps, correcoes aplicadas e resultado do ticket transversal com clareza suficiente para operacao cotidiana.
+  - Executar ao menos uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel e confirmar resumo do Telegram para abertura bem-sucedida do ticket transversal; esta revalidacao permanece recomendada como auditoria operacional externa e nao configura gap residual da spec.
+  - Executar ao menos uma rodada real de `/run_specs` em projeto externo sem `../codex-flow-runner` acessivel e confirmar resumo do Telegram para limitacao nao bloqueante; esta revalidacao permanece recomendada como auditoria operacional externa e nao configura gap residual da spec.
+  - Validar manualmente se o resumo do `/run_specs` comunica `GO/NO_GO`, gaps, correcoes aplicadas, resultado do ticket transversal e a etapa `spec-audit` com clareza suficiente para operacao cotidiana; esta verificacao permanece recomendada e nao bloqueia `Status: attended`.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
-- Resultado da triagem final: o comportamento de ticket transversal foi implementado, validado localmente e o ticket relacionado foi fechado como `fixed`; `Status` permanece `approved` e `Spec treatment` permanece `pending` ate a auditoria final da spec.
+- Estado geral: attended
+- Resultado da auditoria final: a linhagem completa foi relida contra spec, tickets fechados, execplans executados, prompt de auditoria e estado atual do codigo; `CA-19` foi revalidado no runner/testes, nao houve gaps tecnicos residuais e a spec foi promovida para `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - `src/core/runner.ts` ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`, que pode ser estendida com o novo gate sem paralelizar tickets.
   - `src/integrations/ticket-queue.ts` ja consome a fila por prioridade `P0 -> P1 -> P2`, com fallback deterministico por nome no empate.
@@ -201,8 +206,10 @@
   - `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` consolidou `CA-02`, `CA-03`, `CA-18` e `CA-20` com validacao textual por `git diff` e `rg`, alinhando docs, templates e prompt ao contrato `spec -> tickets`.
   - `src/types/workflow-improvement-ticket.ts`, `src/integrations/workflow-improvement-ticket-publisher.ts`, `src/integrations/git-client.ts`, `src/core/runner.ts`, `src/integrations/telegram-bot.ts` e `src/main.ts` agora materializam/publicam o ticket transversal de workflow no repo atual ou em `../codex-flow-runner`, com commit/push por caminhos explicitos, dedupe conservador, limitacao operacional nao bloqueante e reflexo na spec, no trace e no resumo final.
   - `src/integrations/workflow-improvement-ticket-publisher.test.ts`, `src/integrations/git-client.test.ts`, `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` agora cobrem `CA-13`, `CA-14` e `CA-15`, incluindo o caso em que o gap sistemico aparece apenas em snapshots anteriores a uma revalidacao `GO`.
+  - `src/core/runner.ts` preserva `spec-audit` como etapa separada e posterior apenas ao caminho `GO` de `spec-ticket-validation` e ao `/run-all` bem-sucedido; `src/core/runner.test.ts` cobre o caminho de sucesso com `finalStage: spec-audit` e o caminho de falha especifica em `spec-audit`, fechando `CA-19` sem fundir a semantica do novo gate com a auditoria final.
 - Pendencias em aberto:
-  - Permanecem uteis as rodadas manuais em projeto externo para auditoria operacional do Telegram e do ambiente cross-repo.
+  - Nenhuma pendencia tecnica residual nem ticket derivado aberto para esta spec.
+  - Permanecem apenas validacoes manuais externas registradas em `Validacoes pendentes ou manuais`, sem bloquear `Status: attended` nem `Spec treatment: done`.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
@@ -231,16 +238,25 @@
   - `docs/workflows/discover-spec.md`
   - `docs/workflows/codex-quality-gates.md`
   - `docs/specs/templates/spec-template.md`
+  - Revalidacao final executada em 2026-03-19 18:10Z:
+    - releitura integral desta spec, dos tickets fechados relacionados e dos execplans relacionados com o checklist de `docs/workflows/codex-quality-gates.md`;
+    - releitura de `src/core/runner.ts`, `src/core/runner.test.ts` e `prompts/08-auditar-spec-apos-run-all.md` para revalidar o encadeamento ate `spec-audit` e fechar `CA-19`;
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test`
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-- Resultado:
+- Auditoria executada em: 2026-03-19 18:10Z
+- Resultado: a releitura integral da spec, dos tickets fechados relacionados, dos execplans relacionados, do prompt de auditoria e do estado atual do codigo/testes confirmou atendimento de RF-01..RF-28 e CA-01..CA-20. `CA-19` foi fechado nesta auditoria pela verificacao de `src/core/runner.ts` e `src/core/runner.test.ts`, que mantem `spec-audit` apenas apos `/run-all` encadeado bem-sucedido e preservam falha especifica dessa etapa quando aplicavel. Nao foram encontrados gaps tecnicos residuais; a spec foi promovida para `Status: attended` e `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - 
+  - Nenhum. As validacoes manuais externas remanescentes sao auditorias operacionais recomendadas e nao configuram gap residual local nem follow-up adicional.
+- Tickets/follow-ups concluidos na linhagem auditada:
+  - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
+  - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
+  - tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
+  - tickets/closed/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
 - Causas-raiz sistemicas identificadas:
-  - 
+  - Nenhuma causa-raiz sistemica residual. As causas-raiz registradas na triagem e na execucao foram absorvidas integralmente pelos tickets fechados desta linhagem.
 - Ajustes genericos promovidos ao workflow:
-  - 
+  - Nenhum ajuste generico adicional nesta etapa; a auditoria final nao encontrou recorrencia sistemica nova alem do que ja foi materializado na propria linhagem.
 
 ## Riscos e impacto
 - Risco funcional: o gate ficar subjetivo demais e bloquear specs boas por falta de criterio operacional claro.
@@ -270,4 +286,7 @@
 - 2026-03-19 16:23Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` fechado como `fixed` apos validacao `GO` com testes focados, `npm test`, `npm run check` e `npm run build`.
 - 2026-03-19 17:02Z - Orquestracao e observabilidade do stage `spec-ticket-validation` integradas ao `/run_specs`, com bloqueio `NO_GO`, secao de gate persistida na spec, traces/Telegram expandidos e validacao automatizada verde (`npx tsx --test src/core/spec-ticket-validation.test.ts src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).
 - 2026-03-19 17:06Z - Ticket `tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md` fechado como `fixed` apos releitura do diff, do ExecPlan e da spec de origem, com validacao `GO` pelos testes focados do gate/orquestracao/Telegram (`227/227`), `npm test` (`356/356`), `npm run check` e `npm run build`.
+- 2026-03-19 17:22Z - Ticket `tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md` fechado como `fixed` apos alinhar docs, template e prompt ao contrato `spec -> tickets`, a politica de migracao historica limitada e o principio de qualidade por token.
 - 2026-03-19 18:01Z - Ticket transversal de workflow implementado com publicador tipado, commit/push por caminhos explicitos, observabilidade no trace/spec/Telegram e cobertura automatizada verde para `CA-13`, `CA-14` e `CA-15` (`npx tsx --test src/integrations/workflow-improvement-ticket-publisher.test.ts src/integrations/git-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).
+- 2026-03-19 18:05Z - Ticket `tickets/closed/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` fechado como `fixed` apos releitura do diff, do ExecPlan e da spec de origem, mantendo apenas auditorias operacionais externas como recomendacao.
+- 2026-03-19 18:10Z - Auditoria final apos a rodada encadeada revalidou a linhagem inteira sem gaps tecnicos residuais, marcou `CA-19` como atendido, promoveu a spec para `Status: attended` e `Spec treatment: done`, e manteve apenas validacoes manuais externas como recomendacoes operacionais nao bloqueantes.
