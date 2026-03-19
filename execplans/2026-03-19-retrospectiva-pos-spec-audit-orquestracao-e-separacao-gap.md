@@ -13,7 +13,7 @@
   - ajuste do prompt `prompts/08-auditar-spec-apos-run-all.md` para remover responsabilidade sistemica de `spec-audit`;
   - atualizacao dos resumos e testes de runner/trace/Telegram para o novo stage.
 - Fora de escopo:
-  - implementar o contrato detalhado de `workflow-gap-analysis` e o criterio `high | medium | low confidence`, cobertos pelo ticket irmao `tickets/open/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`;
+  - implementar o contrato detalhado de `workflow-gap-analysis` e o criterio `high | medium | low confidence`, cobertos pelo ticket irmao `tickets/closed/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`;
   - migrar a publicacao cross-repo do ticket transversal de workflow para o pos-`spec-audit`, coberta pelo ticket irmao `tickets/open/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md`;
   - fechar ticket, mover arquivo para `tickets/closed/`, commitar ou fazer push.
 
@@ -183,7 +183,7 @@
 - Spec de origem:
   - `docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md`
 - Tickets correlatos fora do escopo direto:
-  - `tickets/open/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`
+  - `tickets/closed/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`
   - `tickets/open/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md`
 - ExecPlan correlato consultado:
   - `execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md`

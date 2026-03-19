@@ -7,7 +7,7 @@ import {
   SpecTicketValidationGap,
   SpecTicketValidationVerdict,
 } from "./spec-ticket-validation.js";
-import { WorkflowImprovementTicketPublicationResult } from "./workflow-improvement-ticket.js";
+import { WorkflowGapAnalysisResult } from "./workflow-gap-analysis.js";
 
 export interface FlowTimingSnapshot<Stage extends string = string> {
   startedAtUtc: string;
@@ -63,7 +63,6 @@ export interface RunSpecsTicketValidationSummary {
   appliedCorrections: SpecTicketValidationAppliedCorrection[];
   finalOpenGapFingerprints: string[];
   cycleHistory: RunSpecsTicketValidationCycleSummary[];
-  workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
 }
 
 export interface RunSpecsTicketValidationCycleSummary {
@@ -116,6 +115,7 @@ export interface RunSpecsFlowSummary {
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
   specTicketValidation?: RunSpecsTicketValidationSummary;
+  workflowGapAnalysis?: WorkflowGapAnalysisResult;
   runAllSummary?: RunAllFlowSummary;
 }
 

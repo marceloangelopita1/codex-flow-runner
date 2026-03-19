@@ -1,7 +1,7 @@
 # [TICKET] Materializar workflow-gap-analysis pos-auditoria com contrato, contexto novo e criterio causal
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-19 22:03Z
@@ -94,9 +94,22 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - ainda nao existe contrato pos-auditoria para diagnostico causal do workflow; a infraestrutura atual esta toda ancorada no `spec-ticket-validation`.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 23:02Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-05`, `RF-06`, `RF-07`; `CA-04`, `CA-05`: `prompts/11-retrospectiva-workflow-apos-spec-audit.md` passou a descrever explicitamente `workflow-gap-analysis` em contexto novo, com bloco parseavel e gating de `publicationEligibility=true` apenas para `systemic-gap/high`; `src/integrations/codex-client.ts` injeta `<WORKFLOW_RETROSPECTIVE_CONTEXT>`; `src/core/runner.ts` monta o contexto novo, valida o contrato parseado e so gera `publicationHandoff` quando `parsed.publicationEligibility` e verdadeiro; `src/integrations/codex-client.test.ts` e `src/core/runner.test.ts` cobrem prompt dedicado, contexto novo e handoff somente em `high confidence`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/codex-client.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-gap-analysis-parser.test.ts` -> pass (`276/276`).
+  - `RF-08`, `RF-09`, `RF-10`, `RF-11`, `RF-12`, `RF-13`; `CA-08`, `CA-09`: `src/core/runner.ts` usa delta observavel entre tickets abertos antes/depois do `spec-audit` para priorizar follow-up tickets funcionais e cai para `spec + resultado do audit` quando nao ha follow-up novo; o contexto gerado lista `AGENTS.md`, `DOCUMENTATION.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`, `docs/workflows/codex-quality-gates.md` e `prompts/`, com suporte a `../codex-flow-runner` em projeto externo; `src/core/runner.test.ts` cobre o caminho `follow-up-tickets` e o fallback `spec-and-audit-fallback`; `rg -n "workflow-gap-analysis|publicationEligibility|AGENTS.md|prompts/|follow-up tickets|spec \\+ resultado do audit|runner/orquestracao" src prompts` confirma o contrato, a ordem de leitura canonica e o fallback controlado.
+  - `RF-14`, `RF-15`, `RF-16`, `RF-17`, `RF-18`, `RF-24`; `CA-06`, `CA-07`, `CA-13`: `src/types/workflow-gap-analysis.ts` e `src/integrations/workflow-gap-analysis-parser.ts` tipam/classificam `systemic-gap`, `systemic-hypothesis`, `not-systemic`, `emphasis-only` e `operational-limitation`, rejeitando `publicationEligibility=true` fora de `systemic-gap/high`; `src/core/runner.ts` degrada falha tecnica/contratual para limitacao operacional nao bloqueante; `src/types/flow-timing.ts`, `src/integrations/workflow-trace-store.test.ts` e `src/integrations/telegram-bot.ts` propagam e exibem o resultado dedicado; `src/integrations/telegram-bot.test.ts` e `src/core/runner.test.ts` cobrem hipotese em `medium`, publication desabilitada fora de `high` e resumo/trace com `operational-limitation`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Entrega tecnica concluida:
+  - O runner passou a materializar `workflow-gap-analysis` como subetapa tipada e parseavel de `spec-workflow-retrospective`, em contexto novo em relacao a `spec-audit`.
+  - O fluxo agora usa follow-up tickets da auditoria como insumo principal, com fallback controlado para `spec + resultado do audit` e observabilidade dedicada em summary/trace/Telegram.
+  - O follow-up sistemico pos-auditoria deixou de nascer de `spec-ticket-validation` e passou a gerar apenas um handoff tipado para o ticket irmao de publication.
+- Validacao manual externa pendente: nao.

@@ -309,6 +309,10 @@ class StubCodexClient implements CodexTicketFlowClient {
       });
     }
 
+    if (stage === "spec-workflow-retrospective") {
+      return createWorkflowGapAnalysisOutput();
+    }
+
     return `ok:${stage}`;
   }
 }
@@ -324,6 +328,68 @@ const createSpecAuditOutput = (value: {
     `residual_gaps_detected: ${value.residualGapsDetected ? "yes" : "no"}`,
     `follow_up_tickets_created: ${String(value.followUpTicketsCreated)}`,
     "[[/SPEC_AUDIT_RESULT]]",
+  ].join("\n");
+
+const createWorkflowGapAnalysisOutput = (value: {
+  classification?:
+    | "systemic-gap"
+    | "systemic-hypothesis"
+    | "not-systemic"
+    | "emphasis-only"
+    | "operational-limitation";
+  confidence?: "high" | "medium" | "low";
+  publicationEligibility?: boolean;
+  inputMode?: "follow-up-tickets" | "spec-and-audit-fallback";
+  summary?: string;
+  causalHypothesis?: string;
+  benefitSummary?: string;
+  findings?: Array<{
+    summary: string;
+    affectedArtifactPaths: string[];
+    requirementRefs: string[];
+    evidence: string[];
+  }>;
+  workflowArtifactsConsulted?: string[];
+  followUpTicketPaths?: string[];
+  limitation?:
+    | {
+        code:
+          | "analysis-execution-failed"
+          | "invalid-analysis-contract"
+          | "workflow-repo-context-missing";
+        detail: string;
+      }
+    | null;
+} = {}): string =>
+  [
+    "Retrospectiva concluida.",
+    "",
+    "[[WORKFLOW_GAP_ANALYSIS]]",
+    "```json",
+    JSON.stringify(
+      {
+        classification: value.classification ?? "not-systemic",
+        confidence: value.confidence ?? "low",
+        publicationEligibility: value.publicationEligibility ?? false,
+        inputMode: value.inputMode ?? "spec-and-audit-fallback",
+        summary: value.summary ?? "Nao ha evidencia suficiente de contribuicao sistemica.",
+        causalHypothesis:
+          value.causalHypothesis ?? "O gap observado parece local ao pacote auditado.",
+        benefitSummary:
+          value.benefitSummary ?? "Nenhum ticket automatico de workflow e necessario nesta rodada.",
+        findings: value.findings ?? [],
+        workflowArtifactsConsulted: value.workflowArtifactsConsulted ?? [
+          "AGENTS.md",
+          "prompts/11-retrospectiva-workflow-apos-spec-audit.md",
+        ],
+        followUpTicketPaths: value.followUpTicketPaths ?? [],
+        limitation: value.limitation ?? null,
+      },
+      null,
+      2,
+    ),
+    "```",
+    "[[/WORKFLOW_GAP_ANALYSIS]]",
   ].join("\n");
 
 class StubDiscoverSession implements DiscoverSpecSession {
@@ -764,6 +830,9 @@ const cloneSpecRef = (spec: SpecRef): SpecRef => ({
           decisionPath: spec.tracePaths.decisionPath,
         },
       }
+    : {}),
+  ...(spec.workflowRetrospectiveContext
+    ? { workflowRetrospectiveContext: spec.workflowRetrospectiveContext }
     : {}),
 });
 
@@ -3065,7 +3134,10 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.match(specContent, /^\s*-\s*Veredito:\s*NO_GO\s*$/imu);
     assert.match(specContent, /RF-01 ainda sem ticket dedicado\./u);
     assert.match(specContent, /#### Correcoes aplicadas/u);
-    assert.match(specContent, /Nenhuma observacao sistemica registrada nesta execucao\./u);
+    assert.match(
+      specContent,
+      /Nenhuma observacao sistemica registrada neste gate pre-run-all\./u,
+    );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }
@@ -3190,48 +3262,62 @@ test("requestRunSpecs persiste historico por ciclo em summary, spec e trace quan
   }
 });
 
-test("requestRunSpecs publica ticket transversal no repo atual a partir de gap sistemico visto nos snapshots", async () => {
+test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal e gera handoff em high confidence", async () => {
   const fixture = await setupRunSpecsFixture([ticketA.name], {
     activeProjectName: "codex-flow-runner",
   });
+  const followUpTicketName = "2026-03-19-follow-up-auditoria.md";
+  let retrospectiveContext = "";
   try {
-    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
     const logger = new SpyLogger();
-    const codex = new StubCodexClient();
-    codex.specTicketValidationAutoCorrectHandler =
-      createSpecTicketValidationAutoCorrectHandler(
-        fixture.projectRoot,
-        "Follow-up sistemico explicitado automaticamente.",
-      );
-    codex.specTicketValidationTurns = [
-      createSpecTicketValidationPassResult({
-        verdict: "NO_GO",
-        confidence: "high",
-        summary: "Gap sistemico identificado antes da autocorrecao.",
-        gaps: [
-          {
-            gapType: "coverage-gap",
-            summary: "A instrucao sistemica ainda nao materializa o follow-up automaticamente.",
-            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
-            requirementRefs: ["RF-18", "CA-13"],
-            evidence: ["O primeiro passe marcou systemic-instruction com confianca alta."],
-            probableRootCause: "systemic-instruction",
-            isAutoCorrectable: true,
-          },
-        ],
-        appliedCorrections: [],
-      }),
-      createSpecTicketValidationPassResult({
-        verdict: "GO",
-        confidence: "high",
-        summary: "Pacote derivado aprovado apos a revalidacao.",
-        gaps: [],
-        appliedCorrections: [],
-      }),
-    ];
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, stageSpec) => {
+        if (stage === "spec-audit") {
+          await writeTicketMetadataFile(fixture.projectRoot, {
+            directory: "open",
+            ticketName: followUpTicketName,
+            status: "open",
+            sourceSpec: `docs/specs/${specFileName}`,
+          });
+        }
+
+        if (stage === "spec-workflow-retrospective") {
+          retrospectiveContext = stageSpec.workflowRetrospectiveContext ?? "";
+        }
+      },
+    );
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 1,
+    });
+    codex.stageOutputs["spec-workflow-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "follow-up-tickets",
+      summary: "O workflow ainda orienta a leitura causal de forma incompleta apos a auditoria.",
+      causalHypothesis:
+        "A ausencia de contrato dedicado de workflow-gap-analysis favorece backlog sistemico antes da evidencia residual.",
+      benefitSummary:
+        "Separar a analise pos-auditoria reduz ruido recorrente em specs futuras.",
+      findings: [
+        {
+          summary: "A retrospectiva pos-auditoria precisa nascer de um contrato parseavel proprio.",
+          affectedArtifactPaths: ["src/core/runner.ts", `tickets/open/${followUpTicketName}`],
+          requirementRefs: ["RF-05", "RF-16"],
+          evidence: ["O follow-up funcional aberto pelo audit aponta lacuna sistemica observavel."],
+        },
+      ],
+      followUpTicketPaths: [`tickets/open/${followUpTicketName}`],
+    });
     const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
     const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
-    const { publisher, gitClients } = createWorkflowImprovementTicketPublisherHarness();
     let nextTicketCalls = 0;
     const queue: TicketQueue = {
       ensureStructure: async () => undefined,
@@ -3250,7 +3336,6 @@ test("requestRunSpecs publica ticket transversal no repo atual a partir de gap s
     });
     const runner = createRunner(logger, roundDependencies, {
       runnerOptions: {
-        workflowImprovementTicketPublisher: publisher,
         workflowTraceStoreFactory,
         runFlowEventHandlers,
       },
@@ -3267,60 +3352,38 @@ test("requestRunSpecs publica ticket transversal no repo atual a partir de gap s
     }
 
     assert.equal(runSpecsSummary.outcome, "success");
-    assert.equal(runSpecsSummary.finalStage, "spec-audit");
-    assert.equal(codex.specTicketValidationAutoCorrectCalls, 1);
-    assert.deepEqual(codex.lastSpecTicketValidationAutoCorrectRequest?.allowedArtifactPaths, [
-      `tickets/open/${ticketA.name}`,
+    assert.equal(runSpecsSummary.finalStage, "spec-workflow-retrospective");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.classification, "systemic-gap");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationEligibility, true);
+    assert.deepEqual(runSpecsSummary.workflowGapAnalysis?.followUpTicketPaths, [
+      `tickets/open/${followUpTicketName}`,
     ]);
     assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
-      "created-and-pushed",
+      runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.sourceSpecFileName,
+      specFileName,
     );
     assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.targetRepoDisplayPath,
-      ".",
-    );
-    assert.match(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.ticketPath ?? "",
-      /^tickets\/open\/2026-03-19-workflow-improvement-/u,
+      runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.inputMode,
+      "follow-up-tickets",
     );
     assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.commitPushId,
-      "workflow123@origin/main",
+      "workflowImprovementTicket" in (runSpecsSummary.specTicketValidation ?? {}),
+      false,
     );
-    assert.equal(runSpecsSummary.specTicketValidation?.gaps.length, 0);
+    assert.match(retrospectiveContext, /Input mode esperado: follow-up-tickets/u);
+    assert.match(retrospectiveContext, new RegExp(followUpTicketName.replace(/\./gu, "\\."), "u"));
 
-    const workflowGit = gitClients.get(fixture.projectRoot);
-    assert.ok(workflowGit);
-    assert.equal(workflowGit?.explicitPathPublishes.length, 1);
-    assert.match(
-      workflowGit?.explicitPathPublishes[0]?.paths[0] ?? "",
-      /^tickets\/open\/2026-03-19-workflow-improvement-/u,
+    const traceRecord = records.find(
+      (entry) => entry.request.stage === "spec-workflow-retrospective",
     );
-
-    const traceRecord = records.find((entry) => entry.request.stage === "spec-ticket-validation");
-    const traceWorkflowImprovementTicket = traceRecord?.request.decision.metadata
-      ?.workflowImprovementTicket as
-      | {
-          status?: string;
-          commitPushId?: string;
-        }
-      | undefined;
-    assert.equal(traceWorkflowImprovementTicket?.status, "created-and-pushed");
-    assert.equal(traceWorkflowImprovementTicket?.commitPushId, "workflow123@origin/main");
-
-    const specContent = await fs.readFile(
-      path.join(fixture.projectRoot, "docs", "specs", specFileName),
-      "utf8",
-    );
-    assert.match(specContent, /Resultado do ticket transversal: created-and-pushed/u);
-    assert.match(specContent, /Commit\/push: workflow123@origin\/main/u);
+    assert.equal(traceRecord?.request.decision.metadata?.classification, "systemic-gap");
+    assert.equal(traceRecord?.request.decision.metadata?.publicationEligibility, true);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 
-test("requestRunSpecs publica ticket transversal no repo irmao e registra o resultado no projeto corrente", async () => {
+test("requestRunSpecs cai para spec + audit quando nao ha follow-up e registra apenas hipotese em medium confidence", async () => {
   const workspaceRoot = await createTempProjectRoot();
   const externalProjectRoot = path.join(workspaceRoot, "alpha-project");
   const workflowRepoRoot = path.join(workspaceRoot, "codex-flow-runner");
@@ -3328,31 +3391,49 @@ test("requestRunSpecs publica ticket transversal no repo irmao e registra o resu
     projectRoot: externalProjectRoot,
     activeProjectName: "alpha-project",
   });
+  let retrospectiveContext = "";
   try {
     await ensureWorkflowImprovementRepoStructure(workflowRepoRoot);
     const logger = new SpyLogger();
-    const codex = new StubCodexClient();
-    codex.specTicketValidationTurns = [
-      createSpecTicketValidationPassResult({
-        verdict: "GO",
-        confidence: "high",
-        summary: "Gap sistemico reaproveitavel confirmado.",
-        gaps: [
-          {
-            gapType: "coverage-gap",
-            summary: "A abertura cross-repo do follow-up ainda depende de melhoria sistemica.",
-            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
-            requirementRefs: ["RF-20", "CA-14"],
-            evidence: ["A validacao marcou systemic-instruction com alta confianca."],
-            probableRootCause: "systemic-instruction",
-            isAutoCorrectable: false,
-          },
-        ],
-        appliedCorrections: [],
-      }),
-    ];
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, stageSpec) => {
+        if (stage === "spec-workflow-retrospective") {
+          retrospectiveContext = stageSpec.workflowRetrospectiveContext ?? "";
+        }
+      },
+    );
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 0,
+    });
+    codex.stageOutputs["spec-workflow-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-hypothesis",
+      confidence: "medium",
+      publicationEligibility: false,
+      inputMode: "spec-and-audit-fallback",
+      summary:
+        "Existe hipotese razoavel de que o workflow nao orienta bem a releitura causal pos-auditoria.",
+      causalHypothesis:
+        "A ordem atual de leitura canonica ainda depende demais de conhecimento implicito.",
+      benefitSummary:
+        "Formalizar a ordem de leitura pode reduzir retrabalho, mas a evidencia ainda e parcial.",
+      findings: [
+        {
+          summary:
+            "A ordem de leitura canonica do codex-flow-runner ainda nao aparece de forma suficientemente forte na retrospectiva.",
+          affectedArtifactPaths: ["prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
+          requirementRefs: ["RF-12", "CA-08"],
+          evidence: ["A auditoria nao abriu follow-up funcional, exigindo fallback controlado."],
+        },
+      ],
+    });
     const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
-    const { publisher, gitClients } = createWorkflowImprovementTicketPublisherHarness();
     let nextTicketCalls = 0;
     const queue: TicketQueue = {
       ensureStructure: async () => undefined,
@@ -3371,7 +3452,6 @@ test("requestRunSpecs publica ticket transversal no repo irmao e registra o resu
     });
     const runner = createRunner(logger, roundDependencies, {
       runnerOptions: {
-        workflowImprovementTicketPublisher: publisher,
         runFlowEventHandlers,
       },
     });
@@ -3387,62 +3467,31 @@ test("requestRunSpecs publica ticket transversal no repo irmao e registra o resu
     }
 
     assert.equal(runSpecsSummary.outcome, "success");
-    assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
-      "created-and-pushed",
-    );
-    assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.targetRepoDisplayPath,
-      "../codex-flow-runner",
-    );
-    const workflowTicketPath =
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.ticketPath ?? "";
-    assert.match(workflowTicketPath, /^tickets\/open\/2026-03-19-workflow-improvement-/u);
-
-    const workflowGit = gitClients.get(workflowRepoRoot);
-    assert.ok(workflowGit);
-    assert.equal(workflowGit?.explicitPathPublishes.length, 1);
-    const publishedTicketExists = await fs
-      .access(path.join(workflowRepoRoot, ...workflowTicketPath.split("/")))
-      .then(() => true)
-      .catch(() => false);
-    assert.equal(publishedTicketExists, true);
+    assert.equal(runSpecsSummary.finalStage, "spec-workflow-retrospective");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.classification, "systemic-hypothesis");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.confidence, "medium");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationEligibility, false);
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationHandoff, undefined);
+    assert.deepEqual(runSpecsSummary.workflowGapAnalysis?.followUpTicketPaths, []);
+    assert.match(retrospectiveContext, /Input mode esperado: spec-and-audit-fallback/u);
+    assert.match(retrospectiveContext, /Fallback controlado:/u);
+    assert.match(retrospectiveContext, /\.\.\/codex-flow-runner/u);
   } finally {
     await cleanupTempProjectRoot(workspaceRoot);
   }
 });
 
-test("requestRunSpecs registra limitacao operacional nao bloqueante quando o repo irmao nao existe", async () => {
-  const workspaceRoot = await createTempProjectRoot();
-  const externalProjectRoot = path.join(workspaceRoot, "alpha-project");
-  const fixture = await setupRunSpecsFixture([ticketA.name], {
-    projectRoot: externalProjectRoot,
-    activeProjectName: "alpha-project",
-  });
+test("requestRunSpecs degrada falha tecnica da retrospectiva para operational-limitation sem falhar o /run_specs", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
   try {
     const logger = new SpyLogger();
-    const codex = new StubCodexClient();
-    codex.specTicketValidationTurns = [
-      createSpecTicketValidationPassResult({
-        verdict: "GO",
-        confidence: "high",
-        summary: "Gap sistemico reaproveitavel confirmado.",
-        gaps: [
-          {
-            gapType: "coverage-gap",
-            summary: "A abertura cross-repo do follow-up ainda depende de melhoria sistemica.",
-            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
-            requirementRefs: ["RF-21", "CA-15"],
-            evidence: ["A validacao marcou systemic-instruction com alta confianca."],
-            probableRootCause: "systemic-instruction",
-            isAutoCorrectable: false,
-          },
-        ],
-        appliedCorrections: [],
-      }),
-    ];
+    const codex = new StubCodexClient((stage) => stage === "spec-workflow-retrospective");
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 0,
+    });
     const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
-    const { publisher } = createWorkflowImprovementTicketPublisherHarness();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
     let nextTicketCalls = 0;
     const queue: TicketQueue = {
       ensureStructure: async () => undefined,
@@ -3461,7 +3510,7 @@ test("requestRunSpecs registra limitacao operacional nao bloqueante quando o rep
     });
     const runner = createRunner(logger, roundDependencies, {
       runnerOptions: {
-        workflowImprovementTicketPublisher: publisher,
+        workflowTraceStoreFactory,
         runFlowEventHandlers,
       },
     });
@@ -3477,25 +3526,26 @@ test("requestRunSpecs registra limitacao operacional nao bloqueante quando o rep
     }
 
     assert.equal(runSpecsSummary.outcome, "success");
-    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(runSpecsSummary.finalStage, "spec-workflow-retrospective");
+    assert.equal(runSpecsSummary.completionReason, "completed");
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.classification, "operational-limitation");
     assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.status,
-      "operational-limitation",
-    );
-    assert.equal(
-      runSpecsSummary.specTicketValidation?.workflowImprovementTicket?.limitationCode,
-      "target-repo-missing",
+      runSpecsSummary.workflowGapAnalysis?.limitation?.code,
+      "analysis-execution-failed",
     );
     assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
-
-    const specContent = await fs.readFile(
-      path.join(fixture.projectRoot, "docs", "specs", specFileName),
-      "utf8",
+    assert.equal(runner.getState().phase, "idle");
+    assert.equal(
+      typeof runSpecsSummary.timing.durationsByStageMs["spec-workflow-retrospective"],
+      "number",
     );
-    assert.match(specContent, /Resultado do ticket transversal: operational-limitation/u);
-    assert.match(specContent, /Limitacao: target-repo-missing/u);
+
+    const traceRecord = records.find(
+      (entry) => entry.request.stage === "spec-workflow-retrospective",
+    );
+    assert.equal(traceRecord?.request.decision.status, "failure");
   } finally {
-    await cleanupTempProjectRoot(workspaceRoot);
+    await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 

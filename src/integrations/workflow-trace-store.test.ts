@@ -159,6 +159,53 @@ test("recordStageTrace aceita spec-workflow-retrospective como stage nomeado de 
   }
 });
 
+test("recordStageTrace preserva metadata estruturada de workflow-gap-analysis", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordStageTrace({
+      kind: "spec",
+      stage: "spec-workflow-retrospective",
+      sourceCommand: "run-specs",
+      targetName: "2026-03-19-retrospectiva.md",
+      targetPath: "docs/specs/2026-03-19-retrospectiva.md",
+      promptTemplatePath: "/repo/prompts/11-retrospectiva-workflow-apos-spec-audit.md",
+      promptText: "Execute workflow-gap-analysis em contexto novo.",
+      outputText: "Retrospectiva concluiu systemic-gap/high.",
+      decision: {
+        status: "success",
+        summary: "workflow-gap-analysis concluiu com systemic-gap (high).",
+        metadata: {
+          classification: "systemic-gap",
+          confidence: "high",
+          publicationEligibility: true,
+          inputMode: "follow-up-tickets",
+          followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
+        },
+      },
+      recordedAt: new Date("2026-03-19T18:12:00.000Z"),
+    });
+
+    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
+    const decision = JSON.parse(decisionRaw) as {
+      decision: {
+        metadata?: {
+          classification?: string;
+          publicationEligibility?: boolean;
+          followUpTicketPaths?: string[];
+        };
+      };
+    };
+
+    assert.equal(decision.decision.metadata?.classification, "systemic-gap");
+    assert.equal(decision.decision.metadata?.publicationEligibility, true);
+    assert.equal(decision.decision.metadata?.followUpTicketPaths?.[0], "tickets/open/2026-03-19-gap.md");
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});
+
 test("recordStageTrace aceita spec-ticket-validation com metadata observavel do gate", async () => {
   const projectPath = await createTempProjectRoot();
 

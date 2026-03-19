@@ -4,6 +4,32 @@ import {
   SpecTicketValidationGapType,
 } from "./spec-ticket-validation.js";
 
+export type WorkflowImprovementTicketHandoffInputMode =
+  | "follow-up-tickets"
+  | "spec-and-audit-fallback";
+
+export interface WorkflowImprovementTicketDraftFinding {
+  summary: string;
+  affectedArtifactPaths: string[];
+  requirementRefs: string[];
+  evidence: string[];
+}
+
+export interface WorkflowImprovementTicketHandoff {
+  activeProjectName: string;
+  activeProjectPath: string;
+  sourceSpecPath: string;
+  sourceSpecFileName: string;
+  sourceSpecTitle: string;
+  inheritedAssumptionsDefaults: string[];
+  inputMode: WorkflowImprovementTicketHandoffInputMode;
+  analysisSummary: string;
+  causalHypothesis: string;
+  benefitSummary: string;
+  followUpTicketPaths: string[];
+  findings: WorkflowImprovementTicketDraftFinding[];
+}
+
 export type WorkflowImprovementTicketPublicationStatus =
   | "not-needed"
   | "created-and-pushed"

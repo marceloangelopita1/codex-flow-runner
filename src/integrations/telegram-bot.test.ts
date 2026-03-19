@@ -198,6 +198,23 @@ const createRunSpecsTicketValidationSummary = (
   ...value,
 });
 
+const createWorkflowGapAnalysisSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>> = {},
+): NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]> => ({
+  classification: "not-systemic",
+  confidence: "low",
+  publicationEligibility: false,
+  inputMode: "spec-and-audit-fallback",
+  summary: "Nao ha evidencia suficiente de contribuicao sistemica.",
+  causalHypothesis: "O gap observado parece local ao pacote auditado.",
+  benefitSummary: "Nenhum ticket automatico de workflow e necessario nesta rodada.",
+  findings: [],
+  workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
+  followUpTicketPaths: [],
+  limitation: null,
+  ...value,
+});
+
 const createPlanSpecSession = (
   value: Partial<NonNullable<RunnerState["planSpecSession"]>> = {},
 ): NonNullable<RunnerState["planSpecSession"]> => ({
@@ -6103,41 +6120,46 @@ test("envia resumo final de fluxo /run-specs com spec-workflow-retrospective com
   );
 });
 
-test("envia resumo final de /run-specs com follow-up sistemico publicado", async () => {
+test("envia resumo final de /run-specs com resultado de workflow-gap-analysis elegivel para publication", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
 
   await controller.sendRunFlowSummary(
     createRunSpecsFlowSummary({
-      specTicketValidation: createRunSpecsTicketValidationSummary({
-        workflowImprovementTicket: {
-          status: "created-and-pushed",
-          targetRepoKind: "workflow-sibling",
-          targetRepoPath: "/tmp/projects/codex-flow-runner",
-          targetRepoDisplayPath: "../codex-flow-runner",
-          ticketFileName: "2026-03-19-workflow-improvement.md",
-          ticketPath: "tickets/open/2026-03-19-workflow-improvement.md",
-          detail: "Ticket transversal publicado com commit/push.",
-          limitationCode: null,
-          commitHash: "abc123",
-          pushUpstream: "origin/main",
-          commitPushId: "abc123@origin/main",
-          gapFingerprints: ["coverage-gap|tickets/open/example.md|rf-18"],
-        },
+      workflowGapAnalysis: createWorkflowGapAnalysisSummary({
+        classification: "systemic-gap",
+        confidence: "high",
+        publicationEligibility: true,
+        inputMode: "follow-up-tickets",
+        summary: "O workflow contribuiu materialmente para o gap residual.",
+        causalHypothesis: "A retrospectiva pos-auditoria ainda nao tinha contrato parseavel proprio.",
+        benefitSummary: "Formalizar o contrato reduz recorrencia futura.",
+        followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
+        findings: [
+          {
+            summary: "Falta um contrato parseavel dedicado para workflow-gap-analysis.",
+            affectedArtifactPaths: ["src/core/runner.ts"],
+            requirementRefs: ["RF-05", "CA-05"],
+            evidence: ["A etapa placeholder nao distinguia high, medium e low."],
+          },
+        ],
       }),
     }),
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Follow-up sistemico/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resultado: created-and-pushed/u);
-  assert.match(sentMessages[0]?.text ?? "", /Repositorio alvo: \.\.\/codex-flow-runner/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica/u);
+  assert.match(sentMessages[0]?.text ?? "", /Classificacao: systemic-gap/u);
+  assert.match(sentMessages[0]?.text ?? "", /Elegivel para publication: sim/u);
   assert.match(
     sentMessages[0]?.text ?? "",
-    /Ticket transversal: tickets\/open\/2026-03-19-workflow-improvement\.md/u,
+    /Follow-ups funcionais considerados: tickets\/open\/2026-03-19-gap\.md/u,
   );
-  assert.match(sentMessages[0]?.text ?? "", /Commit\/push: abc123@origin\/main/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Falta um contrato parseavel dedicado para workflow-gap-analysis\./u,
+  );
 });
 
 test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {
@@ -6329,37 +6351,34 @@ test("envia historico por ciclo no resumo de /run-specs quando houve revalidacao
   );
 });
 
-test("envia resumo final de /run-specs com limitacao operacional do follow-up sistemico", async () => {
+test("envia resumo final de /run-specs com limitacao operacional da retrospectiva sistemica", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
 
   await controller.sendRunFlowSummary(
     createRunSpecsFlowSummary({
-      specTicketValidation: createRunSpecsTicketValidationSummary({
-        workflowImprovementTicket: {
-          status: "operational-limitation",
-          targetRepoKind: "workflow-sibling",
-          targetRepoPath: "/tmp/projects/codex-flow-runner",
-          targetRepoDisplayPath: "../codex-flow-runner",
-          ticketFileName: null,
-          ticketPath: null,
+      workflowGapAnalysis: createWorkflowGapAnalysisSummary({
+        classification: "operational-limitation",
+        confidence: "low",
+        publicationEligibility: false,
+        inputMode: "spec-and-audit-fallback",
+        summary: "workflow-gap-analysis nao concluiu de forma confiavel.",
+        causalHypothesis: "Analise causal indisponivel por limitacao operacional.",
+        benefitSummary: "Nenhum ticket automatico deve ser aberto enquanto a limitacao persistir.",
+        limitation: {
+          code: "workflow-repo-context-missing",
           detail: "Repositorio codex-flow-runner nao encontrado em ../codex-flow-runner.",
-          limitationCode: "target-repo-missing",
-          commitHash: null,
-          pushUpstream: null,
-          commitPushId: null,
-          gapFingerprints: ["coverage-gap|tickets/open/example.md|rf-18"],
         },
       }),
     }),
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Follow-up sistemico/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resultado: operational-limitation/u);
-  assert.match(sentMessages[0]?.text ?? "", /Limitacao: target-repo-missing/u);
-  assert.match(sentMessages[0]?.text ?? "", /Detalhe: Repositorio codex-flow-runner nao encontrado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica/u);
+  assert.match(sentMessages[0]?.text ?? "", /Classificacao: operational-limitation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Limitacao operacional: workflow-repo-context-missing/u);
+  assert.match(sentMessages[0]?.text ?? "", /Detalhe da limitacao: Repositorio codex-flow-runner nao encontrado/u);
 });
 
 test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {

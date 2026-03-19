@@ -6186,6 +6186,9 @@ export class TelegramController {
     if (summary.specTicketValidation) {
       this.appendRunSpecsTicketValidationLines(lines, summary.specTicketValidation);
     }
+    if (summary.workflowGapAnalysis) {
+      this.appendWorkflowGapAnalysisLines(lines, summary.workflowGapAnalysis);
+    }
     this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
     this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
 
@@ -6266,24 +6269,43 @@ export class TelegramController {
       }
     }
 
-    if (!summary.workflowImprovementTicket) {
-      return;
+  }
+
+  private appendWorkflowGapAnalysisLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>,
+  ): void {
+    lines.push("Retrospectiva sistemica");
+    lines.push(`Classificacao: ${summary.classification}`);
+    lines.push(`Confianca: ${summary.confidence}`);
+    lines.push(`Modo de entrada: ${summary.inputMode}`);
+    lines.push(`Elegivel para publication: ${summary.publicationEligibility ? "sim" : "nao"}`);
+    lines.push(`Resumo: ${summary.summary}`);
+    lines.push(`Hipotese causal: ${summary.causalHypothesis}`);
+    lines.push(`Beneficio esperado: ${summary.benefitSummary}`);
+
+    if (summary.followUpTicketPaths.length === 0) {
+      lines.push("Follow-ups funcionais considerados: fallback spec + audit");
+    } else {
+      lines.push(`Follow-ups funcionais considerados: ${summary.followUpTicketPaths.join(", ")}`);
     }
 
-    lines.push("Follow-up sistemico");
-    lines.push(`Resultado: ${summary.workflowImprovementTicket.status}`);
-    lines.push(`Detalhe: ${summary.workflowImprovementTicket.detail}`);
-    if (summary.workflowImprovementTicket.targetRepoDisplayPath) {
-      lines.push(`Repositorio alvo: ${summary.workflowImprovementTicket.targetRepoDisplayPath}`);
+    if (summary.findings.length === 0) {
+      lines.push("Achados sistemicos: nenhum");
+    } else {
+      lines.push("Achados sistemicos:");
+      for (const finding of summary.findings) {
+        const requirementSuffix =
+          finding.requirementRefs.length > 0
+            ? ` [${finding.requirementRefs.join(", ")}]`
+            : "";
+        lines.push(`- ${finding.summary}${requirementSuffix}`);
+      }
     }
-    if (summary.workflowImprovementTicket.ticketPath) {
-      lines.push(`Ticket transversal: ${summary.workflowImprovementTicket.ticketPath}`);
-    }
-    if (summary.workflowImprovementTicket.commitPushId) {
-      lines.push(`Commit/push: ${summary.workflowImprovementTicket.commitPushId}`);
-    }
-    if (summary.workflowImprovementTicket.limitationCode) {
-      lines.push(`Limitacao: ${summary.workflowImprovementTicket.limitationCode}`);
+
+    if (summary.limitation) {
+      lines.push(`Limitacao operacional: ${summary.limitation.code}`);
+      lines.push(`Detalhe da limitacao: ${summary.limitation.detail}`);
     }
   }
 

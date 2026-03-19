@@ -72,6 +72,7 @@ export interface SpecRef {
   criticalAmbiguities?: string[];
   commitMessage?: string;
   tracePaths?: SpecPlanningTracePaths;
+  workflowRetrospectiveContext?: string;
 }
 
 export interface CodexStageResult {
@@ -1216,6 +1217,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       .replace(
         /<SPEC_CRITICAL_AMBIGUITIES>/gu,
         this.renderPlanSpecOutlineList(criticalAmbiguities),
+      )
+      .replace(
+        /<WORKFLOW_RETROSPECTIVE_CONTEXT>/gu,
+        spec.workflowRetrospectiveContext?.trim() || "- Contexto adicional nao informado.",
       )
       .replace(/<TRACE_REQUEST_PATH>/gu, traceRequestPath)
       .replace(/<TRACE_RESPONSE_PATH>/gu, traceResponsePath)

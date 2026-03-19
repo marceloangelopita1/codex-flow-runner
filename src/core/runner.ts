@@ -102,6 +102,7 @@ import {
 } from "../types/codex-preferences.js";
 import {
   WorkflowImprovementTicketCandidate,
+  WorkflowImprovementTicketHandoff,
   WorkflowImprovementTicketPublicationResult,
 } from "../types/workflow-improvement-ticket.js";
 import {
@@ -114,6 +115,15 @@ import {
   SpecTicketValidationResult,
   buildSpecTicketValidationGapFingerprint,
 } from "../types/spec-ticket-validation.js";
+import {
+  WorkflowGapAnalysisInputMode,
+  WorkflowGapAnalysisResult,
+  createWorkflowGapAnalysisOperationalLimitation,
+} from "../types/workflow-gap-analysis.js";
+import {
+  WorkflowGapAnalysisParserError,
+  parseWorkflowGapAnalysisOutput,
+} from "../integrations/workflow-gap-analysis-parser.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -302,6 +312,15 @@ interface SpecStageTraceValidation {
 interface SpecAuditStageResult {
   residualGapsDetected: boolean;
   followUpTicketsCreated: number;
+  outputText: string;
+}
+
+interface WorkflowGapAnalysisContext {
+  inputMode: WorkflowGapAnalysisInputMode;
+  promptContext: string;
+  followUpTicketPaths: string[];
+  workflowArtifactsConsulted: string[];
+  specContent: string;
 }
 
 interface TicketProcessingResult {
@@ -4435,6 +4454,7 @@ export class TicketRunner {
     let runAllSummary: RunAllFlowSummary | undefined;
     let flowSummary: RunSpecsFlowSummary | null = null;
     let specTicketValidationSummary: RunSpecsTicketValidationSummary | undefined;
+    let workflowGapAnalysisSummary: WorkflowGapAnalysisResult | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
     this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
@@ -4519,19 +4539,72 @@ export class TicketRunner {
       }
     };
 
-    const runTimedSpecWorkflowRetrospectiveStage = async (message: string): Promise<void> => {
+    const runTimedSpecWorkflowRetrospectiveStage = async (
+      message: string,
+      auditStageResult: SpecAuditStageResult,
+      preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+    ): Promise<WorkflowGapAnalysisResult> => {
       const stage: Extract<RunSpecsFlowTimingStage, "spec-workflow-retrospective"> =
         "spec-workflow-retrospective";
       const stageStartedAt = Date.now();
       try {
         slot.currentSpec = spec.fileName;
-        await this.runSpecStage(slot, stage, spec, message);
+        const context = await this.buildWorkflowGapAnalysisContext(
+          slot.project,
+          spec,
+          auditStageResult,
+          preAuditOpenTickets,
+        );
+        const retrospectiveSpec: SpecRef = {
+          ...spec,
+          workflowRetrospectiveContext: context.promptContext,
+        };
+        let parsedResult: WorkflowGapAnalysisResult | null = null;
+        await this.runSpecStage(slot, stage, retrospectiveSpec, message, {
+          validateResult: (result) => {
+            parsedResult = this.parseWorkflowGapAnalysisStageResult(
+              result.output,
+              context,
+              slot.project,
+              spec,
+            );
+            return {
+              summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
+              metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
+            };
+          },
+        });
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        if (!parsedResult) {
+          throw new RunnerSpecStageContractError(
+            stage,
+            "workflow-gap-analysis terminou sem expor o resultado parseavel obrigatorio.",
+          );
+        }
+        return parsedResult;
       } catch (error) {
         const durationMs = Date.now() - stageStartedAt;
-        this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
-        throw error;
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        const summary = this.convertWorkflowGapAnalysisFailureToOperationalLimitation(
+          error,
+          spec,
+          slot.project,
+          auditStageResult,
+          preAuditOpenTickets,
+        );
+        this.logger.warn(
+          "workflow-gap-analysis degradou para limitacao operacional nao bloqueante",
+          {
+            spec: spec.fileName,
+            specPath: spec.path,
+            activeProjectName: slot.project.name,
+            activeProjectPath: slot.project.path,
+            detail: summary.limitation?.detail,
+            limitationCode: summary.limitation?.code,
+          },
+        );
+        return summary;
       }
     };
 
@@ -4619,13 +4692,16 @@ export class TicketRunner {
           "run-all",
           runAllSummary.timing.totalDurationMs,
         );
+        const preAuditOpenTickets = await this.listOpenTicketsForSpec(slot.project.path, spec);
         const specAuditResult = await runTimedSpecAuditStage(
           `Executando etapa spec-audit para ${spec.fileName}`,
         );
         let finalStage: RunSpecsFlowFinalStage = "spec-audit";
         if (specAuditResult.residualGapsDetected) {
-          await runTimedSpecWorkflowRetrospectiveStage(
+          workflowGapAnalysisSummary = await runTimedSpecWorkflowRetrospectiveStage(
             `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
+            specAuditResult,
+            preAuditOpenTickets,
           );
           finalStage = "spec-workflow-retrospective";
         }
@@ -4640,6 +4716,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       } else {
@@ -4660,6 +4737,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       }
@@ -4730,6 +4808,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       } else if (stage === "spec-audit" || stage === "spec-workflow-retrospective") {
@@ -4767,6 +4846,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       } else {
@@ -4791,6 +4871,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       }
@@ -4807,6 +4888,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
           runAllSummary,
         });
       await this.emitRunFlowCompleted(summary);
@@ -4929,16 +5011,7 @@ export class TicketRunner {
         },
       );
 
-      const workflowImprovementTicket = await this.publishWorkflowImprovementTicketIfNeeded(
-        slot.project,
-        spec,
-        packageContext.specContent,
-        result,
-      );
-      const summary = this.buildRunSpecsTicketValidationSummary(
-        result,
-        workflowImprovementTicket,
-      );
+      const summary = this.buildRunSpecsTicketValidationSummary(result);
       await this.persistSpecTicketValidationExecution({
         projectPath: slot.project.path,
         spec,
@@ -5222,6 +5295,293 @@ export class TicketRunner {
     return lines.join("\n").trim();
   }
 
+  private async buildWorkflowGapAnalysisContext(
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    auditStageResult: SpecAuditStageResult,
+    preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+  ): Promise<WorkflowGapAnalysisContext> {
+    const specAbsolutePath = this.resolveProjectRelativePath(activeProject.path, spec.path);
+    let specContent = "";
+    try {
+      specContent = await fs.readFile(specAbsolutePath, "utf8");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Falha ao ler spec ${spec.path} para workflow-gap-analysis: ${details}`,
+      );
+    }
+
+    const postAuditOpenTickets = await this.listOpenTicketsForSpec(activeProject.path, spec);
+    const preAuditPaths = new Set(preAuditOpenTickets.map((ticket) => ticket.relativePath));
+    const followUpTickets = postAuditOpenTickets.filter(
+      (ticket) => !preAuditPaths.has(ticket.relativePath),
+    );
+    const inputMode: WorkflowGapAnalysisInputMode =
+      followUpTickets.length > 0 ? "follow-up-tickets" : "spec-and-audit-fallback";
+    const workflowContext = await this.describeWorkflowRepoContext(activeProject);
+    const fallbackReason =
+      inputMode === "spec-and-audit-fallback"
+        ? auditStageResult.followUpTicketsCreated > 0
+          ? `spec-audit declarou ${String(auditStageResult.followUpTicketsCreated)} follow-up(s), mas nenhum novo ticket ligado a spec foi resolvido por delta observavel.`
+          : "spec-audit nao abriu follow-up funcional; usar spec + resultado do audit e obrigatorio."
+        : null;
+    const workflowArtifactsConsulted = workflowContext.artifactHints;
+    const promptContext = [
+      "# Contexto estruturado do workflow-gap-analysis",
+      "",
+      `- Projeto auditado: ${activeProject.name}`,
+      `- Caminho do projeto auditado: ${activeProject.path}`,
+      `- Spec alvo: ${spec.path}`,
+      `- Natureza desta etapa: retrospectiva pos-auditoria em contexto novo, sem herdar implicitamente o contexto de spec-audit.`,
+      `- Input mode esperado: ${inputMode}`,
+      `- Follow-up tickets declarados por spec-audit: ${String(auditStageResult.followUpTicketsCreated)}`,
+      `- Follow-up tickets resolvidos por delta observavel: ${String(followUpTickets.length)}`,
+      `- Contexto do codex-flow-runner a consultar: ${workflowContext.displayPath}`,
+      `- Estado do contexto do codex-flow-runner: ${workflowContext.status}`,
+      "",
+      "## Fontes canonicas priorizadas no codex-flow-runner",
+      ...workflowArtifactsConsulted.map((entry) => `- ${entry}`),
+      "",
+      "## Resultado bruto do spec-audit",
+      auditStageResult.outputText.trim(),
+      "",
+      "## Tickets abertos antes do spec-audit",
+      ...(preAuditOpenTickets.length > 0
+        ? preAuditOpenTickets.map((ticket) => `- ${ticket.relativePath}`)
+        : ["- Nenhum"]),
+      "",
+      "## Tickets abertos depois do spec-audit",
+      ...(postAuditOpenTickets.length > 0
+        ? postAuditOpenTickets.map((ticket) => `- ${ticket.relativePath}`)
+        : ["- Nenhum"]),
+      "",
+      "## Insumos principais da analise",
+      ...(followUpTickets.length > 0
+        ? followUpTickets.flatMap((ticket, index) => [
+            `### ${index + 1}. ${ticket.relativePath}`,
+            ticket.content.trim() || "(ticket vazio)",
+            "",
+          ])
+        : [
+            "- Nenhum follow-up funcional novo foi resolvido por delta observavel.",
+            `- Fallback controlado: ${fallbackReason ?? "n/a"}`,
+            "",
+            "## Spec alvo (fallback)",
+            specContent.trim() || "(spec vazia)",
+            "",
+          ]),
+      "## Regras de decisao obrigatorias",
+      "- `publicationEligibility=true` so e valido com `classification=systemic-gap` e `confidence=high`.",
+      "- `systemic-hypothesis` registra apenas hipotese sistemica, sem ticket automatico.",
+      "- `not-systemic` e `emphasis-only` nao devem promover backlog automatico.",
+      "- Se o contexto do codex-flow-runner nao estiver disponivel para sustentacao causal segura, use `operational-limitation`.",
+    ]
+      .join("\n")
+      .trim();
+
+    return {
+      inputMode,
+      promptContext,
+      followUpTicketPaths: followUpTickets.map((ticket) => ticket.relativePath),
+      workflowArtifactsConsulted,
+      specContent,
+    };
+  }
+
+  private async describeWorkflowRepoContext(activeProject: ProjectRef): Promise<{
+    displayPath: string;
+    status: string;
+    artifactHints: string[];
+  }> {
+    if (activeProject.name === "codex-flow-runner") {
+      return {
+        displayPath: ".",
+        status: "repositorio corrente",
+        artifactHints: [
+          "AGENTS.md",
+          "DOCUMENTATION.md",
+          "INTERNAL_TICKETS.md",
+          "PLANS.md",
+          "SPECS.md",
+          "docs/workflows/codex-quality-gates.md",
+          "prompts/",
+        ],
+      };
+    }
+
+    const siblingPath = path.resolve(activeProject.path, "..", "codex-flow-runner");
+    const siblingExists = await fs
+      .access(siblingPath)
+      .then(() => true)
+      .catch(() => false);
+
+    return {
+      displayPath: "../codex-flow-runner",
+      status: siblingExists ? "repositorio irmao acessivel" : "repositorio irmao ausente",
+      artifactHints: [
+        "../codex-flow-runner/AGENTS.md",
+        "../codex-flow-runner/DOCUMENTATION.md",
+        "../codex-flow-runner/INTERNAL_TICKETS.md",
+        "../codex-flow-runner/PLANS.md",
+        "../codex-flow-runner/SPECS.md",
+        "../codex-flow-runner/docs/workflows/codex-quality-gates.md",
+        "../codex-flow-runner/prompts/",
+      ],
+    };
+  }
+
+  private parseWorkflowGapAnalysisStageResult(
+    outputText: string,
+    context: WorkflowGapAnalysisContext,
+    activeProject: ProjectRef,
+    spec: SpecRef,
+  ): WorkflowGapAnalysisResult {
+    let parsed: WorkflowGapAnalysisResult;
+    try {
+      parsed = parseWorkflowGapAnalysisOutput(outputText);
+    } catch (error) {
+      if (error instanceof WorkflowGapAnalysisParserError) {
+        throw new RunnerSpecStageContractError("spec-workflow-retrospective", error.message);
+      }
+      throw error;
+    }
+
+    if (parsed.inputMode !== context.inputMode) {
+      throw new RunnerSpecStageContractError(
+        "spec-workflow-retrospective",
+        `workflow-gap-analysis retornou inputMode=${parsed.inputMode}, mas o contexto exigia ${context.inputMode}.`,
+      );
+    }
+
+    return {
+      ...parsed,
+      workflowArtifactsConsulted: [...parsed.workflowArtifactsConsulted],
+      followUpTicketPaths: [...parsed.followUpTicketPaths],
+      findings: parsed.findings.map((finding) => ({
+        summary: finding.summary,
+        affectedArtifactPaths: [...finding.affectedArtifactPaths],
+        requirementRefs: [...finding.requirementRefs],
+        evidence: [...finding.evidence],
+      })),
+      ...(parsed.publicationEligibility
+        ? {
+            publicationHandoff: this.buildWorkflowImprovementTicketHandoffFromGapAnalysis(
+              activeProject,
+              spec,
+              context.specContent,
+              parsed,
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private buildWorkflowImprovementTicketHandoffFromGapAnalysis(
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    specContent: string,
+    result: WorkflowGapAnalysisResult,
+  ): WorkflowImprovementTicketHandoff {
+    return {
+      activeProjectName: activeProject.name,
+      activeProjectPath: activeProject.path,
+      sourceSpecPath: spec.path,
+      sourceSpecFileName: spec.fileName,
+      sourceSpecTitle: this.extractSpecTitle(specContent, spec.fileName),
+      inheritedAssumptionsDefaults: this.extractTopLevelBulletItems(
+        specContent,
+        "Assumptions and defaults",
+      ),
+      inputMode: result.inputMode,
+      analysisSummary: result.summary,
+      causalHypothesis: result.causalHypothesis,
+      benefitSummary: result.benefitSummary,
+      followUpTicketPaths: [...result.followUpTicketPaths],
+      findings: result.findings.map((finding) => ({
+        summary: finding.summary,
+        affectedArtifactPaths: [...finding.affectedArtifactPaths],
+        requirementRefs: [...finding.requirementRefs],
+        evidence: [...finding.evidence],
+      })),
+    };
+  }
+
+  private renderWorkflowGapAnalysisTraceSummary(result: WorkflowGapAnalysisResult): string {
+    return result.classification === "operational-limitation"
+      ? "workflow-gap-analysis concluiu com limitacao operacional nao bloqueante."
+      : `workflow-gap-analysis concluiu com ${result.classification} (${result.confidence}).`;
+  }
+
+  private buildWorkflowGapAnalysisTraceMetadata(
+    result: WorkflowGapAnalysisResult,
+  ): Record<string, unknown> {
+    return {
+      classification: result.classification,
+      confidence: result.confidence,
+      publicationEligibility: result.publicationEligibility,
+      inputMode: result.inputMode,
+      summary: result.summary,
+      causalHypothesis: result.causalHypothesis,
+      benefitSummary: result.benefitSummary,
+      findings: result.findings.map((finding) => ({
+        summary: finding.summary,
+        affectedArtifactPaths: [...finding.affectedArtifactPaths],
+        requirementRefs: [...finding.requirementRefs],
+        evidence: [...finding.evidence],
+      })),
+      workflowArtifactsConsulted: [...result.workflowArtifactsConsulted],
+      followUpTicketPaths: [...result.followUpTicketPaths],
+      limitation: result.limitation
+        ? {
+            code: result.limitation.code,
+            detail: result.limitation.detail,
+          }
+        : null,
+      publicationHandoff: result.publicationHandoff
+        ? {
+            sourceSpecPath: result.publicationHandoff.sourceSpecPath,
+            inputMode: result.publicationHandoff.inputMode,
+            findings: result.publicationHandoff.findings.map((finding) => ({
+              summary: finding.summary,
+              affectedArtifactPaths: [...finding.affectedArtifactPaths],
+              requirementRefs: [...finding.requirementRefs],
+            })),
+          }
+        : null,
+    };
+  }
+
+  private convertWorkflowGapAnalysisFailureToOperationalLimitation(
+    error: unknown,
+    spec: SpecRef,
+    activeProject: ProjectRef,
+    auditStageResult: SpecAuditStageResult,
+    _preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+  ): WorkflowGapAnalysisResult {
+    const inputMode: WorkflowGapAnalysisInputMode =
+      auditStageResult.followUpTicketsCreated > 0
+        ? "follow-up-tickets"
+        : "spec-and-audit-fallback";
+    const details = error instanceof Error ? error.message : String(error);
+    const code =
+      error instanceof RunnerSpecStageContractError
+        ? "invalid-analysis-contract"
+        : "analysis-execution-failed";
+
+    return createWorkflowGapAnalysisOperationalLimitation({
+      inputMode,
+      summary: `workflow-gap-analysis nao concluiu de forma confiavel para ${spec.fileName}.`,
+      detail: `${activeProject.name}: ${details}`,
+      followUpTicketPaths: [],
+      workflowArtifactsConsulted:
+        activeProject.name === "codex-flow-runner"
+          ? ["AGENTS.md", "prompts/"]
+          : ["../codex-flow-runner/AGENTS.md", "../codex-flow-runner/prompts/"],
+      code,
+    });
+  }
+
   private collectSpecTicketValidationAutoCorrectArtifactPaths(
     projectPath: string,
     spec: SpecRef,
@@ -5463,7 +5823,6 @@ export class TicketRunner {
 
   private buildRunSpecsTicketValidationSummary(
     result: SpecTicketValidationResult,
-    workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult,
   ): RunSpecsTicketValidationSummary {
     return {
       verdict: result.verdict,
@@ -5505,12 +5864,6 @@ export class TicketRunner {
         })),
         realGapReductionFromPrevious: snapshot.realGapReductionFromPrevious,
       })),
-      ...(workflowImprovementTicket
-        ? {
-            workflowImprovementTicket:
-              this.cloneWorkflowImprovementTicketPublicationResult(workflowImprovementTicket),
-          }
-        : {}),
     };
   }
 
@@ -5559,11 +5912,6 @@ export class TicketRunner {
               })),
               realGapReductionFromPrevious: cycle.realGapReductionFromPrevious,
             })),
-            workflowImprovementTicket: summary.workflowImprovementTicket
-              ? this.cloneWorkflowImprovementTicketPublicationResult(
-                  summary.workflowImprovementTicket,
-                )
-              : undefined,
           }
         : {}),
       ticketCount: packageContext.tickets.length,
@@ -5629,7 +5977,6 @@ export class TicketRunner {
     const systemicGaps = params.summary.gaps.filter(
       (gap) => gap.probableRootCause === "systemic-instruction",
     );
-    const workflowImprovementTicket = params.summary.workflowImprovementTicket;
     const lines = [
       "### Ultima execucao registrada",
       `- Executada em (UTC): ${this.now().toISOString()}`,
@@ -5694,13 +6041,11 @@ export class TicketRunner {
           ])),
       "",
       "#### Observacoes sobre melhoria sistemica do workflow",
-      ...(workflowImprovementTicket
-        ? this.renderWorkflowImprovementTicketLines(workflowImprovementTicket)
-        : systemicGaps.length === 0
-          ? ["- Nenhuma observacao sistemica registrada nesta execucao."]
-          : [
-              `- ${systemicGaps.length} gap(s) sistemicos foram observados, mas esta rodada nao publicou ticket transversal porque o follow-up automatico nao foi habilitado para este contexto.`,
-            ]),
+      ...(systemicGaps.length === 0
+        ? ["- Nenhuma observacao sistemica registrada neste gate pre-run-all."]
+        : [
+            `- ${systemicGaps.length} gap(s) sistemicos foram observados no gate pre-run-all, mas a decisao causal pos-auditoria agora pertence a \`spec-workflow-retrospective\`.`,
+          ]),
     ];
 
     return lines.join("\n");
@@ -7248,7 +7593,26 @@ export class TicketRunner {
 
     try {
       const result = await slot.codexClient.runSpecStage(stage, spec);
-      const traceValidation = (await options?.validateResult?.(result)) ?? undefined;
+      let traceValidation: SpecStageTraceValidation | undefined;
+      try {
+        traceValidation = (await options?.validateResult?.(result)) ?? undefined;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "spec",
+          stage,
+          targetName: spec.fileName,
+          targetPath: spec.path,
+          promptTemplatePath: result.promptTemplatePath,
+          promptText: result.promptText,
+          outputText: result.output,
+          diagnostics: result.diagnostics,
+          summary: `Etapa ${stage} falhou ao validar o contrato retornado.`,
+          decisionStatus: "failure",
+          decisionErrorMessage: errorMessage,
+        });
+        throw error;
+      }
       this.logger.info("Etapa de spec concluida no runner", {
         spec: spec.fileName,
         specPath: spec.path,
@@ -7611,6 +7975,7 @@ export class TicketRunner {
     triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
     specTicketValidation?: RunSpecsTicketValidationSummary;
+    workflowGapAnalysis?: WorkflowGapAnalysisResult;
     runAllSummary?: RunAllFlowSummary;
   }): RunSpecsFlowSummary {
     return {
@@ -7639,6 +8004,13 @@ export class TicketRunner {
         ? {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
               params.specTicketValidation,
+            ),
+          }
+        : {}),
+      ...(params.workflowGapAnalysis
+        ? {
+            workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
+              params.workflowGapAnalysis,
             ),
           }
         : {}),
@@ -7719,11 +8091,57 @@ export class TicketRunner {
         })),
         realGapReductionFromPrevious: cycle.realGapReductionFromPrevious,
       })),
-      ...(summary.workflowImprovementTicket
+    };
+  }
+
+  private cloneWorkflowGapAnalysisResult(
+    result: WorkflowGapAnalysisResult,
+  ): WorkflowGapAnalysisResult {
+    return {
+      classification: result.classification,
+      confidence: result.confidence,
+      publicationEligibility: result.publicationEligibility,
+      inputMode: result.inputMode,
+      summary: result.summary,
+      causalHypothesis: result.causalHypothesis,
+      benefitSummary: result.benefitSummary,
+      findings: result.findings.map((finding) => ({
+        summary: finding.summary,
+        affectedArtifactPaths: [...finding.affectedArtifactPaths],
+        requirementRefs: [...finding.requirementRefs],
+        evidence: [...finding.evidence],
+      })),
+      workflowArtifactsConsulted: [...result.workflowArtifactsConsulted],
+      followUpTicketPaths: [...result.followUpTicketPaths],
+      limitation: result.limitation
         ? {
-            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
-              summary.workflowImprovementTicket,
-            ),
+            code: result.limitation.code,
+            detail: result.limitation.detail,
+          }
+        : null,
+      ...(result.publicationHandoff
+        ? {
+            publicationHandoff: {
+              activeProjectName: result.publicationHandoff.activeProjectName,
+              activeProjectPath: result.publicationHandoff.activeProjectPath,
+              sourceSpecPath: result.publicationHandoff.sourceSpecPath,
+              sourceSpecFileName: result.publicationHandoff.sourceSpecFileName,
+              sourceSpecTitle: result.publicationHandoff.sourceSpecTitle,
+              inheritedAssumptionsDefaults: [
+                ...result.publicationHandoff.inheritedAssumptionsDefaults,
+              ],
+              inputMode: result.publicationHandoff.inputMode,
+              analysisSummary: result.publicationHandoff.analysisSummary,
+              causalHypothesis: result.publicationHandoff.causalHypothesis,
+              benefitSummary: result.publicationHandoff.benefitSummary,
+              followUpTicketPaths: [...result.publicationHandoff.followUpTicketPaths],
+              findings: result.publicationHandoff.findings.map((finding) => ({
+                summary: finding.summary,
+                affectedArtifactPaths: [...finding.affectedArtifactPaths],
+                requirementRefs: [...finding.requirementRefs],
+                evidence: [...finding.evidence],
+              })),
+            },
           }
         : {}),
     };
@@ -7767,6 +8185,13 @@ export class TicketRunner {
         ? {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
               summary.specTicketValidation,
+            ),
+          }
+        : {}),
+      ...(summary.workflowGapAnalysis
+        ? {
+            workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
+              summary.workflowGapAnalysis,
             ),
           }
         : {}),
@@ -7817,6 +8242,7 @@ export class TicketRunner {
     return {
       residualGapsDetected: residualGapsDetected === "yes",
       followUpTicketsCreated,
+      outputText,
     };
   }
 

@@ -408,6 +408,15 @@ test("runSpecStage(spec-audit) usa commit de auditoria e prompt dedicado", async
 
 test("runSpecStage(spec-workflow-retrospective) usa prompt dedicado sem exigir commit", async () => {
   let capturedPrompt = "";
+  const retrospectiveSpec = {
+    ...spec,
+    workflowRetrospectiveContext: [
+      "# Contexto estruturado do workflow-gap-analysis",
+      "- Input mode esperado: follow-up-tickets",
+      "- Follow-up tickets declarados por spec-audit: 1",
+      "- Contexto do codex-flow-runner a consultar: .",
+    ].join("\n"),
+  };
 
   const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
     runCodexCommand: async (request) => {
@@ -416,13 +425,15 @@ test("runSpecStage(spec-workflow-retrospective) usa prompt dedicado sem exigir c
     },
   });
 
-  const result = await client.runSpecStage("spec-workflow-retrospective", spec);
+  const result = await client.runSpecStage("spec-workflow-retrospective", retrospectiveSpec);
 
   assert.equal(result.stage, "spec-workflow-retrospective");
   assert.match(result.promptTemplatePath, /11-retrospectiva-workflow-apos-spec-audit\.md$/u);
   assert.equal(result.promptText, capturedPrompt);
   assert.doesNotMatch(capturedPrompt, /Commit esperado:/u);
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(capturedPrompt, /Input mode esperado: follow-up-tickets/u);
+  assert.match(capturedPrompt, /Contexto estruturado do workflow-gap-analysis/u);
 });
 
 test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho da spec planejada", async () => {
