@@ -8,6 +8,7 @@ import {
   CodexCliTicketFlowClient,
   CodexDiscoverSpecSessionError,
   CodexPlanSessionError,
+  CodexSpecTicketValidationSessionError,
   CodexStageExecutionError,
 } from "./codex-client.js";
 import { buildRuntimeShellGuidance } from "./runtime-shell-guidance.js";
@@ -1143,6 +1144,285 @@ test("falha da sessao livre retorna hint de retry para /codex_chat", async () =>
   assert.equal(failures.length, 1);
   assert.equal(failures[0]?.phase, "runtime");
   assert.match(failures[0]?.message ?? "", /Use \/codex_chat para tentar novamente/u);
+});
+
+test("startSpecTicketValidationSession usa codex exec/resume com thread local do gate e ignora thread_id externo", async () => {
+  const capturedArgs: string[][] = [];
+  const threadId = "thread-spec-ticket-validation-1";
+  const triageThreadId = "thread-spec-triage-externa";
+
+  const client = new CodexCliTicketFlowClient(
+    "/tmp/repo",
+    new SpyLogger(),
+    {
+      loadPromptTemplate: async () => "# protocolo do gate",
+      runCodexExecJsonCommand: async (request) => {
+        capturedArgs.push([...request.args]);
+
+        const isResume = request.args.includes("resume");
+        if (!isResume) {
+          return {
+            stdout: [
+              JSON.stringify({ type: "thread.started", thread_id: threadId }),
+              JSON.stringify({
+                type: "item.completed",
+                item: {
+                  id: "item_0",
+                  type: "agent_message",
+                  text: [
+                    "[[SPEC_TICKET_VALIDATION]]",
+                    JSON.stringify(
+                      {
+                        verdict: "NO_GO",
+                        confidence: "medium",
+                        summary: "Ainda existe um gap corrigivel.",
+                        gaps: [
+                          {
+                            gapType: "coverage-gap",
+                            summary: "RF-02 ainda nao esta coberto.",
+                            affectedArtifactPaths: ["tickets/open/example.md"],
+                            requirementRefs: ["RF-02"],
+                            evidence: ["Ticket atual nao menciona RF-02."],
+                            probableRootCause: "ticket",
+                            isAutoCorrectable: true,
+                          },
+                        ],
+                        appliedCorrections: [],
+                      },
+                      null,
+                      2,
+                    ),
+                    "[[/SPEC_TICKET_VALIDATION]]",
+                  ].join("\n"),
+                },
+              }),
+              JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }),
+            ].join("\n"),
+            stderr: "",
+          };
+        }
+
+        return {
+          stdout: [
+            JSON.stringify({ type: "thread.started", thread_id: threadId }),
+            JSON.stringify({
+              type: "item.completed",
+              item: {
+                id: "item_1",
+                type: "agent_message",
+                text: [
+                  "[[SPEC_TICKET_VALIDATION]]",
+                  JSON.stringify(
+                    {
+                      verdict: "GO",
+                      confidence: "high",
+                      summary: "Pacote corrigido e pronto para seguir.",
+                      gaps: [],
+                      appliedCorrections: [
+                        {
+                          description: "Adicionar cobertura explicita de RF-02.",
+                          affectedArtifactPaths: ["tickets/open/example.md"],
+                          linkedGapTypes: ["coverage-gap"],
+                          outcome: "applied",
+                        },
+                      ],
+                    },
+                    null,
+                    2,
+                  ),
+                  "[[/SPEC_TICKET_VALIDATION]]",
+                ].join("\n"),
+              },
+            }),
+            JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }),
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    },
+    {
+      resolveInvocationPreferences: async () => ({
+        model: "gpt-5.4",
+        reasoningEffort: "high",
+        speed: "fast",
+      }),
+    },
+  );
+
+  const session = await client.startSpecTicketValidationSession({
+    spec,
+    triageThreadId,
+  });
+
+  const first = await session.runTurn({
+    packageContext: "Pacote derivado inicial",
+  });
+  const second = await session.runTurn({
+    packageContext: "Pacote derivado apos correcao",
+    appliedCorrectionsSummary: ["Adicionar cobertura explicita de RF-02. [applied]"],
+  });
+
+  assert.equal(first.threadId, threadId);
+  assert.equal(first.parsed.verdict, "NO_GO");
+  assert.equal(first.parsed.gaps.length, 1);
+  assert.equal(second.threadId, threadId);
+  assert.equal(second.parsed.verdict, "GO");
+  assert.equal(second.parsed.confidence, "high");
+  assert.equal(second.parsed.appliedCorrections.length, 1);
+
+  assert.equal(capturedArgs.length, 2);
+  assert.equal(capturedArgs[0]?.includes("resume"), false);
+  assert.equal(capturedArgs[0]?.includes("--json"), true);
+  assert.equal(capturedArgs[0]?.includes("-s"), true);
+  assert.equal(capturedArgs[0]?.includes("danger-full-access"), true);
+  assert.equal(capturedArgs[0]?.includes("-m"), true);
+  assert.equal(capturedArgs[0]?.includes('model_reasoning_effort="high"'), true);
+  assert.equal(capturedArgs[0]?.includes("features.fast_mode=true"), true);
+  assert.equal(capturedArgs[0]?.includes('service_tier="fast"'), true);
+  assert.equal(capturedArgs[0]?.includes(triageThreadId), false);
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /Pacote derivado inicial/u);
+  assert.match(capturedArgs[0]?.[capturedArgs[0].length - 1] ?? "", /nao deve ser reutilizado/u);
+
+  assert.equal(capturedArgs[1]?.includes("resume"), true);
+  assert.equal(capturedArgs[1]?.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(capturedArgs[1]?.includes("-s"), false);
+  assert.equal(capturedArgs[1]?.includes("danger-full-access"), false);
+  assert.equal(capturedArgs[1]?.includes(threadId), true);
+  assert.equal(capturedArgs[1]?.includes(triageThreadId), false);
+  assert.match(capturedArgs[1]?.[capturedArgs[1].length - 1] ?? "", /Adicionar cobertura explicita/u);
+
+  await session.cancel();
+});
+
+test("startSpecTicketValidationSession falha quando codex exec --json nao retorna thread_id ou agent_message", async () => {
+  const clientWithoutThread = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# protocolo do gate",
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_0",
+            type: "agent_message",
+            text: [
+              "[[SPEC_TICKET_VALIDATION]]",
+              JSON.stringify({
+                verdict: "GO",
+                confidence: "high",
+                summary: "Pacote pronto.",
+                gaps: [],
+                appliedCorrections: [],
+              }),
+              "[[/SPEC_TICKET_VALIDATION]]",
+            ].join("\n"),
+          },
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  const sessionWithoutThread = await clientWithoutThread.startSpecTicketValidationSession({
+    spec,
+  });
+  await assert.rejects(
+    () => sessionWithoutThread.runTurn({ packageContext: "Pacote inicial" }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexSpecTicketValidationSessionError);
+      assert.equal(error.phase, "runtime");
+      assert.match(error.message, /nao retornou thread_id/u);
+      return true;
+    },
+  );
+  await sessionWithoutThread.cancel();
+
+  const clientWithoutMessage = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# protocolo do gate",
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        JSON.stringify({ type: "thread.started", thread_id: "thread-sem-agent-message" }),
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_0",
+            type: "reasoning",
+            text: "analisando",
+          },
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  const sessionWithoutMessage = await clientWithoutMessage.startSpecTicketValidationSession({
+    spec,
+  });
+  await assert.rejects(
+    () => sessionWithoutMessage.runTurn({ packageContext: "Pacote inicial" }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexSpecTicketValidationSessionError);
+      assert.equal(error.phase, "runtime");
+      assert.match(error.message, /nao retornou agent_message/u);
+      return true;
+    },
+  );
+  await sessionWithoutMessage.cancel();
+});
+
+test("startSpecTicketValidationSession falha deterministicamente quando o payload estruturado e invalido", async () => {
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    loadPromptTemplate: async () => "# protocolo do gate",
+    runCodexExecJsonCommand: async () => ({
+      stdout: [
+        JSON.stringify({ type: "thread.started", thread_id: "thread-payload-invalido" }),
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "item_0",
+            type: "agent_message",
+            text: [
+              "[[SPEC_TICKET_VALIDATION]]",
+              JSON.stringify({
+                verdict: "NO_GO",
+                confidence: "high",
+                summary: "Payload fora da taxonomia.",
+                gaps: [
+                  {
+                    gapType: "invented-gap",
+                    summary: "Gap inventado.",
+                    affectedArtifactPaths: ["tickets/open/example.md"],
+                    requirementRefs: ["RF-02"],
+                    evidence: ["Campo fora da allowlist."],
+                    probableRootCause: "ticket",
+                    isAutoCorrectable: true,
+                  },
+                ],
+                appliedCorrections: [],
+              }),
+              "[[/SPEC_TICKET_VALIDATION]]",
+            ].join("\n"),
+          },
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  const session = await client.startSpecTicketValidationSession({
+    spec,
+  });
+
+  await assert.rejects(
+    () => session.runTurn({ packageContext: "Pacote inicial" }),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexSpecTicketValidationSessionError);
+      assert.equal(error.phase, "runtime");
+      assert.match(error.message, /gapType invalido/u);
+      return true;
+    },
+  );
+
+  await session.cancel();
 });
 
 test("sendUserInput apos encerramento da sessao retorna erro de input", async () => {

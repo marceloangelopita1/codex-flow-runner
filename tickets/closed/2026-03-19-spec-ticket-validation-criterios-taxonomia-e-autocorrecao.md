@@ -1,7 +1,7 @@
 # [TICKET] Implementar validacao de tickets derivados com taxonomia fixa e autocorrecao
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-19 15:41Z
@@ -91,9 +91,27 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - nao existe ainda um contrato stateful e auditavel para validar o pacote derivado de tickets.
+- 2026-03-19 - ExecPlan validado com resultado `GO`; contrato entregue com evidencias objetivas em testes focados, `npm test`, `npm run check` e `npm run build`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 16:23Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-02`, `RF-03`; `CA-04`, `CA-05`: `src/integrations/codex-client.test.ts` cobre exec inicial sem `resume`, sem reaproveitar `triageThreadId`, e revalidacao com `resume` no mesmo `thread_id`; `npx tsx --test src/integrations/spec-ticket-validation-parser.test.ts src/integrations/codex-client.test.ts src/core/spec-ticket-validation.test.ts` -> pass (`44/44`).
+  - `RF-08`, `RF-09`, `RF-11`; `CA-06`: `src/integrations/spec-ticket-validation-parser.test.ts` e `src/integrations/codex-client.test.ts` validam taxonomia fechada de gaps, `probableRootCause`, `confidence`, evidencias obrigatorias e falha deterministica para payload invalido; `npx tsx --test src/integrations/spec-ticket-validation-parser.test.ts src/integrations/codex-client.test.ts src/core/spec-ticket-validation.test.ts` -> pass (`44/44`).
+  - `RF-12`, `RF-13`, `RF-14`; `CA-07`, `CA-08`, `CA-09`: `src/core/spec-ticket-validation.test.ts` cobre `NO_GO -> autocorrecao -> GO`, limite de 2 ciclos completos, bloqueio por falta de reducao real e `GO` com confianca insuficiente normalizado para `NO_GO`; `npx tsx --test src/integrations/spec-ticket-validation-parser.test.ts src/integrations/codex-client.test.ts src/core/spec-ticket-validation.test.ts` -> pass (`44/44`).
+- Evidencia objetiva de regressao e consistencia:
+  - `npm test` -> pass (`353/353`).
+  - `npm run check` -> pass.
+  - `npm run build` -> pass.
+- Entrega tecnica concluida:
+  - contrato tipado de `spec-ticket-validation` implementado em `src/types/spec-ticket-validation.ts`;
+  - parser estruturado e prompt dedicado implementados em `src/integrations/spec-ticket-validation-parser.ts` e `prompts/09-validar-tickets-derivados-da-spec.md`;
+  - sessao stateful isolada de `spec-triage` implementada em `src/integrations/codex-client.ts`;
+  - motor de `autocorrecao -> revalidacao` com limite de 2 ciclos completos implementado em `src/core/spec-ticket-validation.ts`.
+- Validacao manual externa pendente: nao.

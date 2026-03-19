@@ -14,6 +14,10 @@ import {
   sanitizePlanSpecRawOutput,
 } from "./plan-spec-parser.js";
 import {
+  parseSpecTicketValidationOutput,
+  SpecTicketValidationParserError,
+} from "./spec-ticket-validation-parser.js";
+import {
   PlanDirectoryName,
   buildExecPlanPath,
   resolvePlanDirectoryName,
@@ -28,6 +32,7 @@ import {
   DISCOVER_SPEC_CATEGORY_DEFINITIONS,
   type DiscoverSpecCategoryCoverage,
 } from "../types/discover-spec.js";
+import { SpecTicketValidationPassResult } from "../types/spec-ticket-validation.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -223,6 +228,33 @@ export interface CodexChatSession {
   cancel(): Promise<void>;
 }
 
+export interface SpecTicketValidationSessionStartRequest {
+  spec: SpecRef;
+  triageThreadId?: string | null;
+}
+
+export interface SpecTicketValidationSessionTurnRequest {
+  packageContext: string;
+  appliedCorrectionsSummary?: string[];
+}
+
+export interface SpecTicketValidationSessionTurnResult {
+  threadId: string;
+  output: string;
+  parsed: SpecTicketValidationPassResult;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface SpecTicketValidationSession {
+  runTurn(
+    request: SpecTicketValidationSessionTurnRequest,
+  ): Promise<SpecTicketValidationSessionTurnResult>;
+  getThreadId(): string | null;
+  cancel(): Promise<void>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
@@ -234,6 +266,9 @@ export interface CodexTicketFlowClient {
   startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession>;
   startDiscoverSession(request: DiscoverSpecSessionStartRequest): Promise<DiscoverSpecSession>;
   startFreeChatSession(request: CodexChatSessionStartRequest): Promise<CodexChatSession>;
+  startSpecTicketValidationSession(
+    request: SpecTicketValidationSessionStartRequest,
+  ): Promise<SpecTicketValidationSession>;
 }
 
 interface CodexCommandRequest {
@@ -293,6 +328,9 @@ const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
 const PLAN_SPEC_INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 const DISCOVER_SPEC_INTERACTIVE_RETRY_HINT = "Use /discover_spec para tentar novamente.";
 const CODEX_CHAT_INTERACTIVE_RETRY_HINT = "Use /codex_chat para tentar novamente.";
+const SPEC_TICKET_VALIDATION_RETRY_HINT =
+  "Use /run_specs para reiniciar a validacao de tickets derivados.";
+const SPEC_TICKET_VALIDATION_PROMPT_FILE = "09-validar-tickets-derivados-da-spec.md";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -526,6 +564,17 @@ const buildPlanSpecExecResumeArgs = (
   prompt,
 ];
 
+const buildSpecTicketValidationExecStartArgs = (
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => buildFreeChatExecStartArgs(prompt, preferences);
+
+const buildSpecTicketValidationExecResumeArgs = (
+  threadId: string,
+  prompt: string,
+  preferences: CodexInvocationPreferences | null = null,
+): string[] => buildFreeChatExecResumeArgs(threadId, prompt, preferences);
+
 export class CodexStageExecutionError extends Error {
   constructor(
     public readonly ticketName: string,
@@ -610,6 +659,22 @@ export class CodexChatSessionError extends Error {
       ].join(" "),
     );
     this.name = "CodexChatSessionError";
+  }
+}
+
+export class CodexSpecTicketValidationSessionError extends Error {
+  constructor(
+    public readonly phase: "start" | "input" | "runtime",
+    details: string,
+  ) {
+    super(
+      [
+        "Falha na sessao stateful de spec-ticket-validation no Codex CLI.",
+        SPEC_TICKET_VALIDATION_RETRY_HINT,
+        `Detalhes: ${details}`,
+      ].join(" "),
+    );
+    this.name = "CodexSpecTicketValidationSessionError";
   }
 }
 
@@ -881,6 +946,36 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       );
     } catch (error) {
       throw new CodexChatSessionError("start", errorMessage(error));
+    }
+  }
+
+  async startSpecTicketValidationSession(
+    request: SpecTicketValidationSessionStartRequest,
+  ): Promise<SpecTicketValidationSession> {
+    this.logger.info("Iniciando sessao stateful de spec-ticket-validation via Codex CLI exec/resume", {
+      repoPath: this.repoPath,
+      specPath: request.spec.path,
+      specFileName: request.spec.fileName,
+      mode: "spec-ticket-validation",
+      ignoresTriageThreadId: true,
+    });
+
+    const promptTemplatePath = path.join(PROMPTS_DIR, SPEC_TICKET_VALIDATION_PROMPT_FILE);
+
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      return new CodexExecResumeSpecTicketValidationSession(
+        this.repoPath,
+        request,
+        this.logger,
+        this.dependencies.runCodexExecJsonCommand,
+        this.resolveInvocationPreferences,
+        promptTemplatePath,
+        promptTemplate,
+        this.runtimeShellGuidance.text,
+      );
+    } catch (error) {
+      throw new CodexSpecTicketValidationSessionError("start", errorMessage(error));
     }
   }
 
@@ -1847,6 +1942,191 @@ class CodexExecResumeFreeChatSession implements CodexChatSession {
   }
 }
 
+class CodexExecResumeSpecTicketValidationSession implements SpecTicketValidationSession {
+  private closed = false;
+  private threadId: string | null = null;
+  private writePipeline: Promise<void> = Promise.resolve();
+
+  constructor(
+    private readonly repoPath: string,
+    private readonly request: SpecTicketValidationSessionStartRequest,
+    private readonly logger: Logger,
+    private readonly runCodexExecJsonCommand: (
+      request: CodexExecJsonCommandRequest,
+    ) => Promise<CodexCommandResult>,
+    private readonly resolveInvocationPreferences: () => Promise<CodexInvocationPreferences | null>,
+    private readonly promptTemplatePath: string,
+    private readonly promptTemplate: string,
+    private readonly runtimeShellGuidanceText: string,
+  ) {}
+
+  async runTurn(
+    request: SpecTicketValidationSessionTurnRequest,
+  ): Promise<SpecTicketValidationSessionTurnResult> {
+    const packageContext = request.packageContext.trim();
+    if (!packageContext) {
+      throw new CodexSpecTicketValidationSessionError(
+        "input",
+        "O pacote derivado a validar nao pode ser vazio.",
+      );
+    }
+
+    if (this.closed) {
+      throw new CodexSpecTicketValidationSessionError(
+        "input",
+        "A sessao stateful de spec-ticket-validation ja foi encerrada.",
+      );
+    }
+
+    let turnResult: SpecTicketValidationSessionTurnResult | null = null;
+    await this.enqueueWriteOperation(async () => {
+      turnResult = await this.executeTurn(request);
+    });
+
+    if (!turnResult) {
+      throw new CodexSpecTicketValidationSessionError(
+        "runtime",
+        "A sessao stateful nao retornou resultado para o turno atual.",
+      );
+    }
+
+    return turnResult;
+  }
+
+  getThreadId(): string | null {
+    return this.threadId;
+  }
+
+  async cancel(): Promise<void> {
+    this.closed = true;
+  }
+
+  private async executeTurn(
+    request: SpecTicketValidationSessionTurnRequest,
+  ): Promise<SpecTicketValidationSessionTurnResult> {
+    const prompt = this.buildPrompt(request);
+    const preferences = await this.resolveInvocationPreferences();
+    const args = this.threadId
+      ? buildSpecTicketValidationExecResumeArgs(this.threadId, prompt, preferences)
+      : buildSpecTicketValidationExecStartArgs(prompt, preferences);
+    this.logVerbose("Sessao spec-ticket-validation executando codex exec", {
+      hasThreadId: Boolean(this.threadId),
+      promptLength: prompt.length,
+      model: preferences?.model ?? null,
+      reasoningEffort: preferences?.reasoningEffort ?? null,
+      triageThreadIgnored: Boolean(this.request.triageThreadId),
+    });
+
+    let result: CodexCommandResult;
+    try {
+      result = await this.runCodexExecJsonCommand({
+        cwd: this.repoPath,
+        args,
+        env: {
+          ...process.env,
+        },
+      });
+    } catch (error) {
+      throw new CodexSpecTicketValidationSessionError("runtime", errorMessage(error));
+    }
+
+    if (this.closed) {
+      throw new CodexSpecTicketValidationSessionError(
+        "runtime",
+        "A sessao foi encerrada antes da consolidacao do turno atual.",
+      );
+    }
+
+    const parsedTranscript = parseCodexExecJsonTranscript(result.stdout, result.stderr);
+    const previousThreadId = this.threadId;
+    if (parsedTranscript.threadId) {
+      this.threadId = parsedTranscript.threadId;
+    }
+
+    if (!this.threadId) {
+      throw new CodexSpecTicketValidationSessionError(
+        "runtime",
+        "Codex exec nao retornou thread_id para manter contexto de spec-ticket-validation.",
+      );
+    }
+
+    if (previousThreadId && parsedTranscript.threadId && parsedTranscript.threadId !== previousThreadId) {
+      this.logger.warn("Sessao spec-ticket-validation recebeu thread_id diferente durante resume", {
+        previousThreadId,
+        nextThreadId: parsedTranscript.threadId,
+      });
+    }
+
+    if (!parsedTranscript.agentMessage) {
+      throw new CodexSpecTicketValidationSessionError(
+        "runtime",
+        "Codex exec nao retornou agent_message no modo --json para spec-ticket-validation.",
+      );
+    }
+
+    let parsed: SpecTicketValidationPassResult;
+    try {
+      parsed = parseSpecTicketValidationOutput(parsedTranscript.agentMessage);
+    } catch (error) {
+      if (error instanceof SpecTicketValidationParserError) {
+        throw new CodexSpecTicketValidationSessionError("runtime", error.message);
+      }
+      throw error;
+    }
+
+    const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+
+    return {
+      threadId: this.threadId,
+      output: parsedTranscript.agentMessage,
+      parsed,
+      ...(diagnostics ? { diagnostics } : {}),
+      promptTemplatePath: this.promptTemplatePath,
+      promptText: prompt,
+    };
+  }
+
+  private buildPrompt(request: SpecTicketValidationSessionTurnRequest): string {
+    const appliedCorrectionsSummary = request.appliedCorrectionsSummary ?? [];
+
+    return [
+      this.promptTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidanceText,
+      "",
+      "Contexto adicional do gate atual:",
+      `- Spec alvo: \`${this.request.spec.path}\``,
+      `- Arquivo da spec: \`${this.request.spec.fileName}\``,
+      `- Rodada atual: \`${this.threadId ? "revalidation" : "initial-validation"}\``,
+      "- O contexto da triagem nao deve ser reutilizado nesta sessao.",
+      "",
+      "## Pacote derivado sob avaliacao",
+      request.packageContext.trim(),
+      "",
+      "## Correcoes aplicadas desde a rodada anterior",
+      ...(appliedCorrectionsSummary.length > 0
+        ? appliedCorrectionsSummary.map((entry) => `- ${entry}`)
+        : ["- Nenhuma"]),
+      "",
+      "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
+    ].join("\n");
+  }
+
+  private enqueueWriteOperation(operation: () => Promise<void>): Promise<void> {
+    const scheduled = this.writePipeline.then(async () => operation());
+    this.writePipeline = scheduled.catch(() => undefined);
+    return scheduled;
+  }
+
+  private logVerbose(message: string, context: Record<string, unknown>): void {
+    if (!isInteractiveVerboseLogsEnabled()) {
+      return;
+    }
+
+    this.logger.info(message, context);
+  }
+}
+
 interface CodexExecJsonTranscript {
   threadId: string | null;
   agentMessage: string | null;
@@ -1918,7 +2198,7 @@ const parseCodexExecJsonTranscript = (
       continue;
     }
 
-    const sanitized = sanitizePlanSpecRawOutput(itemText).trim();
+    const sanitized = sanitizeStructuredAssistantMessage(itemText).trim();
     agentMessage = sanitized || itemText.trim();
   }
 
@@ -1966,6 +2246,16 @@ const readNestedReasoningEffort = (value: unknown): string => {
   }
 
   return safeString((settings as { reasoning_effort?: unknown }).reasoning_effort);
+};
+
+const sanitizeStructuredAssistantMessage = (value: string): string => {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, "")
+    .replace(CONTROL_CHAR_PATTERN, "")
+    .replace(/\r\n?/gu, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n");
 };
 
 export const isTicketFlowStage = (stage: CodexFlowStage): stage is TicketFlowStage =>

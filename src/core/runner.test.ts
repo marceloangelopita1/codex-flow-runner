@@ -25,6 +25,8 @@ import {
   PlanSpecSessionEvent,
   PlanSpecSessionStartRequest,
   CodexTicketFlowClient,
+  SpecTicketValidationSession,
+  SpecTicketValidationSessionStartRequest,
   SpecFlowStage,
   SpecRef,
   TicketFlowStage,
@@ -87,9 +89,11 @@ class StubCodexClient implements CodexTicketFlowClient {
   public discoverSessionStartCalls = 0;
   public planSessionStartCalls = 0;
   public freeChatSessionStartCalls = 0;
+  public specTicketValidationSessionStartCalls = 0;
   public lastDiscoverSession: StubDiscoverSession | null = null;
   public lastPlanSession: StubPlanSession | null = null;
   public lastFreeChatSession: StubCodexChatSession | null = null;
+  public lastSpecTicketValidationSession: StubSpecTicketValidationSession | null = null;
   public invocationPreferences: CodexInvocationPreferences | null;
   private fixedInvocationPreferences: CodexInvocationPreferences | null | undefined;
 
@@ -240,6 +244,15 @@ class StubCodexClient implements CodexTicketFlowClient {
     this.lastFreeChatSession = session;
     return session;
   }
+
+  async startSpecTicketValidationSession(
+    _request: SpecTicketValidationSessionStartRequest,
+  ): Promise<SpecTicketValidationSession> {
+    this.specTicketValidationSessionStartCalls += 1;
+    const session = new StubSpecTicketValidationSession();
+    this.lastSpecTicketValidationSession = session;
+    return session;
+  }
 }
 
 class StubDiscoverSession implements DiscoverSpecSession {
@@ -367,6 +380,46 @@ class StubCodexChatSession implements CodexChatSession {
 
   close(result: CodexChatSessionCloseResult): void {
     this.request.callbacks.onClose?.(result);
+  }
+}
+
+class StubSpecTicketValidationSession implements SpecTicketValidationSession {
+  public readonly turns: Array<{
+    packageContext: string;
+    appliedCorrectionsSummary: string[];
+  }> = [];
+  public cancelCalls = 0;
+
+  async runTurn(request: {
+    packageContext: string;
+    appliedCorrectionsSummary?: string[];
+  }) {
+    this.turns.push({
+      packageContext: request.packageContext,
+      appliedCorrectionsSummary: request.appliedCorrectionsSummary ?? [],
+    });
+
+    return {
+      threadId: "stub-spec-ticket-validation-thread",
+      output: "stub",
+      parsed: {
+        verdict: "GO" as const,
+        confidence: "high" as const,
+        summary: "stub",
+        gaps: [],
+        appliedCorrections: [],
+      },
+      promptTemplatePath: "/tmp/prompts/09-validar-tickets-derivados-da-spec.md",
+      promptText: "prompt:spec-ticket-validation",
+    };
+  }
+
+  getThreadId(): string | null {
+    return "stub-spec-ticket-validation-thread";
+  }
+
+  async cancel(): Promise<void> {
+    this.cancelCalls += 1;
   }
 }
 
