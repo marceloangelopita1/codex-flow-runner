@@ -17,6 +17,8 @@ Regras obrigatorias:
 - Reler a spec, os tickets fechados relacionados, os execplans relacionados e o estado atual do codigo antes de concluir a auditoria.
 - Nao reimplementar codigo nesta etapa.
 - Nao fechar ticket interno ja existente nesta etapa.
+- Esta etapa e estritamente uma auditoria funcional da spec do projeto corrente.
+- Follow-up funcional da spec pode ser criado aqui quando necessario, mas backlog transversal do workflow nao deve ser decidido, promovido nem publicado nesta etapa.
 - Se nao houver gaps residuais:
   - atualizar a spec para `Status: attended`;
   - atualizar `Spec treatment: done`;
@@ -30,9 +32,7 @@ Regras obrigatorias:
     - `execplan`
     - `execution`
     - `validation`
-    - `systemic-instruction`
     - `external/manual`
-  - promover ajuste genericamente instrutivo somente se a lacuna for claramente sistêmica e nao especifica desta spec.
 - Usar exatamente a mensagem de commit `<COMMIT_MESSAGE>`.
 
 Tarefa:
@@ -49,3 +49,11 @@ Tarefa:
    - causas-raiz registradas;
    - hash do commit;
    - status do push.
+8. Incluir obrigatoriamente ao final da resposta o bloco parseavel abaixo, sem mudar os nomes dos campos:
+
+```text
+[[SPEC_AUDIT_RESULT]]
+residual_gaps_detected: yes|no
+follow_up_tickets_created: <numero-inteiro>
+[[/SPEC_AUDIT_RESULT]]
+```

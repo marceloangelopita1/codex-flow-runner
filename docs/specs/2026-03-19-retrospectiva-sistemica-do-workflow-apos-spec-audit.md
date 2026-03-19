@@ -2,18 +2,18 @@
 
 ## Metadata
 - Spec ID: 2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit
-- Status: approved
+- Status: partially_attended
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-19 19:45Z
-- Last reviewed at (UTC): 2026-03-19 22:10Z
+- Last reviewed at (UTC): 2026-03-19 22:30Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md
+  - tickets/closed/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md
   - tickets/open/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md
   - tickets/open/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md
 - Related execplans:
-  - Nenhum ainda.
+  - execplans/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md
 - Related commits:
   - Nenhum ainda.
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
@@ -119,9 +119,9 @@
 - Tornar a retrospectiva sistemica uma etapa bloqueante do encerramento da rodada principal.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Quando `spec-audit` encontrar gaps residuais reais, o `/run_specs` executa `spec-workflow-retrospective` apos a auditoria funcional.
-- [ ] CA-02 - Quando `spec-audit` nao encontrar gaps residuais reais, `spec-workflow-retrospective` nao roda e `spec-audit` permanece como etapa final daquele fluxo.
-- [ ] CA-03 - `spec-audit` continua abrindo apenas follow-ups funcionais da propria spec e nao tenta abrir ticket transversal de workflow.
+- [x] CA-01 - Quando `spec-audit` encontrar gaps residuais reais, o `/run_specs` executa `spec-workflow-retrospective` apos a auditoria funcional.
+- [x] CA-02 - Quando `spec-audit` nao encontrar gaps residuais reais, `spec-workflow-retrospective` nao roda e `spec-audit` permanece como etapa final daquele fluxo.
+- [x] CA-03 - `spec-audit` continua abrindo apenas follow-ups funcionais da propria spec e nao tenta abrir ticket transversal de workflow.
 - [ ] CA-04 - `workflow-gap-analysis` inicia em contexto novo em relacao ao `spec-audit`.
 - [ ] CA-05 - `workflow-ticket-publication` so roda quando `workflow-gap-analysis` concluir elegibilidade com `high confidence`.
 - [ ] CA-06 - Com `medium confidence`, o fluxo nao abre ticket automatico e registra apenas hipotese sistemica no trace/log e no resumo final.
@@ -132,8 +132,8 @@
 - [ ] CA-11 - Quando o projeto auditado for externo, `spec-workflow-retrospective` nao altera a spec nem faz commit/push no projeto corrente.
 - [ ] CA-12 - Quando a publicacao for necessaria em projeto externo, ela ocorre em `../codex-flow-runner`, com deduplicacao/reuso quando houver ticket equivalente aberto.
 - [ ] CA-13 - Falhas tecnicas na analise ou na publicacao sao registradas como limitacao operacional nao bloqueante no trace/log e no resumo final.
-- [ ] CA-14 - Quando `spec-workflow-retrospective` roda, ele passa a aparecer como fase final observavel do `/run_specs`.
-- [ ] CA-15 - O prompt de `spec-audit` deixa de instruir abertura ou promocao de melhoria sistemica de workflow e reforca o foco exclusivo na auditoria funcional da spec.
+- [x] CA-14 - Quando `spec-workflow-retrospective` roda, ele passa a aparecer como fase final observavel do `/run_specs`.
+- [x] CA-15 - O prompt de `spec-audit` deixa de instruir abertura ou promocao de melhoria sistemica de workflow e reforca o foco exclusivo na auditoria funcional da spec.
 - [ ] CA-16 - Quando o proprio projeto corrente for `codex-flow-runner`, o ticket transversal agregado pode ser publicado no mesmo repositorio, preservando deduplicacao/reuso e registrando o resultado no trace/log e no resumo final.
 
 ## Gate de validacao dos tickets derivados
@@ -162,7 +162,7 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md [fonte=source-spec]
   - tickets/open/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md [fonte=source-spec]
   - tickets/open/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md [fonte=source-spec]
 
@@ -186,7 +186,6 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Cobrir em testes a nova sequencia de sucesso/encerramento quando `spec-workflow-retrospective` roda apos `spec-audit`.
   - Cobrir em testes a separacao entre `workflow-gap-analysis` e `workflow-ticket-publication`.
   - Cobrir em testes os comportamentos `high`, `medium` e `low confidence`.
   - Cobrir em testes a ausencia de alteracao da spec e de commit/push no projeto corrente quando o projeto auditado for externo.
@@ -197,12 +196,14 @@
   - Executar uma rodada real no proprio `codex-flow-runner`, validando o caso especial de publicacao no mesmo repositorio e a legibilidade do resumo final no Telegram.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: partially_attended
 - Itens atendidos:
+  - `src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/types/flow-timing.ts`, `src/types/state.ts` e `src/integrations/workflow-trace-store.ts` agora reconhecem `spec-workflow-retrospective` como stage nomeado de `/run_specs`, com `finalStage` condicional entre `spec-audit` e `spec-workflow-retrospective`.
+  - `prompts/08-auditar-spec-apos-run-all.md` foi limpo para manter `spec-audit` estritamente funcional e passou a expor o bloco parseavel minimo `[[SPEC_AUDIT_RESULT]]`, que o runner usa para distinguir `sem gaps residuais` de `com gaps residuais reais` sem heuristica frouxa.
+  - `prompts/11-retrospectiva-workflow-apos-spec-audit.md`, `src/integrations/telegram-bot.ts` e os testes associados tornaram a retrospectiva um estagio observavel e exibivel de ponta a ponta quando ela roda.
   - Ja existe infraestrutura reutilizavel para publicar ou reutilizar 1 ticket transversal com deduplicacao, commit/push e suporte a repo atual ou `../codex-flow-runner`, implementada em `src/integrations/workflow-improvement-ticket-publisher.ts`; ela permanece util, mas ainda esta conectada ao estagio errado.
   - Ja existe infraestrutura de observabilidade reutilizavel para resumo final e traces de `/run_specs`, incluindo propagacao de resultados sistemicos hoje associados a `spec-ticket-validation` em `src/core/runner.ts`, `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts`.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md`: introduzir `spec-workflow-retrospective` apos `spec-audit`, tornar a fase final observavel condicional e remover de `spec-audit` qualquer resquicio de responsabilidade sobre melhoria sistemica.
   - `tickets/open/2026-03-19-workflow-gap-analysis-pos-auditoria-contrato-e-contexto-gap.md`: criar o contrato dedicado de `workflow-gap-analysis`, com contexto novo, uso prioritario dos follow-up tickets funcionais da auditoria, fallback controlado e criterio formal para `high | medium | low confidence`.
   - `tickets/open/2026-03-19-workflow-ticket-publication-pos-auditoria-cross-repo-gap.md`: reaproveitar o publisher cross-repo atual apenas no pos-`spec-audit`, preservando deduplicacao/reuso e garantindo que a retrospectiva em projeto externo nao altere a spec nem faca commit/push no projeto corrente.
   - Distinguir no trace/log e no resumo final do `/run_specs` os artefatos funcionais da spec, a hipotese sistemica sem ticket automatico, o ticket transversal publicado/reutilizado e a limitacao operacional da retrospectiva.
@@ -211,6 +212,12 @@
   - Releitura do contrato atual em `SPECS.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `docs/workflows/discover-spec.md`, `prompts/08-auditar-spec-apos-run-all.md`, `prompts/09-validar-tickets-derivados-da-spec.md`, `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md` e `src/core/runner.ts`.
   - Avaliacao de gaps concluida em 2026-03-19 22:03Z com releitura de `src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/types/flow-timing.ts`, `src/types/state.ts`, `src/integrations/workflow-trace-store.ts`, `src/integrations/telegram-bot.ts`, `src/integrations/workflow-improvement-ticket-publisher.ts`, `prompts/08-auditar-spec-apos-run-all.md` e `docs/workflows/codex-quality-gates.md`, resultando na abertura dos tickets relacionados acima.
   - Validacao final desta etapa concluida em 2026-03-19 22:10Z, confirmando consistencia entre status `approved`, `Spec treatment: pending`, secao de pendencias e os 3 tickets abertos vinculados.
+  - Implementacao parcial concluida em 2026-03-19 22:27Z: `runner`, contratos de stage, traces, resumo do Telegram e prompt de `spec-audit` foram atualizados; `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/codex-client.test.ts` cobrem os caminhos `com retrospectiva`, `sem retrospectiva` e o blocker explicito quando `spec-audit` nao expõe o bloco `[[SPEC_AUDIT_RESULT]]`.
+  - Matriz observavel executada em 2026-03-19 22:27Z com sucesso:
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts`
+    - `rg -n "systemic-instruction|genericamente instrutivo|melhoria sistemica" prompts/08-auditar-spec-apos-run-all.md`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -244,3 +251,5 @@
 - 2026-03-19 19:45Z - Versao inicial da spec materializada a partir de entrevista detalhada, com escopo aprovado para introduzir `spec-workflow-retrospective` apos `spec-audit`.
 - 2026-03-19 22:03Z - Avaliacao de gaps contra o estado atual concluida; tickets derivados abertos para orquestracao/separacao de etapas, contrato de `workflow-gap-analysis` e adaptacao da publicacao cross-repo pos-auditoria.
 - 2026-03-19 22:10Z - Validacao final da triagem concluida; status mantido em `approved` com `Spec treatment: pending` e rastreabilidade fechada para os 3 tickets abertos.
+- 2026-03-19 22:27Z - Atendimento parcial registrado: `spec-workflow-retrospective` passou a existir como fase observavel condicional, `spec-audit` foi limpo para foco funcional e os CAs CA-01, CA-02, CA-03, CA-14 e CA-15 ficaram cobertos por testes e build verde.
+- 2026-03-19 22:30Z - Ticket de orquestracao/separacao fechado como `fixed`; rastreabilidade atualizada para `tickets/closed/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md`, mantendo a spec em `partially_attended` pelos tickets irmaos ainda abertos.

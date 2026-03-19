@@ -10,7 +10,10 @@ const DECISIONS_DIR = "decisions";
 export type WorkflowTraceStage =
   | TicketFlowStage
   | "spec-ticket-validation"
-  | Extract<SpecFlowStage, "spec-triage" | "spec-close-and-version" | "spec-audit">;
+  | Extract<
+      SpecFlowStage,
+      "spec-triage" | "spec-close-and-version" | "spec-audit" | "spec-workflow-retrospective"
+    >;
 export type WorkflowTraceTargetKind = "ticket" | "spec";
 export type WorkflowTraceSourceCommand = "run-all" | "run-specs" | "run-ticket";
 

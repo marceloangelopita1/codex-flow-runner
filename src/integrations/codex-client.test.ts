@@ -406,6 +406,25 @@ test("runSpecStage(spec-audit) usa commit de auditoria e prompt dedicado", async
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
 });
 
+test("runSpecStage(spec-workflow-retrospective) usa prompt dedicado sem exigir commit", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/repo", new SpyLogger(), {
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-workflow-retrospective", spec);
+
+  assert.equal(result.stage, "spec-workflow-retrospective");
+  assert.match(result.promptTemplatePath, /11-retrospectiva-workflow-apos-spec-audit\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.doesNotMatch(capturedPrompt, /Commit esperado:/u);
+  assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+});
+
 test("runSpecStage(plan-spec-materialize) injeta contexto estruturado e caminho da spec planejada", async () => {
   let capturedPrompt = "";
 

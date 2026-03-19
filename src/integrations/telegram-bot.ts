@@ -687,6 +687,7 @@ const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = [
   "spec-close-and-version",
   "run-all",
   "spec-audit",
+  "spec-workflow-retrospective",
 ] as const;
 
 const START_REPLY_LINES = [

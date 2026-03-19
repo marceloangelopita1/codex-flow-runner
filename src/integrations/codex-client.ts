@@ -46,6 +46,7 @@ export type SpecFlowStage =
   | "spec-triage"
   | "spec-close-and-version"
   | "spec-audit"
+  | "spec-workflow-retrospective"
   | "plan-spec-materialize"
   | "plan-spec-version-and-push";
 export type CodexFlowStage = TicketFlowStage | SpecFlowStage;
@@ -346,6 +347,7 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
   "spec-triage": "01-avaliar-spec-e-gerar-tickets.md",
   "spec-close-and-version": "05-encerrar-tratamento-spec-commit-push.md",
   "spec-audit": "08-auditar-spec-apos-run-all.md",
+  "spec-workflow-retrospective": "11-retrospectiva-workflow-apos-spec-audit.md",
   "plan-spec-materialize": "06-materializar-spec-planejada.md",
   "plan-spec-version-and-push": "07-versionar-spec-planejada-commit-push.md",
 };

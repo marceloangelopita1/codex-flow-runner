@@ -1,7 +1,7 @@
 # [TICKET] Introduzir retrospectiva sistemica apos spec-audit e separar responsabilidades das etapas
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-19 22:03Z
@@ -97,9 +97,22 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-19 - Ticket aberto a partir da avaliacao da spec - o runner ainda encerra `/run_specs` em `spec-audit` e o prompt da auditoria final ainda mistura sinais sistemicos de workflow.
+- 2026-03-19 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-19 22:30Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-19-retrospectiva-pos-spec-audit-orquestracao-e-separacao-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-01`, `RF-02`, `RF-28`; `CA-01`, `CA-02`, `CA-14`: `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/types/state.ts` agora suportam `spec-workflow-retrospective` e tornam `finalStage` condicional; `src/core/runner.test.ts` cobre o caminho com gaps residuais (`requestRunSpecs executa spec-workflow-retrospective quando spec-audit encontra gaps residuais`) e o caminho sem retrospectiva (`requestRunSpecs com sucesso encadeia run-all e processa backlog existente`); `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts` -> pass (`271/271`).
+  - `RF-03`, `RF-04`, `RF-31`; `CA-03`, `CA-15`: `prompts/08-auditar-spec-apos-run-all.md` passou a declarar explicitamente que `spec-audit` e auditoria funcional da spec corrente e nao decide backlog sistemico; o bloco `[[SPEC_AUDIT_RESULT]]` fornece apenas o sinal minimo de gaps residuais; `rg -n "systemic-instruction|genericamente instrutivo|melhoria sistemica" prompts/08-auditar-spec-apos-run-all.md` -> sem matches; `src/integrations/codex-client.ts` e `prompts/11-retrospectiva-workflow-apos-spec-audit.md` separam a retrospectiva em stage/prompt proprio.
+  - Observabilidade do novo stage: `src/integrations/workflow-trace-store.ts`, `src/integrations/telegram-bot.ts` e `src/integrations/codex-client.ts` reconhecem `spec-workflow-retrospective`; `src/integrations/workflow-trace-store.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/codex-client.test.ts` validam trace, resumo final e prompt dedicado; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Entrega tecnica concluida:
+  - `/run_specs` agora executa `spec-workflow-retrospective` somente quando `spec-audit` expõe `residual_gaps_detected: yes`, mantendo `spec-audit` como fase final quando nao houver gaps residuais reais.
+  - `spec-audit` ficou restrito a auditoria funcional da spec, enquanto a retrospectiva sistemica ganhou stage e prompt dedicados.
+  - Timing, estado, trace e resumo final do Telegram exibem o novo stage sem quebrar o caminho legado sem retrospectiva.
+- Validacao manual externa pendente: nao.

@@ -294,6 +294,16 @@ interface WorkflowTraceFailureRequest {
   metadata?: Record<string, unknown>;
 }
 
+interface SpecStageTraceValidation {
+  summary?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface SpecAuditStageResult {
+  residualGapsDetected: boolean;
+  followUpTicketsCreated: number;
+}
+
 interface TicketProcessingResult {
   succeeded: boolean;
   finalSummary: TicketFinalSummary | null;
@@ -328,6 +338,17 @@ class RunnerSpecTicketValidationStageError extends Error {
   constructor(message: string, cause?: unknown) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = "RunnerSpecTicketValidationStageError";
+  }
+}
+
+class RunnerSpecStageContractError extends Error {
+  constructor(
+    readonly stage: Extract<SpecFlowStage, "spec-audit" | "spec-workflow-retrospective">,
+    message: string,
+    cause?: unknown,
+  ) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "RunnerSpecStageContractError";
   }
 }
 
@@ -4462,8 +4483,45 @@ export class TicketRunner {
       }
     };
 
-    const runTimedSpecAuditStage = async (message: string): Promise<void> => {
+    const runTimedSpecAuditStage = async (message: string): Promise<SpecAuditStageResult> => {
       const stage: Extract<RunSpecsFlowTimingStage, "spec-audit"> = "spec-audit";
+      const stageStartedAt = Date.now();
+      try {
+        slot.currentSpec = spec.fileName;
+        let auditStageResult: SpecAuditStageResult | null = null;
+        await this.runSpecStage(slot, stage, spec, message, {
+          validateResult: (result) => {
+            auditStageResult = this.parseSpecAuditStageResult(result.output);
+            return {
+              summary: auditStageResult.residualGapsDetected
+                ? "Etapa spec-audit concluiu com gaps residuais reais."
+                : "Etapa spec-audit concluiu sem gaps residuais reais.",
+              metadata: {
+                residualGapsDetected: auditStageResult.residualGapsDetected,
+                followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+              },
+            };
+          },
+        });
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        if (!auditStageResult) {
+          throw new RunnerSpecStageContractError(
+            stage,
+            "spec-audit terminou sem expor o resultado minimo de gaps residuais.",
+          );
+        }
+        return auditStageResult;
+      } catch (error) {
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageFailure(flowTimingCollector, stage, durationMs);
+        throw error;
+      }
+    };
+
+    const runTimedSpecWorkflowRetrospectiveStage = async (message: string): Promise<void> => {
+      const stage: Extract<RunSpecsFlowTimingStage, "spec-workflow-retrospective"> =
+        "spec-workflow-retrospective";
       const stageStartedAt = Date.now();
       try {
         slot.currentSpec = spec.fileName;
@@ -4561,14 +4619,23 @@ export class TicketRunner {
           "run-all",
           runAllSummary.timing.totalDurationMs,
         );
-        await runTimedSpecAuditStage(`Executando etapa spec-audit para ${spec.fileName}`);
+        const specAuditResult = await runTimedSpecAuditStage(
+          `Executando etapa spec-audit para ${spec.fileName}`,
+        );
+        let finalStage: RunSpecsFlowFinalStage = "spec-audit";
+        if (specAuditResult.residualGapsDetected) {
+          await runTimedSpecWorkflowRetrospectiveStage(
+            `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
+          );
+          finalStage = "spec-workflow-retrospective";
+        }
         slot.currentSpec = null;
         this.touchSlot(slot, "idle", `Fluxo /run_specs finalizado para ${spec.fileName}`);
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
           spec,
           outcome: "success",
-          finalStage: "spec-audit",
+          finalStage,
           completionReason: "completed",
           triageTimingCollector,
           flowTimingCollector,
@@ -4601,8 +4668,10 @@ export class TicketRunner {
         (error instanceof CodexStageExecutionError &&
           (error.stage === "spec-triage" ||
             error.stage === "spec-close-and-version" ||
-            error.stage === "spec-audit")) ||
-        error instanceof RunnerSpecTicketValidationStageError
+            error.stage === "spec-audit" ||
+            error.stage === "spec-workflow-retrospective")) ||
+        error instanceof RunnerSpecTicketValidationStageError ||
+        error instanceof RunnerSpecStageContractError
           ? error.stage
           : undefined;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -4663,23 +4732,37 @@ export class TicketRunner {
           specTicketValidation: specTicketValidationSummary,
           runAllSummary,
         });
-      } else if (stage === "spec-audit") {
-        this.touchSlot(slot, "error", `Falha na auditoria final da spec ${spec.fileName}`);
-        this.logger.error("Erro no fluxo /run_specs durante spec-audit", {
+      } else if (stage === "spec-audit" || stage === "spec-workflow-retrospective") {
+        const failedAtRetrospective = stage === "spec-workflow-retrospective";
+        this.touchSlot(
+          slot,
+          "error",
+          failedAtRetrospective
+            ? `Falha na retrospectiva sistemica da spec ${spec.fileName}`
+            : `Falha na auditoria final da spec ${spec.fileName}`,
+        );
+        this.logger.error(
+          failedAtRetrospective
+            ? "Erro no fluxo /run_specs durante spec-workflow-retrospective"
+            : "Erro no fluxo /run_specs durante spec-audit",
+          {
           spec: spec.fileName,
           specPath: spec.path,
-          stage: "spec-audit",
+          stage,
           error: errorMessage,
           durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
-        });
+          },
+        );
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
           spec,
           outcome: "failure",
-          finalStage: "spec-audit",
-          completionReason: "spec-audit-failure",
+          finalStage: stage,
+          completionReason: failedAtRetrospective
+            ? "spec-workflow-retrospective-failure"
+            : "spec-audit-failure",
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
@@ -7147,9 +7230,17 @@ export class TicketRunner {
 
   private async runSpecStage(
     slot: ActiveRunnerSlot,
-    stage: Extract<SpecFlowStage, "spec-triage" | "spec-close-and-version" | "spec-audit">,
+    stage: Extract<
+      SpecFlowStage,
+      "spec-triage" | "spec-close-and-version" | "spec-audit" | "spec-workflow-retrospective"
+    >,
     spec: SpecRef,
     message: string,
+    options?: {
+      validateResult?: (
+        result: CodexStageResult,
+      ) => Promise<SpecStageTraceValidation | void> | SpecStageTraceValidation | void;
+    },
   ): Promise<CodexStageResult> {
     const stageStartedAt = Date.now();
     const phase: RunnerState["phase"] = stage;
@@ -7157,6 +7248,7 @@ export class TicketRunner {
 
     try {
       const result = await slot.codexClient.runSpecStage(stage, spec);
+      const traceValidation = (await options?.validateResult?.(result)) ?? undefined;
       this.logger.info("Etapa de spec concluida no runner", {
         spec: spec.fileName,
         specPath: spec.path,
@@ -7174,7 +7266,8 @@ export class TicketRunner {
         promptText: result.promptText,
         outputText: result.output,
         diagnostics: result.diagnostics,
-        summary: `Etapa ${stage} concluida com sucesso no runner.`,
+        summary: traceValidation?.summary ?? `Etapa ${stage} concluida com sucesso no runner.`,
+        metadata: traceValidation?.metadata,
       });
 
       return result;
@@ -7683,6 +7776,61 @@ export class TicketRunner {
           }
         : {}),
     };
+  }
+
+  private parseSpecAuditStageResult(outputText: string): SpecAuditStageResult {
+    const blockMatch = outputText.match(
+      /\[\[SPEC_AUDIT_RESULT\]\]([\s\S]*?)\[\[\/SPEC_AUDIT_RESULT\]\]/u,
+    );
+    if (!blockMatch) {
+      throw new RunnerSpecStageContractError(
+        "spec-audit",
+        "spec-audit nao expôs o bloco [[SPEC_AUDIT_RESULT]] obrigatorio.",
+      );
+    }
+
+    const blockContent = blockMatch[1] ?? "";
+    const residualGapsDetected = this.readRequiredSpecAuditField(
+      blockContent,
+      "residual_gaps_detected",
+    );
+    const followUpTicketsCreatedRaw = this.readRequiredSpecAuditField(
+      blockContent,
+      "follow_up_tickets_created",
+    );
+
+    if (residualGapsDetected !== "yes" && residualGapsDetected !== "no") {
+      throw new RunnerSpecStageContractError(
+        "spec-audit",
+        "spec-audit retornou residual_gaps_detected invalido; use yes ou no.",
+      );
+    }
+
+    const followUpTicketsCreated = Number.parseInt(followUpTicketsCreatedRaw, 10);
+    if (!Number.isInteger(followUpTicketsCreated) || followUpTicketsCreated < 0) {
+      throw new RunnerSpecStageContractError(
+        "spec-audit",
+        "spec-audit retornou follow_up_tickets_created invalido; use inteiro >= 0.",
+      );
+    }
+
+    return {
+      residualGapsDetected: residualGapsDetected === "yes",
+      followUpTicketsCreated,
+    };
+  }
+
+  private readRequiredSpecAuditField(blockContent: string, fieldName: string): string {
+    const match = blockContent.match(new RegExp(`^${fieldName}:\\s*(.+)$`, "imu"));
+    const value = match?.[1]?.trim();
+    if (!value) {
+      throw new RunnerSpecStageContractError(
+        "spec-audit",
+        `spec-audit nao informou o campo obrigatorio ${fieldName}.`,
+      );
+    }
+
+    return value.toLowerCase();
   }
 
   private reserveSlot(

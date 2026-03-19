@@ -85,7 +85,11 @@ export type RunSpecsTriageTimingStage =
 
 export type RunSpecsTriageFinalStage = RunSpecsTriageTimingStage | "unknown";
 
-export type RunSpecsFlowTimingStage = RunSpecsTriageTimingStage | "run-all" | "spec-audit";
+export type RunSpecsFlowTimingStage =
+  | RunSpecsTriageTimingStage
+  | "run-all"
+  | "spec-audit"
+  | "spec-workflow-retrospective";
 
 export type RunSpecsFlowFinalStage = RunSpecsFlowTimingStage | "unknown";
 
@@ -95,7 +99,8 @@ export type RunSpecsFlowCompletionReason =
   | "spec-ticket-validation-no-go"
   | "spec-ticket-validation-failure"
   | "run-all-failure"
-  | "spec-audit-failure";
+  | "spec-audit-failure"
+  | "spec-workflow-retrospective-failure";
 
 export interface RunSpecsFlowSummary {
   flow: "run-specs";

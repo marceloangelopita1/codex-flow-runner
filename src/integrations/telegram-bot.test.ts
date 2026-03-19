@@ -6066,6 +6066,43 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: sucesso \(queue-empty\)/u);
 });
 
+test("envia resumo final de fluxo /run-specs com spec-workflow-retrospective como fase final", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      finalStage: "spec-workflow-retrospective",
+      timing: createRunSpecsFlowTimingSnapshot({
+        finishedAtUtc: "2026-02-19T15:10:00.000Z",
+        totalDurationMs: 600000,
+        durationsByStageMs: {
+          "spec-triage": 90000,
+          "spec-close-and-version": 90000,
+          "run-all": 300000,
+          "spec-audit": 60000,
+          "spec-workflow-retrospective": 60000,
+        },
+        completedStages: [
+          "spec-triage",
+          "spec-close-and-version",
+          "run-all",
+          "spec-audit",
+          "spec-workflow-retrospective",
+        ],
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-workflow-retrospective/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /- spec-workflow-retrospective: 1m 0s \(60000 ms\)/u,
+  );
+});
+
 test("envia resumo final de /run-specs com follow-up sistemico publicado", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);

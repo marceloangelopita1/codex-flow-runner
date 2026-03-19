@@ -125,6 +125,40 @@ test("recordStageTrace evita sobrescrita silenciosa quando o traceId colide", as
   }
 });
 
+test("recordStageTrace aceita spec-workflow-retrospective como stage nomeado de spec", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordStageTrace({
+      kind: "spec",
+      stage: "spec-workflow-retrospective",
+      sourceCommand: "run-specs",
+      targetName: "2026-03-19-retrospectiva.md",
+      targetPath: "docs/specs/2026-03-19-retrospectiva.md",
+      promptTemplatePath: "/repo/prompts/11-retrospectiva-workflow-apos-spec-audit.md",
+      promptText: "Execute a retrospectiva sistemica.",
+      outputText: "Retrospectiva preliminar executada.",
+      decision: {
+        status: "success",
+        summary: "Retrospectiva sistemica executada apos spec-audit.",
+      },
+      recordedAt: new Date("2026-03-19T18:10:00.000Z"),
+    });
+
+    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
+    const decision = JSON.parse(decisionRaw) as {
+      stage: string;
+      decision: { summary: string };
+    };
+
+    assert.equal(decision.stage, "spec-workflow-retrospective");
+    assert.equal(decision.decision.summary, "Retrospectiva sistemica executada apos spec-audit.");
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});
+
 test("recordStageTrace aceita spec-ticket-validation com metadata observavel do gate", async () => {
   const projectPath = await createTempProjectRoot();
 

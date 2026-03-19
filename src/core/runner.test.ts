@@ -106,6 +106,7 @@ class StubCodexClient implements CodexTicketFlowClient {
     | SpecTicketValidationAutoCorrectRequest
     | null = null;
   public invocationPreferences: CodexInvocationPreferences | null;
+  public readonly stageOutputs: Partial<Record<TicketFlowStage | SpecFlowStage, string>> = {};
   public specTicketValidationTurns: SpecTicketValidationPassResult[] = [
     createSpecTicketValidationPassResult(),
   ];
@@ -185,9 +186,9 @@ class StubCodexClient implements CodexTicketFlowClient {
 
     return {
       stage,
-      output: `ok:${stage}`,
+      output: this.resolveStageOutput(stage),
       diagnostics: {
-        stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
+        stdoutPreview: stageDiagnostics?.stdoutPreview ?? this.resolveStageOutput(stage),
         ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
       promptTemplatePath: `/tmp/prompts/${stage}.md`,
@@ -223,9 +224,9 @@ class StubCodexClient implements CodexTicketFlowClient {
 
     return {
       stage,
-      output: `ok:${stage}`,
+      output: this.resolveStageOutput(stage),
       diagnostics: {
-        stdoutPreview: stageDiagnostics?.stdoutPreview ?? `ok:${stage}`,
+        stdoutPreview: stageDiagnostics?.stdoutPreview ?? this.resolveStageOutput(stage),
         ...(stageDiagnostics?.stderrPreview ? { stderrPreview: stageDiagnostics.stderrPreview } : {}),
       },
       promptTemplatePath: `/tmp/prompts/${stage}.md`,
@@ -295,7 +296,35 @@ class StubCodexClient implements CodexTicketFlowClient {
       promptText: "prompt:spec-ticket-validation-autocorrect",
     };
   }
+
+  private resolveStageOutput(stage: TicketFlowStage | SpecFlowStage): string {
+    if (this.stageOutputs[stage]) {
+      return this.stageOutputs[stage] ?? "";
+    }
+
+    if (stage === "spec-audit") {
+      return createSpecAuditOutput({
+        residualGapsDetected: false,
+        followUpTicketsCreated: 0,
+      });
+    }
+
+    return `ok:${stage}`;
+  }
 }
+
+const createSpecAuditOutput = (value: {
+  residualGapsDetected: boolean;
+  followUpTicketsCreated: number;
+}): string =>
+  [
+    "Auditoria concluida.",
+    "",
+    "[[SPEC_AUDIT_RESULT]]",
+    `residual_gaps_detected: ${value.residualGapsDetected ? "yes" : "no"}`,
+    `follow_up_tickets_created: ${String(value.followUpTicketsCreated)}`,
+    "[[/SPEC_AUDIT_RESULT]]",
+  ].join("\n");
 
 class StubDiscoverSession implements DiscoverSpecSession {
   public readonly sentInputs: string[] = [];
@@ -3539,6 +3568,84 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
   }
 });
 
+test("requestRunSpecs executa spec-workflow-retrospective quando spec-audit encontra gaps residuais", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 1,
+    });
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    let nextTicketCalls = 0;
+
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+        `spec:${specFileName}:spec-workflow-retrospective`,
+      ],
+    );
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.finalStage, "spec-workflow-retrospective");
+    assert.equal(runSpecsSummary.completionReason, "completed");
+    assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
+    assert.equal(
+      typeof runSpecsSummary.timing.durationsByStageMs["spec-workflow-retrospective"],
+      "number",
+    );
+    assert.deepEqual(runSpecsSummary.timing.completedStages, [
+      "spec-triage",
+      "spec-ticket-validation",
+      "spec-close-and-version",
+      "run-all",
+      "spec-audit",
+      "spec-workflow-retrospective",
+    ]);
+    assert.equal(runner.getState().phase, "idle");
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
 test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tickets", async () => {
   const fixture = await setupRunSpecsFixture([ticketA.name]);
   try {
@@ -3728,6 +3835,56 @@ test("requestRunSpecs marca falha especifica quando spec-audit falha apos run-al
   }
 });
 
+test("requestRunSpecs falha com blocker explicito quando spec-audit nao expõe sinal de gaps residuais", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.stageOutputs["spec-audit"] = "Auditoria concluida sem bloco parseavel.";
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(runSpecsSummary.completionReason, "spec-audit-failure");
+    assert.match(runSpecsSummary.details ?? "", /\[\[SPEC_AUDIT_RESULT\]\]/u);
+    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-audit");
+    assert.equal(runner.getState().phase, "error");
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
 test("runner persiste trilhas do fluxo principal para tickets e specs", async () => {
   const fixture = await setupRunSpecsFixture([ticketA.name]);
   try {
@@ -3783,6 +3940,8 @@ test("runner persiste trilhas do fluxo principal para tickets e specs", async ()
     assert.equal(records[3]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
     assert.equal(records[5]?.request.decision.metadata?.commitHash, "abc123");
     assert.equal(records[5]?.request.decision.metadata?.pushUpstream, "origin/main");
+    assert.equal(records[6]?.request.decision.metadata?.residualGapsDetected, false);
+    assert.equal(records[6]?.request.decision.metadata?.followUpTicketsCreated, 0);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }
