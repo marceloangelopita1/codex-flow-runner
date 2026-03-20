@@ -6264,6 +6264,31 @@ test("envia resumo final de /run-specs com referencia historica pre-run-all sem 
   assert.doesNotMatch(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
 });
 
+test("envia resumo final de /run-specs distinguindo gate funcional, retrospectiva da derivacao e retrospectiva pos-spec-audit quando todas existem", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      specTicketValidation: createRunSpecsTicketValidationSummary({
+        summary: "Gate funcional concluiu com GO e historico revisado.",
+      }),
+      specTicketDerivationRetrospective: createRunSpecsDerivationRetrospectiveSummary({
+        summary: "Retrospectiva da derivacao concluiu antes do /run-all.",
+      }),
+      workflowGapAnalysis: createWorkflowGapAnalysisSummary({
+        summary: "Retrospectiva pos-spec-audit concluiu apos o /run-all.",
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Gate spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+});
+
 test("envia resumo final de /run-specs distinguindo retrospectiva da derivacao pre-run-all", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);

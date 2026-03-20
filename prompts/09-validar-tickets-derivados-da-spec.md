@@ -24,7 +24,6 @@ Regras obrigatorias:
   - `execplan`
   - `execution`
   - `validation`
-  - `systemic-instruction`
   - `external/manual`
 - `confidence` deve usar apenas `low`, `medium` ou `high`.
 - `verdict` deve usar apenas `GO` ou `NO_GO`.

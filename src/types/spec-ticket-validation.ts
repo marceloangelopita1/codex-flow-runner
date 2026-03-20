@@ -17,7 +17,6 @@ export const SPEC_TICKET_VALIDATION_PROBABLE_ROOT_CAUSES = [
   "execplan",
   "execution",
   "validation",
-  "systemic-instruction",
   "external/manual",
 ] as const;
 

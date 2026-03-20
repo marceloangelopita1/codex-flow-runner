@@ -78,7 +78,9 @@ Toda spec deve conter:
 - requisitos funcionais;
 - assumptions/defaults relevantes quando houver escolhas padrao;
 - criterios de aceitacao observaveis;
-- quando a spec participar de `/run_specs`, a secao `Gate de validacao dos tickets derivados` com veredito, gaps, correcoes, causa-raiz provavel e ciclos executados;
+- quando a spec participar de `/run_specs`, a secao `Gate de validacao dos tickets derivados` com veredito, gaps, correcoes, causa-raiz provavel, ciclos executados e historico estritamente funcional;
+- quando a spec participar de `/run_specs`, a secao separada `Retrospectiva sistemica da derivacao dos tickets`, documentando ativacao/skip, classificacao, confianca, frente causal, achados, artefatos consultados, elegibilidade de publication e resultado do ticket transversal ou limitacao operacional;
+- write-back da secao `Retrospectiva sistemica da derivacao dos tickets` so e permitido quando a execucao ocorrer no proprio `codex-flow-runner`; em projeto externo, a superficie observavel desta fase e trace/log/resumo;
 - restricoes tecnicas relevantes quando houver;
 - validacoes obrigatorias/manuais pendentes quando houver;
 - nao-escopo;

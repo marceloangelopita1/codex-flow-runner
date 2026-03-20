@@ -106,7 +106,7 @@ test("rejeita confidence ou probableRootCause fora da taxonomia fechada", () => 
     },
   );
 
-  const invalidRootCause = buildValidOutput().replace('"ticket"', '"operator"');
+  const invalidRootCause = buildValidOutput().replace('"ticket"', '"systemic-instruction"');
   assert.throws(
     () => parseSpecTicketValidationOutput(invalidRootCause),
     (error: unknown) => {

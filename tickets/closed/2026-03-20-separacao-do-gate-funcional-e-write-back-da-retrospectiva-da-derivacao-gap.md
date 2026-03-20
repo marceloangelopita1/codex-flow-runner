@@ -1,7 +1,7 @@
 # [TICKET] Separar o gate funcional do write-back da retrospectiva da derivacao
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-20 01:57Z
@@ -98,9 +98,28 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-20 - Ticket aberto a partir da avaliacao da spec - a fronteira funcional/documental entre gate e retrospectiva pre-run-all ainda nao foi materializada no prompt, nos tipos compartilhados nem nas superfices observaveis.
+- 2026-03-20 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; a validacao objetiva confirmou contrato funcional limpo, write-back dedicado local, documentacao canonica alinhada e cobertura automatizada verde antes da decisao final.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-20 03:29Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-02`, `RF-03`, `RF-27`; `CA-13`: `prompts/09-validar-tickets-derivados-da-spec.md`, `src/types/spec-ticket-validation.ts`, `src/integrations/spec-ticket-validation-parser.ts` e `src/core/runner.ts` deixaram de aceitar/persistir semantica sistemica no gate funcional; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/spec-ticket-validation-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`244/244`) e `rg -n "systemic-instruction|Observacoes sobre melhoria sistemica do workflow|Observacoes de melhoria sistemica" prompts/09-validar-tickets-derivados-da-spec.md src/types/spec-ticket-validation.ts src/integrations/spec-ticket-validation-parser.ts src/core/runner.ts docs/specs/templates/spec-template.md` -> sem matches.
+  - `RF-26`, `RF-28`, `RF-29`, `RF-30`; `CA-12`, `CA-14`: `src/core/runner.ts` ganhou persistencia dedicada da secao `Retrospectiva sistemica da derivacao dos tickets`, protegida por `project.name === "codex-flow-runner"`; `src/core/runner.test.ts` cobre write-back local dedicado sem contaminar o gate funcional; `docs/specs/templates/spec-template.md` e `SPECS.md` documentam a nova secao e a regra de write-back local; `rg -n "Retrospectiva sistemica da derivacao dos tickets|codex-flow-runner|projeto externo" docs/specs/templates/spec-template.md SPECS.md` -> matches esperados nas duas fontes canonicas.
+  - `RF-31`; `CA-15`: `src/integrations/telegram-bot.test.ts` passou a provar explicitamente a coexistencia de `Gate spec-ticket-validation`, `Retrospectiva sistemica da derivacao` e `Retrospectiva sistemica pos-spec-audit`; a suite focada `npx tsx --test ...` permaneceu verde (`244/244`) e nenhuma mudanca funcional adicional foi necessaria em `src/integrations/telegram-bot.ts` porque o formatter ja distinguia os tres blocos.
+- Entrega tecnica concluida:
+  - o gate funcional agora persiste apenas veredito, historico, gaps e correcoes funcionais;
+  - a retrospectiva pre-run-all passou a ter secao propria com write-back dedicado apenas no proprio `codex-flow-runner`;
+  - template global, `SPECS.md`, spec de origem e cobertura automatizada ficaram coerentes com a separacao aprovada.
+- Validacoes executadas:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/spec-ticket-validation-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`244/244`).
+  - `rg -n "systemic-instruction|Observacoes sobre melhoria sistemica do workflow|Observacoes de melhoria sistemica" prompts/09-validar-tickets-derivados-da-spec.md src/types/spec-ticket-validation.ts src/integrations/spec-ticket-validation-parser.ts src/core/runner.ts docs/specs/templates/spec-template.md` -> sem matches.
+  - `rg -n "Retrospectiva sistemica da derivacao dos tickets|codex-flow-runner|projeto externo" docs/specs/templates/spec-template.md SPECS.md` -> matches esperados nas linhas documentais da nova secao.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Validacao manual externa pendente: nao.

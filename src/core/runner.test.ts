@@ -3182,10 +3182,7 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.match(specContent, /^\s*-\s*Veredito:\s*NO_GO\s*$/imu);
     assert.match(specContent, /RF-01 ainda sem ticket dedicado\./u);
     assert.match(specContent, /#### Correcoes aplicadas/u);
-    assert.match(
-      specContent,
-      /Nenhuma observacao sistemica registrada neste gate pre-run-all\./u,
-    );
+    assert.doesNotMatch(specContent, /Observacoes sobre melhoria sistemica do workflow/u);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }
@@ -3431,6 +3428,104 @@ test("requestRunSpecs executa retrospectiva pre-run-all quando um gap revisado t
       records.some((entry) => entry.request.stage === "spec-ticket-derivation-retrospective"),
       true,
     );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs faz write-back dedicado da retrospectiva pre-run-all no proprio codex-flow-runner", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "medium",
+        summary: "Persistem gaps funcionais, mas ha historico suficiente para retrospectiva pre-run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-29 ainda nao esta explicitado no ticket derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-29", "CA-12"],
+            evidence: ["O pacote derivado ainda exige releitura do write-back dedicado antes do /run-all."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: false,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-hypothesis",
+      confidence: "medium",
+      publicationEligibility: false,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A derivacao ainda depende de reforco causal para separar gate funcional e write-back.",
+      causalHypothesis:
+        "O write-back da retrospectiva precisa ficar em secao propria para evitar mistura causal com o gate funcional.",
+      benefitSummary:
+        "Registrar a retrospectiva em superficie separada melhora a leitura operacional do pacote derivado.",
+      findings: [
+        {
+          summary: "A retrospectiva pre-run-all precisa escrever apenas na secao dedicada da spec.",
+          affectedArtifactPaths: ["src/core/runner.ts", "docs/specs/templates/spec-template.md"],
+          requirementRefs: ["RF-26", "RF-29", "CA-12"],
+          evidence: ["O gate funcional nao deve carregar backlog sistemico do runner."],
+        },
+      ],
+      workflowArtifactsConsulted: ["AGENTS.md", "SPECS.md"],
+    });
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies);
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.match(specContent, /## Retrospectiva sistemica da derivacao dos tickets/u);
+    assert.match(specContent, /- Executada: sim/u);
+    assert.match(
+      specContent,
+      /- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo\./u,
+    );
+    assert.match(specContent, /- Classificacao final: systemic-hypothesis/u);
+    assert.match(specContent, /- Confianca: medium/u);
+    assert.match(
+      specContent,
+      /- Frente causal analisada: O write-back da retrospectiva precisa ficar em secao propria para evitar mistura causal com o gate funcional\./u,
+    );
+    assert.match(
+      specContent,
+      /A retrospectiva pre-run-all precisa escrever apenas na secao dedicada da spec\./u,
+    );
+    assert.match(specContent, /- Artefatos do workflow consultados:/u);
+    assert.match(specContent, /  - AGENTS\.md/u);
+    assert.match(specContent, /  - SPECS\.md/u);
+    assert.match(specContent, /- Elegibilidade de publicacao: nao/u);
+    assert.match(
+      specContent,
+      /Nenhum ticket transversal publicado nesta rodada\./u,
+    );
+    assert.doesNotMatch(specContent, /Observacoes sobre melhoria sistemica do workflow/u);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }

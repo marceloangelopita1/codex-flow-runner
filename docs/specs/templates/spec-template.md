@@ -53,10 +53,29 @@
   - <descrever>
 - Ciclos executados:
   - <descrever>
-- Observacoes de melhoria sistemica:
-  - <descrever>
-- Nota de uso: quando a spec vier de `/run_specs`, preencher esta secao com o veredito, os gaps e as correcoes do gate formal; fora desse fluxo, registrar `n/a` quando nao se aplicar.
+- Nota de uso: quando a spec vier de `/run_specs`, preencher esta secao apenas com o veredito, os gaps, as correcoes e o historico funcional do gate formal; fora desse fluxo, registrar `n/a` quando nao se aplicar.
 - Politica historica: alinhamentos desta secao nao exigem migracao retroativa em massa; material historico so deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
+
+## Retrospectiva sistemica da derivacao dos tickets
+- Executada: sim | nao | n/a
+- Motivo de ativacao ou skip:
+  - <descrever>
+- Classificacao final:
+  - <descrever>
+- Confianca:
+  - <descrever>
+- Frente causal analisada:
+  - <descrever>
+- Achados sistemicos:
+  - <descrever>
+- Artefatos do workflow consultados:
+  - <descrever>
+- Elegibilidade de publicacao:
+  - <descrever>
+- Resultado do ticket transversal ou limitacao operacional:
+  - <descrever>
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:

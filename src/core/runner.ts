@@ -4575,6 +4575,16 @@ export class TicketRunner {
       const structuredInputAvailable = validationSummary
         ? this.hasStructuredSpecTicketValidationStructuredInputs(validationSummary)
         : false;
+      const finalizeSummary = async (
+        summary: RunSpecsDerivationRetrospectiveSummary,
+      ): Promise<RunSpecsDerivationRetrospectiveSummary> => {
+        await this.persistSpecTicketDerivationRetrospectiveExecutionIfAllowed({
+          project: slot.project,
+          spec,
+          summary,
+        });
+        return summary;
+      };
 
       const finalizeSkip = async (
         decision: Extract<
@@ -4604,7 +4614,7 @@ export class TicketRunner {
           summary: summaryText,
           metadata: this.buildSpecTicketDerivationRetrospectiveTraceMetadata(summary),
         });
-        return summary;
+        return finalizeSummary(summary);
       };
 
       if (!structuredInputAvailable) {
@@ -4686,7 +4696,7 @@ export class TicketRunner {
               )
             : undefined;
 
-        return {
+        return finalizeSummary({
           decision: "executed",
           summary:
             finalizedParsedResult.classification === "operational-limitation"
@@ -4697,7 +4707,7 @@ export class TicketRunner {
           functionalVerdict,
           analysis: finalizedParsedResult,
           ...(publication ? { workflowImprovementTicket: publication } : {}),
-        };
+        });
       } catch (error) {
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
@@ -4738,7 +4748,7 @@ export class TicketRunner {
             limitationCode: analysis.limitation?.code,
           },
         );
-        return summary;
+        return finalizeSummary(summary);
       }
     };
 
@@ -6627,6 +6637,170 @@ export class TicketRunner {
     };
   }
 
+  private async persistSpecTicketDerivationRetrospectiveExecutionIfAllowed(params: {
+    project: ProjectRef;
+    spec: SpecRef;
+    summary: RunSpecsDerivationRetrospectiveSummary;
+  }): Promise<void> {
+    if (params.project.name !== "codex-flow-runner") {
+      return;
+    }
+
+    try {
+      await this.persistSpecTicketDerivationRetrospectiveExecution({
+        projectPath: params.project.path,
+        spec: params.spec,
+        summary: params.summary,
+      });
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        "Falha ao persistir a retrospectiva sistemica da derivacao na spec corrente",
+        {
+          spec: params.spec.fileName,
+          specPath: params.spec.path,
+          activeProjectName: params.project.name,
+          activeProjectPath: params.project.path,
+          error: details,
+        },
+      );
+    }
+  }
+
+  private async persistSpecTicketDerivationRetrospectiveExecution(params: {
+    projectPath: string;
+    spec: SpecRef;
+    summary: RunSpecsDerivationRetrospectiveSummary;
+  }): Promise<void> {
+    const specAbsolutePath = this.resolveProjectRelativePath(params.projectPath, params.spec.path);
+    let originalContent = "";
+    try {
+      originalContent = await fs.readFile(specAbsolutePath, "utf8");
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Falha ao reler spec ${params.spec.path} antes de persistir a retrospectiva da derivacao: ${details}`,
+      );
+    }
+
+    const nextSectionBody = this.renderSpecTicketDerivationRetrospectiveSection(params.summary);
+    const nextContent = this.replaceTopLevelSectionContent(
+      originalContent,
+      "Retrospectiva sistemica da derivacao dos tickets",
+      nextSectionBody,
+    );
+
+    if (nextContent === originalContent) {
+      return;
+    }
+
+    const tempPath = `${specAbsolutePath}.spec-ticket-derivation-retrospective.tmp`;
+    try {
+      await fs.writeFile(tempPath, nextContent, "utf8");
+      await fs.rename(tempPath, specAbsolutePath);
+    } catch (error) {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined);
+      await fs.writeFile(specAbsolutePath, originalContent, "utf8").catch(() => undefined);
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Falha ao persistir a secao \`Retrospectiva sistemica da derivacao dos tickets\` em ${params.spec.path}: ${details}`,
+      );
+    }
+  }
+
+  private renderSpecTicketDerivationRetrospectiveSection(
+    summary: RunSpecsDerivationRetrospectiveSummary,
+  ): string {
+    const analysis = summary.analysis;
+    const lines = [
+      `- Executada: ${summary.decision === "executed" ? "sim" : "nao"}`,
+      `- Motivo de ativacao ou skip: ${this.describeSpecTicketDerivationRetrospectiveDecision(summary)}`,
+      `- Classificacao final: ${analysis?.classification ?? "n/a"}`,
+      `- Confianca: ${analysis?.confidence ?? "n/a"}`,
+      `- Frente causal analisada: ${analysis?.causalHypothesis ?? "n/a"}`,
+      "- Achados sistemicos:",
+      ...this.renderSpecTicketDerivationRetrospectiveFindings(analysis),
+      "- Artefatos do workflow consultados:",
+      ...this.renderSpecTicketDerivationRetrospectiveWorkflowArtifacts(analysis),
+      `- Elegibilidade de publicacao: ${analysis ? (analysis.publicationEligibility ? "sim" : "nao") : "n/a"}`,
+      "- Resultado do ticket transversal ou limitacao operacional:",
+      ...this.renderSpecTicketDerivationRetrospectiveResultLines(summary),
+      "- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.",
+      "- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.",
+    ];
+
+    return lines.join("\n");
+  }
+
+  private describeSpecTicketDerivationRetrospectiveDecision(
+    summary: RunSpecsDerivationRetrospectiveSummary,
+  ): string {
+    if (summary.decision === "executed") {
+      return "executada porque o gate funcional revisou gaps em pelo menos um ciclo.";
+    }
+
+    if (summary.decision === "skipped-no-reviewed-gaps") {
+      return "pulada porque o gate funcional nao revisou gaps em nenhum ciclo.";
+    }
+
+    return "pulada porque o gate funcional falhou antes de produzir insumos estruturados suficientes.";
+  }
+
+  private renderSpecTicketDerivationRetrospectiveFindings(
+    analysis: WorkflowGapAnalysisResult | undefined,
+  ): string[] {
+    if (!analysis) {
+      return ["  - n/a"];
+    }
+
+    if (analysis.findings.length === 0) {
+      return ["  - nenhum"];
+    }
+
+    return analysis.findings.map((finding) => {
+      const requirementSuffix =
+        finding.requirementRefs.length > 0 ? ` [${finding.requirementRefs.join(", ")}]` : "";
+      return `  - ${finding.summary}${requirementSuffix}`;
+    });
+  }
+
+  private renderSpecTicketDerivationRetrospectiveWorkflowArtifacts(
+    analysis: WorkflowGapAnalysisResult | undefined,
+  ): string[] {
+    if (!analysis) {
+      return ["  - n/a"];
+    }
+
+    if (analysis.workflowArtifactsConsulted.length === 0) {
+      return ["  - nenhum"];
+    }
+
+    return analysis.workflowArtifactsConsulted.map((artifactPath) => `  - ${artifactPath}`);
+  }
+
+  private renderSpecTicketDerivationRetrospectiveResultLines(
+    summary: RunSpecsDerivationRetrospectiveSummary,
+  ): string[] {
+    if (summary.workflowImprovementTicket) {
+      return this.renderWorkflowImprovementTicketLines(summary.workflowImprovementTicket).map(
+        (line) => `  ${line}`,
+      );
+    }
+
+    if (summary.analysis?.limitation) {
+      return [
+        `  - Limitacao: ${summary.analysis.limitation.code}`,
+        `    - Detalhe: ${summary.analysis.limitation.detail}`,
+      ];
+    }
+
+    if (summary.analysis) {
+      return ["  - Nenhum ticket transversal publicado nesta rodada."];
+    }
+
+    return ["  - n/a"];
+  }
+
   private async persistSpecTicketValidationExecution(params: {
     projectPath: string;
     spec: SpecRef;
@@ -6681,9 +6855,6 @@ export class TicketRunner {
     packageContext: SpecTicketValidationPackageContext;
     summary: RunSpecsTicketValidationSummary;
   }): string {
-    const systemicGaps = params.summary.gaps.filter(
-      (gap) => gap.probableRootCause === "systemic-instruction",
-    );
     const lines = [
       "### Ultima execucao registrada",
       `- Executada em (UTC): ${this.now().toISOString()}`,
@@ -6746,13 +6917,6 @@ export class TicketRunner {
             `  - Gaps relacionados: ${correction.linkedGapTypes.join(", ") || "nenhum"}`,
             `  - Resultado: ${correction.outcome}`,
           ])),
-      "",
-      "#### Observacoes sobre melhoria sistemica do workflow",
-      ...(systemicGaps.length === 0
-        ? ["- Nenhuma observacao sistemica registrada neste gate pre-run-all."]
-        : [
-            `- ${systemicGaps.length} gap(s) sistemicos foram observados no gate pre-run-all, mas a decisao causal pos-auditoria agora pertence a \`spec-workflow-retrospective\`.`,
-          ]),
     ];
 
     return lines.join("\n");
