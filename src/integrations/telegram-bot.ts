@@ -6588,6 +6588,25 @@ export class TelegramController {
       }
     }
 
+    if (state.lastRunFlowSummary) {
+      lines.push(
+        `Último fluxo concluído: ${state.lastRunFlowSummary.flow} (${state.lastRunFlowSummary.outcome})`,
+        `Última fase final de fluxo: ${state.lastRunFlowSummary.finalStage}`,
+        `Último motivo de encerramento: ${state.lastRunFlowSummary.completionReason}`,
+        `Último fluxo encerrado em: ${state.lastRunFlowSummary.timestampUtc}`,
+      );
+      if (state.lastRunFlowSummary.flow === "run-specs") {
+        lines.push(`Última spec de fluxo: ${state.lastRunFlowSummary.spec.fileName}`);
+      } else if (state.lastRunFlowSummary.ticket) {
+        lines.push(`Último ticket de fluxo: ${state.lastRunFlowSummary.ticket}`);
+      }
+      if (state.lastRunFlowSummary.details) {
+        lines.push(`Detalhes do último fluxo: ${state.lastRunFlowSummary.details}`);
+      }
+    } else {
+      lines.push("Último fluxo concluído: nenhum");
+    }
+
     if (state.discoverSpecSession) {
       lines.push(
         `Fase /discover_spec: ${state.discoverSpecSession.phase}`,

@@ -6611,6 +6611,27 @@ test("status inclui modelo e reasoning selecionados e observados", () => {
   assert.match(reply, /Último turn_context \/codex_chat: gpt-5\.4 \| reasoning high/u);
 });
 
+test("status inclui ultimo fluxo concluido com fase final e motivo de encerramento", () => {
+  const { controller } = createController();
+  const state = createState({
+    lastRunFlowSummary: createRunSpecsFlowSummary({
+      outcome: "failure",
+      finalStage: "spec-ticket-validation",
+      completionReason: "spec-ticket-validation-failure",
+      details:
+        "Nao foi possivel derivar com seguranca o pacote de tickets da spec; nenhum ticket aberto da linhagem foi encontrado.",
+    }),
+  });
+
+  const reply = callBuildStatusReply(controller, state);
+
+  assert.match(reply, /Último fluxo concluído: run-specs \(failure\)/u);
+  assert.match(reply, /Última fase final de fluxo: spec-ticket-validation/u);
+  assert.match(reply, /Último motivo de encerramento: spec-ticket-validation-failure/u);
+  assert.match(reply, /Última spec de fluxo: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(reply, /Detalhes do último fluxo: Nao foi possivel derivar com seguranca o pacote de tickets da spec/u);
+});
+
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {
   const { controller } = createController();
   const state: RunnerState = {

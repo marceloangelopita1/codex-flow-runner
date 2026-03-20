@@ -1000,6 +1000,43 @@ const callProcessTicket = async (runner: TicketRunner, value: TicketRef): Promis
   return internalRunner.processTicket(value);
 };
 
+const callBuildSpecTicketValidationPackageContext = async (
+  runner: TicketRunner,
+  projectPath: string,
+  spec: SpecRef,
+): Promise<{
+  specContent: string;
+  packageContext: string;
+  tickets: Array<{
+    fileName: string;
+    relativePath: string;
+    absolutePath: string;
+    content: string;
+    source: "source-spec" | "spec-related";
+  }>;
+  lineageSource: "source-spec" | "spec-related" | "hybrid";
+}> => {
+  const internalRunner = runner as unknown as {
+    buildSpecTicketValidationPackageContext: (
+      projectPath: string,
+      spec: SpecRef,
+    ) => Promise<{
+      specContent: string;
+      packageContext: string;
+      tickets: Array<{
+        fileName: string;
+        relativePath: string;
+        absolutePath: string;
+        content: string;
+        source: "source-spec" | "spec-related";
+      }>;
+      lineageSource: "source-spec" | "spec-related" | "hybrid";
+    }>;
+  };
+
+  return internalRunner.buildSpecTicketValidationPackageContext(projectPath, spec);
+};
+
 const waitForRunnerToStop = async (runner: TicketRunner, timeoutMs = 2000): Promise<void> => {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -3188,6 +3225,77 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
   }
 });
 
+test("buildSpecTicketValidationPackageContext aceita metadata em portugues e links markdown relativos", async () => {
+  const projectRoot = await createTempProjectRoot();
+  try {
+    const specPath = path.join(projectRoot, "docs", "specs", specFileName);
+    await fs.mkdir(path.dirname(specPath), { recursive: true });
+    await fs.writeFile(
+      specPath,
+      [
+        "# [SPEC] Spec externa com metadata em portugues",
+        "",
+        "## Metadata",
+        "- Spec ID: 2026-03-20-spec-externa",
+        "- Status: approved",
+        "- Spec treatment: pending",
+        "- Tickets relacionados:",
+        `  - [ticket externo](../../tickets/open/${ticketA.name})`,
+        "",
+        "## Objetivo e contexto",
+        "- Problema que esta spec resolve: validar parse de linhagem cross-repo.",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeTicketMetadataFile(projectRoot, {
+      directory: "open",
+      ticketName: ticketA.name,
+      status: "open",
+      sourceSpec: "",
+    });
+    const ticketPath = path.join(projectRoot, "tickets", "open", ticketA.name);
+    const ticketContent = await fs.readFile(ticketPath, "utf8");
+    await fs.writeFile(
+      ticketPath,
+      ticketContent.replace(
+        "- Source spec (when applicable): ",
+        `- Spec pai (opcional): docs/specs/${specFileName}`,
+      ),
+      "utf8",
+    );
+
+    const activeProject: ProjectRef = {
+      name: "external-project",
+      path: projectRoot,
+    };
+    const roundDependencies = createRoundDependencies({
+      activeProject,
+      queue: {
+        ensureStructure: async () => undefined,
+        nextOpenTicket: async () => null,
+        closeTicket: async () => undefined,
+      },
+      codexClient: new StubCodexClient(),
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(new SpyLogger(), roundDependencies);
+
+    const packageContext = await callBuildSpecTicketValidationPackageContext(runner, projectRoot, {
+      fileName: specFileName,
+      path: `docs/specs/${specFileName}`,
+    });
+
+    assert.equal(packageContext.lineageSource, "hybrid");
+    assert.equal(packageContext.tickets.length, 1);
+    assert.equal(packageContext.tickets[0]?.relativePath, `tickets/open/${ticketA.name}`);
+    assert.match(packageContext.packageContext, /Linhagem resolvida por: hybrid/u);
+    assert.match(packageContext.packageContext, new RegExp(`tickets/open/${ticketA.name}`.replace(/\./gu, "\\."), "u"));
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
+});
+
 test("requestRunSpecs persiste historico por ciclo em summary, spec e trace quando ha revalidacao", async () => {
   const fixture = await setupRunSpecsFixture([ticketA.name]);
   try {
@@ -3701,6 +3809,77 @@ test("requestRunSpecs registra skip explicito da retrospectiva pre-run-all quand
     assert.equal(
       derivationTrace?.request.decision.metadata?.decision,
       "skipped-insufficient-structured-input",
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs registra skip explicito da retrospectiva pre-run-all quando o pacote derivado nao pode ser montado", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    await fs.rm(fixture.tickets[0]?.openPath ?? "", { force: true });
+
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0]?.outcome, "failure");
+    assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
+    assert.match(milestones[0]?.details ?? "", /tickets abertos inexistentes/u);
+    assert.match(milestones[0]?.details ?? "", /insumos estruturados suficientes/u);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
+    assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-failure");
+    assert.equal(runSpecsSummary.specTicketValidation, undefined);
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.decision,
+      "skipped-insufficient-structured-input",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.structuredInputAvailable,
+      false,
+    );
+    assert.equal(
+      records.some((entry) => entry.request.stage === "spec-ticket-derivation-retrospective"),
+      true,
     );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);

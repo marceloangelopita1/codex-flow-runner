@@ -517,12 +517,12 @@ const CODEX_CHAT_CODEX_ACTIVITY_LOG_INTERVAL_MS = 10 * 1000;
 const TICKET_FILE_NAME_PATTERN = /^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$/u;
 const TICKET_STATUS_METADATA_PATTERN = /^\s*-\s*Status\s*:\s*(.+?)\s*$/imu;
 const TICKET_PARENT_METADATA_PATTERN =
-  /^\s*-\s*Parent ticket(?:\s*\(optional\))?\s*:\s*(.+?)\s*$/imu;
+  /^\s*-\s*(?:Parent ticket(?:\s*\(optional\))?|Ticket pai(?:\s*\(opcional\))?)\s*:\s*(.+?)\s*$/imu;
 const TICKET_CLOSURE_REASON_METADATA_PATTERN = /^\s*-\s*Closure reason\s*:\s*(.+?)\s*$/imu;
 const TICKET_SOURCE_SPEC_METADATA_PATTERN =
-  /^\s*-\s*Source spec(?:\s*\(when applicable\))?\s*:\s*(.+?)\s*$/imu;
+  /^\s*-\s*(?:Source spec(?:\s*\(when applicable\))?|Spec pai(?:\s*\(opcional\))?)\s*:\s*(.+?)\s*$/imu;
 const SPEC_RELATED_TICKETS_BLOCK_PATTERN =
-  /^\s*-\s*Related tickets\s*:\s*\n((?:^\s{2,}-\s*.+\n?)*)/imu;
+  /^\s*-\s*(?:Related tickets|Tickets relacionados)\s*:\s*\n((?:^\s{2,}-\s*.+\n?)*)/imu;
 const TOP_LEVEL_SECTION_HEADING_PATTERN = /^##\s+/mu;
 
 export interface RunnerRoundDependencies {
@@ -4560,7 +4560,7 @@ export class TicketRunner {
     const runTimedSpecTicketDerivationRetrospectiveStage = async (
       message: string,
       validationSummary: RunSpecsTicketValidationSummary | undefined,
-      packageContext: SpecTicketValidationPackageContext,
+      packageContext: SpecTicketValidationPackageContext | undefined,
       functionalVerdict: RunSpecsDerivationRetrospectiveSummary["functionalVerdict"] =
         validationSummary?.verdict ?? "unavailable",
     ): Promise<RunSpecsDerivationRetrospectiveSummary> => {
@@ -4617,7 +4617,7 @@ export class TicketRunner {
         return finalizeSummary(summary);
       };
 
-      if (!structuredInputAvailable) {
+      if (!structuredInputAvailable || !packageContext) {
         return finalizeSkip(
           "skipped-insufficient-structured-input",
           "Retrospectiva sistemica da derivacao nao executada: o gate funcional falhou antes de produzir insumos estruturados suficientes.",
@@ -4936,15 +4936,13 @@ export class TicketRunner {
 
         specTicketValidationSummary = error.partialSummary ?? specTicketValidationSummary;
         specTicketValidationPackageContext = error.packageContext ?? specTicketValidationPackageContext;
-        if (specTicketValidationPackageContext) {
-          specTicketDerivationRetrospectiveSummary =
-            await runTimedSpecTicketDerivationRetrospectiveStage(
-              `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
-              specTicketValidationSummary,
-              specTicketValidationPackageContext,
-              "unavailable",
-            );
-        }
+        specTicketDerivationRetrospectiveSummary =
+          await runTimedSpecTicketDerivationRetrospectiveStage(
+            `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+            specTicketValidationSummary,
+            specTicketValidationPackageContext,
+            "unavailable",
+          );
 
         const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
         const finalStage: RunSpecsTriageFinalStage =
@@ -5523,7 +5521,7 @@ export class TicketRunner {
     }
 
     const sourceSpecTickets = await this.listOpenTicketsForSpec(projectPath, spec);
-    const relatedTicketPaths = this.extractRelatedOpenTicketPaths(specContent);
+    const relatedTicketPaths = this.extractRelatedOpenTicketPaths(specContent, spec.path);
     const fallbackTickets = await this.resolveRelatedOpenTickets(
       projectPath,
       relatedTicketPaths,
@@ -5533,7 +5531,7 @@ export class TicketRunner {
 
     if (tickets.length === 0) {
       throw new Error(
-        `Nao foi possivel derivar com seguranca o pacote de tickets da spec ${spec.path}; nenhum ticket aberto da linhagem foi encontrado.`,
+        `Nao foi possivel derivar com seguranca o pacote de tickets da spec ${spec.path}; nenhum ticket aberto da linhagem foi encontrado. Verifique a metadata de linhagem entre spec e tickets (Source spec/Spec pai, Related tickets/Tickets relacionados) e use caminhos parseaveis para o repositorio.`,
       );
     }
 
@@ -5604,7 +5602,7 @@ export class TicketRunner {
     return tickets.filter((ticket): ticket is SpecTicketValidationTicketSnapshot => ticket !== null);
   }
 
-  private extractRelatedOpenTicketPaths(specContent: string): string[] {
+  private extractRelatedOpenTicketPaths(specContent: string, specPath: string): string[] {
     const metadataSection = this.extractTopLevelSectionContent(specContent, "Metadata");
     if (!metadataSection) {
       return [];
@@ -5620,7 +5618,7 @@ export class TicketRunner {
       .map((line) => line.match(/^\s*-\s*(.+?)\s*$/u)?.[1] ?? "")
       .map((value) => this.normalizeTicketReference(value))
       .filter((value): value is string => Boolean(value))
-      .map((value) => value.replace(/\\/gu, "/"))
+      .map((value) => this.normalizeSpecRelativeRepositoryPath(specPath, value))
       .filter((value) => value.startsWith("tickets/open/"));
   }
 
@@ -6972,6 +6970,23 @@ export class TicketRunner {
     return path.posix.normalize(relativeReference.replace(/^\.\//u, ""));
   }
 
+  private normalizeSpecRelativeRepositoryPath(specPath: string, reference: string): string {
+    const normalizedReference = reference.trim().replace(/^`|`$/gu, "").replace(/\\/gu, "/");
+    if (!normalizedReference) {
+      return normalizedReference;
+    }
+
+    if (path.posix.isAbsolute(normalizedReference)) {
+      return path.posix.normalize(normalizedReference);
+    }
+
+    if (!normalizedReference.startsWith(".")) {
+      return path.posix.normalize(normalizedReference);
+    }
+
+    return path.posix.normalize(path.posix.join(path.posix.dirname(specPath), normalizedReference));
+  }
+
   private extractTopLevelSectionContent(content: string, heading: string): string | null {
     const range = this.findTopLevelSectionRange(content, heading);
     if (!range) {
@@ -7355,7 +7370,8 @@ export class TicketRunner {
       return null;
     }
 
-    return normalized;
+    const markdownLinkTarget = normalized.match(/^\[[^\]]+?\]\((.+?)\)$/u)?.[1]?.trim();
+    return markdownLinkTarget || normalized;
   }
 
   private parseTicketLineageMetadata(ticketContent: string): TicketLineageMetadata {
