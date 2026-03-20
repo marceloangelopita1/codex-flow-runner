@@ -37,6 +37,7 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
   - Criar um ticket em `tickets/open/` para materializar o trabalho derivado da spec.
   - Criar um execplan apenas a partir do ticket, quando necessario para execucao segura.
 - O contrato oficial de derivacao e `spec -> tickets` e `ticket -> execplan` quando necessario.
+- O contrato de compatibilidade do projeto alvo fica em `docs/workflows/target-project-compatibility-contract.md`; mantenha aqui apenas esse ponteiro e trate compatibilidade com o workflow completo como pre-requisito operacional, nao como cheque semantico de runtime.
 - O ciclo esperado e: revisar specs -> criar ticket -> criar execplan quando necessario -> implementar em fluxo sequencial -> fechar ticket e manter rastreabilidade com a spec de origem.
 
 ## Observabilidade

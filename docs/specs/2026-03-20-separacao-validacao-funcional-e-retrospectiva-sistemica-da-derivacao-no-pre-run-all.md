@@ -6,13 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-20 01:36Z
-- Last reviewed at (UTC): 2026-03-20 03:29Z
+- Last reviewed at (UTC): 2026-03-20 03:41Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md
   - tickets/closed/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md
   - tickets/closed/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md
-  - tickets/open/2026-03-20-target-project-compatibility-contract-gap.md
+  - tickets/closed/2026-03-20-target-project-compatibility-contract-gap.md
 - Related execplans:
   - execplans/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md
   - execplans/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md
@@ -197,10 +197,10 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md [fonte=source-spec]
   - tickets/closed/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md [fonte=source-spec]
   - tickets/closed/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-20-target-project-compatibility-contract-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-20-target-project-compatibility-contract-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: GO (high)
@@ -252,8 +252,9 @@
   - `tickets/closed/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md`: o stage `spec-ticket-derivation-retrospective` foi implementado no working tree entre `spec-ticket-validation` e `spec-close-and-version`, com execucao/skip observaveis, contexto proprio `spec-ticket-validation-history`, traces, timing, `finalStage` e publication pre-run-all distintos da retrospectiva pos-`spec-audit`.
   - `tickets/closed/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md`: o working tree atual ja transporta fingerprints/ticket/achados pre-run-all para `spec-workflow-retrospective`, registra `historicalReference` parseavel/observavel e aplica guarda deterministica no runner para suprimir ticket transversal duplicado quando a frente causal pos-`spec-audit` coincide com a da retrospectiva pre-run-all.
   - `tickets/closed/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md`: o working tree atual ja remove `systemic-instruction` do contrato de `spec-ticket-validation`, persiste apenas conteudo funcional no gate, faz write-back dedicado da secao `Retrospectiva sistemica da derivacao dos tickets` no proprio `codex-flow-runner` e alinha template/SPECS/resumo final com a separacao aprovada nesta spec.
+  - `tickets/closed/2026-03-20-target-project-compatibility-contract-gap.md`: o working tree materializa `docs/workflows/target-project-compatibility-contract.md`, atualiza `README.md`/`AGENTS.md` e fecha o gap documental de compatibilidade do projeto alvo.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-20-target-project-compatibility-contract-gap.md`: falta materializar `docs/workflows/target-project-compatibility-contract.md` e atualizar `README.md`/`AGENTS.md` para refletir o contrato de compatibilidade do projeto alvo.
+  - nenhuma na linhagem de tickets derivada desta triagem; restam as validacoes manuais e a auditoria final descritas nesta spec.
 - Evidencias de validacao:
   - Entrevista detalhada de descoberta concluida em 2026-03-20 01:36Z, cobrindo objetivo, escopo, nao-escopo, naming, restricoes, outputs, observabilidade, anti-duplicacao e contrato de compatibilidade.
   - Suite automatizada verde no working tree para RF-35, RF-36 e CA-17 cobrindo overlap causal com ticket pre-run-all, overlap sem ticket pre-run-all e causa residual realmente nova via `src/core/runner.test.ts`, `src/integrations/workflow-gap-analysis-parser.test.ts` e `src/integrations/telegram-bot.test.ts`.
@@ -261,7 +262,7 @@
   - Releitura de `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md` e `docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md`.
   - Releitura de `prompts/08-auditar-spec-apos-run-all.md`, `prompts/09-validar-tickets-derivados-da-spec.md`, `prompts/10-autocorrigir-tickets-derivados-da-spec.md` e `prompts/11-retrospectiva-workflow-apos-spec-audit.md`.
   - Revisao de implementacao concluida em 2026-03-20 01:57Z contra `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/types/spec-ticket-validation.ts`, `src/integrations/codex-client.ts`, `src/integrations/workflow-trace-store.ts`, `src/integrations/telegram-bot.ts`, `docs/specs/templates/spec-template.md` e `src/integrations/workflow-improvement-ticket-publisher.ts`, com abertura dos tickets derivados acima.
-  - Validacao final da triagem concluida em 2026-03-20 02:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending` e os 4 tickets ainda abertos em `tickets/open/`, sem gap adicional fora da rastreabilidade ja registrada.
+  - Validacao final da triagem concluida em 2026-03-20 02:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending` e os 4 tickets derivados desta spec, sem gap adicional fora da rastreabilidade ja registrada.
   - Implementacao do stage `spec-ticket-derivation-retrospective` no working tree, com novo prompt `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`, novo `inputMode` `spec-ticket-validation-history`, resumo dedicado no `/run_specs` e cobertura automatizada de `GO` com gap revisado, `NO_GO` com historico estruturado, skip explicito e falha tecnica parcial.
   - Validacoes observaveis desta rodada: `npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`, todos verdes no working tree atual.
   - Validacoes observaveis desta rodada de separacao funcional/write-back: `npx tsx --test src/core/runner.test.ts src/integrations/spec-ticket-validation-parser.test.ts src/integrations/telegram-bot.test.ts`, `rg -n "systemic-instruction|Observacoes sobre melhoria sistemica do workflow|Observacoes de melhoria sistemica" prompts/09-validar-tickets-derivados-da-spec.md src/types/spec-ticket-validation.ts src/integrations/spec-ticket-validation-parser.ts src/core/runner.ts docs/specs/templates/spec-template.md` e `rg -n "Retrospectiva sistemica da derivacao dos tickets|codex-flow-runner|projeto externo" docs/specs/templates/spec-template.md SPECS.md`, cobrindo o gate funcional limpo, o write-back local da retrospectiva e a documentacao canonica atualizada.
@@ -299,3 +300,5 @@
 ## Historico de atualizacao
 - 2026-03-20 01:36Z - Versao inicial da spec criada a partir de entrevista detalhada de descoberta, com `Status: approved` e `Spec treatment: pending`.
 - 2026-03-20 02:08Z - Triagem final validada; status e tratamento mantidos em aberto devido aos 4 gaps rastreados por tickets em `tickets/open/`.
+- 2026-03-20 03:39Z - Working tree atualizado para materializar o contrato canonico de compatibilidade do projeto alvo em `docs/workflows/target-project-compatibility-contract.md` e alinhar `README.md`/`AGENTS.md`; naquele momento, o ticket correspondente ainda seguia para a etapa separada de fechamento/versionamento.
+- 2026-03-20 03:41Z - Ticket `2026-03-20-target-project-compatibility-contract-gap.md` fechado como `fixed`; a spec passa a referenciar apenas tickets fechados nesta linhagem e mantem pendentes apenas as validacoes manuais/auditoria final.

@@ -1,7 +1,7 @@
 # [TICKET] Documentar o contrato canonico de compatibilidade do projeto alvo
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P2
 - Severity: S3
 - Created at (UTC): 2026-03-20 01:57Z
@@ -86,9 +86,28 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-20 - Ticket aberto a partir da avaliacao da spec - o contrato de compatibilidade do projeto alvo ainda nao foi materializado na documentacao canonica nem resumido nas superfices de onboarding.
+- 2026-03-20 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; os closure criteria foram validados com evidencia objetiva apenas sobre a entrega documental atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-20 03:41Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-20-target-project-compatibility-contract-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-37`, `RF-38`, `RF-39`, `RF-40`; `CA-18`: `docs/workflows/target-project-compatibility-contract.md` existe e registra as duas categorias do contrato, os fluxos permitidos e a regra de pre-requisito operacional sem preflight semantico de runtime nas linhas 3-40; validacao executada com `nl -ba docs/workflows/target-project-compatibility-contract.md | sed -n '1,120p'`.
+  - `RF-41`; `CA-19`: `README.md` resume o contrato como pre-requisito operacional, aponta para o documento canonico e atualiza o fluxo de `/run_specs` para triagem em projeto compativel com o workflow completo e derivacao `spec -> tickets -> execplan` nas linhas 65-113; validacao executada com `nl -ba README.md | sed -n '64,125p'`.
+  - `RF-42`; `CA-20`: `AGENTS.md` passou a conter apenas um ponteiro curto para o contrato canonico, sem duplicacao normativa, nas linhas 36-41; validacao executada com `nl -ba AGENTS.md | sed -n '32,48p'`.
+  - Closure criterion adicional sobre narrativa de derivacao: `README.md` nao contem mais sugestao de derivacao direta `spec -> execplan`; validacao executada com `rg -n 'spec -> execplan|triagem pode abrir tickets|gerar execplans|gera execplans' README.md` -> sem matches.
+- Entrega tecnica concluida:
+  - o contrato canonico do projeto alvo foi materializado em documento unico;
+  - `README.md` passou a orientar onboarding e derivacao pelo fluxo `spec -> tickets -> execplan`;
+  - `AGENTS.md` permaneceu enxuto, com apenas o ponteiro curto exigido por `DOCUMENTATION.md`.
+- Validacoes executadas:
+  - `nl -ba docs/workflows/target-project-compatibility-contract.md | sed -n '1,120p'`
+  - `nl -ba README.md | sed -n '64,125p'`
+  - `nl -ba AGENTS.md | sed -n '32,48p'`
+  - `rg -n 'spec -> execplan|triagem pode abrir tickets|gerar execplans|gera execplans' README.md` -> sem matches.
+- Validacao manual externa pendente: nao.

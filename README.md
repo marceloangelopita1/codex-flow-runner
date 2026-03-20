@@ -71,7 +71,7 @@ Fluxo:
 3. responder as perguntas de refinamento que o fluxo fizer;
 4. mandar criar a spec;
 5. usar `/run_specs <arquivo>` ou selecionar a spec por `/specs`;
-6. o runner faz a triagem da spec, cria tickets ou execplans quando necessario, encadeia a rodada de implementacao e fecha com uma auditoria final da spec.
+6. em projeto compativel com o workflow completo, o runner faz a triagem da spec, deriva tickets em `tickets/open/`, cria `execplans/` apenas a partir desses tickets quando necessario, encadeia a rodada de implementacao e fecha com uma auditoria final da spec.
 
 Esse segundo caminho e o mais interessante para pessoas nao tecnicas, porque elas podem comecar pelo comportamento desejado do sistema, sem precisar escrever tarefas tecnicas logo de cara.
 
@@ -98,16 +98,19 @@ Na implementacao atual, a spec criada pelo fluxo sai com:
 
 Por isso ela fica pronta para entrar no fluxo de triagem automatica.
 
+Compatibilidade do projeto alvo com o workflow completo continua sendo pre-requisito operacional do onboarding humano, e nao validacao semantica de runtime. O resumo canonico desse contrato esta em `docs/workflows/target-project-compatibility-contract.md`.
+
 ## Como uma spec vira implementacao
 
 Depois que a spec existe no projeto, o caminho fica assim:
 
 1. `/specs` lista as specs elegiveis do projeto ativo;
-2. `/run_specs <arquivo>` executa a triagem da spec;
-3. essa triagem pode abrir tickets em `tickets/open/` e/ou gerar execplans;
-4. quando a triagem conclui com sucesso, o fluxo encadeia a rodada de tickets;
-5. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositorio com a spec original;
-6. a partir dai o comportamento segue a mesma logica do `/run_all`, mas com a spec voltando a ser o gate final do ciclo.
+2. em projeto compativel com o workflow completo, `/run_specs <arquivo>` executa a triagem da spec;
+3. essa triagem deriva apenas tickets em `tickets/open/`;
+4. quando algum ticket exigir execucao mais segura, o plano correspondente e criado em `execplans/` a partir do ticket;
+5. quando a triagem conclui com sucesso, o fluxo encadeia a rodada de tickets;
+6. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositorio com a spec original;
+7. a partir dai o comportamento segue a mesma logica do `/run_all`, mas com a spec voltando a ser o gate final do ciclo.
 
 Em outras palavras:
 
@@ -980,7 +983,7 @@ Quando isso acontecer, o runner vai:
 
 - analisar a spec;
 - abrir tickets em `tickets/open/` se houver trabalho a ser detalhado e implementado;
-- gerar execplans quando o escopo ja estiver claro;
+- criar `execplans/` apenas a partir dos tickets que exigirem um plano de execucao seguro;
 - encadear a rodada de execucao desses tickets.
 
 Isso mostra uma ideia importante deste repositorio:
@@ -1098,7 +1101,7 @@ npm run dev
 - `/run-all` -> alias legado compativel para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo
 - `/specs` -> lista specs elegiveis (`Status: approved` + `Spec treatment: pending`) do projeto ativo
-- `/run_specs <arquivo>` -> executa triagem da spec informada, encadeia a rodada de tickets e finaliza com `spec-audit`
+- `/run_specs <arquivo>` -> em projeto compativel com o workflow completo, executa triagem da spec informada, encadeia a rodada de tickets e finaliza com `spec-audit`
 - `/codex_chat` -> inicia conversa livre com Codex no projeto ativo
 - `/codex-chat` -> alias legado compativel para `/codex_chat`
 - `/plan_spec` -> inicia sessao interativa para criar e refinar uma spec em linguagem natural
