@@ -3,7 +3,11 @@ import {
   TicketNotificationDelivery,
   TicketNotificationFailure,
 } from "./ticket-final-summary.js";
-import { RunnerFlowSummary } from "./flow-timing.js";
+import {
+  FlowNotificationDelivery,
+  FlowNotificationFailure,
+  RunnerFlowSummary,
+} from "./flow-timing.js";
 import { ProjectRef } from "./project.js";
 import {
   DiscoverSpecCategoryCoverageRecord,
@@ -140,6 +144,16 @@ export interface RunnerLastNotificationFailure {
   failure: TicketNotificationFailure;
 }
 
+export interface RunnerLastFlowNotifiedEvent {
+  summary: RunnerFlowSummary;
+  delivery: FlowNotificationDelivery;
+}
+
+export interface RunnerLastFlowNotificationFailure {
+  summary: RunnerFlowSummary;
+  failure: FlowNotificationFailure;
+}
+
 export type RunnerSlotKind =
   | "run-all"
   | "run-specs"
@@ -181,6 +195,8 @@ export interface RunnerState {
   lastNotifiedEvent: RunnerLastNotifiedEvent | null;
   lastNotificationFailure: RunnerLastNotificationFailure | null;
   lastRunFlowSummary: RunnerFlowSummary | null;
+  lastRunFlowNotificationEvent: RunnerLastFlowNotifiedEvent | null;
+  lastRunFlowNotificationFailure: RunnerLastFlowNotificationFailure | null;
 }
 
 export const createInitialState = (
@@ -207,4 +223,6 @@ export const createInitialState = (
   lastNotifiedEvent: null,
   lastNotificationFailure: null,
   lastRunFlowSummary: null,
+  lastRunFlowNotificationEvent: null,
+  lastRunFlowNotificationFailure: null,
 });

@@ -41,7 +41,14 @@ import {
   TicketNotificationDelivery,
   TicketNotificationErrorClass,
 } from "../types/ticket-final-summary.js";
-import { FlowTimingSnapshot, RunSpecsFlowSummary, RunnerFlowSummary } from "../types/flow-timing.js";
+import {
+  FlowNotificationDelivery,
+  FlowNotificationDispatchError,
+  FlowNotificationErrorClass,
+  FlowTimingSnapshot,
+  RunSpecsFlowSummary,
+  RunnerFlowSummary,
+} from "../types/flow-timing.js";
 import {
   PlanSpecFinalActionId,
   PlanSpecFinalBlock,
@@ -448,7 +455,7 @@ interface TelegramApiErrorLike {
 
 interface TicketNotificationSendErrorClassification {
   retryable: boolean;
-  errorClass: TicketNotificationErrorClass;
+  errorClass: TicketNotificationErrorClass | FlowNotificationErrorClass;
   errorCode?: string;
   retryAfterMs?: number;
   message: string;
@@ -541,6 +548,7 @@ const TICKETS_OPEN_TICKET_NOT_FOUND_REPLY =
 const TICKETS_OPEN_TICKET_INVALID_REPLY =
   "❌ Ticket selecionado invalido. Use /tickets_open para atualizar.";
 const TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH = 3500;
+const RUN_FLOW_SUMMARY_CHUNK_MAX_LENGTH = 3500;
 const IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL = "▶️ Implementar este ticket";
 const TICKET_RUN_CALLBACK_PREFIX = "ticket-run:";
 const TICKET_RUN_CALLBACK_EXECUTE_PREFIX = "ticket-run:execute:";
@@ -1195,24 +1203,29 @@ export class TelegramController {
     );
   }
 
-  async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<void> {
+  async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<FlowNotificationDelivery | null> {
     if (!this.notificationChatId) {
       this.logger.warn("Resumo final de fluxo nao enviado: chat de notificacao indefinido", {
         flow: summary.flow,
         outcome: summary.outcome,
         finalStage: summary.finalStage,
       });
-      return;
+      return null;
     }
 
     const destinationChatId = this.notificationChatId;
     const payload = this.buildRunFlowSummaryMessage(summary);
+    const rawChunks = this.chunkTicketContent(payload, RUN_FLOW_SUMMARY_CHUNK_MAX_LENGTH);
+    const chunks = rawChunks.map((chunk, index) =>
+      rawChunks.length <= 1 ? chunk : [`Parte ${index + 1}/${rawChunks.length}`, "", chunk].join("\n"),
+    );
     const flowContext = {
       flow: summary.flow,
       outcome: summary.outcome,
       finalStage: summary.finalStage,
       completionReason: summary.completionReason,
       totalDurationMs: summary.timing.totalDurationMs,
+      chunkCount: chunks.length,
       activeProjectName: summary.activeProjectName,
       activeProjectPath: summary.activeProjectPath,
       chatId: destinationChatId,
@@ -1232,15 +1245,81 @@ export class TelegramController {
         : {}),
     };
 
-    try {
-      await this.bot.telegram.sendMessage(destinationChatId, payload);
-      this.logger.info("Resumo final de fluxo enviado no Telegram", flowContext);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar resumo final de fluxo no Telegram", {
-        ...flowContext,
-        error: this.resolveErrorMessage(error),
-      });
+    let maxAttemptUsed = 0;
+    for (const [index, chunk] of chunks.entries()) {
+      for (let attempt = 1; attempt <= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          await this.bot.telegram.sendMessage(destinationChatId, chunk);
+          maxAttemptUsed = Math.max(maxAttemptUsed, attempt);
+          break;
+        } catch (error) {
+          const classification = this.classifyTicketNotificationSendError(error);
+          const isLastAttempt = attempt >= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS;
+          const canRetry = classification.retryable && !isLastAttempt;
+          const chunkContext = {
+            ...flowContext,
+            chunkIndex: index + 1,
+            attempt,
+            maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+            errorCode: classification.errorCode,
+            errorClass: classification.errorClass,
+            error: classification.message,
+          };
+
+          if (!canRetry) {
+            const failedAtUtc = new Date().toISOString();
+            this.logger.error("Falha definitiva ao enviar resumo final de fluxo no Telegram", {
+              ...chunkContext,
+              failedAtUtc,
+              retryable: classification.retryable,
+            });
+
+            throw new FlowNotificationDispatchError(
+              "Falha definitiva ao enviar resumo final de fluxo no Telegram",
+              {
+                channel: "telegram",
+                destinationChatId,
+                failedAtUtc,
+                attempts: attempt,
+                maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+                errorMessage: classification.message,
+                ...(classification.errorCode ? { errorCode: classification.errorCode } : {}),
+                errorClass: classification.errorClass as FlowNotificationErrorClass,
+                retryable: classification.retryable,
+                failedChunkIndex: index + 1,
+                chunkCount: chunks.length,
+              },
+              { cause: error },
+            );
+          }
+
+          const retryDelayMs = this.resolveTicketFinalSummaryRetryDelayMs(classification, attempt);
+          this.logger.warn("Falha transitoria ao enviar resumo final de fluxo no Telegram", {
+            ...chunkContext,
+            retryDelayMs,
+          });
+
+          await this.waitForTicketFinalSummaryRetry(retryDelayMs);
+        }
+      }
     }
+
+    const delivery: FlowNotificationDelivery = {
+      channel: "telegram",
+      destinationChatId,
+      deliveredAtUtc: new Date().toISOString(),
+      attempts: maxAttemptUsed,
+      maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+      chunkCount: chunks.length,
+    };
+
+    this.logger.info("Resumo final de fluxo enviado no Telegram", {
+      ...flowContext,
+      attempts: maxAttemptUsed,
+      maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+    });
+
+    return delivery;
   }
 
   async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {
@@ -6605,6 +6684,52 @@ export class TelegramController {
       }
     } else {
       lines.push("Último fluxo concluído: nenhum");
+    }
+
+    if (!state.lastRunFlowNotificationEvent) {
+      lines.push("Último resumo final de fluxo notificado: nenhum");
+    } else {
+      const { summary, delivery } = state.lastRunFlowNotificationEvent;
+      lines.push(
+        `Último resumo final de fluxo notificado: ${summary.flow} (${summary.outcome})`,
+        `Fase final do fluxo notificado: ${summary.finalStage}`,
+        `Fluxo notificado em: ${delivery.deliveredAtUtc}`,
+        `Chat do fluxo notificado: ${delivery.destinationChatId}`,
+      );
+      if (typeof delivery.attempts === "number") {
+        lines.push(
+          `Tentativas até entrega do fluxo: ${delivery.attempts}/${delivery.maxAttempts ?? delivery.attempts}`,
+        );
+      }
+      if (typeof delivery.chunkCount === "number") {
+        lines.push(`Partes do resumo de fluxo enviadas: ${delivery.chunkCount}`);
+      }
+    }
+
+    if (!state.lastRunFlowNotificationFailure) {
+      lines.push("Última falha de notificação de fluxo: nenhuma");
+    } else {
+      const { summary, failure } = state.lastRunFlowNotificationFailure;
+      lines.push(
+        `Última falha de notificação de fluxo: ${summary.flow} (${summary.outcome})`,
+        `Fase com falha de notificação de fluxo: ${summary.finalStage}`,
+        `Falha de fluxo registrada em: ${failure.failedAtUtc}`,
+        `Tentativas até falha do fluxo: ${failure.attempts}/${failure.maxAttempts}`,
+        `Classe do erro de notificação de fluxo: ${failure.errorClass}`,
+        `Erro de notificação de fluxo: ${failure.errorMessage}`,
+        `Retentável no fluxo: ${failure.retryable ? "sim" : "nao"}`,
+      );
+      if (failure.destinationChatId) {
+        lines.push(`Chat de notificação de fluxo com falha: ${failure.destinationChatId}`);
+      }
+      if (failure.errorCode) {
+        lines.push(`Código do erro de notificação de fluxo: ${failure.errorCode}`);
+      }
+      if (typeof failure.failedChunkIndex === "number") {
+        lines.push(
+          `Parte do resumo de fluxo com falha: ${failure.failedChunkIndex}/${failure.chunkCount ?? failure.failedChunkIndex}`,
+        );
+      }
     }
 
     if (state.discoverSpecSession) {

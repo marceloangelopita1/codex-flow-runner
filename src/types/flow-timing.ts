@@ -139,3 +139,47 @@ export interface RunSpecsFlowSummary {
 }
 
 export type RunnerFlowSummary = RunAllFlowSummary | RunSpecsFlowSummary;
+
+export type FlowNotificationErrorClass =
+  | "telegram-rate-limit"
+  | "telegram-server"
+  | "transport"
+  | "non-retryable";
+
+export interface FlowNotificationDelivery {
+  channel: "telegram";
+  destinationChatId: string;
+  deliveredAtUtc: string;
+  attempts?: number;
+  maxAttempts?: number;
+  chunkCount?: number;
+}
+
+export interface FlowNotificationFailure {
+  channel: "telegram";
+  destinationChatId?: string;
+  failedAtUtc: string;
+  attempts: number;
+  maxAttempts: number;
+  errorMessage: string;
+  errorCode?: string;
+  errorClass: FlowNotificationErrorClass;
+  retryable: boolean;
+  failedChunkIndex?: number;
+  chunkCount?: number;
+}
+
+export class FlowNotificationDispatchError extends Error {
+  constructor(
+    message: string,
+    public readonly failure: FlowNotificationFailure,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "FlowNotificationDispatchError";
+  }
+}
+
+export const isFlowNotificationDispatchError = (
+  value: unknown,
+): value is FlowNotificationDispatchError => value instanceof FlowNotificationDispatchError;

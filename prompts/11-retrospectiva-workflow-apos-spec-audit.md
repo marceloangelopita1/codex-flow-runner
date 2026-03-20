@@ -69,7 +69,11 @@ Tarefa:
   "workflowArtifactsConsulted": ["AGENTS.md", "prompts/..."],
   "followUpTicketPaths": ["tickets/open/..."],
   "limitation": null,
-  "historicalReference": null
+  "historicalReference": {
+    "summary": "frente causal ja tratada antes do /run-all",
+    "ticketPath": "tickets/open/...",
+    "findingFingerprints": ["workflow-finding|abc123def456"]
+  }
 }
 ```
 [[/WORKFLOW_GAP_ANALYSIS]]
@@ -81,6 +85,11 @@ Regras do bloco parseável:
 - `limitation` deve ser `null` exceto quando `classification=operational-limitation`.
 - `historicalReference` deve ser `null` quando não houver overlap causal pre-run-all.
 - Se a mesma frente causal já tiver sido tratada na retrospectiva pre-run-all, `historicalReference` deve apontar para o ticket/achado preexistente e `publicationEligibility` deve permanecer `false`.
+- Quando `historicalReference` for objeto, use exatamente:
+  - `"summary": "<resumo objetivo>"`
+  - `"ticketPath": "tickets/open/..." | null`
+  - `"findingFingerprints": ["workflow-finding|..."]`
+- Não usar o campo singular `"fingerprint"`; o contrato canônico exige `"findingFingerprints"` como lista.
 - Quando `classification=operational-limitation`, use:
   - `"code": "analysis-execution-failed" | "invalid-analysis-contract" | "workflow-repo-context-missing"`
   - `"detail": "<explicação objetiva>"`

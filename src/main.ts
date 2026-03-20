@@ -279,7 +279,7 @@ const bootstrap = async () => {
             return;
           }
 
-          await telegram.sendRunFlowSummary(event);
+          return telegram.sendRunFlowSummary(event);
         },
       },
       codexPreferencesService,

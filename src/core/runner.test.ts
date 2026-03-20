@@ -46,7 +46,11 @@ import {
   CodexFlowPreferencesSnapshot,
   CodexInvocationPreferences,
 } from "../types/codex-preferences.js";
-import { RunnerFlowSummary } from "../types/flow-timing.js";
+import {
+  FlowNotificationDelivery,
+  FlowNotificationDispatchError,
+  RunnerFlowSummary,
+} from "../types/flow-timing.js";
 import {
   SpecTicketValidationAppliedCorrection,
   SpecTicketValidationPassResult,
@@ -903,11 +907,45 @@ const createSummaryCollector = (
   return { summaries, deliveries, onTicketFinalized };
 };
 
-const createFlowSummaryCollector = () => {
+const createFlowSummaryCollector = (options: {
+  failSend?: boolean;
+  failSendWithDispatchError?: boolean;
+} = {}) => {
   const flowSummaries: RunnerFlowSummary[] = [];
   const runFlowEventHandlers: RunFlowEventHandlers = {
     onFlowCompleted: async (event) => {
       flowSummaries.push(event);
+      if (options.failSendWithDispatchError) {
+        throw new FlowNotificationDispatchError(
+          "Falha definitiva ao enviar resumo final de fluxo no Telegram",
+          {
+            channel: "telegram",
+            destinationChatId: "42",
+            failedAtUtc: "2026-02-19T15:10:00.000Z",
+            attempts: 4,
+            maxAttempts: 4,
+            errorMessage: "Service Unavailable",
+            errorCode: "503",
+            errorClass: "telegram-server",
+            retryable: true,
+            failedChunkIndex: 2,
+            chunkCount: 3,
+          },
+        );
+      }
+      if (options.failSend) {
+        throw new Error("falha ao enviar resumo final de fluxo");
+      }
+
+      const delivery: FlowNotificationDelivery = {
+        channel: "telegram",
+        destinationChatId: "42",
+        deliveredAtUtc: "2026-02-19T15:09:00.000Z",
+        attempts: 1,
+        maxAttempts: 4,
+        chunkCount: 1,
+      };
+      return delivery;
     },
   };
 
@@ -2496,6 +2534,60 @@ test("requestRunAll emite resumo final de fluxo com snapshot temporal em sucesso
   } else {
     assert.fail("resumo de fluxo /run-all deveria existir");
   }
+
+  const state = runner.getState();
+  assert.equal(state.lastRunFlowNotificationEvent?.summary.flow, "run-all");
+  assert.equal(state.lastRunFlowNotificationEvent?.delivery.destinationChatId, "42");
+  assert.equal(state.lastRunFlowNotificationEvent?.delivery.chunkCount, 1);
+  assert.equal(state.lastRunFlowNotificationFailure, null);
+});
+
+test("requestRunAll preserva resumo final do fluxo e registra falha estruturada de notificacao do fluxo", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const gitVersioning = new StubGitVersioning();
+  const { runFlowEventHandlers } = createFlowSummaryCollector({
+    failSendWithDispatchError: true,
+  });
+  let nextTicketCalls = 0;
+
+  const queue: TicketQueue = {
+    ensureStructure: async () => undefined,
+    nextOpenTicket: async () => {
+      nextTicketCalls += 1;
+      return nextTicketCalls === 1 ? ticketA : null;
+    },
+    closeTicket: async () => undefined,
+  };
+
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue,
+    codexClient: codex,
+    gitVersioning,
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+    },
+  });
+
+  const request = await runner.requestRunAll();
+  assert.deepEqual(request, { status: "started" });
+  await waitForRunnerToStop(runner);
+
+  const state = runner.getState();
+  assert.equal(state.lastRunFlowSummary?.flow, "run-all");
+  assert.equal(state.lastRunFlowNotificationEvent, null);
+  assert.equal(state.lastRunFlowNotificationFailure?.summary.flow, "run-all");
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.destinationChatId, "42");
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.attempts, 4);
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.maxAttempts, 4);
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.errorClass, "telegram-server");
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.errorCode, "503");
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.failedChunkIndex, 2);
+  assert.equal(state.lastRunFlowNotificationFailure?.failure.chunkCount, 3);
+  assert.equal(logger.warnings.at(-1)?.message, "Falha ao encaminhar resumo final de fluxo para integracao");
 });
 
 test("requestRunAll e fail-fast: erro no ticket N impede execucao de N+1", async () => {

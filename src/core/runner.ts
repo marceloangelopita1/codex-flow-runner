@@ -28,6 +28,9 @@ import {
   TicketNotificationFailure,
 } from "../types/ticket-final-summary.js";
 import {
+  FlowNotificationDelivery,
+  FlowNotificationFailure,
+  isFlowNotificationDispatchError,
   FlowTimingSnapshot,
   RunAllCompletionReason,
   RunAllFinalStage,
@@ -186,7 +189,9 @@ export interface RunSpecsEventHandlers {
 }
 
 export interface RunFlowEventHandlers {
-  onFlowCompleted: (event: RunnerFlowSummary) => Promise<void> | void;
+  onFlowCompleted: (
+    event: RunnerFlowSummary,
+  ) => Promise<FlowNotificationDelivery | null | void> | FlowNotificationDelivery | null | void;
 }
 
 export interface TicketRunnerOptions {
@@ -930,6 +935,26 @@ export class TicketRunner {
     ...(this.state.lastRunFlowSummary
       ? {
           lastRunFlowSummary: this.cloneRunnerFlowSummary(this.state.lastRunFlowSummary),
+        }
+      : {}),
+    ...(this.state.lastRunFlowNotificationEvent
+      ? {
+          lastRunFlowNotificationEvent: {
+            summary: this.cloneRunnerFlowSummary(
+              this.state.lastRunFlowNotificationEvent.summary,
+            ),
+            delivery: { ...this.state.lastRunFlowNotificationEvent.delivery },
+          },
+        }
+      : {}),
+    ...(this.state.lastRunFlowNotificationFailure
+      ? {
+          lastRunFlowNotificationFailure: {
+            summary: this.cloneRunnerFlowSummary(
+              this.state.lastRunFlowNotificationFailure.summary,
+            ),
+            failure: { ...this.state.lastRunFlowNotificationFailure.failure },
+          },
         }
       : {}),
   });
@@ -4345,15 +4370,63 @@ export class TicketRunner {
     }
 
     try {
-      await this.runFlowEventHandlers.onFlowCompleted(this.cloneRunnerFlowSummary(event));
+      const delivery = await this.runFlowEventHandlers.onFlowCompleted(
+        this.cloneRunnerFlowSummary(event),
+      );
+      if (!delivery) {
+        return;
+      }
+
+      this.state.lastRunFlowNotificationEvent = {
+        summary: this.cloneRunnerFlowSummary(event),
+        delivery: { ...delivery },
+      };
+      this.state.lastRunFlowNotificationFailure = null;
+      this.state.updatedAt = new Date(delivery.deliveredAtUtc);
     } catch (error) {
+      const notificationFailure = this.buildRunFlowNotificationFailureState(event, error);
+      this.state.lastRunFlowNotificationFailure = notificationFailure;
+      this.state.updatedAt = new Date(notificationFailure.failure.failedAtUtc);
       this.logger.warn("Falha ao encaminhar resumo final de fluxo para integracao", {
         flow: event.flow,
         outcome: event.outcome,
         finalStage: event.finalStage,
+        attempts: notificationFailure.failure.attempts,
+        maxAttempts: notificationFailure.failure.maxAttempts,
+        errorCode: notificationFailure.failure.errorCode,
+        errorClass: notificationFailure.failure.errorClass,
+        retryable: notificationFailure.failure.retryable,
+        destinationChatId: notificationFailure.failure.destinationChatId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private buildRunFlowNotificationFailureState(
+    summary: RunnerFlowSummary,
+    error: unknown,
+  ): NonNullable<RunnerState["lastRunFlowNotificationFailure"]> {
+    if (isFlowNotificationDispatchError(error)) {
+      return {
+        summary: this.cloneRunnerFlowSummary(summary),
+        failure: { ...error.failure },
+      };
+    }
+
+    const fallbackFailure: FlowNotificationFailure = {
+      channel: "telegram",
+      failedAtUtc: this.now().toISOString(),
+      attempts: 1,
+      maxAttempts: 1,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorClass: "non-retryable",
+      retryable: false,
+    };
+
+    return {
+      summary: this.cloneRunnerFlowSummary(summary),
+      failure: fallbackFailure,
+    };
   }
 
   private async prepareRunSlotStart(

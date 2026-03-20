@@ -240,16 +240,20 @@ const parseHistoricalReference = (
   }
 
   const payload = value as Record<string, unknown>;
+  const findingFingerprints =
+    payload.findingFingerprints === undefined && typeof payload.fingerprint === "string"
+      ? [readString(payload.fingerprint, "historicalReference.fingerprint")]
+      : readStringArray(
+          payload.findingFingerprints,
+          "historicalReference.findingFingerprints",
+        );
   return {
     summary: readString(payload.summary, "historicalReference.summary"),
     ticketPath:
       payload.ticketPath === null
         ? null
         : readString(payload.ticketPath, "historicalReference.ticketPath"),
-    findingFingerprints: readStringArray(
-      payload.findingFingerprints,
-      "historicalReference.findingFingerprints",
-    ),
+    findingFingerprints,
   };
 };
 

@@ -111,6 +111,33 @@ test("parseWorkflowGapAnalysisOutput aceita referencia historica pre-run-all sem
   ]);
 });
 
+test("parseWorkflowGapAnalysisOutput aceita fallback legado com historicalReference.fingerprint singular", () => {
+  const parsed = parseWorkflowGapAnalysisOutput(
+    buildOutput({
+      classification: "not-systemic",
+      confidence: "high",
+      publicationEligibility: false,
+      inputMode: "follow-up-tickets",
+      summary: "O gap residual atual e local, mas a frente causal historica ja existia.",
+      causalHypothesis: "A etapa retornou o campo legado singular ao referenciar o pre-run-all.",
+      benefitSummary: "Compatibilidade retroativa evita falha desnecessaria de parse.",
+      findings: [],
+      workflowArtifactsConsulted: ["AGENTS.md"],
+      followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
+      limitation: null,
+      historicalReference: {
+        summary: "Frente causal historica reaproveitada.",
+        ticketPath: "tickets/open/2026-03-19-workflow-improvement-example.md",
+        fingerprint: "workflow-finding|abc123def456",
+      },
+    }),
+  );
+
+  assert.deepEqual(parsed.historicalReference?.findingFingerprints, [
+    "workflow-finding|abc123def456",
+  ]);
+});
+
 test("parseWorkflowGapAnalysisOutput aceita inputMode spec-ticket-validation-history", () => {
   const parsed = parseWorkflowGapAnalysisOutput(
     buildOutput({

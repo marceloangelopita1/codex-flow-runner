@@ -33,6 +33,7 @@ import {
   TicketTimingSnapshot,
 } from "../types/ticket-final-summary.js";
 import {
+  FlowNotificationDispatchError,
   FlowTimingSnapshot,
   RunAllFlowSummary,
   RunAllTimingStage,
@@ -93,6 +94,8 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   codexChatSession: value.codexChatSession ?? null,
   lastCodexChatSessionClosure: value.lastCodexChatSessionClosure ?? null,
   lastRunFlowSummary: value.lastRunFlowSummary ?? null,
+  lastRunFlowNotificationEvent: value.lastRunFlowNotificationEvent ?? null,
+  lastRunFlowNotificationFailure: value.lastRunFlowNotificationFailure ?? null,
 });
 
 const createTicketTimingSnapshot = (
@@ -6550,7 +6553,23 @@ test("envia resumo final de /run-specs com limitacao operacional da retrospectiv
   assert.match(sentMessages[0]?.text ?? "", /Limitacao de publication: target-repo-missing/u);
 });
 
-test("envio de resumo final de fluxo falha em modo best-effort e registra warning", async () => {
+test("envio de resumo final de fluxo grande usa chunking e retorna delivery estruturado", async () => {
+  const { controller } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  const delivery = await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      details: "linha extensa\n".repeat(600),
+    }),
+  );
+
+  assert.ok(delivery);
+  assert.equal(sentMessages.length > 1, true);
+  assert.equal(delivery?.chunkCount, sentMessages.length);
+  assert.match(sentMessages[0]?.text ?? "", /Parte 1\//u);
+});
+
+test("envio de resumo final de fluxo falha com erro estruturado quando o Telegram rejeita o envio", async () => {
   const { controller, logger } = createController({ allowedChatId: "42" });
   const internalController = controller as unknown as {
     bot: {
@@ -6566,14 +6585,23 @@ test("envio de resumo final de fluxo falha em modo best-effort e registra warnin
     throw new Error("falha de transporte simulada");
   };
 
-  await controller.sendRunFlowSummary(createRunAllFlowSummary());
+  await assert.rejects(
+    () => controller.sendRunFlowSummary(createRunAllFlowSummary()),
+    (error) =>
+      error instanceof FlowNotificationDispatchError &&
+      error.failure.errorClass === "non-retryable",
+  );
 
   assert.equal(sendAttempts, 1);
-  assert.equal(logger.warnings.length, 1);
-  assert.equal(logger.warnings[0]?.message, "Falha ao enviar resumo final de fluxo no Telegram");
-  assert.equal(logger.warnings[0]?.context?.flow, "run-all");
-  assert.equal(logger.warnings[0]?.context?.outcome, "success");
-  assert.equal(logger.warnings[0]?.context?.finalStage, "select-ticket");
+  assert.equal(logger.errors.length, 1);
+  assert.equal(
+    logger.errors[0]?.message,
+    "Falha definitiva ao enviar resumo final de fluxo no Telegram",
+  );
+  assert.equal(logger.errors[0]?.context?.flow, "run-all");
+  assert.equal(logger.errors[0]?.context?.outcome, "success");
+  assert.equal(logger.errors[0]?.context?.finalStage, "select-ticket");
+  assert.equal(logger.errors[0]?.context?.chunkIndex, 1);
 });
 
 test("status inclui modelo e reasoning selecionados e observados", () => {
@@ -6630,6 +6658,56 @@ test("status inclui ultimo fluxo concluido com fase final e motivo de encerramen
   assert.match(reply, /Último motivo de encerramento: spec-ticket-validation-failure/u);
   assert.match(reply, /Última spec de fluxo: 2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.match(reply, /Detalhes do último fluxo: Nao foi possivel derivar com seguranca o pacote de tickets da spec/u);
+});
+
+test("status inclui rastreabilidade da notificacao do resumo final de fluxo e sua falha", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      lastRunFlowSummary: createRunSpecsFlowSummary(),
+      lastRunFlowNotificationEvent: {
+        summary: createRunSpecsFlowSummary(),
+        delivery: {
+          channel: "telegram",
+          destinationChatId: "42",
+          deliveredAtUtc: "2026-02-19T15:09:30.000Z",
+          attempts: 2,
+          maxAttempts: 4,
+          chunkCount: 3,
+        },
+      },
+      lastRunFlowNotificationFailure: {
+        summary: createRunAllFlowSummary({
+          outcome: "failure",
+          finalStage: "implement",
+          completionReason: "ticket-failure",
+        }),
+        failure: {
+          channel: "telegram",
+          destinationChatId: "42",
+          failedAtUtc: "2026-02-19T15:12:00.000Z",
+          attempts: 4,
+          maxAttempts: 4,
+          errorMessage: "message is too long",
+          errorCode: "400",
+          errorClass: "non-retryable",
+          retryable: false,
+          failedChunkIndex: 2,
+          chunkCount: 3,
+        },
+      },
+    }),
+  );
+
+  assert.match(reply, /Último resumo final de fluxo notificado: run-specs \(success\)/u);
+  assert.match(reply, /Fase final do fluxo notificado: spec-audit/u);
+  assert.match(reply, /Tentativas até entrega do fluxo: 2\/4/u);
+  assert.match(reply, /Partes do resumo de fluxo enviadas: 3/u);
+  assert.match(reply, /Última falha de notificação de fluxo: run-all \(failure\)/u);
+  assert.match(reply, /Fase com falha de notificação de fluxo: implement/u);
+  assert.match(reply, /Código do erro de notificação de fluxo: 400/u);
+  assert.match(reply, /Parte do resumo de fluxo com falha: 2\/3/u);
 });
 
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {
