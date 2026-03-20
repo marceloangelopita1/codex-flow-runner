@@ -2,16 +2,16 @@
 
 ## Metadata
 - Spec ID: 2026-02-20-telegram-multi-project-parallel-runners
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-20 15:44Z
-- Last reviewed at (UTC): 2026-02-20 23:22Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
-  - tickets/open/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
-  - tickets/open/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
+  - tickets/closed/2026-02-20-telegram-multi-runner-status-and-project-scoped-controls-gap.md
+  - tickets/closed/2026-02-20-telegram-allowed-chat-id-required-bootstrap-gap.md
   - tickets/closed/2026-02-20-rf24-sequentiality-alignment-with-multi-runner-mode-gap.md
 - Related execplans:
   - execplans/2026-02-20-multi-runner-core-capacity-and-slot-locks-gap.md
@@ -76,7 +76,7 @@
 - [x] CA-12 - Chat nao autorizado continua bloqueado para comandos e callbacks do bot.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Matriz RF:
   - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10, RF-11, RF-12, RF-13, RF-14, RF-15, RF-16, RF-17, RF-18.
   - Parcialmente atendidos: nenhum.
@@ -98,7 +98,7 @@
   - Controle de acesso por chat segue aplicado a comandos e callbacks quando `TELEGRAM_ALLOWED_CHAT_ID` esta configurado.
   - RF-02 desta spec passa a ser referencia explicita para a semantica do RF-24 em `docs/specs/2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec.md` (sequencialidade por projeto, nao global).
 - Pendencias em aberto:
-  - Nenhuma pendencia tecnica funcional aberta nesta spec; resta apenas fechamento operacional dos tickets relacionados.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - src/main.ts
   - src/core/runner.ts
@@ -136,3 +136,4 @@
 - 2026-02-20 16:42Z - Contrato Telegram multi-runner concluido com painel global `N/5` em `/status`, `/pause` e `/resume` por projeto ativo, e troca de projeto liberada durante execucao em outros projetos com cobertura de CA-05/06/07.
 - 2026-02-20 23:19Z - Rastreabilidade cruzada adicionada para o ticket de alinhamento do RF-24 na spec de UX por clique, reafirmando que a sequencialidade oficial e por projeto.
 - 2026-02-20 23:22Z - Referencia do ticket RF-24 atualizada para `tickets/closed/` apos fechamento operacional.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; todos os tickets derivados desta frente foram consolidados como fechados.

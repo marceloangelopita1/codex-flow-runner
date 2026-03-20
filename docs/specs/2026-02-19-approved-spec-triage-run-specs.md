@@ -2,17 +2,17 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-approved-spec-triage-run-specs
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 19:34Z
-- Last reviewed at (UTC): 2026-02-27 04:30Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
   - tickets/closed/2026-02-19-specs-command-eligibility-listing-and-access-gap.md
   - tickets/closed/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
-  - tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
+  - tickets/closed/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md
 - Related execplans:
   - execplans/2026-02-19-run-specs-triage-orchestration-and-fail-gate-gap.md
   - execplans/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
@@ -73,7 +73,7 @@
 - [x] CA-13 - Ao concluir a triagem em `/run_specs`, o operador recebe milestone proativo no Telegram com spec, resultado, fase final e proxima acao (sucesso/falha).
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - O runner ja possui ciclo sequencial por ticket via `/run_all`, com fail-fast e validacao de sincronismo git.
   - O projeto ja possui prompt base de avaliacao de spec com placeholder `<SPEC_PATH>` (`prompts/01-avaliar-spec-e-gerar-tickets.md`).
@@ -91,7 +91,7 @@
   - Comando `/specs` implementado com listagem deterministica de specs elegiveis e gate de acesso por `TELEGRAM_ALLOWED_CHAT_ID`.
   - `/run_specs <arquivo>` agora valida existencia/elegibilidade antes de iniciar triagem, bloqueando entradas invalidas, specs inexistentes e nao elegiveis com mensagem explicita.
 - Pendencias em aberto:
-  - [P2/S3] Padronizar metadata `Spec treatment` em todas as specs e no template oficial para eliminar ambiguidade de elegibilidade (`tickets/open/2026-02-19-spec-treatment-metadata-template-and-migration-gap.md`).
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/core/runner.test.ts
@@ -132,3 +132,4 @@
 - 2026-02-19 19:57Z - Fluxo `/run_specs` implementado e validado com fail-gate, handoff para `/run_all`, novo prompt `05` e cobertura de testes para CA-02, CA-04..CA-10 e CA-12.
 - 2026-02-19 20:11Z - `/specs` e validacao de elegibilidade/existencia em `/run_specs` implementados com cobertura automatizada para CA-01, CA-03 e CA-11.
 - 2026-02-27 04:30Z - Milestone proativa de conclusao da triagem em `/run_specs` implementada para sucesso/falha e validada para origem por comando `/run_specs` e callback de `/specs` (CA-13).
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; metadata `Spec treatment`, status e rastreabilidade foram consolidados apos o fechamento do ticket remanescente.

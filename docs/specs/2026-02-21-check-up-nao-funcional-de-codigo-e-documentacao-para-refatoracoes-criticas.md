@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-02-21-check-up-nao-funcional-de-codigo-e-documentacao-para-refatoracoes-criticas
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-21 08:39Z
-- Last reviewed at (UTC): 2026-02-21 09:12Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-02-21-checkup-nao-funcional-periodicidade-e-checklists-gap.md
@@ -56,7 +56,7 @@
 - [x] CA-05 - Evidencias de revisao periodica podem ser auditadas por historico da spec e artefatos relacionados.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Matriz RF:
   - Atendidos: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-10.
   - Parcialmente atendidos: nenhum.
@@ -110,3 +110,4 @@
 - 2026-02-21 09:02Z - RF-07/RF-08 e CA-02/CA-03 avancados com matriz objetiva, mapeamento para `P0/P1/P2` e registro piloto em `docs/checkups/history/2026-02-21-priorizacao-refatoracoes-criticas-piloto.md`.
 - 2026-02-21 09:12Z - RF-09 e CA-04/CA-05 avancados com plano de melhoria continua no guia, criterio de reavaliacao formal e registro de revisao periodica em `docs/checkups/history/2026-02-21-revisao-periodica-checkup-nao-funcional.md`.
 - 2026-02-21 09:17Z - Ticket `2026-02-21-plano-de-melhoria-continua-e-rastreabilidade-de-revisoes-gap` fechado como `fixed` e movido para `tickets/closed/` no mesmo changeset.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; metadata e status final foram consolidados apos revisao do backlog derivado.

@@ -2,16 +2,16 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-telegram-multi-project-active-selection
-- Status: approved
+- Status: attended
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 17:25Z
-- Last reviewed at (UTC): 2026-02-19 18:20Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
-  - tickets/open/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
-  - tickets/open/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
+  - tickets/closed/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
+  - tickets/closed/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
+  - tickets/closed/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
 - Related execplans:
   - execplans/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
   - execplans/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
@@ -64,7 +64,7 @@
 - [x] CA-10 - Quando a quantidade de projetos exceder uma pagina, `/projects` permite navegar por paginas sem perder contexto de selecao.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - Fluxo sequencial por ticket (`plan -> implement -> close-and-version`) ja esta implementado no runner.
   - Comandos `/run-all`, `/pause`, `/resume` e `/status` ja existem no bot com controle por `TELEGRAM_ALLOWED_CHAT_ID`.
@@ -83,7 +83,7 @@
   - CA-07 e CA-08 validados por testes automatizados (`src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`).
   - CA-02, CA-03, CA-04, CA-05, CA-09 e CA-10 validados por testes automatizados (`src/integrations/telegram-bot.test.ts`, `src/core/project-selection.test.ts`, `src/core/runner.test.ts`).
 - Pendencias em aberto:
-  - Nenhuma pendencia tecnica aberta nesta spec; permanece pendente apenas o fechamento operacional dos tickets relacionados.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - src/config/env.ts
   - src/config/env.test.ts
@@ -103,9 +103,9 @@
   - src/types/state.ts
   - src/types/ticket-final-summary.ts
   - README.md
-  - tickets/open/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
-  - tickets/open/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
-  - tickets/open/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
+  - tickets/closed/2026-02-19-projects-root-discovery-and-active-state-foundation-gap.md
+  - tickets/closed/2026-02-19-telegram-project-selection-commands-and-pagination-gap.md
+  - tickets/closed/2026-02-19-active-project-context-in-runner-status-and-final-summary-gap.md
 
 ## Riscos e impacto
 - Risco funcional: listar projeto invalido e permitir selecao de alvo que nao roda o fluxo.
@@ -125,3 +125,4 @@
 - 2026-02-19 17:40Z - Fundacao multi-projeto implementada (RF-01..RF-06/RF-13) com validacao de CA-01 e CA-06.
 - 2026-02-19 18:03Z - RF-10/RF-11 implementados com resolucao de projeto por rodada no runner e contexto de projeto ativo em `/status` e resumo final; CA-07/CA-08 validados por testes.
 - 2026-02-19 18:20Z - RF-07/RF-08/RF-09/RF-12 implementados com `/projects` paginado, selecao via callback e `/select-project`, bloqueio durante execucao e auditoria de acesso; CA-02/CA-03/CA-04/CA-05/CA-09/CA-10 validados por testes.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; rastreabilidade de tickets foi atualizada para refletir o backlog ja fechado.

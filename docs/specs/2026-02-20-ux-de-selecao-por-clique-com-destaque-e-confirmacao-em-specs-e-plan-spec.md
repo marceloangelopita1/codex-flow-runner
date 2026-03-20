@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-02-20-ux-de-selecao-por-clique-com-destaque-e-confirmacao-em-specs-e-plan-spec
-- Status: approved
+- Status: attended
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-20 22:12Z
-- Last reviewed at (UTC): 2026-02-20 23:22Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-20-specs-click-selection-inline-callback-and-triage-start-gap.md
@@ -92,7 +92,7 @@
 - [x] CA-23 - `/specs` e `/plan_spec` mantem padrao consistente de UX de callback com destaque da escolha, lock visual e confirmacao observavel.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - RF-01..RF-12 / CA-01..CA-10: `/specs` agora usa teclado inline paginado com callback contextual, revalidacao no clique, tratamento stale/idempotente, destaque de selecao e bloqueio de botoes.
   - RF-13 / CA-11: callbacks de `/specs` e `/plan_spec` respeitam `TELEGRAM_ALLOWED_CHAT_ID`, incluindo callback query.
@@ -141,3 +141,4 @@
 - 2026-02-20 23:09Z - Recorte `/plan_spec` entregue com contexto de callback por mensagem/sessao, destaque+lock de pergunta/final, confirmacao dupla em callbacks aceitos e cobertura CA-12, CA-13, CA-14, CA-15, CA-21, CA-22 e CA-23.
 - 2026-02-20 23:19Z - RF-24 e criterio de concorrencia alinhados ao contrato multi-runner: sequencialidade definida por projeto e rastreada com a spec `2026-02-20-telegram-multi-project-parallel-runners`.
 - 2026-02-20 23:22Z - Referencias do ticket RF-24 atualizadas para `tickets/closed/` apos fechamento operacional.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; status consolidado apos revisao final das specs elegiveis.

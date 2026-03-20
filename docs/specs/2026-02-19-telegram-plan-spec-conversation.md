@@ -2,17 +2,17 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-telegram-plan-spec-conversation
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 21:06Z
-- Last reviewed at (UTC): 2026-02-21 08:31Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
-  - tickets/open/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md
-  - tickets/open/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md
-  - tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md
+  - tickets/closed/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
+  - tickets/closed/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md
+  - tickets/closed/2026-02-19-plan-spec-spec-materialization-and-versioning-gap.md
+  - tickets/closed/2026-02-19-plan-spec-automated-test-coverage-gap.md
 - Related execplans:
   - execplans/2026-02-19-plan-spec-codex-interactive-bridge-and-parser-gap.md
   - execplans/2026-02-19-plan-spec-session-lifecycle-and-command-guards-gap.md
@@ -96,7 +96,7 @@
 - [x] CA-20 - em resposta do Codex nao parseavel, bot repassa conteudo bruto saneado no Telegram.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - Controle de acesso por `TELEGRAM_ALLOWED_CHAT_ID` ja aplicado nos comandos/callbacks atuais do bot.
   - Runner ja possui fluxo sequencial de `/run_all` e `/run_specs`, com estado observavel em `/status`.
@@ -108,7 +108,7 @@
   - Acao final `Criar spec` implementada no runner fora de `/plan`, com derivacao de naming `docs/specs/YYYY-MM-DD-<slug>.md`, validacao de colisao, materializacao + versionamento dedicados e commit `feat(spec): add <arquivo>.md` (`src/core/runner.ts`, `src/integrations/codex-client.ts`, `prompts/06-materializar-spec-planejada.md`, `prompts/07-versionar-spec-planejada-commit-push.md`).
   - Persistencia da trilha `spec_planning/requests|responses|decisions` implementada por integracao filesystem dedicada (`src/integrations/spec-planning-trace-store.ts`).
 - Pendencias em aberto:
-  - Nenhuma pendencia funcional de cobertura para CA-01..CA-20; fechamento operacional do ticket `tickets/open/2026-02-19-plan-spec-automated-test-coverage-gap.md` permanece para etapa dedicada de encerramento/versionamento.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - Revisao de gaps concluida em 2026-02-19 21:13Z com evidencia em `src/`, `prompts/` e abertura de tickets em `tickets/open/`.
   - Validacao final da triagem executada em 2026-02-19 21:18Z, mantendo `Status: approved` e `Spec treatment: pending` devido a gaps rastreados em tickets abertos.
@@ -144,3 +144,4 @@
 - 2026-02-19 23:42Z - Ticket de materializacao/versionamento da spec planejada implementado no codigo com CAs CA-11..CA-16 atendidos; fechamento operacional do ticket permanece para etapa dedicada.
 - 2026-02-19 22:28Z - ExecPlan de cobertura automatizada complementar executado com testes adicionais em `runner`, `telegram-bot`, `codex-client` e `plan-spec-parser`, fechando rastreabilidade CA-01..CA-20; encerramento operacional do ticket segue para etapa de fechamento/versionamento.
 - 2026-02-21 08:31Z - Ticket de migracao de `/plan_spec` para `codex exec/resume --json` implementado com validacao verde em suites de `codex-client`, `runner` e `telegram`.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; tickets derivados e status final foram consolidados apos o fechamento do backlog remanescente.

@@ -6,13 +6,14 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-27 04:09Z
-- Last reviewed at (UTC): 2026-02-27 04:48Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
-  - tickets/open/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
+  - tickets/closed/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 - Related execplans:
   - execplans/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
+  - execplans/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 - Related commits:
   - A definir
 
@@ -69,7 +70,7 @@
   - RF-08 e CA-06: roteamento de texto livre no Telegram consolidado em gate unico por sessao ativa, evitando dupla entrega no mesmo update (`src/integrations/telegram-bot.ts`, `src/integrations/telegram-bot.test.ts`).
   - RF-10 (dominio de texto livre): taxonomia de bloqueio de sessoes interativas convergida para `global-free-text-busy` em contratos e testes (`src/core/runner.ts`, `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`).
 - Pendencias em aberto:
-  - Fechamento operacional do ticket `tickets/open/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md` (mover para `tickets/closed/` e versionar), fora do escopo desta etapa.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/core/runner.test.ts
@@ -96,3 +97,4 @@
 - 2026-02-27 05:55Z - Entrega tecnica do ticket de concorrencia de runs aplicada em workspace: removido lock global de ticket, taxonomia de capacidade migrada para `runner-capacity-maxed` e estado `/status` atualizado sem `ticketCapacity` legado.
 - 2026-02-27 04:35Z - Ticket de concorrencia de runs fechado em `tickets/closed/` com validacao automatizada concluida (tests/check/build) e rastreabilidade atualizada.
 - 2026-02-27 04:48Z - ExecPlan de lock global de texto livre executado no workspace: bloqueio bidirecional `/plan_spec` <-> `/codex_chat` com `global-free-text-busy`, gate unico de roteamento no Telegram, ajuste de handoff para `/plan_spec` e validacao verde em `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`.
+- 2026-03-20 01:44Z - Spec revisada para consolidar rastreabilidade final dos tickets/execplans fechados e remover pendencia operacional remanescente.

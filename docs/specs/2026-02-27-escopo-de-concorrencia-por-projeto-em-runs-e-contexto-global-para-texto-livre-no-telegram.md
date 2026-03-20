@@ -2,16 +2,18 @@
 
 ## Metadata
 - Spec ID: 2026-02-27-escopo-de-concorrencia-por-projeto-em-runs-e-contexto-global-para-texto-livre-no-telegram
-- Status: approved
-- Spec treatment: pending
+- Status: superseded
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-27 04:10Z
-- Last reviewed at (UTC): 2026-02-27 04:10Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
-  - A definir
+  - tickets/closed/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
+  - tickets/closed/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 - Related execplans:
-  - A definir
+  - execplans/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
+  - execplans/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 - Related commits:
   - A definir
 
@@ -56,16 +58,18 @@
 - [ ] CA-07 - Logs de bloqueio devem registrar motivo taxonomico e contexto de projeto quando aplicavel.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: superseded
 - Itens atendidos:
-  - Escopo funcional aprovado para separacao de concorrencia por dominio (runs por projeto e texto livre global).
+  - O escopo desta versao foi absorvido e entregue pela spec sucessora `docs/specs/2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre.md`.
+  - A rastreabilidade funcional desta frente passou a viver nos tickets e execplans derivados da spec sucessora.
 - Pendencias em aberto:
-  - Implementar lock por projeto para `/run_all` e `/run_specs` no fluxo de execucao.
-  - Consolidar lock global unico de texto livre para `/plan_spec` e `/codex_chat`.
-  - Garantir observabilidade de bloqueios em `/status` e logs com taxonomia definida.
-  - Validar cenarios CA-01..CA-07 com cobertura de testes.
+  - Nenhuma pendencia aberta nesta versao; ela foi substituida pela spec sucessora e nao deve mais ser tratada como backlog implementavel.
 - Evidencias de validacao:
-  - A definir apos implementacao.
+  - docs/specs/2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre.md
+  - tickets/closed/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
+  - tickets/closed/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
+  - execplans/2026-02-27-concorrencia-de-runs-por-projeto-sem-ticket-lock-global.md
+  - execplans/2026-02-27-lock-global-de-texto-livre-entre-plan-spec-e-codex-chat.md
 
 ## Riscos e impacto
 - Risco funcional: combinacao incorreta de locks pode causar corrida de estado ou bloqueio indevido.
@@ -79,3 +83,4 @@
 
 ## Historico de atualizacao
 - 2026-02-27 04:10Z - Versao inicial da spec materializada a partir do titulo e resumo finais aprovados.
+- 2026-03-20 01:44Z - Esta versao foi marcada como `superseded`; o escopo e a execucao foram consolidados na spec sucessora `2026-02-27-escopo-de-concorrencia-por-projeto-e-contexto-global-para-texto-livre`.

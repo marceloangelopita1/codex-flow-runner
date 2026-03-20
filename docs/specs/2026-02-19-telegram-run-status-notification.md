@@ -2,17 +2,17 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-telegram-run-status-notification
-- Status: approved
+- Status: attended
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-27 04:30Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - tickets/closed/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
   - tickets/closed/2026-02-27-run-specs-missing-triage-completion-notification-gap.md
-  - tickets/open/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
+  - tickets/closed/2026-02-27-telegram-ticket-final-summary-delivery-reliability-gap.md
 - Related execplans:
   - execplans/2026-02-19-telegram-final-summary-per-ticket-gap.md
   - execplans/2026-02-19-telegram-summary-traceability-and-status-coherence-gap.md
@@ -58,7 +58,7 @@
 - [x] CA-08 - Ao concluir triagem de `/run_specs`, milestone proativa e enviada no chat de notificacao (origem comando `/run_specs` e callback de `/specs`) com contexto minimo.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - O runner executa as fases `plan -> implement -> close-and-version` de forma sequencial por ticket.
   - O runner registra estado interno por fase, sucesso e erro (`phase`, `currentTicket`, `lastMessage`, `updatedAt`) e esse snapshot e exposto por `/status`.
@@ -76,7 +76,7 @@
   - O bot passou a enviar milestone proativa de triagem de `/run_specs` antes da rodada de tickets, usando `notificationChatId` capturado por comando ou callback.
   - Runner/main/bot receberam wiring dedicado para lifecycle de `run_specs` com envio best-effort e warning acionavel quando nao ha chat de notificacao.
 - Pendencias em aberto:
-  - Validacao manual em Telegram real para comprovar o comportamento de retry em condicao de falha transitoria controlada de rede/API.
+  - Nenhuma pendencia funcional aberta nesta spec.
 - Evidencias de validacao:
   - src/core/runner.ts
   - src/types/ticket-final-summary.ts
@@ -110,3 +110,4 @@
 - 2026-02-19 15:10Z - Ticket de rastreabilidade/coerencia movido para `tickets/closed/` apos validacao completa de testes, check e build.
 - 2026-02-27 - Politica de retry/backoff para notificacao final implementada com estado de falha definitiva em `/status`; validacao manual em Telegram real registrada como pendencia operacional.
 - 2026-02-27 04:30Z - Notificacao proativa de milestone da triagem `/run_specs` implementada e coberta em testes para origem por comando e callback.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; o ticket de confiabilidade foi consolidado em `tickets/closed/` e a pendencia residual deixou de compor backlog funcional.

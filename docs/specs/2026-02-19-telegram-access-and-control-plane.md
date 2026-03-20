@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-02-19-telegram-access-and-control-plane
-- Status: approved
+- Status: attended
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-02-19 10:53Z
-- Last reviewed at (UTC): 2026-02-19 11:56Z
+- Last reviewed at (UTC): 2026-03-20 01:44Z
 - Source: operational-gap
 - Related tickets:
   - tickets/closed/2026-02-19-telegram-run-all-access-control-gap.md
@@ -45,7 +45,7 @@
 - [x] CA-04 - Documentacao operacional descreve claramente o modo restrito e o modo sem restricao.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - `TELEGRAM_ALLOWED_CHAT_ID` ja existe como configuracao opcional de ambiente.
   - Comandos `/run-all`, `/status`, `/pause` e `/resume` validam `chat.id` antes da acao.
@@ -84,3 +84,4 @@
 - 2026-02-19 11:43Z - Auditoria de acesso, documentacao de modos e cobertura automatizada inicial entregues (CA-03 e CA-04 atendidos).
 - 2026-02-19 11:52Z - `/run-all` entregue com controle de acesso, bootstrap por gatilho remoto e cobertura de testes para CA-01/CA-02.
 - 2026-02-19 11:56Z - Ticket de `/run-all` encerrado e referencias de rastreabilidade atualizadas para `tickets/closed/`.
+- 2026-03-20 01:44Z - Spec encerrada documentalmente como atendida; status consolidado apos revisao final do backlog derivado.
