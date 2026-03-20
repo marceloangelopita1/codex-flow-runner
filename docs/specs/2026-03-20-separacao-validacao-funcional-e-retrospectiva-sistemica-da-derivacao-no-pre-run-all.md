@@ -6,10 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-20 01:36Z
-- Last reviewed at (UTC): 2026-03-20 01:36Z
+- Last reviewed at (UTC): 2026-03-20 02:08Z
 - Source: technical-evolution
 - Related tickets:
-  - A definir
+  - tickets/open/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md
+  - tickets/open/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md
+  - tickets/open/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md
+  - tickets/open/2026-03-20-target-project-compatibility-contract-gap.md
 - Related execplans:
   - A definir
 - Related commits:
@@ -182,6 +185,39 @@
 - Nota de uso: quando a spec vier de `/run_specs`, preencher esta secao apenas com o resultado funcional do gate formal de validacao dos tickets derivados. Hipoteses sistemicas, backlog transversal do runner e publicacao de ticket sistemico nao pertencem mais a esta secao.
 - Politica historica: alinhamentos desta secao nao exigem migracao retroativa em massa; material historico so deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-20T02:07:24.755Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado cobre de forma coerente as pendencias abertas da spec, preserva a separacao entre orquestracao, contrato funcional/write-back, anti-duplicacao pos-auditoria e contrato documental de compatibilidade, e os 4 tickets atendem ao contrato canonico minimo de `INTERNAL_TICKETS.md` para derivacao via `spec-triage`, sem lacuna objetiva de cobertura, duplicacao material, granularidade inadequada ou nao conformidade documental que justifique bloquear o backlog.
+- Ciclos executados: 0
+- Thread da validacao: 019d08fd-9ba0-71b2-bdfb-c331f48599b9
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-20-target-project-compatibility-contract-gap.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: GO (high)
+  - Resumo: O pacote derivado cobre de forma coerente as pendencias abertas da spec, preserva a separacao entre orquestracao, contrato funcional/write-back, anti-duplicacao pos-auditoria e contrato documental de compatibilidade, e os 4 tickets atendem ao contrato canonico minimo de `INTERNAL_TICKETS.md` para derivacao via `spec-triage`, sem lacuna objetiva de cobertura, duplicacao material, granularidade inadequada ou nao conformidade documental que justifique bloquear o backlog.
+  - Thread: 019d08fd-9ba0-71b2-bdfb-c331f48599b9
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Nenhuma.
+
+#### Observacoes sobre melhoria sistemica do workflow
+- Nenhuma observacao sistemica registrada neste gate pre-run-all.
+
 ## Retrospectiva sistemica da derivacao dos tickets
 - Executada: n/a
 - Motivo de ativacao ou skip: n/a
@@ -212,19 +248,21 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
 - Itens atendidos:
-  - Escopo funcional, naming, fronteiras de responsabilidade, saidas observaveis, nao-escopo e contrato documental da mudanca foram fechados em entrevista detalhada.
-  - A separacao pretendida entre gate funcional pre-run-all, retrospectiva sistemica pre-run-all e retrospectiva sistemica pos-`spec-audit` ficou explicitada nesta spec.
-  - O contrato documental de compatibilidade do projeto alvo foi definido como pre-requisito operacional do onboarding humano, sem validacao semantica de runtime.
+  - `spec-ticket-validation` ja existe como nome canonico do gate funcional pre-run-all, com historico por ciclo, `GO/NO_GO` e resumo observavel do pacote derivado.
+  - A retrospectiva sistemica pos-`spec-audit` ja oferece taxonomia compartilhada (`systemic-gap | systemic-hypothesis | not-systemic | emphasis-only | operational-limitation`), semantica de confianca e publication cross-repo reutilizavel para a etapa pre-run-all.
+  - O runner atual nao faz preflight semantico dedicado de compatibilidade do projeto alvo; o fluxo segue diretamente por stages nomeados de `/run_specs`, preservando o contrato de onboarding humano descrito nesta spec.
 - Pendencias em aberto:
-  - Implementar a nova etapa `spec-ticket-derivation-retrospective` com suas duas subetapas e observabilidade dedicada.
-  - Remover semantica sistemica de `spec-ticket-validation` e do `Gate de validacao dos tickets derivados`.
-  - Atualizar `SPECS.md`, template de spec, prompts, runner, traces, resumo do Telegram e demais docs canonicas para refletir o novo contrato.
-  - Criar `docs/workflows/target-project-compatibility-contract.md` e atualizar `README.md` e `AGENTS.md` com os ponteiros canonicos.
+  - `tickets/open/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md`: falta introduzir `spec-ticket-derivation-retrospective` como stage explicito e nao bloqueante entre `spec-ticket-validation` e `spec-close-and-version`, com regras de execucao/skip, contexto novo, traces, timing, finalStage e publication pre-run-all.
+  - `tickets/open/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md`: falta remover semantica sistemica do gate funcional, criar write-back dedicado para `Retrospectiva sistemica da derivacao dos tickets` e alinhar `SPECS.md`, template global e resumo final do `/run_specs`.
+  - `tickets/open/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md`: falta impedir que `spec-workflow-retrospective` pos-`spec-audit` reavalie ou retickete a mesma frente causal ja tratada na retrospectiva pre-run-all.
+  - `tickets/open/2026-03-20-target-project-compatibility-contract-gap.md`: falta materializar `docs/workflows/target-project-compatibility-contract.md` e atualizar `README.md`/`AGENTS.md` para refletir o contrato de compatibilidade do projeto alvo.
 - Evidencias de validacao:
   - Entrevista detalhada de descoberta concluida em 2026-03-20 01:36Z, cobrindo objetivo, escopo, nao-escopo, naming, restricoes, outputs, observabilidade, anti-duplicacao e contrato de compatibilidade.
   - Releitura de `docs/workflows/discover-spec.md`, `SPECS.md`, `DOCUMENTATION.md`, `README.md`, `INTERNAL_TICKETS.md` e `docs/workflows/codex-quality-gates.md`.
   - Releitura de `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md` e `docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md`.
   - Releitura de `prompts/08-auditar-spec-apos-run-all.md`, `prompts/09-validar-tickets-derivados-da-spec.md`, `prompts/10-autocorrigir-tickets-derivados-da-spec.md` e `prompts/11-retrospectiva-workflow-apos-spec-audit.md`.
+  - Revisao de implementacao concluida em 2026-03-20 01:57Z contra `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/types/spec-ticket-validation.ts`, `src/integrations/codex-client.ts`, `src/integrations/workflow-trace-store.ts`, `src/integrations/telegram-bot.ts`, `docs/specs/templates/spec-template.md` e `src/integrations/workflow-improvement-ticket-publisher.ts`, com abertura dos tickets derivados acima.
+  - Validacao final da triagem concluida em 2026-03-20 02:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending` e os 4 tickets ainda abertos em `tickets/open/`, sem gap adicional fora da rastreabilidade ja registrada.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -258,3 +296,4 @@
 
 ## Historico de atualizacao
 - 2026-03-20 01:36Z - Versao inicial da spec criada a partir de entrevista detalhada de descoberta, com `Status: approved` e `Spec treatment: pending`.
+- 2026-03-20 02:08Z - Triagem final validada; status e tratamento mantidos em aberto devido aos 4 gaps rastreados por tickets em `tickets/open/`.
