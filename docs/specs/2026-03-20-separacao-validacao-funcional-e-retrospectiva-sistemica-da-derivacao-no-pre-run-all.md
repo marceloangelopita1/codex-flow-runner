@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all
-- Status: partially_attended
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-20 01:36Z
-- Last reviewed at (UTC): 2026-03-20 03:41Z
+- Last reviewed at (UTC): 2026-03-20 03:49Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md
@@ -15,9 +15,15 @@
   - tickets/closed/2026-03-20-target-project-compatibility-contract-gap.md
 - Related execplans:
   - execplans/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md
+  - execplans/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md
   - execplans/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md
+  - execplans/2026-03-20-target-project-compatibility-contract-gap.md
 - Related commits:
-  - A definir
+  - 55b651f - `chore(specs): triage 2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md`
+  - 816cb4e - `chore(tickets): close 2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md`
+  - d861333 - `chore(tickets): close 2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md`
+  - fd33449 - `chore(tickets): close 2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md`
+  - 6f65b2e - `chore(tickets): close 2026-03-20-target-project-compatibility-contract-gap.md`
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
@@ -152,26 +158,26 @@
 - Paralelizar triagem, validacao ou execucao de tickets derivados.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Quando `spec-ticket-validation` concluir sem gaps revisados em nenhum ciclo, `spec-ticket-derivation-retrospective` nao roda e trace/log/resumo registram explicitamente o skip por ausencia de gaps revisados.
-- [ ] CA-02 - Quando existir ao menos 1 gap revisado em qualquer ciclo do `spec-ticket-validation`, `spec-ticket-derivation-retrospective` roda mesmo que o veredito funcional final seja `GO`.
-- [ ] CA-03 - Quando `spec-ticket-validation` terminar em `NO_GO` com historico estruturado suficiente, `spec-ticket-derivation-retrospective` ainda roda antes do encerramento do fluxo.
-- [ ] CA-04 - Quando `spec-ticket-validation` falhar tecnicamente sem material estruturado suficiente, `spec-ticket-derivation-retrospective` e pulada e o motivo aparece como insuficiencia de insumos estruturados.
-- [ ] CA-05 - `derivation-gap-analysis` inicia em contexto novo, rele a spec, o pacote final de tickets derivados e o historico completo dos ciclos do gate funcional.
-- [ ] CA-06 - `derivation-gap-analysis` consulta as fontes canonicas do workflow no `codex-flow-runner`, incluindo `AGENTS.md`, docs canonicas, `prompts/` e codigo do fluxo quando necessario.
-- [ ] CA-07 - A retrospectiva pre-run-all usa exatamente a mesma taxonomia `systemic-gap | systemic-hypothesis | not-systemic | emphasis-only | operational-limitation` da retrospectiva pos-`spec-audit`.
-- [ ] CA-08 - Com `systemic-gap` e `high confidence`, o runner pode criar ou reutilizar no maximo 1 ticket transversal agregado no `codex-flow-runner`.
-- [ ] CA-09 - Com `medium confidence`, o runner registra hipotese sistemica e evidencias, mas nao abre ticket automatico.
-- [ ] CA-10 - Com `low confidence`, o runner nao promove hipotese sistemica acionavel nem abre ticket automatico.
-- [ ] CA-11 - Em projeto externo, a retrospectiva pre-run-all nao altera a spec nem outros artefatos do projeto alvo, registrando resultado apenas em trace/log/resumo e, quando elegivel, no ticket publicado no `codex-flow-runner`.
-- [ ] CA-12 - No proprio `codex-flow-runner`, a retrospectiva pre-run-all pode atualizar a secao `Retrospectiva sistemica da derivacao dos tickets` da spec corrente, sem perder trace/log/resumo.
-- [ ] CA-13 - O `Gate de validacao dos tickets derivados` deixa de carregar qualquer observacao ou semantica de melhoria sistemica do workflow.
-- [ ] CA-14 - A spec, o template global e `SPECS.md` passam a conter a secao `Retrospectiva sistemica da derivacao dos tickets` com nota explicita de comportamento diferente entre `codex-flow-runner` e projeto externo.
-- [ ] CA-15 - O resumo final do `/run_specs` distingue explicitamente `Gate spec-ticket-validation`, `Retrospectiva sistemica da derivacao` e `Retrospectiva sistemica pos-spec-audit`, quando aplicavel.
-- [ ] CA-16 - Quando a retrospectiva pre-run-all executa por completo e o fluxo termina antes do `/run-all`, `spec-ticket-derivation-retrospective` aparece como fase final observavel do `/run_specs`.
-- [ ] CA-17 - `spec-workflow-retrospective` pos-`spec-audit` nao abre ticket automatico duplicado para a mesma frente causal ja tratada na retrospectiva pre-run-all e, quando util, apenas referencia o ticket existente.
-- [ ] CA-18 - Existe novo documento canonico em `docs/workflows/target-project-compatibility-contract.md` definindo `projeto elegivel para descoberta` e `projeto compativel com o workflow completo`.
-- [ ] CA-19 - `README.md` resume que compatibilidade do projeto alvo e pre-requisito operacional do onboarding humano e nao validacao semantica de runtime, apontando para o documento canonico.
-- [ ] CA-20 - `AGENTS.md` passa a conter apenas um ponteiro curto para o contrato de compatibilidade, sem duplicacao normativa.
+- [x] CA-01 - Quando `spec-ticket-validation` concluir sem gaps revisados em nenhum ciclo, `spec-ticket-derivation-retrospective` nao roda e trace/log/resumo registram explicitamente o skip por ausencia de gaps revisados.
+- [x] CA-02 - Quando existir ao menos 1 gap revisado em qualquer ciclo do `spec-ticket-validation`, `spec-ticket-derivation-retrospective` roda mesmo que o veredito funcional final seja `GO`.
+- [x] CA-03 - Quando `spec-ticket-validation` terminar em `NO_GO` com historico estruturado suficiente, `spec-ticket-derivation-retrospective` ainda roda antes do encerramento do fluxo.
+- [x] CA-04 - Quando `spec-ticket-validation` falhar tecnicamente sem material estruturado suficiente, `spec-ticket-derivation-retrospective` e pulada e o motivo aparece como insuficiencia de insumos estruturados.
+- [x] CA-05 - `derivation-gap-analysis` inicia em contexto novo, rele a spec, o pacote final de tickets derivados e o historico completo dos ciclos do gate funcional.
+- [x] CA-06 - `derivation-gap-analysis` consulta as fontes canonicas do workflow no `codex-flow-runner`, incluindo `AGENTS.md`, docs canonicas, `prompts/` e codigo do fluxo quando necessario.
+- [x] CA-07 - A retrospectiva pre-run-all usa exatamente a mesma taxonomia `systemic-gap | systemic-hypothesis | not-systemic | emphasis-only | operational-limitation` da retrospectiva pos-`spec-audit`.
+- [x] CA-08 - Com `systemic-gap` e `high confidence`, o runner pode criar ou reutilizar no maximo 1 ticket transversal agregado no `codex-flow-runner`.
+- [x] CA-09 - Com `medium confidence`, o runner registra hipotese sistemica e evidencias, mas nao abre ticket automatico.
+- [x] CA-10 - Com `low confidence`, o runner nao promove hipotese sistemica acionavel nem abre ticket automatico.
+- [x] CA-11 - Em projeto externo, a retrospectiva pre-run-all nao altera a spec nem outros artefatos do projeto alvo, registrando resultado apenas em trace/log/resumo e, quando elegivel, no ticket publicado no `codex-flow-runner`.
+- [x] CA-12 - No proprio `codex-flow-runner`, a retrospectiva pre-run-all pode atualizar a secao `Retrospectiva sistemica da derivacao dos tickets` da spec corrente, sem perder trace/log/resumo.
+- [x] CA-13 - O `Gate de validacao dos tickets derivados` deixa de carregar qualquer observacao ou semantica de melhoria sistemica do workflow.
+- [x] CA-14 - A spec, o template global e `SPECS.md` passam a conter a secao `Retrospectiva sistemica da derivacao dos tickets` com nota explicita de comportamento diferente entre `codex-flow-runner` e projeto externo.
+- [x] CA-15 - O resumo final do `/run_specs` distingue explicitamente `Gate spec-ticket-validation`, `Retrospectiva sistemica da derivacao` e `Retrospectiva sistemica pos-spec-audit`, quando aplicavel.
+- [x] CA-16 - Quando a retrospectiva pre-run-all executa por completo e o fluxo termina antes do `/run-all`, `spec-ticket-derivation-retrospective` aparece como fase final observavel do `/run_specs`.
+- [x] CA-17 - `spec-workflow-retrospective` pos-`spec-audit` nao abre ticket automatico duplicado para a mesma frente causal ja tratada na retrospectiva pre-run-all e, quando util, apenas referencia o ticket existente.
+- [x] CA-18 - Existe novo documento canonico em `docs/workflows/target-project-compatibility-contract.md` definindo `projeto elegivel para descoberta` e `projeto compativel com o workflow completo`.
+- [x] CA-19 - `README.md` resume que compatibilidade do projeto alvo e pre-requisito operacional do onboarding humano e nao validacao semantica de runtime, apontando para o documento canonico.
+- [x] CA-20 - `AGENTS.md` passa a conter apenas um ponteiro curto para o contrato de compatibilidade, sem duplicacao normativa.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -217,34 +223,34 @@
 - Nenhuma.
 
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip: n/a
-- Classificacao final: n/a
+- Executada: nao
+- Motivo de ativacao ou skip:
+  - Gate `spec-ticket-validation` desta propria linhagem encerrou em `GO` com 0 gaps revisados e 0 correcoes aplicadas; conforme RF-08 e RF-32, a retrospectiva pre-run-all foi pulada com motivo observavel de ausencia de gaps revisados.
+- Classificacao final: n/a - etapa pulada por ausencia de gaps revisados
 - Confianca: n/a
-- Frente causal analisada: n/a
+- Frente causal analisada: n/a - etapa pulada antes da analise sistemica
 - Achados sistemicos:
-  - n/a
+  - nenhum; a etapa nao foi ativada.
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicacao: n/a
+  - n/a - etapa pulada antes da releitura dedicada das fontes canonicas.
+- Elegibilidade de publicacao: n/a - etapa pulada
 - Resultado do ticket transversal ou limitacao operacional:
-  - n/a
+  - nenhum; skip funcional sem limitacao operacional.
 - Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Validar o novo encadeamento `spec-ticket-validation -> spec-ticket-derivation-retrospective -> spec-close-and-version` em cenarios `GO`, `NO_GO`, skip por ausencia de gaps revisados e skip por insuficiencia de insumos estruturados.
-  - Validar a nova separacao documental entre a secao funcional do gate e a secao retrospectiva da derivacao em `SPECS.md`, template de spec e resumo final do `/run_specs`.
-  - Complementar em rodada real a validacao automatizada da regra anti-duplicacao entre retrospectiva pre-run-all e retrospectiva pos-`spec-audit`.
+  - Nenhuma bloqueante para o atendimento final desta spec; o encadeamento pre-run-all, a separacao documental do gate, a anti-duplicacao pos-`spec-audit`, o contrato de compatibilidade e a publication cross-repo ficaram cobertos por `src/core/runner.test.ts`, `src/integrations/workflow-trace-store.test.ts`, `src/integrations/workflow-gap-analysis-parser.test.ts`, `src/integrations/spec-ticket-validation-parser.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/workflow-improvement-ticket-publisher.test.ts`.
 - Validacoes manuais pendentes:
-  - Executar ao menos uma rodada real no proprio `codex-flow-runner` com gap corrigido no gate funcional e confirmar write-back na secao `Retrospectiva sistemica da derivacao dos tickets`, resumo final e eventual publicacao do ticket transversal.
-  - Executar ao menos uma rodada real em projeto externo com gap revisado no gate funcional e confirmar ausencia de write-back na spec do projeto alvo, mantendo trace/log/resumo e eventual ticket no `../codex-flow-runner`.
-  - Executar ao menos uma rodada real em projeto externo sem gaps revisados no gate funcional e confirmar skip explicito da retrospectiva pre-run-all.
-  - Exercitar um caminho de falha tecnica do `spec-ticket-validation` com e sem insumo estruturado suficiente para confirmar a regra de execucao condicional da retrospectiva pre-run-all.
+  - Executar ao menos uma rodada real no proprio `codex-flow-runner` com gap corrigido no gate funcional e confirmar write-back na secao `Retrospectiva sistemica da derivacao dos tickets`, resumo final e eventual publicacao do ticket transversal; esta revalidacao permanece recomendada e nao configura gap residual da spec.
+  - Executar ao menos uma rodada real em projeto externo com gap revisado no gate funcional e confirmar ausencia de write-back na spec do projeto alvo, mantendo trace/log/resumo e eventual ticket no `../codex-flow-runner`; esta revalidacao permanece recomendada e nao configura gap residual da spec.
+  - Executar ao menos uma rodada real em projeto externo sem gaps revisados no gate funcional e confirmar skip explicito da retrospectiva pre-run-all; esta revalidacao permanece recomendada e nao configura gap residual da spec.
+  - Exercitar um caminho de falha tecnica do `spec-ticket-validation` com e sem insumo estruturado suficiente para confirmar a regra de execucao condicional da retrospectiva pre-run-all; esta revalidacao permanece recomendada e nao configura gap residual da spec.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
+- Resultado da auditoria final: a linhagem completa foi relida contra esta spec, os 4 tickets fechados relacionados, os 4 execplans relacionados, o estado versionado em `55b651f`, `816cb4e`, `d861333`, `fd33449` e `6f65b2e`, e o codigo/testes atuais; nao foram encontrados gaps tecnicos residuais e a spec foi promovida para `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - `spec-ticket-validation` ja existe como nome canonico do gate funcional pre-run-all, com historico por ciclo, `GO/NO_GO` e resumo observavel do pacote derivado.
   - A retrospectiva sistemica pos-`spec-audit` ja oferece taxonomia compartilhada (`systemic-gap | systemic-hypothesis | not-systemic | emphasis-only | operational-limitation`), semantica de confianca e publication cross-repo reutilizavel para a etapa pre-run-all.
@@ -254,7 +260,8 @@
   - `tickets/closed/2026-03-20-separacao-do-gate-funcional-e-write-back-da-retrospectiva-da-derivacao-gap.md`: o working tree atual ja remove `systemic-instruction` do contrato de `spec-ticket-validation`, persiste apenas conteudo funcional no gate, faz write-back dedicado da secao `Retrospectiva sistemica da derivacao dos tickets` no proprio `codex-flow-runner` e alinha template/SPECS/resumo final com a separacao aprovada nesta spec.
   - `tickets/closed/2026-03-20-target-project-compatibility-contract-gap.md`: o working tree materializa `docs/workflows/target-project-compatibility-contract.md`, atualiza `README.md`/`AGENTS.md` e fecha o gap documental de compatibilidade do projeto alvo.
 - Pendencias em aberto:
-  - nenhuma na linhagem de tickets derivada desta triagem; restam as validacoes manuais e a auditoria final descritas nesta spec.
+  - Nenhuma pendencia tecnica residual nem follow-up aberto derivado desta spec.
+  - Permanecem apenas validacoes manuais externas registradas em `Validacoes pendentes ou manuais`, sem bloquear `Status: attended` nem `Spec treatment: done`.
 - Evidencias de validacao:
   - Entrevista detalhada de descoberta concluida em 2026-03-20 01:36Z, cobrindo objetivo, escopo, nao-escopo, naming, restricoes, outputs, observabilidade, anti-duplicacao e contrato de compatibilidade.
   - Suite automatizada verde no working tree para RF-35, RF-36 e CA-17 cobrindo overlap causal com ticket pre-run-all, overlap sem ticket pre-run-all e causa residual realmente nova via `src/core/runner.test.ts`, `src/integrations/workflow-gap-analysis-parser.test.ts` e `src/integrations/telegram-bot.test.ts`.
@@ -266,18 +273,25 @@
   - Implementacao do stage `spec-ticket-derivation-retrospective` no working tree, com novo prompt `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`, novo `inputMode` `spec-ticket-validation-history`, resumo dedicado no `/run_specs` e cobertura automatizada de `GO` com gap revisado, `NO_GO` com historico estruturado, skip explicito e falha tecnica parcial.
   - Validacoes observaveis desta rodada: `npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`, todos verdes no working tree atual.
   - Validacoes observaveis desta rodada de separacao funcional/write-back: `npx tsx --test src/core/runner.test.ts src/integrations/spec-ticket-validation-parser.test.ts src/integrations/telegram-bot.test.ts`, `rg -n "systemic-instruction|Observacoes sobre melhoria sistemica do workflow|Observacoes de melhoria sistemica" prompts/09-validar-tickets-derivados-da-spec.md src/types/spec-ticket-validation.ts src/integrations/spec-ticket-validation-parser.ts src/core/runner.ts docs/specs/templates/spec-template.md` e `rg -n "Retrospectiva sistemica da derivacao dos tickets|codex-flow-runner|projeto externo" docs/specs/templates/spec-template.md SPECS.md`, cobrindo o gate funcional limpo, o write-back local da retrospectiva e a documentacao canonica atualizada.
+  - Auditoria final reexecutada em 2026-03-20 03:49Z com releitura desta spec, dos 4 tickets fechados relacionados, dos 4 execplans relacionados, de `README.md`, `AGENTS.md`, `docs/workflows/target-project-compatibility-contract.md`, `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`, `src/core/runner.ts`, `src/integrations/codex-client.ts`, `src/types/flow-timing.ts`, `src/types/spec-ticket-validation.ts`, `src/types/workflow-gap-analysis.ts`, `src/integrations/workflow-trace-store.ts`, `src/integrations/spec-ticket-validation-parser.ts`, `src/integrations/workflow-gap-analysis-parser.ts`, `src/integrations/workflow-improvement-ticket-publisher.ts` e `src/integrations/telegram-bot.ts`, sem identificacao de gap residual.
+  - Matriz observavel da auditoria final executada em 2026-03-20 03:49Z com sucesso:
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/spec-ticket-validation-parser.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+    - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`
+    - `rg -n "systemic-instruction|Observacoes sobre melhoria sistemica do workflow|Observacoes de melhoria sistemica" prompts/09-validar-tickets-derivados-da-spec.md src/types/spec-ticket-validation.ts src/integrations/spec-ticket-validation-parser.ts src/core/runner.ts docs/specs/templates/spec-template.md` -> sem matches
+    - `rg -n "Retrospectiva sistemica da derivacao dos tickets|codex-flow-runner|projeto externo|target-project-compatibility-contract|spec -> tickets|ticket -> execplan" docs/specs/templates/spec-template.md SPECS.md README.md AGENTS.md docs/workflows/target-project-compatibility-contract.md` -> matches esperados
+    - `git log --oneline --decorate -n 12`
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-  - n/a
-- Resultado:
-  - n/a - spec ainda nao implementada nem auditada.
+- Auditoria executada em: 2026-03-20 03:49Z
+- Resultado: a releitura integral desta spec, dos 4 tickets fechados relacionados, dos 4 execplans relacionados, do estado versionado em `55b651f`, `816cb4e`, `d861333`, `fd33449` e `6f65b2e`, da documentacao canonica atual e das suites executadas nesta auditoria confirmou atendimento de RF-01..RF-42 e CA-01..CA-20. Nao foram encontrados gaps tecnicos residuais; a spec permanece em `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - n/a
+  - nenhum
 - Causas-raiz sistemicas identificadas:
-  - n/a
+  - nenhuma; auditoria encerrada sem gaps residuais.
 - Ajustes genericos promovidos ao workflow:
-  - n/a
+  - nenhum; a auditoria final apenas consolidou a rastreabilidade e revalidou a entrega existente.
 
 ## Riscos e impacto
 - Risco funcional: manter sobreposicao entre gate funcional e retrospectiva sistemica pode continuar gerando backlog confuso e causalidade fraca.
@@ -302,3 +316,4 @@
 - 2026-03-20 02:08Z - Triagem final validada; status e tratamento mantidos em aberto devido aos 4 gaps rastreados por tickets em `tickets/open/`.
 - 2026-03-20 03:39Z - Working tree atualizado para materializar o contrato canonico de compatibilidade do projeto alvo em `docs/workflows/target-project-compatibility-contract.md` e alinhar `README.md`/`AGENTS.md`; naquele momento, o ticket correspondente ainda seguia para a etapa separada de fechamento/versionamento.
 - 2026-03-20 03:41Z - Ticket `2026-03-20-target-project-compatibility-contract-gap.md` fechado como `fixed`; a spec passa a referenciar apenas tickets fechados nesta linhagem e mantem pendentes apenas as validacoes manuais/auditoria final.
+- 2026-03-20 03:49Z - Auditoria final apos a rodada encadeada revalidou a linhagem inteira sem gaps tecnicos residuais, marcou CA-01..CA-20 como atendidos, atualizou a rastreabilidade de execplans/commits e promoveu a spec para `Status: attended` com `Spec treatment: done`.
