@@ -1,21 +1,21 @@
-# PLANS.md - Padrao de ExecPlan
+# PLANS.md - Padrão de ExecPlan
 
 ## Finalidade
-Este documento define o padrao de ExecPlan deste repositorio.
+Este documento define o padrão de ExecPlan deste repositório.
 
-Um ExecPlan e um plano executavel, auto-contido e auditavel, pensado para tarefas complexas e longas. Quem executa o plano deve conseguir concluir o trabalho apenas com:
-- o estado atual do repositorio;
-- o proprio arquivo do plano.
+Um ExecPlan é um plano executável, auto-contido e auditável, pensado para tarefas complexas e longas. Quem executa o plano deve conseguir concluir o trabalho apenas com:
+- o estado atual do repositório;
+- o próprio arquivo do plano.
 
 ## Quando ExecPlan e obrigatorio
-ExecPlan e obrigatorio quando houver qualquer um dos cenarios abaixo:
-- mudanca em multiplos arquivos com dependencias entre si;
+ExecPlan e obrigatorio quando houver qualquer um dos cenários abaixo:
+- mudança em multiplos arquivos com dependências entre si;
 - alteracao de arquitetura, pipeline ou fluxo do runner;
-- mudanca de contrato (payload, schema, shape de output, validacoes criticas);
-- migracao/versionamento/cache com possivel impacto em compatibilidade;
-- tarefa longa com marcos intermediarios e risco de deriva.
+- mudança de contrato (payload, schema, shape de output, validações críticas);
+- migração/versionamento/cache com possível impacto em compatibilidade;
+- tarefa longa com marcos intermediários e risco de deriva.
 
-ExecPlan e opcional para mudancas pequenas, locais e de baixo risco.
+ExecPlan e opcional para mudanças pequenas, locais e de baixo risco.
 
 ## Onde salvar os planos
 Salvar cada plano em:
@@ -25,22 +25,22 @@ Exemplos:
 - `execplans/2026-02-19-melhorar-status-telegram.md`
 - `execplans/2026-02-19-hardening-ciclo-sequencial.md`
 
-## Regras nao negociaveis
+## Regras não negociáveis
 - O plano deve ser auto-contido (sem depender de contexto implicito ou memoria externa).
-- Todo criterio de aceitacao deve ser observavel por comportamento (comando + resultado esperado).
-- Todo passo de execucao deve indicar comando e diretorio de execucao.
-- O plano deve explicitar escopo, nao-escopo, riscos e dependencias.
-- Termos especificos do projeto devem ser explicados no proprio plano.
-- O plano e documento vivo: atualizar `Progress`, `Decision Log` e descobertas durante a execucao.
-- Passos arriscados devem incluir estrategia de recuperacao (retry, rollback ou alternativa segura).
+- Todo critério de aceitacao deve ser observavel por comportamento (comando + resultado esperado).
+- Todo passo de execução deve indicar comando e diretório de execução.
+- O plano deve explicitar escopo, não-escopo, riscos e dependências.
+- Termos específicos do projeto devem ser explicados no próprio plano.
+- O plano é documento vivo: atualizar `Progress`, `Decision Log` e descobertas durante a execução.
+- Passos arriscados devem incluir estratégia de recuperação (retry, rollback ou alternativa segura).
 - Todo ExecPlan derivado de ticket originado por spec deve explicitar:
   - spec de origem;
   - RFs/CAs cobertos por este ticket;
   - assumptions/defaults escolhidos para eliminar ambiguidade;
   - matriz `requisito -> validacao observavel`.
 
-## Estrutura obrigatoria do ExecPlan
-Todo arquivo em `execplans/*.md` deve conter as secoes abaixo, nesta ordem, com estes titulos:
+## Estrutura obrigatória do ExecPlan
+Todo arquivo em `execplans/*.md` deve conter as seções abaixo, nesta ordem, com estes titulos:
 
 1. `Purpose / Big Picture`
 2. `Progress`
@@ -55,29 +55,29 @@ Todo arquivo em `execplans/*.md` deve conter as secoes abaixo, nesta ordem, com 
 11. `Artifacts and Notes`
 12. `Interfaces and Dependencies`
 
-### Regras por secao
-- `Purpose / Big Picture`: objetivo de negocio/tecnico, sucesso esperado e limites.
+### Regras por seção
+- `Purpose / Big Picture`: objetivo de negócio/técnico, sucesso esperado e limites.
 - `Progress`: checklist operacional com timestamp (`[ ]`/`[x]`) e status objetivo.
-- `Surprises & Discoveries`: fatos descobertos durante execucao que alteram entendimento.
-- `Decision Log`: decisoes tomadas com data, motivo e impacto.
-- `Outcomes & Retrospective`: resultado final, pendencias e licoes.
-- `Context and Orientation`: contexto local de codigo, caminhos e pontos de entrada.
-- `Context and Orientation`: deve incluir, quando aplicavel, spec de origem, RF/CA subset e assumptions/defaults adotados.
+- `Surprises & Discoveries`: fatos descobertos durante execução que alteram entendimento.
+- `Decision Log`: decisões tomadas com data, motivo e impacto.
+- `Outcomes & Retrospective`: resultado final, pendências e lições.
+- `Context and Orientation`: contexto local de código, caminhos e pontos de entrada.
+- `Context and Orientation`: deve incluir, quando aplicável, spec de origem, RF/CA subset e assumptions/defaults adotados.
 - `Plan of Work`: marcos (milestones) narrativos com entregaveis claros.
-- `Concrete Steps`: passos concretos com comandos e diretorio.
-- `Validation and Acceptance`: como validar e o que comprova aceitacao.
-- `Validation and Acceptance`: deve conter matriz objetiva relacionando cada closure criterion/requisito relevante a uma evidencia observavel.
+- `Concrete Steps`: passos concretos com comandos e diretório.
+- `Validation and Acceptance`: como validar e o que comprova aceitação.
+- `Validation and Acceptance`: deve conter matriz objetiva relacionando cada closure criterion/requisito relevante a uma evidência observável.
 - `Idempotence and Recovery`: como repetir sem quebrar e como recuperar falhas.
 - `Artifacts and Notes`: links para diffs, logs, snapshots, outputs relevantes.
 - `Interfaces and Dependencies`: APIs, schemas, contratos e acoplamentos impactados.
 
-## Padroes de milestones
+## Padrões de milestones
 - Milestones devem contar a historia da entrega (narrativa de incremento).
 - `Progress` rastreia trabalho granular e status operacional.
 - Cada milestone deve declarar:
   - o que existira ao final;
   - como provar que funciona;
-  - quais arquivos/superficies serao afetados.
+  - quais arquivos/superficies serão afetados.
 
 ## Template pronto (copiar e usar)
 Use este template como base para novos planos em `execplans/*.md`:
@@ -159,14 +159,14 @@ Use este template como base para novos planos em `execplans/*.md`:
 ```
 
 ## Checklist de qualidade do plano
-Antes de aprovar execucao, confirme:
-- O plano esta auto-contido e sem dependencias implicitas.
-- Ha criterios de aceitacao observaveis para cada mudanca relevante.
-- Todos os comandos tem diretorio explicito quando necessario.
+Antes de aprovar execução, confirme:
+- O plano esta auto-contido e sem dependências implicitas.
+- Há critérios de aceitacao observaveis para cada mudança relevante.
+- Todos os comandos tem diretório explícito quando necessário.
 - Escopo e fora de escopo estao claros.
-- Ha milestones narrativos e progresso operacional separados.
-- Ha estrategia de idempotencia e recuperacao para passos arriscados.
-- Interfaces/dependencias impactadas foram mapeadas.
-- A spec de origem, RFs/CAs cobertos e assumptions/defaults adotados ficaram explicitos.
-- Existe matriz requisito -> validacao para todos os criterios de fechamento relevantes.
-- O plano pode ser executado por outra pessoa sem decisoes adicionais.
+- Há milestones narrativos e progresso operacional separados.
+- Há estratégia de idempotencia e recuperação para passos arriscados.
+- Interfaces/dependências impactadas foram mapeadas.
+- A spec de origem, RFs/CAs cobertos e assumptions/defaults adotados ficaram explícitos.
+- Existe matriz requisito -> validação para todos os critérios de fechamento relevantes.
+- O plano pode ser executado por outra pessoa sem decisões adicionais.

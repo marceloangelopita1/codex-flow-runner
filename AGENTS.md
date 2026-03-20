@@ -3,10 +3,10 @@
 ## Objetivo do repositório
 Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop sequencial (planejar → implementar → fechar ticket + commit/push) e expondo acompanhamento/controle por Telegram.
 
-## Documentacao para IA
-- Preserve o contexto auto-carregado para regras recorrentes, estaveis e acionaveis; detalhe, exemplos e racional devem viver em documentacao referenciada.
-- Ao criar ou alterar documentacao do projeto, siga a politica oficial em `DOCUMENTATION.md`.
-- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.
+## Documentação para IA
+- Preserve o contexto auto-carregado para regras recorrentes, estáveis e acionáveis; detalhes, exemplos e racional devem viver em documentação referenciada.
+- Ao criar ou alterar documentação do projeto, siga a política oficial em `DOCUMENTATION.md`.
+- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explícito em reduzir retrabalho e promover a melhoria contínua do workflow.
 
 ## Regras de implementação
 - Linguagem padrão: TypeScript em Node.js 20+.
@@ -35,10 +35,10 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
 - Quando o usuário pedir uma entrevista detalhada para criar uma spec, seguir `docs/workflows/discover-spec.md`.
 - Quando uma evolução for identificada a partir das specs:
   - Criar um ticket em `tickets/open/` para materializar o trabalho derivado da spec.
-  - Criar um execplan apenas a partir do ticket, quando necessario para execucao segura.
-- O contrato oficial de derivacao e `spec -> tickets` e `ticket -> execplan` quando necessario.
-- O contrato de compatibilidade do projeto alvo fica em `docs/workflows/target-project-compatibility-contract.md`; mantenha aqui apenas esse ponteiro e trate compatibilidade com o workflow completo como pre-requisito operacional, nao como cheque semantico de runtime.
-- O ciclo esperado e: revisar specs -> criar ticket -> criar execplan quando necessario -> implementar em fluxo sequencial -> fechar ticket e manter rastreabilidade com a spec de origem.
+  - Criar um execplan apenas a partir do ticket, quando necessário para execução segura.
+- O contrato oficial de derivação é `spec -> tickets` e `ticket -> execplan` quando necessário.
+- O contrato de compatibilidade do projeto alvo fica em `docs/workflows/target-project-compatibility-contract.md`; mantenha aqui apenas esse ponteiro e trate compatibilidade com o workflow completo como pré-requisito operacional, não como cheque semântico de runtime.
+- O ciclo esperado é: revisar specs -> criar ticket -> criar execplan quando necessário -> implementar em fluxo sequencial -> fechar ticket e manter rastreabilidade com a spec de origem.
 
 ## Observabilidade
 - Logs devem ser simples e legíveis (JSON opcional em evoluções futuras).

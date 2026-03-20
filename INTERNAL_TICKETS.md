@@ -1,147 +1,147 @@
 # INTERNAL_TICKETS.md
 
-## Purpose
-This document defines the canonical process to open and track internal tickets in this repository.
-Internal tickets are for problem capture first (context + evidence), even when no clear solution exists yet.
+## Objetivo
+Este documento define o processo canônico para abrir e acompanhar tickets internos neste repositório.
+Tickets internos existem primeiro para capturar problemas (contexto + evidência), mesmo quando ainda não houver uma solução clara.
 
-## Why this exists
-- Preserve findings discovered during local runs, log analysis, and test outputs.
-- Keep backlog items auditable in git.
-- Avoid losing context between diagnosis and future implementation.
+## Por que isto existe
+- Preservar achados descobertos durante execuções locais, análise de logs e saídas de testes.
+- Manter os itens de backlog auditáveis no git.
+- Evitar perda de contexto entre diagnóstico e implementação futura.
 
-## When to open a ticket
-Open a ticket when at least one condition is true:
-- Quality regression or warning pattern repeats across runs (same class of failure).
-- A finding can block rollout, acceptance, or confidence in flow quality.
-- A finding has user, business, or operational impact (even if partial).
-- A finding requires follow-up work that will not be fixed in the current change.
-- A test/run reveals behavior mismatch between observed and expected output.
+## Quando abrir um ticket
+Abra um ticket quando pelo menos uma condição for verdadeira:
+- Uma regressão de qualidade ou padrão de warning se repetir entre execuções (mesma classe de falha).
+- Um achado puder bloquear rollout, aceite ou confiança na qualidade do fluxo.
+- Um achado tiver impacto de usuário, negócio ou operação (mesmo que parcial).
+- Um achado exigir trabalho de follow-up que não será corrigido na mudança atual.
+- Um teste/execução revelar divergência entre o comportamento observado e o esperado.
 
-## When not to open a ticket
-Do not open a ticket for:
-- One-off local mistakes already fixed immediately in the same change.
-- Purely informational notes with no action need.
-- Duplicate reports with no new evidence.
+## Quando não abrir um ticket
+Não abra ticket para:
+- Erros locais pontuais já corrigidos imediatamente na mesma mudança.
+- Notas puramente informativas sem necessidade de ação.
+- Relatos duplicados sem novas evidências.
 
-If unsure, open a ticket and mark low severity.
+Se houver dúvida, abra o ticket e marque severidade baixa.
 
-## Ticket lifecycle
-Ticket files live under `tickets/`:
-- `tickets/open/`: active backlog (`open`, `in-progress`, `blocked`).
-- `tickets/closed/`: closed tickets (resolved, invalid, duplicate, wont-fix, or split-follow-up with reason).
-- `tickets/templates/`: ticket template(s).
+## Ciclo de vida do ticket
+Os arquivos de ticket ficam em `tickets/`:
+- `tickets/open/`: backlog ativo (`open`, `in-progress`, `blocked`).
+- `tickets/closed/`: tickets fechados (resolved, invalid, duplicate, wont-fix ou split-follow-up com motivo).
+- `tickets/templates/`: template(s) de ticket.
 
-Status values:
-- `open`: created and awaiting triage.
-- `in-progress`: owner actively implementing.
-- `blocked`: depends on external decision/input.
-- `closed`: finished with closure reason.
+Valores de status:
+- `open`: criado e aguardando triagem.
+- `in-progress`: owner implementando ativamente.
+- `blocked`: depende de decisão/input externo.
+- `closed`: finalizado com motivo de fechamento.
 
-Closure/commit rule:
-- If a commit/push includes the implementation that resolves an `open` ticket, that same commit must move the ticket file to `tickets/closed/`.
-- The closure metadata must be completed in the same commit (`Status: closed`, `Closed at (UTC)`, `Closure reason`, and `Related PR/commit/execplan`).
-- `Closure reason: split-follow-up` is allowed when the current ticket must be closed for traceability while remaining pending work is moved to a new ticket.
-- In `split-follow-up`, the same commit must include:
-  - closure of the current ticket in `tickets/closed/`;
-  - creation of the new follow-up ticket in `tickets/open/`;
-  - explicit linkage between parent and follow-up (ticket path/name, related execplan, and commit context).
-- Classification guard (`GO` vs `NO_GO`):
-  - Use `NO_GO` only when there is objective technical/functional evidence that the delivery is not valid in the current cycle.
-  - If implementation is considered correct and the only blocker is external manual validation (outside AI reach), close as success (`Closure reason: fixed`) and record manual validation pending in the closed ticket.
-  - External manual validation pending alone is not a reason to force `split-follow-up`.
-- Runtime guard for repeated `NO_GO`:
-  - the runner accepts at most 3 follow-up recoveries in the same lineage (`Parent ticket` chain with ancestors closed as `split-follow-up`);
-  - when the lineage exceeds this limit, `/run-all` must stop immediately with error status and keep the ticket open as not finished work.
+Regra de fechamento/commit:
+- Se um commit/push incluir a implementação que resolve um ticket `open`, esse mesmo commit deve mover o arquivo do ticket para `tickets/closed/`.
+- Os metadados de fechamento devem ser preenchidos no mesmo commit (`Status: closed`, `Closed at (UTC)`, `Closure reason` e `Related PR/commit/execplan`).
+- `Closure reason: split-follow-up` é permitido quando o ticket atual precisa ser fechado por rastreabilidade enquanto o trabalho pendente restante é movido para um novo ticket.
+- Em `split-follow-up`, o mesmo commit deve incluir:
+  - fechamento do ticket atual em `tickets/closed/`;
+  - criação do novo ticket de follow-up em `tickets/open/`;
+  - vínculo explícito entre pai e follow-up (caminho/nome do ticket, execplan relacionado e contexto do commit).
+- Guardrail de classificação (`GO` vs `NO_GO`):
+  - Use `NO_GO` apenas quando houver evidência técnica/funcional objetiva de que a entrega não é válida no ciclo atual.
+  - Se a implementação for considerada correta e o único bloqueio for validação manual externa (fora do alcance da IA), feche como sucesso (`Closure reason: fixed`) e registre a validação manual pendente no ticket fechado.
+  - Validação manual externa pendente, sozinha, não é motivo para forçar `split-follow-up`.
+- Guardrail de runtime para `NO_GO` repetido:
+  - o runner aceita no máximo 3 recuperações de follow-up na mesma linhagem (cadeia de `Parent ticket` com ancestrais fechados como `split-follow-up`);
+  - quando a linhagem excede esse limite, `/run-all` deve parar imediatamente com status de erro e manter o ticket aberto como trabalho não finalizado.
 
-## Priority and severity
+## Prioridade e severidade
 - Priority (`P0`, `P1`, `P2`):
   - `P0`: blocks release or has high operational risk.
   - `P1`: important, should be addressed in the next planned cycle.
   - `P2`: useful improvement, can wait without immediate risk.
-- Queue consumption rule (`/run-all`):
-  - Open tickets are consumed by priority order: `P0` before `P1`, and `P1` before `P2`.
-  - For ties in the same priority, order is not a functional requirement; deterministic fallback by file name is acceptable.
+- Regra de consumo da fila (`/run-all`):
+  - Tickets abertos são consumidos por ordem de prioridade: `P0` antes de `P1`, e `P1` antes de `P2`.
+  - Em empates na mesma prioridade, a ordem não é um requisito funcional; fallback determinístico por nome de arquivo é aceitável.
 - Severity (`S1`, `S2`, `S3`):
   - `S1`: high impact.
   - `S2`: medium impact.
   - `S3`: low impact.
 
-## Objective matrix for critical refactoring backlog
-- Scope:
-  - Mandatory for tickets created from non-functional check-up findings that represent technical debt/refactoring.
-  - Optional for other ticket types.
-- Source of truth:
-  - `docs/checkups/checkup-nao-funcional.md` defines dimensions, examples, and traceability expectations.
-- Dimensions (`1` to `5` each):
+## Matriz objetiva para backlog crítico de refatoração
+- Escopo:
+  - Obrigatória para tickets criados a partir de achados do check-up não funcional que representem dívida técnica/refatoração.
+  - Opcional para outros tipos de ticket.
+- Fonte de verdade:
+  - `docs/checkups/checkup-nao-funcional.md` define dimensões, exemplos e expectativas de rastreabilidade.
+- Dimensões (`1` a `5` cada):
   - `severidade`
   - `frequencia`
   - `custo_de_atraso`
   - `risco_operacional`
-- Weighted score formula:
+- Fórmula de score ponderado:
   - `score = (severidade * 3) + (frequencia * 2) + (custo_de_atraso * 3) + (risco_operacional * 2)`
-  - score range: `10..50`.
-- Priority mapping:
+  - faixa de score: `10..50`.
+- Mapeamento de prioridade:
   - `P0`: `score >= 40`.
   - `P1`: `score` between `26` and `39`.
   - `P2`: `score` between `10` and `25`.
-  - Guardrail: force `P0` when `severidade = 5` and (`custo_de_atraso >= 4` or `risco_operacional >= 4`).
-- Tie-break for same-level candidates during triage:
-  - higher `custo_de_atraso`;
-  - then higher `severidade`;
-  - then deterministic fallback by ticket file name.
-- Traceability requirements when matrix applies:
-  - record the four dimension values;
-  - record the final `score`;
-  - record resulting `Priority`;
-  - add objective rationale with evidence links.
-- Compatibility note:
-  - This matrix defines how `Priority` is assigned before queueing.
-  - Runtime queue behavior remains unchanged in `src/integrations/ticket-queue.ts` (`P0 -> P1 -> P2`, tie fallback by name).
+  - Guardrail: forçar `P0` quando `severidade = 5` e (`custo_de_atraso >= 4` ou `risco_operacional >= 4`).
+- Desempate entre candidatos do mesmo nível durante a triagem:
+  - maior `custo_de_atraso`;
+  - depois maior `severidade`;
+  - depois fallback determinístico por nome do arquivo do ticket.
+- Requisitos de rastreabilidade quando a matriz se aplica:
+  - registrar os quatro valores das dimensões;
+  - registrar o `score` final;
+  - registrar a `Priority` resultante;
+  - adicionar justificativa objetiva com links de evidência.
+- Nota de compatibilidade:
+  - Esta matriz define como `Priority` é atribuída antes do enfileiramento.
+  - O comportamento de runtime da fila permanece inalterado em `src/integrations/ticket-queue.ts` (`P0 -> P1 -> P2`, com fallback por nome em caso de empate).
 
-## Required fields (minimum quality bar)
-Every ticket must include:
-- Problem summary (what happened).
-- Context (where in pipeline/workflow).
-- Observed vs expected behavior.
-- Source traceability when applicable:
-  - originating spec;
-  - originating RF/CA IDs;
-  - inherited assumptions/defaults that matter for implementation.
-- Reproduction steps (if possible).
-- Evidence links (`requestId`, log file, response artifact, test output).
-- Impact assessment (scope + risk).
-- Observable closure criteria.
+## Campos obrigatórios (barra mínima de qualidade)
+Todo ticket deve incluir:
+- Resumo do problema (o que aconteceu).
+- Contexto (onde no pipeline/workflow).
+- Comportamento observado vs esperado.
+- Rastreabilidade de origem quando aplicável:
+  - spec de origem;
+  - IDs de RF/CA de origem;
+  - assumptions/defaults herdados que importam para a implementação.
+- Passos de reprodução (quando possível).
+- Links de evidência (`requestId`, arquivo de log, artefato de resposta, saída de teste).
+- Avaliação de impacto (escopo + risco).
+- Critérios de fechamento observáveis.
 
-When a ticket is created from post-implementation audit/review, also include:
-- likely workflow root cause (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);
-- why this cause classification is the smallest plausible explanation;
-- whether the remediation is local or should update a generic repository instruction.
+Quando um ticket for criado a partir de audit/review pós-implementação, inclua também:
+- causa-raiz provável do workflow (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);
+- por que essa classificação de causa é a menor explicação plausível;
+- se a remediação é local ou se deve atualizar uma instrução genérica do repositório.
 
-Do not require these three extra fields for tickets created during pre-implementation derivation such as `spec-triage`, unless a canonical repository rule is updated explicitly to broaden that contract.
+Não exija esses três campos extras para tickets criados durante derivação pré-implementação, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
 
-Proposed solution is optional by design.
+`Proposed solution` é opcional por design.
 
-## Naming convention
-Use file name:
+## Convenção de nome
+Use nome de arquivo:
 - `YYYY-MM-DD-<slug>.md`
 
-Examples:
+Exemplos:
 - `2026-02-14-telegram-status-reporting-gap.md`
 - `2026-02-14-execplan-generation-missing-context.md`
 
-## Triage SLA
-- First triage target: up to 2 business days after ticket creation.
-- During triage, define:
+## SLA de triagem
+- Meta da primeira triagem: até 2 dias úteis após a criação do ticket.
+- Durante a triagem, definir:
   - owner;
-  - priority/severity confirmation;
-  - next decision (`implement now`, `plan in ExecPlan`, `close`).
+  - confirmação de prioridade/severidade;
+  - próxima decisão (`implement now`, `plan in ExecPlan`, `close`).
 
-## Relationship with ExecPlan
-- Ticket captures the problem.
-- ExecPlan defines implementation when scope/risk requires structured execution.
-- A ticket can remain open until the related ExecPlan is delivered and validated.
+## Relação com ExecPlan
+- O ticket captura o problema.
+- O ExecPlan define a implementação quando escopo/risco exige execução estruturada.
+- Um ticket pode permanecer aberto até que o ExecPlan relacionado seja entregue e validado.
 
-## Sensitive data policy
-Never include secrets or raw sensitive payloads in ticket files.
-- Allowed: IDs, redacted snippets, and non-sensitive artifact paths.
-- Not allowed: API keys, tokens, credentials, full sensitive payloads.
+## Política de dados sensíveis
+Nunca inclua segredos ou payloads sensíveis brutos em arquivos de ticket.
+- Permitido: IDs, trechos redigidos e caminhos de artefatos não sensíveis.
+- Não permitido: API keys, tokens, credenciais e payloads sensíveis completos.

@@ -1,9 +1,9 @@
-# Prompt Externo: <titulo-curto-da-consulta>
+# Prompt Externo: <título-curto-da-consulta>
 
 ## Objetivo da consulta
 - 
 
-## Contexto funcional necessario
+## Contexto funcional necessário
 - 
 
 ## Pergunta principal
@@ -14,12 +14,12 @@
 2. 
 3. 
 
-## Delimitacoes tecnicas relevantes
+## Delimitações técnicas relevantes
 - 
 
 ## Formato esperado da resposta
-- Recomendacao principal com justificativa tecnica.
-- Alternativas viaveis com trade-offs.
+- Recomendacao principal com justificativa técnica.
+- Alternativas viáveis com trade-offs.
 - Riscos e incertezas.
-- Criterios de validacao.
-- Proximos passos concretos.
+- Critérios de validação.
+- Próximos passos concretos.

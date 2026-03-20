@@ -16,7 +16,7 @@ Instruções:
   - os RFs/CAs cobertos por este ticket;
   - assumptions/defaults escolhidos;
   - matriz `requisito -> validacao observavel`.
-- Toda validacao deve nascer do closure criterion do ticket, nao de checklist generico.
+- Toda validação deve nascer do closure criterion do ticket, não de checklist genérico.
 - Salve o plano em `execplans/<yyyy-mm-dd>-<slug>.md` (mesmo slug do ticket).
 
 No final, informe:

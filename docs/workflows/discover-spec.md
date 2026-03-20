@@ -3,21 +3,21 @@
 ## Objetivo
 Descrever o fluxo profundo de descoberta de spec no estilo `/discover_spec` para uso direto no Codex/VS Code, sem depender do comando do Telegram.
 
-Este documento e operacional: explica quando entrar nesse modo, como ativar o fluxo por linguagem natural, como conduzir a entrevista e qual artefato final deve ser produzido.
+Este documento é operacional: explica quando entrar nesse modo, como ativar o fluxo por linguagem natural, como conduzir a entrevista e qual artefato final deve ser produzido.
 
 ## Quando usar
-Use este fluxo quando a demanda ainda estiver ambigua, aberta ou arriscada o bastante para que um refinamento rapido seja insuficiente.
+Use este fluxo quando a demanda ainda estiver ambígua, aberta ou arriscada o bastante para que um refinamento rápido seja insuficiente.
 
 Sinais comuns:
-- o usuario quer "uma entrevista detalhada para criar uma spec";
-- ha multiplos atores, jornadas, restricoes ou trade-offs relevantes;
-- ainda faltam validacoes, nao-escopo, assumptions/defaults ou criterios de aceite claros;
+- o usuário quer "uma entrevista detalhada para criar uma spec";
+- há múltiplos atores, jornadas, restrições ou trade-offs relevantes;
+- ainda faltam validações, não-escopo, assumptions/defaults ou critérios de aceite claros;
 - implementar cedo demais tende a gerar retrabalho.
 
-Se a ideia ja estiver bem definida e o usuario quiser apenas lapidar rapidamente a spec, prefira o fluxo leve no estilo `/plan_spec`.
+Se a ideia já estiver bem definida e o usuário quiser apenas lapidar rapidamente a spec, prefira o fluxo leve no estilo `/plan_spec`.
 
 ## Como ativar no Codex/VS Code
-Quando o usuario pedir explicitamente uma entrevista detalhada para criar uma spec, trate isso como entrada no fluxo profundo, mesmo fora do Telegram.
+Quando o usuário pedir explicitamente uma entrevista detalhada para criar uma spec, trate isso como entrada no fluxo profundo, mesmo fora do Telegram.
 
 Exemplos de gatilho:
 - "Quero uma entrevista detalhada para criar uma spec."
@@ -35,75 +35,75 @@ Nao implemente ainda.
 
 ## Contrato operacional
 Ao entrar neste fluxo:
-- nao pular direto para implementacao;
-- nao assumir que a primeira descricao do usuario ja esta pronta para virar ticket ou codigo;
-- conduzir uma entrevista estruturada ate que as ambiguidades criticas estejam tratadas;
-- produzir uma spec pronta para materializacao no padrao do repositorio.
-- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explicito em reduzir retrabalho e promover a melhoria continua do workflow.
+- não pular direto para implementação;
+- não assumir que a primeira descrição do usuário já está pronta para virar ticket ou código;
+- conduzir uma entrevista estruturada até que as ambiguidades críticas estejam tratadas;
+- produzir uma spec pronta para materialização no padrão do repositório.
+- Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explícito em reduzir retrabalho e promover a melhoria contínua do workflow.
 
-Quando a resposta do usuario ainda estiver vaga, fazer follow-up em vez de encerrar cedo.
+Quando a resposta do usuário ainda estiver vaga, fazer follow-up em vez de encerrar cedo.
 
-Quando uma indefinicao puder ser resolvida sem bloquear o fluxo, registra-la explicitamente como assumption/default ou nao-escopo, em vez de deixa-la implicita.
+Quando uma indefinição puder ser resolvida sem bloquear o fluxo, registre-a explicitamente como assumption/default ou não-escopo, em vez de deixá-la implícita.
 
-## Cobertura minima da entrevista
+## Cobertura mínima da entrevista
 Antes de considerar a spec pronta, cobrir explicitamente:
 - objetivo e valor esperado;
 - atores e jornada;
 - escopo funcional;
-- nao-escopo;
-- restricoes tecnicas e dependencias;
-- validacoes e criterios de aceite;
+- não-escopo;
+- restrições técnicas e dependências;
+- validações e critérios de aceite;
 - riscos conhecidos;
 - assumptions/defaults;
-- decisoes e trade-offs.
+- decisões e trade-offs.
 
-Nao depender de inferencia silenciosa para fechar essas lacunas.
+Não depender de inferência silenciosa para fechar essas lacunas.
 
-## Saida esperada
-Ao final da entrevista, entregar uma spec pronta para materializacao seguindo `SPECS.md` e o template oficial em `docs/specs/templates/spec-template.md`.
+## Saída esperada
+Ao final da entrevista, entregar uma spec pronta para materialização seguindo `SPECS.md` e o template oficial em `docs/specs/templates/spec-template.md`.
 
-A saida final deve preservar de forma explicita:
+A saída final deve preservar de forma explícita:
 - objetivo e contexto;
 - atores e jornada;
 - requisitos funcionais;
-- criterios de aceitacao observaveis;
-- nao-escopo;
-- restricoes tecnicas relevantes;
-- validacoes obrigatorias e manuais pendentes;
+- critérios de aceitação observáveis;
+- não-escopo;
+- restrições técnicas relevantes;
+- validações obrigatórias e manuais pendentes;
 - riscos conhecidos;
 - assumptions/defaults aprovados;
-- decisoes e trade-offs relevantes.
+- decisões e trade-offs relevantes.
 
-Quando o fluxo for usado para criar de fato uma nova spec no projeto, o resultado esperado e um arquivo em `docs/specs/YYYY-MM-DD-<slug>.md` com metadata inicial:
+Quando o fluxo for usado para criar de fato uma nova spec no projeto, o resultado esperado é um arquivo em `docs/specs/YYYY-MM-DD-<slug>.md` com metadata inicial:
 - `Status: approved`
 - `Spec treatment: pending`
 
-## Boas praticas
-- Comecar pela intencao do usuario e aprofundar por camadas, sem despejar um questionario inteiro de uma vez.
-- Fazer perguntas que reduzam ambiguidade real, nao perguntas cosmeticas.
-- Transformar escolhas nao respondidas, quando apropriado, em defaults explicitos e revisaveis.
-- Distinguir claramente escopo, nao-escopo e riscos.
-- Encerrar a entrevista com uma proposta concreta de spec, nao com um resumo generico.
-- Se o usuario pedir apenas o fluxo de descoberta, parar na spec e nao continuar para implementacao sem novo comando.
+## Boas práticas
+- Começar pela intenção do usuário e aprofundar por camadas, sem despejar um questionário inteiro de uma vez.
+- Fazer perguntas que reduzam ambiguidade real, não perguntas cosméticas.
+- Transformar escolhas não respondidas, quando apropriado, em defaults explícitos e revisáveis.
+- Distinguir claramente escopo, não-escopo e riscos.
+- Encerrar a entrevista com uma proposta concreta de spec, não com um resumo genérico.
+- Se o usuário pedir apenas o fluxo de descoberta, parar na spec e não continuar para implementação sem novo comando.
 
-## Anti-padroes
-- Pular da ideia inicial direto para codigo.
-- Gerar uma spec com RFs/CAs genericos sem amarrar atores, jornada e validacoes.
+## Anti-padrões
+- Pular da ideia inicial direto para código.
+- Gerar uma spec com RFs/CAs genéricos sem amarrar atores, jornada e validações.
 - Deixar assumptions/defaults ou trade-offs importantes apenas subentendidos.
-- Fechar a entrevista enquanto ainda houver ambiguidade critica nao tratada.
-- Tratar o fluxo profundo como obrigatorio para toda e qualquer mudanca simples.
+- Fechar a entrevista enquanto ainda houver ambiguidade crítica não tratada.
+- Tratar o fluxo profundo como obrigatório para toda e qualquer mudança simples.
 
-## Relacao com o restante do fluxo
+## Relação com o restante do fluxo
 Depois que a spec estiver pronta:
 - revisar o texto final contra `SPECS.md`;
 - materializar a spec em `docs/specs/` quando isso fizer parte da tarefa;
-- derivar apenas tickets em `tickets/open/`, mesmo quando o escopo ja estiver claro;
-- criar execplan somente a partir do ticket, quando necessario para execucao segura;
-- alinhar material historico apenas quando ele for tocado depois ou quando houver impacto funcional real; nao existe migracao retroativa em massa por padrao;
-- seguir o fluxo sequencial normal do repositorio.
+- derivar apenas tickets em `tickets/open/`, mesmo quando o escopo já estiver claro;
+- criar execplan somente a partir do ticket, quando necessário para execução segura;
+- alinhar material histórico apenas quando ele for tocado depois ou quando houver impacto funcional real; não existe migração retroativa em massa por padrão;
+- seguir o fluxo sequencial normal do repositório.
 
-## Referencias canonicas
-- Padrao de spec: `SPECS.md`
+## Referências canônicas
+- Padrão de spec: `SPECS.md`
 - Template de spec: `docs/specs/templates/spec-template.md`
 - Qualidade do workflow: `docs/workflows/codex-quality-gates.md`
 - Comportamento implementado do fluxo profundo: `docs/specs/2026-03-18-discover-spec-entrevista-profunda-de-alinhamento.md`

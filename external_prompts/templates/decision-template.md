@@ -7,22 +7,22 @@
 - owner:
 - status:
 
-## Decisao adotada
+## Decisão adotada
 - 
 
-## Justificativa tecnica
+## Justificativa técnica
 - 
 
-## O que sera implementado
+## O que será implementado
 - 
 
-## O que nao sera implementado (por enquanto)
+## O que não será implementado (por enquanto)
 - 
 
 ## Riscos e mitigacao
 - 
 
-## Criterios de validacao
+## Critérios de validação
 - 
 
 ## Artefatos impactados

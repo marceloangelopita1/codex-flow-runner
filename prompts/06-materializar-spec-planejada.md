@@ -11,7 +11,7 @@ Arquivo da spec:
 Fluxo de origem:
 - <SPEC_SOURCE_COMMAND>
 
-Titulo final aprovado:
+Título final aprovado:
 - <SPEC_TITLE>
 
 Resumo final aprovado:
@@ -32,16 +32,16 @@ RFs aprovados:
 CAs aprovados:
 <SPEC_ACCEPTANCE_CRITERIA>
 
-Nao-escopo aprovado:
+Não-escopo aprovado:
 <SPEC_NON_SCOPE>
 
-Restricoes tecnicas aprovadas:
+Restrições técnicas aprovadas:
 <SPEC_TECHNICAL_CONSTRAINTS>
 
-Validacoes obrigatorias aprovadas:
+Validações obrigatórias aprovadas:
 <SPEC_MANDATORY_VALIDATIONS>
 
-Validacoes manuais pendentes:
+Validações manuais pendentes:
 <SPEC_PENDING_MANUAL_VALIDATIONS>
 
 Riscos conhecidos:
@@ -50,14 +50,14 @@ Riscos conhecidos:
 Assumptions and defaults aprovados:
 <SPEC_ASSUMPTIONS_AND_DEFAULTS>
 
-Decisoes e trade-offs aprovados:
+Decisões e trade-offs aprovados:
 <SPEC_DECISIONS_AND_TRADE_OFFS>
 
-Regras obrigatorias:
+Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Nao fechar ticket interno nesta etapa.
-- Nao executar commit/push nesta etapa.
-- Nao commitar segredos.
+- Não fechar ticket interno nesta etapa.
+- Não executar commit/push nesta etapa.
+- Não commitar segredos.
 - Criar exatamente `docs/specs/YYYY-MM-DD-<slug>.md` no caminho `<SPEC_PATH>`, sem gerar variacoes extras.
 - Inicializar metadata da spec com:
   - `Status: approved`
@@ -65,22 +65,22 @@ Regras obrigatorias:
 
 Tarefa:
 1. Criar o arquivo `<SPEC_PATH>` com base no bloco final estruturado aprovado.
-2. Materializar a spec usando todo o contexto estruturado aprovado, sem comprimir RFs/CAs/jornada em um resumo generico.
-3. Garantir que o documento siga o padrao de spec do repositorio (`SPECS.md` / `docs/specs/templates/spec-template.md`).
-4. Preencher metadata inicial obrigatoria (`Status: approved`, `Spec treatment: pending`).
+2. Materializar a spec usando todo o contexto estruturado aprovado, sem comprimir RFs/CAs/jornada em um resumo genérico.
+3. Garantir que o documento siga o padrão de spec do repositório (`SPECS.md` / `docs/specs/templates/spec-template.md`).
+4. Preencher metadata inicial obrigatória (`Status: approved`, `Spec treatment: pending`).
 5. Preservar explicitamente:
    - objetivo;
    - atores e jornada;
    - requisitos funcionais;
-   - criterios de aceitacao;
+   - critérios de aceitacao;
    - assumptions/defaults aprovados;
-   - decisoes e trade-offs relevantes;
-   - nao-escopo;
-   - restricoes tecnicas;
-   - validacoes obrigatorias;
-   - validacoes manuais pendentes;
+   - decisões e trade-offs relevantes;
+   - não-escopo;
+   - restrições técnicas;
+   - validações obrigatórias;
+   - validações manuais pendentes;
    - riscos conhecidos.
 6. Reportar no final:
    - arquivo criado;
    - confirmacao dos metadados iniciais;
-   - pendencias remanescentes (se houver).
+   - pendências remanescentes (se houver).

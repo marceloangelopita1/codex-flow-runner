@@ -11,16 +11,16 @@ Arquivo da spec:
 Commit obrigatorio:
 - <COMMIT_MESSAGE>
 
-Trilha obrigatoria do fluxo:
+Trilha obrigatória do fluxo:
 - request: <TRACE_REQUEST_PATH>
 - response: <TRACE_RESPONSE_PATH>
 - decision: <TRACE_DECISION_PATH>
 
-Regras obrigatorias:
+Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Nao fechar ticket interno nesta etapa.
-- Nao commitar segredos.
-- Nao incluir arquivos fora da spec alvo e da trilha `spec_planning/*` desta sessao.
+- Não fechar ticket interno nesta etapa.
+- Não commitar segredos.
+- Não incluir arquivos fora da spec alvo e da trilha `spec_planning/*` desta sessão.
 - Usar exatamente a mensagem de commit `<COMMIT_MESSAGE>`.
 
 Tarefa:
@@ -32,4 +32,4 @@ Tarefa:
    - arquivos versionados;
    - hash do commit;
    - status do push;
-   - pendencias remanescentes (se houver).
+   - pendências remanescentes (se houver).

@@ -7,9 +7,9 @@ SPEC alvo:
 
 Regras do repositório (obrigatórias):
 - Seguir `SPECS.md`, `INTERNAL_TICKETS.md` e `tickets/templates/internal-ticket-template.md`.
-- Aplicar tambem o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar também o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
 - Tickets novos devem ser criados em `tickets/open/` com nome `YYYY-MM-DD-<slug>.md`.
-- A derivacao inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo estiver claro; `execplan` so pode surgir depois, a partir de ticket, quando necessario.
+- A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo estiver claro; `execplan` só pode surgir depois, a partir de ticket, quando necessário.
 - Não incluir segredos/dados sensíveis.
 - Fluxo é sequencial.
 - Priorizar gaps considerando consumo real da fila: `/run-all` processa `P0` antes de `P1` e `P1` antes de `P2` (empate sem ordem funcional obrigatória).

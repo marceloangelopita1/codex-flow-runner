@@ -1,6 +1,6 @@
 # Prompt: Encerrar Tratamento de Spec com Commit/Push
 
-Encerre o tratamento da spec abaixo com validacao final, versionamento e push.
+Encerre o tratamento da spec abaixo com validação final, versionamento e push.
 
 Spec alvo:
 - <SPEC_PATH>
@@ -11,19 +11,19 @@ Arquivo da spec:
 Commit obrigatorio:
 - <COMMIT_MESSAGE>
 
-Regras obrigatorias:
+Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Nao fechar ticket interno nesta etapa.
-- Nao commitar segredos.
-- Se a triagem nao encontrar gaps pendentes:
+- Não fechar ticket interno nesta etapa.
+- Não commitar segredos.
+- Se a triagem não encontrar gaps pendentes:
   - atualizar a spec para `Status: attended`;
-  - registrar evidencias de atendimento.
+  - registrar evidências de atendimento.
 - Se a triagem encontrar gaps:
   - manter `Status: approved`;
-  - registrar pendencias e rastreabilidade para tickets abertos.
+  - registrar pendências e rastreabilidade para tickets abertos.
 
 Tarefa:
-1. Revisar as alteracoes da triagem da spec e validar consistencia da documentacao.
+1. Revisar as alterações da triagem da spec e validar consistência da documentação.
 2. Ajustar status/metadados da spec conforme resultado da triagem (com ou sem gaps).
 3. Executar `git add` dos arquivos alterados.
 4. Criar commit com a mensagem exata `<COMMIT_MESSAGE>`.
@@ -33,4 +33,4 @@ Tarefa:
    - status final da spec;
    - hash do commit;
    - status do push;
-   - pendencias remanescentes (se houver).
+   - pendências remanescentes (se houver).
