@@ -50,6 +50,12 @@ export interface WorkflowGapAnalysisOperationalLimitation {
   detail: string;
 }
 
+export interface WorkflowGapAnalysisHistoricalReference {
+  summary: string;
+  ticketPath: string | null;
+  findingFingerprints: string[];
+}
+
 export interface WorkflowGapAnalysisResult {
   classification: WorkflowGapAnalysisClassification;
   confidence: WorkflowGapAnalysisConfidenceLevel;
@@ -62,6 +68,7 @@ export interface WorkflowGapAnalysisResult {
   workflowArtifactsConsulted: string[];
   followUpTicketPaths: string[];
   limitation: WorkflowGapAnalysisOperationalLimitation | null;
+  historicalReference: WorkflowGapAnalysisHistoricalReference | null;
   publicationHandoff?: WorkflowImprovementTicketHandoff;
 }
 
@@ -87,4 +94,5 @@ export const createWorkflowGapAnalysisOperationalLimitation = (params: {
     code: params.code ?? "analysis-execution-failed",
     detail: params.detail,
   },
+  historicalReference: null,
 });

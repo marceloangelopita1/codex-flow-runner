@@ -6,6 +6,7 @@ import {
   WorkflowGapAnalysisClassification,
   WorkflowGapAnalysisConfidenceLevel,
   WorkflowGapAnalysisFinding,
+  WorkflowGapAnalysisHistoricalReference,
   WorkflowGapAnalysisInputMode,
   WorkflowGapAnalysisLimitationCode,
   WorkflowGapAnalysisResult,
@@ -53,6 +54,7 @@ export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnaly
   const inputMode = normalizeInputMode(readString(payload.inputMode, "inputMode"));
   const findings = parseFindingList(payload.findings);
   const limitation = parseLimitation(payload.limitation);
+  const historicalReference = parseHistoricalReference(payload.historicalReference);
 
   validatePayloadCombination({
     classification,
@@ -60,6 +62,7 @@ export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnaly
     publicationEligibility,
     findings,
     limitation,
+    historicalReference,
   });
 
   return {
@@ -77,6 +80,7 @@ export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnaly
     ),
     followUpTicketPaths: readStringArray(payload.followUpTicketPaths, "followUpTicketPaths"),
     limitation,
+    historicalReference,
   };
 };
 
@@ -222,12 +226,40 @@ const parseLimitation = (
   };
 };
 
+const parseHistoricalReference = (
+  value: unknown,
+): WorkflowGapAnalysisHistoricalReference | null => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new WorkflowGapAnalysisParserError(
+      'campo "historicalReference" deve ser null ou um objeto estruturado.',
+    );
+  }
+
+  const payload = value as Record<string, unknown>;
+  return {
+    summary: readString(payload.summary, "historicalReference.summary"),
+    ticketPath:
+      payload.ticketPath === null
+        ? null
+        : readString(payload.ticketPath, "historicalReference.ticketPath"),
+    findingFingerprints: readStringArray(
+      payload.findingFingerprints,
+      "historicalReference.findingFingerprints",
+    ),
+  };
+};
+
 const validatePayloadCombination = (value: {
   classification: WorkflowGapAnalysisClassification;
   confidence: WorkflowGapAnalysisConfidenceLevel;
   publicationEligibility: boolean;
   findings: WorkflowGapAnalysisFinding[];
   limitation: WorkflowGapAnalysisResult["limitation"];
+  historicalReference: WorkflowGapAnalysisHistoricalReference | null;
 }): void => {
   if (value.publicationEligibility) {
     if (value.classification !== "systemic-gap" || value.confidence !== "high") {
@@ -268,6 +300,24 @@ const validatePayloadCombination = (value: {
     throw new WorkflowGapAnalysisParserError(
       "classificacoes sistemicas precisam informar ao menos um finding.",
     );
+  }
+
+  if (value.historicalReference !== null) {
+    if (value.publicationEligibility) {
+      throw new WorkflowGapAnalysisParserError(
+        "historicalReference nao pode coexistir com publicationEligibility=true.",
+      );
+    }
+    if (value.historicalReference.findingFingerprints.length === 0) {
+      throw new WorkflowGapAnalysisParserError(
+        "historicalReference precisa listar ao menos um fingerprint preexistente.",
+      );
+    }
+    if (value.classification === "operational-limitation") {
+      throw new WorkflowGapAnalysisParserError(
+        "historicalReference nao pode ser usado com classification=operational-limitation.",
+      );
+    }
   }
 };
 

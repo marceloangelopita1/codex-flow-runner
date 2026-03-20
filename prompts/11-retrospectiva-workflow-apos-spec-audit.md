@@ -13,6 +13,7 @@ Regras obrigatorias:
 - Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
 - Confirmar que esta rodada so chegou aqui porque o `spec-audit` encontrou gaps residuais reais.
 - Reler a spec, o resultado do `spec-audit`, os follow-up tickets funcionais quando existirem e o estado atual do repositorio antes de concluir.
+- Reler tambem o contexto causal pre-run-all recebido; a mesma frente causal ja tratada antes do `/run-all` nao pode ser promovida novamente como backlog automatico.
 - Priorizar, no `codex-flow-runner`, a leitura inicial em:
   - `AGENTS.md`;
   - `DOCUMENTATION.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`;
@@ -39,7 +40,8 @@ Tarefa:
    - `systemic-hypothesis` com `medium confidence` e sem ticket automatico;
    - `not-systemic` ou `emphasis-only` sem ticket automatico;
    - `operational-limitation` quando a analise nao puder ser concluida com seguranca.
-4. Reportar em texto livre:
+4. Quando o contexto pre-run-all mostrar que a mesma frente causal ja foi tratada antes do `/run-all`, registrar apenas referencia historica estruturada e manter `publicationEligibility=false`.
+5. Reportar em texto livre:
    - a conclusao causal;
    - os artefatos relidos;
    - as evidencias principais;
@@ -66,7 +68,8 @@ Tarefa:
   ],
   "workflowArtifactsConsulted": ["AGENTS.md", "prompts/..."],
   "followUpTicketPaths": ["tickets/open/..."],
-  "limitation": null
+  "limitation": null,
+  "historicalReference": null
 }
 ```
 [[/WORKFLOW_GAP_ANALYSIS]]
@@ -76,6 +79,8 @@ Regras do bloco parseavel:
 - `systemic-hypothesis` deve usar `confidence=medium`.
 - `findings` pode ser vazio apenas em `not-systemic`, `emphasis-only` ou `operational-limitation`.
 - `limitation` deve ser `null` exceto quando `classification=operational-limitation`.
+- `historicalReference` deve ser `null` quando nao houver overlap causal pre-run-all.
+- Se a mesma frente causal ja tiver sido tratada na retrospectiva pre-run-all, `historicalReference` deve apontar para o ticket/achado preexistente e `publicationEligibility` deve permanecer `false`.
 - Quando `classification=operational-limitation`, use:
   - `"code": "analysis-execution-failed" | "invalid-analysis-contract" | "workflow-repo-context-missing"`
   - `"detail": "<explicacao objetiva>"`

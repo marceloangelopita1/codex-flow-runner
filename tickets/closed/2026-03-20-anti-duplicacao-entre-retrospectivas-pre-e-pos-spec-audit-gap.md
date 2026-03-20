@@ -1,7 +1,7 @@
 # [TICKET] Evitar duplicacao entre retrospectivas pre e pos-spec-audit
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-20 01:57Z
@@ -87,9 +87,24 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-20 - Ticket aberto a partir da avaliacao da spec - a fase pos-`spec-audit` ja existe, mas ainda nao conhece nenhuma superficie causal da futura retrospectiva pre-run-all.
+- 2026-03-20 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; resultado validado como `GO` com base apenas em criterios tecnicos/funcionais da entrega atual.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-20 03:11Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-20-anti-duplicacao-entre-retrospectivas-pre-e-pos-spec-audit-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-35`, `RF-36`; `CA-17`: `src/core/runner.ts` agora transporta o contexto causal pre-run-all via `buildWorkflowGapAnalysisPreRunHistoricalContext(...)`, injeta esse contexto em `buildWorkflowGapAnalysisContext(...)` e aplica a guarda deterministica `applyWorkflowGapAnalysisAntiDuplication(...)` antes da publication pos-`spec-audit`, suprimindo ticket automatico duplicado quando houver overlap de fingerprints ou referencia valida ao contexto preexistente.
+  - `RF-35`, `RF-36`; `CA-17`: `src/core/runner.test.ts` cobre os tres cenarios observaveis do ticket com asserts dedicados em `requestRunSpecs suprime publication pos-spec-audit quando a mesma frente causal ja foi ticketada no pre-run-all`, `requestRunSpecs referencia apenas achados pre-run-all quando ha overlap causal sem ticket publicado antes do /run-all` e `requestRunSpecs usa follow-up tickets do spec-audit como insumo principal e gera handoff em high confidence`; comando executado: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`245/245`).
+  - `RF-36`; `CA-17`: `prompts/11-retrospectiva-workflow-apos-spec-audit.md`, `src/types/workflow-gap-analysis.ts` e `src/integrations/workflow-gap-analysis-parser.ts` passaram a explicitar `historicalReference`, proibem coexistencia com `publicationEligibility=true` e tornam a referencia historica parseavel/observavel; `src/integrations/workflow-gap-analysis-parser.test.ts` valida aceitacao e rejeicao dos payloads coerentes/incoerentes.
+  - `RF-36`; `CA-17`: `src/integrations/telegram-bot.ts` e `src/integrations/telegram-bot.test.ts` agora exibem no resumo final quando houve apenas `Referencia historica pre-run-all` sem `Ticket transversal pos-spec-audit`, deixando a deduplicacao observavel para o operador.
+  - Integracao final do changeset: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Entrega tecnica concluida:
+  - a retrospectiva pos-`spec-audit` recebe contexto estruturado da retrospectiva pre-run-all;
+  - a publication automatica e bloqueada quando a frente causal residual coincide com a frente ja tratada antes do `/run-all`;
+  - causas residuais realmente novas continuam elegiveis para publication automatica.
+- Validacao manual externa pendente: nao.

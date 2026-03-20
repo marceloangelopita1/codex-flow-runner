@@ -6354,6 +6354,17 @@ export class TelegramController {
       }
     }
 
+    if (summary.historicalReference) {
+      lines.push("Referencia historica pre-run-all: sim");
+      lines.push(`Resumo da referencia historica: ${summary.historicalReference.summary}`);
+      lines.push(
+        `Ticket/artefato preexistente: ${summary.historicalReference.ticketPath ?? "apenas achados/fingerprints da rodada pre-run-all"}`,
+      );
+      lines.push(
+        `Fingerprints correlacionados: ${summary.historicalReference.findingFingerprints.join(", ")}`,
+      );
+    }
+
     if (summary.limitation) {
       lines.push(`Limitacao operacional: ${summary.limitation.code}`);
       lines.push(`Detalhe da limitacao: ${summary.limitation.detail}`);

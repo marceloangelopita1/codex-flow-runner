@@ -56,6 +56,7 @@ import {
   TicketNotificationDispatchError,
   TicketNotificationDelivery,
 } from "../types/ticket-final-summary.js";
+import { buildWorkflowImprovementTicketFindingFingerprint } from "../types/workflow-improvement-ticket.js";
 import { Logger } from "./logger.js";
 import {
   PlanSpecEventHandlers,
@@ -365,6 +366,13 @@ const createWorkflowGapAnalysisOutput = (value: {
   }>;
   workflowArtifactsConsulted?: string[];
   followUpTicketPaths?: string[];
+  historicalReference?:
+    | {
+        summary: string;
+        ticketPath: string | null;
+        findingFingerprints: string[];
+      }
+    | null;
   limitation?:
     | {
         code:
@@ -398,6 +406,7 @@ const createWorkflowGapAnalysisOutput = (value: {
         ],
         followUpTicketPaths: value.followUpTicketPaths ?? [],
         limitation: value.limitation ?? null,
+        historicalReference: value.historicalReference ?? null,
       },
       null,
       2,
@@ -3780,6 +3789,55 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
         }
       },
     );
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura ajustada para permitir a retrospectiva pre-run-all antes do spec-audit.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "O gate funcional encontrou um gap revisavel antes do /run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-35 ainda nao esta refletido de forma observavel no ticket derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-35", "CA-17"],
+            evidence: ["A rodada precisa revisar um gap antes de liberar a retrospectiva pre-run-all."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "O pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-hypothesis",
+      confidence: "medium",
+      publicationEligibility: false,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A derivacao observou um gap sistemico distinto antes do /run-all.",
+      causalHypothesis:
+        "O pre-run-all ja tinha um achado proprio, mas diferente da causa residual pos-auditoria.",
+      benefitSummary:
+        "Manter o contexto pre-run-all ajuda a provar que a nova publication nao foi bloqueada indevidamente.",
+      findings: [
+        {
+          summary: "A derivacao exigiu reforco na ordem de releitura canonica antes do /run-all.",
+          affectedArtifactPaths: ["prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"],
+          requirementRefs: ["RF-12", "CA-05"],
+          evidence: ["O pre-run-all encontrou causa distinta da observada depois do spec-audit."],
+        },
+      ],
+    });
     codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
       residualGapsDetected: true,
       followUpTicketsCreated: 1,
@@ -3844,6 +3902,7 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
     assert.equal(runSpecsSummary.finalStage, "spec-workflow-retrospective");
     assert.equal(runSpecsSummary.workflowGapAnalysis?.classification, "systemic-gap");
     assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationEligibility, true);
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.historicalReference, null);
     assert.deepEqual(runSpecsSummary.workflowGapAnalysis?.followUpTicketPaths, [
       `tickets/open/${followUpTicketName}`,
     ]);
@@ -3875,6 +3934,325 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
     );
     assert.equal(traceRecord?.request.decision.metadata?.classification, "systemic-gap");
     assert.equal(traceRecord?.request.decision.metadata?.publicationEligibility, true);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs suprime publication pos-spec-audit quando a mesma frente causal ja foi ticketada no pre-run-all", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  const followUpTicketName = "2026-03-19-follow-up-overlap.md";
+  let retrospectiveContext = "";
+  const overlappingFinding = {
+    summary: "A mesma frente causal de orquestracao ja tratada no pre-run-all reapareceu apos a auditoria.",
+    affectedArtifactPaths: ["src/core/runner.ts", `tickets/open/${followUpTicketName}`],
+    requirementRefs: ["RF-35", "RF-36", "CA-17"],
+    evidence: ["O follow-up funcional pos-auditoria reaponta para o mesmo backlog transversal da derivacao."],
+  };
+  const overlappingFingerprint =
+    buildWorkflowImprovementTicketFindingFingerprint(overlappingFinding);
+  try {
+    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
+    const logger = new SpyLogger();
+    const workflowPublisherHarness = createWorkflowImprovementTicketPublisherHarness();
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage, stageSpec) => {
+        if (stage === "spec-audit") {
+          await writeTicketMetadataFile(fixture.projectRoot, {
+            directory: "open",
+            ticketName: followUpTicketName,
+            status: "open",
+            sourceSpec: `docs/specs/${specFileName}`,
+          });
+        }
+
+        if (stage === "spec-workflow-retrospective") {
+          retrospectiveContext = stageSpec.workflowRetrospectiveContext ?? "";
+        }
+      },
+    );
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura ajustada para registrar historico revisado antes da retrospectiva pos-spec-audit.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "O gate funcional abriu um gap revisavel antes do /run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-35 ainda nao esta refletido no pacote derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-35", "CA-17"],
+            evidence: ["A rodada precisa de historico revisado para habilitar a retrospectiva pre-run-all."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "O pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A frente causal da derivacao ja justificou ticket transversal antes do /run-all.",
+      causalHypothesis:
+        "A ordem de orquestracao entre retrospectivas ainda precisa anti-duplicacao explicita.",
+      benefitSummary:
+        "Consolidar o backlog no pre-run-all evita ticket transversal duplicado apos o spec-audit.",
+      findings: [overlappingFinding],
+      workflowArtifactsConsulted: [
+        "AGENTS.md",
+        "prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+      ],
+    });
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 1,
+    });
+    codex.stageOutputs["spec-workflow-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "follow-up-tickets",
+      summary: "A auditoria tornou o backlog residual visivel, mas a causa raiz continua a mesma.",
+      causalHypothesis:
+        "Sem anti-duplicacao, a retrospectiva pos-spec-audit tentaria reabrir o mesmo backlog sistemico.",
+      benefitSummary:
+        "Usar apenas referencia historica preserva a linha causal sem duplicar tickets.",
+      findings: [overlappingFinding],
+      followUpTicketPaths: [`tickets/open/${followUpTicketName}`],
+    });
+
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+        workflowImprovementTicketPublisher: workflowPublisherHarness.publisher,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.status,
+      "created-and-pushed",
+    );
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationEligibility, false);
+    assert.equal(runSpecsSummary.workflowImprovementTicket, undefined);
+    assert.equal(
+      runSpecsSummary.workflowGapAnalysis?.historicalReference?.ticketPath,
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.ticketPath,
+    );
+    assert.deepEqual(
+      runSpecsSummary.workflowGapAnalysis?.historicalReference?.findingFingerprints,
+      [overlappingFingerprint],
+    );
+    assert.equal(
+      workflowPublisherHarness.gitClients.get(fixture.projectRoot)?.explicitPathPublishes.length,
+      1,
+    );
+    assert.match(retrospectiveContext, /Contexto causal pre-run-all ja tratado/u);
+    assert.match(retrospectiveContext, new RegExp(overlappingFingerprint, "u"));
+    assert.match(retrospectiveContext, /historicalReference/u);
+
+    const traceRecord = records.find(
+      (entry) => entry.request.stage === "spec-workflow-retrospective",
+    );
+    assert.equal(traceRecord?.request.decision.metadata?.publicationEligibility, false);
+    assert.equal(
+      (traceRecord?.request.decision.metadata?.historicalReference as { ticketPath?: string } | null)
+        ?.ticketPath,
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.ticketPath,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs referencia apenas achados pre-run-all quando ha overlap causal sem ticket publicado antes do /run-all", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  const followUpTicketName = "2026-03-19-follow-up-overlap-sem-ticket.md";
+  const overlappingFinding = {
+    summary: "A mesma frente causal analisada no pre-run-all reapareceu apos a auditoria, sem ticket previo.",
+    affectedArtifactPaths: ["src/core/runner.ts", `tickets/open/${followUpTicketName}`],
+    requirementRefs: ["RF-35", "RF-36", "CA-17"],
+    evidence: ["A causa observada pos-auditoria coincide com o achado sistemico anterior."],
+  };
+  const overlappingFingerprint =
+    buildWorkflowImprovementTicketFindingFingerprint(overlappingFinding);
+  try {
+    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
+    const logger = new SpyLogger();
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage) => {
+        if (stage === "spec-audit") {
+          await writeTicketMetadataFile(fixture.projectRoot, {
+            directory: "open",
+            ticketName: followUpTicketName,
+            status: "open",
+            sourceSpec: `docs/specs/${specFileName}`,
+          });
+        }
+      },
+    );
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura ajustada para registrar achados pre-run-all antes da auditoria.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "O gate funcional abriu um gap revisavel antes do /run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-36 ainda nao esta refletido no pacote derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-36", "CA-17"],
+            evidence: ["A rodada precisa de historico revisado para habilitar a retrospectiva pre-run-all."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "O pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-hypothesis",
+      confidence: "medium",
+      publicationEligibility: false,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A derivacao ja havia isolado a frente causal, mas sem confianca suficiente para ticket automatico.",
+      causalHypothesis:
+        "O pre-run-all ja apontava a causa sistemica, mesmo sem publication automatica.",
+      benefitSummary:
+        "Referenciar os fingerprints preexistentes evita redescobrir a mesma causa apos o spec-audit.",
+      findings: [overlappingFinding],
+    });
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 1,
+    });
+    codex.stageOutputs["spec-workflow-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "follow-up-tickets",
+      summary: "A auditoria reforcou uma causa sistemica ja conhecida da derivacao.",
+      causalHypothesis:
+        "Sem referencia historica parseavel, a etapa pos-auditoria tentaria promover a mesma causa.",
+      benefitSummary:
+        "A referencia historica evita publication duplicada mesmo sem ticket preexistente.",
+      findings: [overlappingFinding],
+      followUpTicketPaths: [`tickets/open/${followUpTicketName}`],
+    });
+
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.publicationEligibility, false);
+    assert.equal(runSpecsSummary.workflowImprovementTicket, undefined);
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket,
+      undefined,
+    );
+    assert.equal(runSpecsSummary.workflowGapAnalysis?.historicalReference?.ticketPath, null);
+    assert.deepEqual(
+      runSpecsSummary.workflowGapAnalysis?.historicalReference?.findingFingerprints,
+      [overlappingFingerprint],
+    );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }

@@ -75,6 +75,42 @@ test("parseWorkflowGapAnalysisOutput aceita systemic-hypothesis com medium confi
   assert.equal(parsed.publicationEligibility, false);
 });
 
+test("parseWorkflowGapAnalysisOutput aceita referencia historica pre-run-all sem nova publication", () => {
+  const parsed = parseWorkflowGapAnalysisOutput(
+    buildOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: false,
+      inputMode: "follow-up-tickets",
+      summary: "A mesma frente causal reapareceu apos o spec-audit, mas ja foi tratada no pre-run-all.",
+      causalHypothesis: "A implementacao tornou o contexto residual observavel, sem criar causa nova.",
+      benefitSummary: "Referenciar o backlog existente evita duplicacao causal.",
+      findings: [
+        {
+          summary: "A mesma frente causal de orquestracao reapareceu apos a auditoria.",
+          affectedArtifactPaths: ["src/core/runner.ts"],
+          requirementRefs: ["RF-35", "CA-17"],
+          evidence: ["O fingerprint coincide com o achado consolidado no pre-run-all."],
+        },
+      ],
+      workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
+      followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
+      limitation: null,
+      historicalReference: {
+        summary: "Frente causal ja tratada na retrospectiva pre-run-all; usar apenas referencia historica.",
+        ticketPath: "tickets/open/2026-03-19-workflow-improvement-example.md",
+        findingFingerprints: ["workflow-finding|abc123def456"],
+      },
+    }),
+  );
+
+  assert.equal(parsed.publicationEligibility, false);
+  assert.equal(parsed.historicalReference?.ticketPath, "tickets/open/2026-03-19-workflow-improvement-example.md");
+  assert.deepEqual(parsed.historicalReference?.findingFingerprints, [
+    "workflow-finding|abc123def456",
+  ]);
+});
+
 test("parseWorkflowGapAnalysisOutput aceita inputMode spec-ticket-validation-history", () => {
   const parsed = parseWorkflowGapAnalysisOutput(
     buildOutput({
@@ -116,6 +152,42 @@ test("parseWorkflowGapAnalysisOutput rejeita publicationEligibility fora de syst
     (error) =>
       error instanceof WorkflowGapAnalysisParserError &&
       /publicationEligibility=true/u.test(error.message),
+  );
+});
+
+test("parseWorkflowGapAnalysisOutput rejeita historicalReference combinado com publicationEligibility=true", () => {
+  assert.throws(
+    () =>
+      parseWorkflowGapAnalysisOutput(
+        buildOutput({
+          classification: "systemic-gap",
+          confidence: "high",
+          publicationEligibility: true,
+          inputMode: "follow-up-tickets",
+          summary: "A causa parece sistemica.",
+          causalHypothesis: "Mesmo problema do pre-run-all.",
+          benefitSummary: "Nenhum.",
+          findings: [
+            {
+              summary: "Mesmo achado do pre-run-all.",
+              affectedArtifactPaths: ["src/core/runner.ts"],
+              requirementRefs: ["RF-35"],
+              evidence: ["Fingerprint reutilizado."],
+            },
+          ],
+          workflowArtifactsConsulted: ["AGENTS.md"],
+          followUpTicketPaths: [],
+          limitation: null,
+          historicalReference: {
+            summary: "Ja tratado antes do /run-all.",
+            ticketPath: null,
+            findingFingerprints: ["workflow-finding|abc123def456"],
+          },
+        }),
+      ),
+    (error) =>
+      error instanceof WorkflowGapAnalysisParserError &&
+      /historicalReference nao pode coexistir com publicationEligibility=true/u.test(error.message),
   );
 });
 

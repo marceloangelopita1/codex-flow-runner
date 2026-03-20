@@ -212,6 +212,7 @@ const createWorkflowGapAnalysisSummary = (
   workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
   followUpTicketPaths: [],
   limitation: null,
+  historicalReference: null,
   ...value,
 });
 
@@ -6214,6 +6215,53 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
     /Ticket publicado\/reutilizado: tickets\/open\/2026-03-19-workflow-improvement-example\.md/u,
   );
   assert.match(sentMessages[0]?.text ?? "", /Commit\/push dedicado: workflow123@origin\/main/u);
+});
+
+test("envia resumo final de /run-specs com referencia historica pre-run-all sem novo ticket pos-spec-audit", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      workflowGapAnalysis: createWorkflowGapAnalysisSummary({
+        classification: "systemic-gap",
+        confidence: "high",
+        publicationEligibility: false,
+        inputMode: "follow-up-tickets",
+        summary: "A mesma frente causal reapareceu apos o spec-audit, mas ja tinha sido tratada.",
+        causalHypothesis: "A auditoria so confirmou um backlog sistemico ja conhecido no pre-run-all.",
+        benefitSummary: "Referenciar o contexto existente evita ticket transversal duplicado.",
+        findings: [
+          {
+            summary: "A mesma frente causal do pre-run-all reapareceu apos a auditoria.",
+            affectedArtifactPaths: ["src/core/runner.ts"],
+            requirementRefs: ["RF-35", "CA-17"],
+            evidence: ["O fingerprint coincide com o achado da retrospectiva pre-run-all."],
+          },
+        ],
+        historicalReference: {
+          summary: "Frente causal ja tratada na retrospectiva pre-run-all; manter apenas referencia historica.",
+          ticketPath: "tickets/open/2026-03-19-workflow-improvement-example.md",
+          findingFingerprints: ["workflow-finding|abc123def456"],
+        },
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Elegivel para publication: nao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Referencia historica pre-run-all: sim/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Resumo da referencia historica: Frente causal ja tratada na retrospectiva pre-run-all; manter apenas referencia historica\./u,
+  );
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Ticket\/artefato preexistente: tickets\/open\/2026-03-19-workflow-improvement-example\.md/u,
+  );
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
 });
 
 test("envia resumo final de /run-specs distinguindo retrospectiva da derivacao pre-run-all", async () => {

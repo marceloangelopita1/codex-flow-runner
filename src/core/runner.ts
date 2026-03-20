@@ -339,6 +339,21 @@ interface WorkflowGapAnalysisContext {
   followUpTicketPaths: string[];
   workflowArtifactsConsulted: string[];
   specContent: string;
+  preRunHistoricalContext: WorkflowGapAnalysisPreRunHistoricalContext | null;
+}
+
+interface WorkflowGapAnalysisPreRunHistoricalFinding {
+  summary: string;
+  fingerprint: string;
+}
+
+interface WorkflowGapAnalysisPreRunHistoricalContext {
+  decision: RunSpecsDerivationRetrospectiveSummary["decision"];
+  summary: string;
+  classification: WorkflowGapAnalysisResult["classification"] | null;
+  confidence: WorkflowGapAnalysisResult["confidence"] | null;
+  ticketPath: string | null;
+  findings: WorkflowGapAnalysisPreRunHistoricalFinding[];
 }
 
 interface TicketProcessingResult {
@@ -4767,6 +4782,7 @@ export class TicketRunner {
       message: string,
       auditStageResult: SpecAuditStageResult,
       preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+      preRunRetrospectiveSummary: RunSpecsDerivationRetrospectiveSummary | undefined,
     ): Promise<WorkflowRetrospectiveStageResult> => {
       const stage: Extract<RunSpecsFlowTimingStage, "spec-workflow-retrospective"> =
         "spec-workflow-retrospective";
@@ -4778,6 +4794,7 @@ export class TicketRunner {
           spec,
           auditStageResult,
           preAuditOpenTickets,
+          preRunRetrospectiveSummary,
         );
         const retrospectiveSpec: SpecRef = {
           ...spec,
@@ -4786,12 +4803,15 @@ export class TicketRunner {
         let parsedResult: WorkflowGapAnalysisResult | null = null;
         await this.runSpecStage(slot, stage, retrospectiveSpec, message, {
           validateResult: (result) => {
-            parsedResult = this.parseWorkflowGapAnalysisStageResult(
-              stage,
-              result.output,
-              context,
-              slot.project,
-              spec,
+            parsedResult = this.applyWorkflowGapAnalysisAntiDuplication(
+              this.parseWorkflowGapAnalysisStageResult(
+                stage,
+                result.output,
+                context,
+                slot.project,
+                spec,
+              ),
+              context.preRunHistoricalContext,
             );
             return {
               summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
@@ -4826,6 +4846,21 @@ export class TicketRunner {
                 finalizedParsedResult.publicationHandoff,
               )
             : undefined;
+
+        if (finalizedParsedResult.historicalReference) {
+          this.logger.info(
+            "Retrospectiva pos-spec-audit referenciou frente causal preexistente sem nova publication",
+            {
+              spec: spec.fileName,
+              specPath: spec.path,
+              activeProjectName: slot.project.name,
+              activeProjectPath: slot.project.path,
+              historicalTicketPath: finalizedParsedResult.historicalReference.ticketPath,
+              matchedFingerprints:
+                finalizedParsedResult.historicalReference.findingFingerprints,
+            },
+          );
+        }
 
         return {
           analysis: finalizedParsedResult,
@@ -5056,6 +5091,7 @@ export class TicketRunner {
             `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
             specAuditResult,
             preAuditOpenTickets,
+            specTicketDerivationRetrospectiveSummary,
           );
           workflowGapAnalysisSummary = retrospectiveResult.analysis;
           workflowImprovementTicketSummary = retrospectiveResult.publication;
@@ -5783,11 +5819,34 @@ export class TicketRunner {
     };
   }
 
+  private buildWorkflowGapAnalysisPreRunHistoricalContext(
+    summary: RunSpecsDerivationRetrospectiveSummary | undefined,
+  ): WorkflowGapAnalysisPreRunHistoricalContext | null {
+    if (!summary) {
+      return null;
+    }
+
+    const analysis = summary.analysis;
+    return {
+      decision: summary.decision,
+      summary: summary.summary,
+      classification: analysis?.classification ?? null,
+      confidence: analysis?.confidence ?? null,
+      ticketPath: summary.workflowImprovementTicket?.ticketPath ?? null,
+      findings:
+        analysis?.findings.map((finding) => ({
+          summary: finding.summary,
+          fingerprint: buildWorkflowImprovementTicketFindingFingerprint(finding),
+        })) ?? [],
+    };
+  }
+
   private async buildWorkflowGapAnalysisContext(
     activeProject: ProjectRef,
     spec: SpecRef,
     auditStageResult: SpecAuditStageResult,
     preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+    preRunRetrospectiveSummary: RunSpecsDerivationRetrospectiveSummary | undefined,
   ): Promise<WorkflowGapAnalysisContext> {
     const specAbsolutePath = this.resolveProjectRelativePath(activeProject.path, spec.path);
     let specContent = "";
@@ -5815,6 +5874,33 @@ export class TicketRunner {
           : "spec-audit nao abriu follow-up funcional; usar spec + resultado do audit e obrigatorio."
         : null;
     const workflowArtifactsConsulted = workflowContext.artifactHints;
+    const preRunHistoricalContext = this.buildWorkflowGapAnalysisPreRunHistoricalContext(
+      preRunRetrospectiveSummary,
+    );
+    const preRunHistoricalLines =
+      preRunHistoricalContext === null
+        ? ["- Retrospectiva pre-run-all indisponivel nesta rodada."]
+        : [
+            `- Decisao pre-run-all: ${preRunHistoricalContext.decision}`,
+            `- Resumo pre-run-all: ${preRunHistoricalContext.summary}`,
+            `- Classificacao pre-run-all: ${preRunHistoricalContext.classification ?? "n/a"}`,
+            `- Confianca pre-run-all: ${preRunHistoricalContext.confidence ?? "n/a"}`,
+            `- Ticket transversal preexistente: ${preRunHistoricalContext.ticketPath ?? "nenhum"}`,
+            preRunHistoricalContext.findings.length === 0
+              ? "- Fingerprints/achados pre-run-all reaproveitaveis: nenhum"
+              : `- Fingerprints pre-run-all ja tratados: ${preRunHistoricalContext.findings.map((finding) => finding.fingerprint).join(", ")}`,
+            "- Regra anti-duplicacao: se a mesma frente causal ja estiver coberta por algum fingerprint pre-run-all, registre apenas `historicalReference` e mantenha `publicationEligibility=false`.",
+            ...(preRunHistoricalContext.findings.length > 0
+              ? [
+                  "",
+                  "### Achados causais pre-run-all ja tratados",
+                  ...preRunHistoricalContext.findings.flatMap((finding, index) => [
+                    `${index + 1}. ${finding.fingerprint}`,
+                    `   - Resumo: ${finding.summary}`,
+                  ]),
+                ]
+              : []),
+          ];
     const promptContext = [
       "# Contexto estruturado do workflow-gap-analysis",
       "",
@@ -5843,6 +5929,9 @@ export class TicketRunner {
       ...(postAuditOpenTickets.length > 0
         ? postAuditOpenTickets.map((ticket) => `- ${ticket.relativePath}`)
         : ["- Nenhum"]),
+      "",
+      "## Contexto causal pre-run-all ja tratado",
+      ...preRunHistoricalLines,
       "",
       "## Insumos principais da analise",
       ...(followUpTickets.length > 0
@@ -5874,6 +5963,62 @@ export class TicketRunner {
       followUpTicketPaths: followUpTickets.map((ticket) => ticket.relativePath),
       workflowArtifactsConsulted,
       specContent,
+      preRunHistoricalContext,
+    };
+  }
+
+  private applyWorkflowGapAnalysisAntiDuplication(
+    result: WorkflowGapAnalysisResult,
+    preRunHistoricalContext: WorkflowGapAnalysisPreRunHistoricalContext | null,
+  ): WorkflowGapAnalysisResult {
+    if (preRunHistoricalContext === null || preRunHistoricalContext.findings.length === 0) {
+      if (result.historicalReference === null) {
+        return result;
+      }
+
+      return {
+        ...result,
+        historicalReference: null,
+      };
+    }
+
+    const knownFingerprints = new Set(
+      preRunHistoricalContext.findings.map((finding) => finding.fingerprint),
+    );
+    const overlappingFindingFingerprints = result.findings
+      .map((finding) => buildWorkflowImprovementTicketFindingFingerprint(finding))
+      .filter((fingerprint) => knownFingerprints.has(fingerprint));
+    const referencedFingerprints =
+      result.historicalReference?.findingFingerprints.filter((fingerprint) =>
+        knownFingerprints.has(fingerprint),
+      ) ?? [];
+    const matchedFingerprints = this.sortUniqueStrings([
+      ...overlappingFindingFingerprints,
+      ...referencedFingerprints,
+    ]);
+
+    if (matchedFingerprints.length === 0) {
+      if (result.historicalReference === null) {
+        return result;
+      }
+
+      return {
+        ...result,
+        historicalReference: null,
+      };
+    }
+
+    const { publicationHandoff: _publicationHandoff, ...rest } = result;
+    return {
+      ...rest,
+      publicationEligibility: false,
+      historicalReference: {
+        summary:
+          result.historicalReference?.summary ??
+          "Publication automatica suprimida porque a mesma frente causal ja foi tratada na retrospectiva pre-run-all.",
+        ticketPath: preRunHistoricalContext.ticketPath,
+        findingFingerprints: matchedFingerprints,
+      },
     };
   }
 
@@ -6000,6 +6145,10 @@ export class TicketRunner {
   }
 
   private renderWorkflowGapAnalysisTraceSummary(result: WorkflowGapAnalysisResult): string {
+    if (result.historicalReference) {
+      return `workflow-gap-analysis concluiu com ${result.classification} (${result.confidence}) e reaproveitou referencia historica pre-run-all.`;
+    }
+
     return result.classification === "operational-limitation"
       ? "workflow-gap-analysis concluiu com limitacao operacional nao bloqueante."
       : `workflow-gap-analysis concluiu com ${result.classification} (${result.confidence}).`;
@@ -6028,6 +6177,13 @@ export class TicketRunner {
         ? {
             code: result.limitation.code,
             detail: result.limitation.detail,
+          }
+        : null,
+      historicalReference: result.historicalReference
+        ? {
+            summary: result.historicalReference.summary,
+            ticketPath: result.historicalReference.ticketPath,
+            findingFingerprints: [...result.historicalReference.findingFingerprints],
           }
         : null,
       publicationHandoff: result.publicationHandoff
@@ -8713,6 +8869,13 @@ export class TicketRunner {
         ? {
             code: result.limitation.code,
             detail: result.limitation.detail,
+          }
+        : null,
+      historicalReference: result.historicalReference
+        ? {
+            summary: result.historicalReference.summary,
+            ticketPath: result.historicalReference.ticketPath,
+            findingFingerprints: [...result.historicalReference.findingFingerprints],
           }
         : null,
       ...(result.publicationHandoff
