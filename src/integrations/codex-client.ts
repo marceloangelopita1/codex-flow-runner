@@ -44,6 +44,7 @@ import {
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
   | "spec-triage"
+  | "spec-ticket-derivation-retrospective"
   | "spec-close-and-version"
   | "spec-audit"
   | "spec-workflow-retrospective"
@@ -71,6 +72,7 @@ export interface SpecRef {
   categoryCoverage?: DiscoverSpecCategoryCoverage[];
   criticalAmbiguities?: string[];
   commitMessage?: string;
+  derivationRetrospectiveContext?: string;
   tracePaths?: SpecPlanningTracePaths;
   workflowRetrospectiveContext?: string;
 }
@@ -346,6 +348,8 @@ const TICKET_STAGE_PROMPT_FILES: Record<TicketFlowStage, string> = {
 
 const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
   "spec-triage": "01-avaliar-spec-e-gerar-tickets.md",
+  "spec-ticket-derivation-retrospective":
+    "12-retrospectiva-derivacao-tickets-pre-run-all.md",
   "spec-close-and-version": "05-encerrar-tratamento-spec-commit-push.md",
   "spec-audit": "08-auditar-spec-apos-run-all.md",
   "spec-workflow-retrospective": "11-retrospectiva-workflow-apos-spec-audit.md",
@@ -1140,6 +1144,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     const traceRequestPath = spec.tracePaths?.requestPath ?? "";
     const traceResponsePath = spec.tracePaths?.responsePath ?? "";
     const traceDecisionPath = spec.tracePaths?.decisionPath ?? "";
+    const retrospectiveContext =
+      stage === "spec-ticket-derivation-retrospective"
+        ? spec.derivationRetrospectiveContext?.trim()
+        : spec.workflowRetrospectiveContext?.trim();
 
     if (
       stage === "plan-spec-materialize" &&
@@ -1220,7 +1228,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       )
       .replace(
         /<WORKFLOW_RETROSPECTIVE_CONTEXT>/gu,
-        spec.workflowRetrospectiveContext?.trim() || "- Contexto adicional nao informado.",
+        retrospectiveContext || "- Contexto adicional nao informado.",
       )
       .replace(/<TRACE_REQUEST_PATH>/gu, traceRequestPath)
       .replace(/<TRACE_RESPONSE_PATH>/gu, traceResponsePath)

@@ -86,7 +86,8 @@ export type SpecTicketValidationFinalReason =
   | "no-material-auto-correction"
   | "insufficient-confidence"
   | "no-real-gap-reduction"
-  | "max-cycles-reached";
+  | "max-cycles-reached"
+  | "technical-failure-partial-history";
 
 export interface SpecTicketValidationResult {
   verdict: SpecTicketValidationVerdict;

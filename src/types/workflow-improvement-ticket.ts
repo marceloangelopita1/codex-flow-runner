@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 export type WorkflowImprovementTicketHandoffInputMode =
+  | "spec-ticket-validation-history"
   | "follow-up-tickets"
   | "spec-and-audit-fallback";
 

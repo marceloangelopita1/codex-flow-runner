@@ -159,6 +159,43 @@ test("recordStageTrace aceita spec-workflow-retrospective como stage nomeado de 
   }
 });
 
+test("recordStageTrace aceita spec-ticket-derivation-retrospective como stage nomeado de spec", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordStageTrace({
+      kind: "spec",
+      stage: "spec-ticket-derivation-retrospective",
+      sourceCommand: "run-specs",
+      targetName: "2026-03-20-derivacao.md",
+      targetPath: "docs/specs/2026-03-20-derivacao.md",
+      promptTemplatePath: "/repo/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+      promptText: "Execute a retrospectiva pre-run-all.",
+      outputText: "Retrospectiva da derivacao executada.",
+      decision: {
+        status: "success",
+        summary: "Retrospectiva sistemica da derivacao executada antes do /run-all.",
+      },
+      recordedAt: new Date("2026-03-20T03:10:00.000Z"),
+    });
+
+    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
+    const decision = JSON.parse(decisionRaw) as {
+      stage: string;
+      decision: { summary: string };
+    };
+
+    assert.equal(decision.stage, "spec-ticket-derivation-retrospective");
+    assert.equal(
+      decision.decision.summary,
+      "Retrospectiva sistemica da derivacao executada antes do /run-all.",
+    );
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});
+
 test("recordStageTrace preserva metadata estruturada de workflow-gap-analysis", async () => {
   const projectPath = await createTempProjectRoot();
 

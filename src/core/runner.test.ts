@@ -101,7 +101,7 @@ class StubCodexClient implements CodexTicketFlowClient {
   public lastDiscoverSession: StubDiscoverSession | null = null;
   public lastPlanSession: StubPlanSession | null = null;
   public lastFreeChatSession: StubCodexChatSession | null = null;
-  public lastSpecTicketValidationSession: StubSpecTicketValidationSession | null = null;
+  public lastSpecTicketValidationSession: SpecTicketValidationSession | null = null;
   public lastSpecTicketValidationAutoCorrectRequest:
     | SpecTicketValidationAutoCorrectRequest
     | null = null;
@@ -116,6 +116,9 @@ class StubCodexClient implements CodexTicketFlowClient {
       ) =>
         | Promise<SpecTicketValidationAppliedCorrection[]>
         | SpecTicketValidationAppliedCorrection[])
+    | null = null;
+  public specTicketValidationSessionFactory:
+    | (() => SpecTicketValidationSession)
     | null = null;
   private fixedInvocationPreferences: CodexInvocationPreferences | null | undefined;
 
@@ -271,7 +274,9 @@ class StubCodexClient implements CodexTicketFlowClient {
     _request: SpecTicketValidationSessionStartRequest,
   ): Promise<SpecTicketValidationSession> {
     this.specTicketValidationSessionStartCalls += 1;
-    const session = new StubSpecTicketValidationSession(this.specTicketValidationTurns);
+    const session =
+      this.specTicketValidationSessionFactory?.() ??
+      new StubSpecTicketValidationSession(this.specTicketValidationTurns);
     this.lastSpecTicketValidationSession = session;
     return session;
   }
@@ -309,6 +314,12 @@ class StubCodexClient implements CodexTicketFlowClient {
       });
     }
 
+    if (stage === "spec-ticket-derivation-retrospective") {
+      return createWorkflowGapAnalysisOutput({
+        inputMode: "spec-ticket-validation-history",
+      });
+    }
+
     if (stage === "spec-workflow-retrospective") {
       return createWorkflowGapAnalysisOutput();
     }
@@ -339,7 +350,10 @@ const createWorkflowGapAnalysisOutput = (value: {
     | "operational-limitation";
   confidence?: "high" | "medium" | "low";
   publicationEligibility?: boolean;
-  inputMode?: "follow-up-tickets" | "spec-and-audit-fallback";
+  inputMode?:
+    | "spec-ticket-validation-history"
+    | "follow-up-tickets"
+    | "spec-and-audit-fallback";
   summary?: string;
   causalHypothesis?: string;
   benefitSummary?: string;
@@ -830,6 +844,9 @@ const cloneSpecRef = (spec: SpecRef): SpecRef => ({
           decisionPath: spec.tracePaths.decisionPath,
         },
       }
+    : {}),
+  ...(spec.derivationRetrospectiveContext
+    ? { derivationRetrospectiveContext: spec.derivationRetrospectiveContext }
     : {}),
   ...(spec.workflowRetrospectiveContext
     ? { workflowRetrospectiveContext: spec.workflowRetrospectiveContext }
@@ -2990,7 +3007,11 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
     assert.equal(milestones[0]?.timing.interruptedStage, "spec-close-and-version");
     assert.deepEqual(
       milestones[0]?.timing.completedStages,
-      ["spec-triage", "spec-ticket-validation"],
+      [
+        "spec-triage",
+        "spec-ticket-validation",
+        "spec-ticket-derivation-retrospective",
+      ],
     );
     assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
@@ -3011,6 +3032,10 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
       assert.equal(
         typeof runSpecsSummary.timing.durationsByStageMs["spec-ticket-validation"],
         "number",
+      );
+      assert.equal(
+        runSpecsSummary.specTicketDerivationRetrospective?.decision,
+        "skipped-no-reviewed-gaps",
       );
       assert.equal(
         typeof runSpecsSummary.timing.durationsByStageMs["spec-close-and-version"],
@@ -3087,27 +3112,39 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
 
     assert.deepEqual(
       codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
-      [`spec:${specFileName}:spec-triage`],
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-ticket-derivation-retrospective`,
+      ],
     );
     assert.equal(codex.specTicketValidationSessionStartCalls, 1);
     assert.equal(nextTicketCalls, 0);
     assert.equal(milestones.length, 1);
     assert.equal(milestones[0]?.outcome, "blocked");
-    assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
+    assert.equal(milestones[0]?.finalStage, "spec-ticket-derivation-retrospective");
     assert.match(milestones[0]?.nextAction ?? "", /NO_GO/u);
 
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
     assert.ok(runSpecsSummary);
     if (runSpecsSummary?.flow === "run-specs") {
       assert.equal(runSpecsSummary.outcome, "blocked");
-      assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
+      assert.equal(runSpecsSummary.finalStage, "spec-ticket-derivation-retrospective");
       assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
       assert.equal(runSpecsSummary.runAllSummary, undefined);
       assert.equal(runSpecsSummary.specTicketValidation?.verdict, "NO_GO");
       assert.equal(runSpecsSummary.specTicketValidation?.finalReason, "no-auto-correctable-gaps");
+      assert.equal(runSpecsSummary.specTicketDerivationRetrospective?.decision, "executed");
+      assert.equal(
+        runSpecsSummary.specTicketDerivationRetrospective?.analysis?.inputMode,
+        "spec-ticket-validation-history",
+      );
       assert.deepEqual(
         runSpecsSummary.timing.completedStages,
-        ["spec-triage", "spec-ticket-validation"],
+        [
+          "spec-triage",
+          "spec-ticket-validation",
+          "spec-ticket-derivation-retrospective",
+        ],
       );
       assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
     } else {
@@ -3122,9 +3159,11 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
       [
         "run-specs:spec:spec-triage:success",
         "run-specs:spec:spec-ticket-validation:success",
+        "run-specs:spec:spec-ticket-derivation-retrospective:success",
       ],
     );
     assert.equal(records[1]?.request.decision.metadata?.verdict, "NO_GO");
+    assert.equal(records[2]?.request.decision.metadata?.inputMode, "spec-ticket-validation-history");
 
     const specContent = await fs.readFile(
       path.join(fixture.projectRoot, "docs", "specs", specFileName),
@@ -3247,6 +3286,11 @@ test("requestRunSpecs persiste historico por ciclo em summary, spec e trace quan
     assert.equal(traceCycleHistory?.[1]?.cycleNumber, 1);
     assert.equal(traceCycleHistory?.[1]?.phase, "revalidation");
     assert.equal(traceCycleHistory?.[1]?.realGapReductionFromPrevious, false);
+    assert.equal(runSpecsSummary.specTicketDerivationRetrospective?.decision, "executed");
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.inputMode,
+      "spec-ticket-validation-history",
+    );
 
     const specContent = await fs.readFile(
       path.join(fixture.projectRoot, "docs", "specs", specFileName),
@@ -3259,6 +3303,448 @@ test("requestRunSpecs persiste historico por ciclo em summary, spec e trace quan
     assert.match(specContent, /Correcoes deste ciclo: 1/u);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs executa retrospectiva pre-run-all quando um gap revisado termina em GO", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura corrigida para liberar GO.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-hypothesis",
+      confidence: "medium",
+      publicationEligibility: false,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A ordem do workflow ainda depende de contexto implicito para revisar gaps de derivacao.",
+      causalHypothesis: "O contrato do gate funcional ainda nao orienta com suficiente clareza a releitura sistemica pre-run-all.",
+      benefitSummary: "Tornar essa releitura explicita reduz retrabalho antes do consumo do backlog real.",
+      findings: [
+        {
+          summary: "A retrospectiva pre-run-all precisa reforcar a ordem canonica de releitura.",
+          affectedArtifactPaths: ["src/core/runner.ts", "prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"],
+          requirementRefs: ["RF-12", "CA-05"],
+          evidence: ["O gap foi revisado para GO apenas apos uma correção segura no pacote derivado."],
+        },
+      ],
+      followUpTicketPaths: [`tickets/open/${ticketA.name}`],
+    });
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-ticket-derivation-retrospective`,
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+      ],
+    );
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+    assert.equal(runSpecsSummary.specTicketDerivationRetrospective?.decision, "executed");
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.classification,
+      "systemic-hypothesis",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.inputMode,
+      "spec-ticket-validation-history",
+    );
+    assert.equal(
+      records.some((entry) => entry.request.stage === "spec-ticket-derivation-retrospective"),
+      true,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs executa retrospectiva pre-run-all apos falha tecnica com historico estruturado suficiente", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = async () => {
+      throw new Error("falha simulada na autocorrecao");
+    };
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap revisado com insumo estruturado suficiente.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+    ];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-ticket-derivation-retrospective");
+    assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-failure");
+    assert.equal(
+      runSpecsSummary.specTicketValidation?.finalReason,
+      "technical-failure-partial-history",
+    );
+    assert.equal(runSpecsSummary.specTicketDerivationRetrospective?.decision, "executed");
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.functionalVerdict,
+      "unavailable",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.inputMode,
+      "spec-ticket-validation-history",
+    );
+    assert.equal(
+      records.some((entry) => entry.request.stage === "spec-ticket-derivation-retrospective"),
+      true,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs registra skip explicito da retrospectiva pre-run-all quando o gate falha sem insumos estruturados", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationSessionFactory = () => ({
+      runTurn: async () => {
+        throw new Error("falha simulada antes do primeiro passe estruturado");
+      },
+      getThreadId: () => null,
+      cancel: async () => undefined,
+    });
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.equal(milestones.length, 1);
+    assert.equal(milestones[0]?.outcome, "failure");
+    assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
+    assert.match(milestones[0]?.details ?? "", /insumos estruturados suficientes/u);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
+    assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-failure");
+    assert.equal(runSpecsSummary.specTicketValidation, undefined);
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.decision,
+      "skipped-insufficient-structured-input",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.structuredInputAvailable,
+      false,
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.reviewedGapHistoryDetected,
+      false,
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.functionalVerdict,
+      "unavailable",
+    );
+    assert.deepEqual(runSpecsSummary.timing.completedStages, [
+      "spec-triage",
+      "spec-ticket-derivation-retrospective",
+    ]);
+    assert.equal(runSpecsSummary.timing.interruptedStage, "spec-ticket-validation");
+
+    const derivationTrace = records.find(
+      (entry) => entry.request.stage === "spec-ticket-derivation-retrospective",
+    );
+    assert.equal(derivationTrace?.request.decision.status, "success");
+    assert.equal(
+      derivationTrace?.request.decision.metadata?.decision,
+      "skipped-insufficient-structured-input",
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all sem alterar a spec do projeto externo", async () => {
+  const workspaceRoot = await createTempProjectRoot();
+  const externalProjectRoot = path.join(workspaceRoot, "alpha-project");
+  const workflowRepoRoot = path.join(workspaceRoot, "codex-flow-runner");
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    projectRoot: externalProjectRoot,
+    activeProjectName: "alpha-project",
+  });
+  let specContentAtRetrospectiveStart = "";
+  try {
+    await ensureWorkflowImprovementRepoStructure(workflowRepoRoot);
+    const logger = new SpyLogger();
+    const workflowPublisherHarness = createWorkflowImprovementTicketPublisherHarness();
+    const codex = new StubCodexClient(
+      undefined,
+      true,
+      false,
+      0,
+      undefined,
+      false,
+      async (stage) => {
+        if (stage === "spec-ticket-derivation-retrospective") {
+          specContentAtRetrospectiveStart = await fs.readFile(
+            path.join(fixture.projectRoot, "docs", "specs", specFileName),
+            "utf8",
+          );
+        }
+      },
+    );
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura corrigida para habilitar a retrospectiva pre-run-all.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel com historico suficiente.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A derivacao ainda precisa publicar backlog sistemico antes do /run-all.",
+      causalHypothesis:
+        "A etapa pre-run-all precisa roteamento explicito do ticket transversal para o repo do workflow.",
+      benefitSummary:
+        "Publicar o backlog agregado antes do /run-all reduz repeticao da mesma causa em specs futuras.",
+      findings: [
+        {
+          summary: "A publication da derivacao precisa continuar fora do projeto alvo externo.",
+          affectedArtifactPaths: [
+            "src/core/runner.ts",
+            "src/integrations/workflow-improvement-ticket-publisher.ts",
+          ],
+          requirementRefs: ["RF-20", "RF-22", "RF-24", "CA-08", "CA-11"],
+          evidence: ["O gap revisado da derivacao gerou backlog sistemico transversal antes do /run-all."],
+        },
+      ],
+      followUpTicketPaths: [`tickets/open/${ticketA.name}`],
+      workflowArtifactsConsulted: [
+        "../codex-flow-runner/AGENTS.md",
+        "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+      ],
+    });
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+        workflowImprovementTicketPublisher: workflowPublisherHarness.publisher,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    const derivationSummary = runSpecsSummary.specTicketDerivationRetrospective;
+    assert.equal(derivationSummary?.decision, "executed");
+    assert.equal(derivationSummary?.analysis?.classification, "systemic-gap");
+    assert.equal(derivationSummary?.analysis?.publicationEligibility, true);
+    assert.equal(derivationSummary?.workflowImprovementTicket?.status, "created-and-pushed");
+    assert.equal(
+      derivationSummary?.workflowImprovementTicket?.targetRepoKind,
+      "workflow-sibling",
+    );
+    assert.equal(
+      derivationSummary?.workflowImprovementTicket?.targetRepoDisplayPath,
+      "../codex-flow-runner",
+    );
+    assert.equal(runSpecsSummary.workflowImprovementTicket, undefined);
+    assert.equal(
+      workflowPublisherHarness.gitClients.get(workflowRepoRoot)?.explicitPathPublishes.length,
+      1,
+    );
+
+    const specContentAfterRun = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.equal(specContentAfterRun, specContentAtRetrospectiveStart);
+  } finally {
+    await cleanupTempProjectRoot(workspaceRoot);
   }
 });
 
@@ -3756,6 +4242,13 @@ test("requestRunSpecs com sucesso encadeia run-all e processa backlog existente"
     assert.equal(summaries.length, 2);
     assert.equal(summaries[0]?.ticket, fixture.tickets[0]?.name);
     assert.equal(summaries[1]?.ticket, fixture.tickets[1]?.name);
+    const lastRunFlowSummary = runner.getState().lastRunFlowSummary;
+    assert.equal(
+      lastRunFlowSummary?.flow === "run-specs"
+        ? lastRunFlowSummary.specTicketDerivationRetrospective?.decision
+        : null,
+      "skipped-no-reviewed-gaps",
+    );
 
     const state = runner.getState();
     assert.equal(state.isRunning, false);
@@ -3834,11 +4327,16 @@ test("requestRunSpecs executa spec-workflow-retrospective quando spec-audit enco
     assert.deepEqual(runSpecsSummary.timing.completedStages, [
       "spec-triage",
       "spec-ticket-validation",
+      "spec-ticket-derivation-retrospective",
       "spec-close-and-version",
       "run-all",
       "spec-audit",
       "spec-workflow-retrospective",
     ]);
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.decision,
+      "skipped-no-reviewed-gaps",
+    );
     assert.equal(runner.getState().phase, "idle");
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
@@ -3901,7 +4399,12 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
     assert.equal(milestones[0]?.timing.interruptedStage, null);
     assert.deepEqual(
       milestones[0]?.timing.completedStages,
-      ["spec-triage", "spec-ticket-validation", "spec-close-and-version"],
+      [
+        "spec-triage",
+        "spec-ticket-validation",
+        "spec-ticket-derivation-retrospective",
+        "spec-close-and-version",
+      ],
     );
     assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-triage"], "number");
     assert.equal(
@@ -4125,6 +4628,7 @@ test("runner persiste trilhas do fluxo principal para tickets e specs", async ()
       [
         "run-specs:spec:spec-triage:success",
         "run-specs:spec:spec-ticket-validation:success",
+        "run-specs:spec:spec-ticket-derivation-retrospective:success",
         "run-specs:spec:spec-close-and-version:success",
         "run-specs:ticket:plan:success",
         "run-specs:ticket:implement:success",
@@ -4135,12 +4639,16 @@ test("runner persiste trilhas do fluxo principal para tickets e specs", async ()
     assert.equal(records.every((entry) => entry.projectPath === fixture.activeProject.path), true);
     assert.equal(records[1]?.request.decision.metadata?.verdict, "GO");
     assert.equal(records[1]?.request.decision.metadata?.cyclesExecuted, 0);
-    assert.equal(records[3]?.request.targetName, fixture.tickets[0]?.name);
-    assert.equal(records[3]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
-    assert.equal(records[5]?.request.decision.metadata?.commitHash, "abc123");
-    assert.equal(records[5]?.request.decision.metadata?.pushUpstream, "origin/main");
-    assert.equal(records[6]?.request.decision.metadata?.residualGapsDetected, false);
-    assert.equal(records[6]?.request.decision.metadata?.followUpTicketsCreated, 0);
+    assert.equal(
+      records[2]?.request.decision.metadata?.decision,
+      "skipped-no-reviewed-gaps",
+    );
+    assert.equal(records[4]?.request.targetName, fixture.tickets[0]?.name);
+    assert.equal(records[4]?.request.decision.metadata?.execPlanPath, "execplans/2026-02-19-flow-a.md");
+    assert.equal(records[6]?.request.decision.metadata?.commitHash, "abc123");
+    assert.equal(records[6]?.request.decision.metadata?.pushUpstream, "origin/main");
+    assert.equal(records[7]?.request.decision.metadata?.residualGapsDetected, false);
+    assert.equal(records[7]?.request.decision.metadata?.followUpTicketsCreated, 0);
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }

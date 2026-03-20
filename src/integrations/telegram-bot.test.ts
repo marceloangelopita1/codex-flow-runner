@@ -215,6 +215,34 @@ const createWorkflowGapAnalysisSummary = (
   ...value,
 });
 
+const createRunSpecsDerivationRetrospectiveSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["specTicketDerivationRetrospective"]>> = {},
+): NonNullable<RunSpecsFlowSummary["specTicketDerivationRetrospective"]> => ({
+  decision: "executed",
+  summary: "Retrospectiva sistemica da derivacao executada com systemic-hypothesis (medium).",
+  reviewedGapHistoryDetected: true,
+  structuredInputAvailable: true,
+  functionalVerdict: "GO",
+  analysis: createWorkflowGapAnalysisSummary({
+    inputMode: "spec-ticket-validation-history",
+    classification: "systemic-hypothesis",
+    confidence: "medium",
+    summary: "A derivacao exigiu contexto sistemico adicional antes do /run-all.",
+    causalHypothesis: "A ordem de releitura canonica ainda depende de conhecimento implicito.",
+    benefitSummary: "Tornar a etapa explicita reduz retrabalho na derivacao.",
+    findings: [
+      {
+        summary: "A retrospectiva pre-run-all precisa reforcar a ordem canonica de releitura.",
+        affectedArtifactPaths: ["prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"],
+        requirementRefs: ["RF-12", "CA-05"],
+        evidence: ["O pacote derivado precisou de revisao antes de ficar apto."],
+      },
+    ],
+    followUpTicketPaths: ["tickets/open/2026-02-19-flow-a.md"],
+  }),
+  ...value,
+});
+
 const createWorkflowImprovementTicketSummary = (
   value: Partial<NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]>> = {},
 ): NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]> => ({
@@ -6168,7 +6196,7 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Classificacao: systemic-gap/u);
   assert.match(sentMessages[0]?.text ?? "", /Elegivel para publication: sim/u);
   assert.match(
@@ -6179,13 +6207,39 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
     sentMessages[0]?.text ?? "",
     /Falta um contrato parseavel dedicado para workflow-gap-analysis\./u,
   );
-  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal de workflow/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: created-and-pushed/u);
   assert.match(
     sentMessages[0]?.text ?? "",
     /Ticket publicado\/reutilizado: tickets\/open\/2026-03-19-workflow-improvement-example\.md/u,
   );
   assert.match(sentMessages[0]?.text ?? "", /Commit\/push dedicado: workflow123@origin\/main/u);
+});
+
+test("envia resumo final de /run-specs distinguindo retrospectiva da derivacao pre-run-all", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      specTicketDerivationRetrospective: createRunSpecsDerivationRetrospectiveSummary({
+        workflowImprovementTicket: createWorkflowImprovementTicketSummary({
+          detail: "Ticket transversal agregado da derivacao foi publicado antes do /run-all.",
+        }),
+      }),
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Decisao: executed/u);
+  assert.match(sentMessages[0]?.text ?? "", /Modo de entrada: spec-ticket-validation-history/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal da derivacao/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Ticket transversal agregado da derivacao foi publicado antes do \/run-all\./u,
+  );
 });
 
 test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha", async () => {
@@ -6414,11 +6468,11 @@ test("envia resumo final de /run-specs com limitacao operacional da retrospectiv
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica/u);
+  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Classificacao: operational-limitation/u);
   assert.match(sentMessages[0]?.text ?? "", /Limitacao operacional: workflow-repo-context-missing/u);
   assert.match(sentMessages[0]?.text ?? "", /Detalhe da limitacao: Repositorio codex-flow-runner nao encontrado/u);
-  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal de workflow/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: operational-limitation/u);
   assert.match(sentMessages[0]?.text ?? "", /Limitacao de publication: target-repo-missing/u);
 });

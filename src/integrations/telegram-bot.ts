@@ -678,12 +678,14 @@ const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as 
 const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = [
   "spec-triage",
   "spec-ticket-validation",
+  "spec-ticket-derivation-retrospective",
   "spec-close-and-version",
 ] as const;
 const RUN_ALL_TIMING_STAGE_ORDER = ["select-ticket", "plan", "implement", "close-and-version"] as const;
 const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = [
   "spec-triage",
   "spec-ticket-validation",
+  "spec-ticket-derivation-retrospective",
   "spec-close-and-version",
   "run-all",
   "spec-audit",
@@ -6186,11 +6188,25 @@ export class TelegramController {
     if (summary.specTicketValidation) {
       this.appendRunSpecsTicketValidationLines(lines, summary.specTicketValidation);
     }
+    if (summary.specTicketDerivationRetrospective) {
+      this.appendSpecTicketDerivationRetrospectiveLines(
+        lines,
+        summary.specTicketDerivationRetrospective,
+      );
+    }
     if (summary.workflowGapAnalysis) {
-      this.appendWorkflowGapAnalysisLines(lines, summary.workflowGapAnalysis);
+      this.appendWorkflowGapAnalysisLines(
+        lines,
+        summary.workflowGapAnalysis,
+        "Retrospectiva sistemica pos-spec-audit",
+      );
     }
     if (summary.workflowImprovementTicket) {
-      this.appendWorkflowImprovementTicketLines(lines, summary.workflowImprovementTicket);
+      this.appendWorkflowImprovementTicketLines(
+        lines,
+        summary.workflowImprovementTicket,
+        "Ticket transversal pos-spec-audit",
+      );
     }
     this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
     this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
@@ -6274,11 +6290,43 @@ export class TelegramController {
 
   }
 
+  private appendSpecTicketDerivationRetrospectiveLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["specTicketDerivationRetrospective"]>,
+  ): void {
+    lines.push("Retrospectiva sistemica da derivacao");
+    lines.push(`Decisao: ${summary.decision}`);
+    lines.push(`Gaps revisados detectados: ${summary.reviewedGapHistoryDetected ? "sim" : "nao"}`);
+    lines.push(`Insumos estruturados disponiveis: ${summary.structuredInputAvailable ? "sim" : "nao"}`);
+    lines.push(`Veredito funcional associado: ${summary.functionalVerdict}`);
+    lines.push(`Resumo: ${summary.summary}`);
+
+    if (summary.analysis) {
+      this.appendWorkflowGapAnalysisDetails(lines, summary.analysis);
+    }
+
+    if (summary.workflowImprovementTicket) {
+      this.appendWorkflowImprovementTicketLines(
+        lines,
+        summary.workflowImprovementTicket,
+        "Ticket transversal da derivacao",
+      );
+    }
+  }
+
   private appendWorkflowGapAnalysisLines(
     lines: string[],
     summary: NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>,
+    title = "Retrospectiva sistemica",
   ): void {
-    lines.push("Retrospectiva sistemica");
+    lines.push(title);
+    this.appendWorkflowGapAnalysisDetails(lines, summary);
+  }
+
+  private appendWorkflowGapAnalysisDetails(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>,
+  ): void {
     lines.push(`Classificacao: ${summary.classification}`);
     lines.push(`Confianca: ${summary.confidence}`);
     lines.push(`Modo de entrada: ${summary.inputMode}`);
@@ -6315,8 +6363,9 @@ export class TelegramController {
   private appendWorkflowImprovementTicketLines(
     lines: string[],
     summary: NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]>,
+    title = "Ticket transversal de workflow",
   ): void {
-    lines.push("Ticket transversal de workflow");
+    lines.push(title);
     lines.push(`Resultado: ${summary.status}`);
     lines.push(`Detalhe: ${summary.detail}`);
 

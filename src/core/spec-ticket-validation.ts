@@ -17,6 +17,21 @@ import {
 
 export const MAX_SPEC_TICKET_VALIDATION_CYCLES = 2;
 
+export class SpecTicketValidationExecutionError extends Error {
+  constructor(
+    message: string,
+    readonly partialResult: {
+      cyclesExecuted: number;
+      snapshots: SpecTicketValidationCycleSnapshot[];
+      validationThreadId: string | null;
+    },
+    cause?: unknown,
+  ) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "SpecTicketValidationExecutionError";
+  }
+}
+
 export interface SpecTicketValidationAutoCorrectRequest {
   spec: SpecRef;
   cycleNumber: number;
@@ -58,9 +73,20 @@ export const runSpecTicketValidation = async (
   let cyclesExecuted = 0;
 
   try {
-    let turn = await session.runTurn({
-      packageContext: request.initialPackageContext,
-    });
+    let turn: Awaited<ReturnType<SpecTicketValidationSession["runTurn"]>>;
+    try {
+      turn = await session.runTurn({
+        packageContext: request.initialPackageContext,
+      });
+    } catch (error) {
+      throw buildExecutionError(
+        "Falha tecnica antes do primeiro passe estruturado de spec-ticket-validation.",
+        snapshots,
+        null,
+        cyclesExecuted,
+        error,
+      );
+    }
 
     snapshots.push(
       buildSnapshot({
@@ -98,6 +124,14 @@ export const runSpecTicketValidation = async (
         cycleNumber,
         latestPass: turn.parsed,
         latestSnapshot,
+      }).catch((error) => {
+        throw buildExecutionError(
+          `Falha tecnica durante a autocorrecao do ciclo ${String(cycleNumber)} de spec-ticket-validation.`,
+          snapshots,
+          turn.threadId,
+          cyclesExecuted,
+          error,
+        );
       });
 
       if (!autoCorrection.materialChangesApplied) {
@@ -110,12 +144,22 @@ export const runSpecTicketValidation = async (
         });
       }
 
-      const nextTurn = await session.runTurn({
-        packageContext: autoCorrection.packageContext,
-        appliedCorrectionsSummary: autoCorrection.appliedCorrections.map(
-          (correction) => `${correction.description} [${correction.outcome}]`,
-        ),
-      });
+      const nextTurn = await session
+        .runTurn({
+          packageContext: autoCorrection.packageContext,
+          appliedCorrectionsSummary: autoCorrection.appliedCorrections.map(
+            (correction) => `${correction.description} [${correction.outcome}]`,
+          ),
+        })
+        .catch((error) => {
+          throw buildExecutionError(
+            `Falha tecnica durante a revalidacao do ciclo ${String(cycleNumber)} de spec-ticket-validation.`,
+            snapshots,
+            turn.threadId,
+            cyclesExecuted,
+            error,
+          );
+        });
 
       cyclesExecuted = cycleNumber;
       const realGapReductionFromPrevious = hasStrictOpenGapReduction(
@@ -176,6 +220,56 @@ export const runSpecTicketValidation = async (
   } finally {
     await session.cancel();
   }
+};
+
+const buildExecutionError = (
+  message: string,
+  snapshots: SpecTicketValidationCycleSnapshot[],
+  validationThreadId: string | null,
+  cyclesExecuted: number,
+  cause: unknown,
+): SpecTicketValidationExecutionError => {
+  return new SpecTicketValidationExecutionError(
+    message,
+    {
+      cyclesExecuted,
+      snapshots: snapshots.map((snapshot) => ({
+        cycleNumber: snapshot.cycleNumber,
+        phase: snapshot.phase,
+        threadId: snapshot.threadId,
+        turnResult: {
+          verdict: snapshot.turnResult.verdict,
+          confidence: snapshot.turnResult.confidence,
+          summary: snapshot.turnResult.summary,
+          gaps: snapshot.turnResult.gaps.map((gap) => ({
+            gapType: gap.gapType,
+            summary: gap.summary,
+            affectedArtifactPaths: [...gap.affectedArtifactPaths],
+            requirementRefs: [...gap.requirementRefs],
+            evidence: [...gap.evidence],
+            probableRootCause: gap.probableRootCause,
+            isAutoCorrectable: gap.isAutoCorrectable,
+          })),
+          appliedCorrections: snapshot.turnResult.appliedCorrections.map((correction) => ({
+            description: correction.description,
+            affectedArtifactPaths: [...correction.affectedArtifactPaths],
+            linkedGapTypes: [...correction.linkedGapTypes],
+            outcome: correction.outcome,
+          })),
+        },
+        appliedCorrections: snapshot.appliedCorrections.map((correction) => ({
+          description: correction.description,
+          affectedArtifactPaths: [...correction.affectedArtifactPaths],
+          linkedGapTypes: [...correction.linkedGapTypes],
+          outcome: correction.outcome,
+        })),
+        openGapFingerprints: [...snapshot.openGapFingerprints],
+        realGapReductionFromPrevious: snapshot.realGapReductionFromPrevious,
+      })),
+      validationThreadId,
+    },
+    cause,
+  );
 };
 
 const buildSnapshot = (params: {

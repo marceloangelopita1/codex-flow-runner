@@ -21,6 +21,7 @@ export type WorkflowGapAnalysisConfidenceLevel =
   (typeof WORKFLOW_GAP_ANALYSIS_CONFIDENCE_LEVELS)[number];
 
 export const WORKFLOW_GAP_ANALYSIS_INPUT_MODES = [
+  "spec-ticket-validation-history",
   "follow-up-tickets",
   "spec-and-audit-fallback",
 ] as const;

@@ -16,6 +16,7 @@ export type RunnerPhase =
   | "select-spec"
   | "spec-triage"
   | "spec-ticket-validation"
+  | "spec-ticket-derivation-retrospective"
   | "spec-close-and-version"
   | "spec-audit"
   | "spec-workflow-retrospective"

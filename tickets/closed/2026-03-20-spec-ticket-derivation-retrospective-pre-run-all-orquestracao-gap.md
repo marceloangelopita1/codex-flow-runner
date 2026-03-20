@@ -1,7 +1,7 @@
 # [TICKET] Introduzir spec-ticket-derivation-retrospective antes do /run-all
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S1
 - Created at (UTC): 2026-03-20 01:57Z
@@ -98,9 +98,27 @@ Defina evidencias objetivas para encerrar o ticket.
 
 ## Decision log
 - 2026-03-20 - Ticket aberto a partir da avaliacao da spec - a nova etapa pre-run-all aprovada ainda nao existe na orquestracao, embora haja infra parcial reaproveitavel de taxonomia/publication na retrospectiva pos-`spec-audit`.
+- 2026-03-20 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` relidos na etapa de fechamento; a validacao automatizada foi complementada para cobrir skip por falta de insumos estruturados e publication pre-run-all em projeto externo antes da decisao final.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-20 02:41Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-20-spec-ticket-derivation-retrospective-pre-run-all-orquestracao-gap.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-04`, `RF-05`, `RF-06`, `RF-07`, `RF-08`, `RF-09`, `RF-10`, `RF-11`, `RF-32`, `RF-33`, `RF-34`; `CA-01`, `CA-02`, `CA-03`, `CA-04`, `CA-16`: `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/types/state.ts` e `src/integrations/workflow-trace-store.ts` introduzem o stage nomeado `spec-ticket-derivation-retrospective`, com `finalStage` e `completionReason` coerentes para execucao e skip; `src/core/runner.test.ts` cobre `requestRunSpecs executa retrospectiva pre-run-all quando um gap revisado termina em GO`, `requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a spec`, `requestRunSpecs registra skip explicito da retrospectiva pre-run-all quando o gate falha sem insumos estruturados` e `requestRunSpecs executa retrospectiva pre-run-all apos falha tecnica com historico estruturado suficiente`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`246/246`).
+  - `RF-12`, `RF-13`, `RF-14`, `RF-15`, `RF-16`, `RF-17`, `RF-18`, `RF-19`; `CA-05`, `CA-06`, `CA-07`, `CA-09`, `CA-10`: `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` materializa o prompt dedicado de `derivation-gap-analysis`; `src/integrations/codex-client.ts` mapeia o novo stage e `src/core/runner.ts` constroi contexto novo `spec-ticket-validation-history` com releitura da spec, pacote final, historico por ciclo e artefatos canonicos do workflow; `src/types/workflow-gap-analysis.ts`, `src/types/workflow-improvement-ticket.ts` e `src/integrations/workflow-gap-analysis-parser.test.ts` reaproveitam a mesma taxonomia/confianca da retrospectiva pos-`spec-audit`; `src/integrations/telegram-bot.ts` e `src/integrations/telegram-bot.test.ts` distinguem a retrospectiva da derivacao no resumo final; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`246/246`).
+  - `RF-20`, `RF-21`, `RF-22`, `RF-23`, `RF-24`, `RF-25`; `CA-08`, `CA-11`: `src/core/runner.ts` reutiliza `publishWorkflowImprovementTicketIfNeeded(...)` tambem na retrospectiva pre-run-all, limitando publication a um handoff agregado por rodada; `src/core/runner.test.ts` cobre `requestRunSpecs publica ticket transversal na retrospectiva pre-run-all sem alterar a spec do projeto externo`, validando `workflow-sibling`, `explicitPathPublishes.length === 1` e ausencia de write-back no projeto alvo; `requestRunSpecs degrada falha tecnica da retrospectiva para operational-limitation sem falhar o /run_specs` valida a degradacao nao bloqueante; `src/integrations/workflow-improvement-ticket-publisher.test.ts` cobre os dois destinos compartilhados (`publica ticket transversal no repositorio atual com commit/push observavel` e `publica ticket transversal no repositorio irmao quando o projeto ativo e externo`); `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` -> pass (`394/394`).
+- Entrega tecnica concluida:
+  - `runSpecsAndRunAll(...)` agora encadeia `spec-ticket-validation -> spec-ticket-derivation-retrospective -> spec-close-and-version`, inclusive no ramo `NO_GO` e no ramo de falha tecnica com historico parcial suficiente.
+  - O stage pre-run-all registra skip observavel para ausencia de gaps revisados e para falta de insumos estruturados, sem silenciar a decisao no resumo final ou nos traces.
+  - A retrospectiva pre-run-all ganhou prompt dedicado, contexto proprio `spec-ticket-validation-history`, publication nao bloqueante e renderizacao especifica no Telegram, preservando a separacao em relacao a `spec-ticket-validation` e `spec-workflow-retrospective`.
+- Validacoes executadas:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/telegram-bot.test.ts` -> pass (`246/246`).
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` -> pass (`394/394`).
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> pass.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build` -> pass.
+- Validacao manual externa pendente: nao.

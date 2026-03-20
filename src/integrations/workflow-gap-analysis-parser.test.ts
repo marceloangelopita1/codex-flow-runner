@@ -75,6 +75,26 @@ test("parseWorkflowGapAnalysisOutput aceita systemic-hypothesis com medium confi
   assert.equal(parsed.publicationEligibility, false);
 });
 
+test("parseWorkflowGapAnalysisOutput aceita inputMode spec-ticket-validation-history", () => {
+  const parsed = parseWorkflowGapAnalysisOutput(
+    buildOutput({
+      classification: "not-systemic",
+      confidence: "low",
+      publicationEligibility: false,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A revisao funcional nao revelou contribuicao sistemica suficiente.",
+      causalHypothesis: "Os gaps observados permaneceram locais ao pacote derivado.",
+      benefitSummary: "Nenhum ticket automatico e necessario nesta rodada.",
+      findings: [],
+      workflowArtifactsConsulted: ["AGENTS.md", "prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"],
+      followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
+      limitation: null,
+    }),
+  );
+
+  assert.equal(parsed.inputMode, "spec-ticket-validation-history");
+});
+
 test("parseWorkflowGapAnalysisOutput rejeita publicationEligibility fora de systemic-gap/high", () => {
   assert.throws(
     () =>

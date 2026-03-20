@@ -78,9 +78,25 @@ export interface RunSpecsTicketValidationCycleSummary {
   realGapReductionFromPrevious: boolean | null;
 }
 
+export type RunSpecsDerivationRetrospectiveDecision =
+  | "executed"
+  | "skipped-no-reviewed-gaps"
+  | "skipped-insufficient-structured-input";
+
+export interface RunSpecsDerivationRetrospectiveSummary {
+  decision: RunSpecsDerivationRetrospectiveDecision;
+  summary: string;
+  reviewedGapHistoryDetected: boolean;
+  structuredInputAvailable: boolean;
+  functionalVerdict: SpecTicketValidationVerdict | "unavailable";
+  analysis?: WorkflowGapAnalysisResult;
+  workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
+}
+
 export type RunSpecsTriageTimingStage =
   | "spec-triage"
   | "spec-ticket-validation"
+  | "spec-ticket-derivation-retrospective"
   | "spec-close-and-version";
 
 export type RunSpecsTriageFinalStage = RunSpecsTriageTimingStage | "unknown";
@@ -116,6 +132,7 @@ export interface RunSpecsFlowSummary {
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
   specTicketValidation?: RunSpecsTicketValidationSummary;
+  specTicketDerivationRetrospective?: RunSpecsDerivationRetrospectiveSummary;
   workflowGapAnalysis?: WorkflowGapAnalysisResult;
   workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
   runAllSummary?: RunAllFlowSummary;

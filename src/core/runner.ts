@@ -32,6 +32,7 @@ import {
   RunAllCompletionReason,
   RunAllFinalStage,
   RunAllFlowSummary,
+  RunSpecsDerivationRetrospectiveSummary,
   RunAllTimingStage,
   RunnerFlowSummary,
   RunSpecsFlowCompletionReason,
@@ -109,8 +110,12 @@ import {
 import {
   WorkflowImprovementTicketPublisher,
 } from "../integrations/workflow-improvement-ticket-publisher.js";
-import { runSpecTicketValidation } from "./spec-ticket-validation.js";
 import {
+  runSpecTicketValidation,
+  SpecTicketValidationExecutionError,
+} from "./spec-ticket-validation.js";
+import {
+  SpecTicketValidationAppliedCorrection,
   SpecTicketValidationGap,
   SpecTicketValidationResult,
 } from "../types/spec-ticket-validation.js";
@@ -319,6 +324,15 @@ interface WorkflowRetrospectiveStageResult {
   publication?: WorkflowImprovementTicketPublicationResult;
 }
 
+interface SpecTicketDerivationRetrospectiveContext {
+  inputMode: Extract<WorkflowGapAnalysisInputMode, "spec-ticket-validation-history">;
+  promptContext: string;
+  workflowArtifactsConsulted: string[];
+  specContent: string;
+  packageContext: SpecTicketValidationPackageContext;
+  validationSummary: RunSpecsTicketValidationSummary;
+}
+
 interface WorkflowGapAnalysisContext {
   inputMode: WorkflowGapAnalysisInputMode;
   promptContext: string;
@@ -357,16 +371,28 @@ interface SpecTicketValidationArtifactSnapshot {
 
 class RunnerSpecTicketValidationStageError extends Error {
   readonly stage = "spec-ticket-validation";
+  readonly partialSummary?: RunSpecsTicketValidationSummary;
+  readonly packageContext?: SpecTicketValidationPackageContext;
 
-  constructor(message: string, cause?: unknown) {
+  constructor(
+    message: string,
+    cause?: unknown,
+    partialSummary?: RunSpecsTicketValidationSummary,
+    packageContext?: SpecTicketValidationPackageContext,
+  ) {
     super(message, cause === undefined ? undefined : { cause });
     this.name = "RunnerSpecTicketValidationStageError";
+    this.partialSummary = partialSummary;
+    this.packageContext = packageContext;
   }
 }
 
 class RunnerSpecStageContractError extends Error {
   constructor(
-    readonly stage: Extract<SpecFlowStage, "spec-audit" | "spec-workflow-retrospective">,
+    readonly stage: Extract<
+      SpecFlowStage,
+      "spec-ticket-derivation-retrospective" | "spec-audit" | "spec-workflow-retrospective"
+    >,
     message: string,
     cause?: unknown,
   ) {
@@ -4458,6 +4484,10 @@ export class TicketRunner {
     let runAllSummary: RunAllFlowSummary | undefined;
     let flowSummary: RunSpecsFlowSummary | null = null;
     let specTicketValidationSummary: RunSpecsTicketValidationSummary | undefined;
+    let specTicketValidationPackageContext: SpecTicketValidationPackageContext | undefined;
+    let specTicketDerivationRetrospectiveSummary:
+      | RunSpecsDerivationRetrospectiveSummary
+      | undefined;
     let workflowGapAnalysisSummary: WorkflowGapAnalysisResult | undefined;
     let workflowImprovementTicketSummary: WorkflowImprovementTicketPublicationResult | undefined;
     let triageCompleted = false;
@@ -4484,17 +4514,21 @@ export class TicketRunner {
 
     const runTimedSpecTicketValidationStage = async (
       message: string,
-    ): Promise<RunSpecsTicketValidationSummary> => {
+    ): Promise<{
+      summary: RunSpecsTicketValidationSummary;
+      packageContext: SpecTicketValidationPackageContext;
+    }> => {
       const stage: Extract<RunSpecsTriageTimingStage, "spec-ticket-validation"> =
         "spec-ticket-validation";
       const stageStartedAt = Date.now();
       try {
         const execution = await this.runSpecTicketValidationStage(slot, spec, message);
         specTicketValidationSummary = execution.summary;
+        specTicketValidationPackageContext = execution.packageContext;
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
-        return execution.summary;
+        return execution;
       } catch (error) {
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageFailure(triageTimingCollector, stage, durationMs);
@@ -4505,6 +4539,191 @@ export class TicketRunner {
 
         const errorMessage = error instanceof Error ? error.message : String(error);
         throw new RunnerSpecTicketValidationStageError(errorMessage, error);
+      }
+    };
+
+    const runTimedSpecTicketDerivationRetrospectiveStage = async (
+      message: string,
+      validationSummary: RunSpecsTicketValidationSummary | undefined,
+      packageContext: SpecTicketValidationPackageContext,
+      functionalVerdict: RunSpecsDerivationRetrospectiveSummary["functionalVerdict"] =
+        validationSummary?.verdict ?? "unavailable",
+    ): Promise<RunSpecsDerivationRetrospectiveSummary> => {
+      const stage: Extract<
+        RunSpecsTriageTimingStage,
+        "spec-ticket-derivation-retrospective"
+      > = "spec-ticket-derivation-retrospective";
+      const stageStartedAt = Date.now();
+      const reviewedGapHistoryDetected = validationSummary
+        ? this.hasReviewedSpecTicketValidationGapHistory(validationSummary)
+        : false;
+      const structuredInputAvailable = validationSummary
+        ? this.hasStructuredSpecTicketValidationStructuredInputs(validationSummary)
+        : false;
+
+      const finalizeSkip = async (
+        decision: Extract<
+          RunSpecsDerivationRetrospectiveSummary["decision"],
+          "skipped-no-reviewed-gaps" | "skipped-insufficient-structured-input"
+        >,
+        summaryText: string,
+      ): Promise<RunSpecsDerivationRetrospectiveSummary> => {
+        const summary: RunSpecsDerivationRetrospectiveSummary = {
+          decision,
+          summary: summaryText,
+          reviewedGapHistoryDetected,
+          structuredInputAvailable,
+          functionalVerdict,
+        };
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        await this.recordWorkflowTraceSuccess(slot, {
+          kind: "spec",
+          stage,
+          targetName: spec.fileName,
+          targetPath: spec.path,
+          promptTemplatePath: "(skip-no-prompt)",
+          promptText: "Retrospectiva pre-run-all pulada sem invocacao ao Codex.",
+          outputText: summaryText,
+          summary: summaryText,
+          metadata: this.buildSpecTicketDerivationRetrospectiveTraceMetadata(summary),
+        });
+        return summary;
+      };
+
+      if (!structuredInputAvailable) {
+        return finalizeSkip(
+          "skipped-insufficient-structured-input",
+          "Retrospectiva sistemica da derivacao nao executada: o gate funcional falhou antes de produzir insumos estruturados suficientes.",
+        );
+      }
+
+      if (!reviewedGapHistoryDetected) {
+        return finalizeSkip(
+          "skipped-no-reviewed-gaps",
+          "Retrospectiva sistemica da derivacao nao executada: o gate funcional nao revisou gaps em nenhum ciclo.",
+        );
+      }
+
+      if (!validationSummary) {
+        throw new Error(
+          "Resumo estruturado de spec-ticket-validation ausente ao preparar a retrospectiva pre-run-all.",
+        );
+      }
+
+      try {
+        slot.currentSpec = spec.fileName;
+        const context = await this.buildSpecTicketDerivationRetrospectiveContext(
+          slot.project,
+          spec,
+          packageContext,
+          validationSummary,
+        );
+        const retrospectiveSpec: SpecRef = {
+          ...spec,
+          derivationRetrospectiveContext: context.promptContext,
+        };
+        let parsedResult: WorkflowGapAnalysisResult | null = null;
+        await this.runSpecStage(slot, "spec-ticket-derivation-retrospective", retrospectiveSpec, message, {
+          validateResult: (result) => {
+            parsedResult = this.parseWorkflowGapAnalysisStageResult(
+              "spec-ticket-derivation-retrospective",
+              result.output,
+              context,
+              slot.project,
+              spec,
+            );
+            return {
+              summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
+              metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
+            };
+          },
+        });
+
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        const finalizedParsedResult = parsedResult as WorkflowGapAnalysisResult | null;
+        if (!finalizedParsedResult) {
+          throw new RunnerSpecStageContractError(
+            "spec-ticket-derivation-retrospective",
+            "derivation-gap-analysis terminou sem expor o resultado parseavel obrigatorio.",
+          );
+        }
+        if (
+          finalizedParsedResult.publicationEligibility &&
+          !finalizedParsedResult.publicationHandoff
+        ) {
+          throw new RunnerSpecStageContractError(
+            "spec-ticket-derivation-retrospective",
+            "derivation-gap-analysis marcou publicationEligibility=true sem publicationHandoff.",
+          );
+        }
+
+        const publication =
+          finalizedParsedResult.publicationEligibility &&
+          finalizedParsedResult.publicationHandoff
+            ? await this.publishWorkflowImprovementTicketIfNeeded(
+                slot.project,
+                spec,
+                finalizedParsedResult.publicationHandoff,
+              )
+            : undefined;
+
+        return {
+          decision: "executed",
+          summary:
+            finalizedParsedResult.classification === "operational-limitation"
+              ? "Retrospectiva sistemica da derivacao executada com limitacao operacional nao bloqueante."
+              : `Retrospectiva sistemica da derivacao executada com ${finalizedParsedResult.classification} (${finalizedParsedResult.confidence}).`,
+          reviewedGapHistoryDetected,
+          structuredInputAvailable,
+          functionalVerdict,
+          analysis: finalizedParsedResult,
+          ...(publication ? { workflowImprovementTicket: publication } : {}),
+        };
+      } catch (error) {
+        const durationMs = Date.now() - stageStartedAt;
+        this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
+        this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        const analysis = this.convertWorkflowGapAnalysisFailureToOperationalLimitation({
+          error,
+          stage: "spec-ticket-derivation-retrospective",
+          spec,
+          activeProject: slot.project,
+          inputMode: "spec-ticket-validation-history",
+          workflowArtifactsConsulted:
+            slot.project.name === "codex-flow-runner"
+              ? ["AGENTS.md", "prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"]
+              : [
+                  "../codex-flow-runner/AGENTS.md",
+                  "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+                ],
+          summary:
+            "Retrospectiva sistemica da derivacao nao concluiu de forma confiavel nesta rodada.",
+        });
+        const summary: RunSpecsDerivationRetrospectiveSummary = {
+          decision: "executed",
+          summary:
+            "Retrospectiva sistemica da derivacao executada com limitacao operacional nao bloqueante.",
+          reviewedGapHistoryDetected,
+          structuredInputAvailable,
+          functionalVerdict,
+          analysis,
+        };
+        this.logger.warn(
+          "Retrospectiva pre-run-all degradou para limitacao operacional nao bloqueante",
+          {
+            spec: spec.fileName,
+            specPath: spec.path,
+            activeProjectName: slot.project.name,
+            activeProjectPath: slot.project.path,
+            detail: analysis.limitation?.detail,
+            limitationCode: analysis.limitation?.code,
+          },
+        );
+        return summary;
       }
     };
 
@@ -4568,6 +4787,7 @@ export class TicketRunner {
         await this.runSpecStage(slot, stage, retrospectiveSpec, message, {
           validateResult: (result) => {
             parsedResult = this.parseWorkflowGapAnalysisStageResult(
+              stage,
               result.output,
               context,
               slot.project,
@@ -4615,11 +4835,24 @@ export class TicketRunner {
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
         const analysis = this.convertWorkflowGapAnalysisFailureToOperationalLimitation(
-          error,
-          spec,
-          slot.project,
-          auditStageResult,
-          preAuditOpenTickets,
+          {
+            error,
+            stage,
+            spec,
+            activeProject: slot.project,
+            inputMode:
+              auditStageResult.followUpTicketsCreated > 0
+                ? "follow-up-tickets"
+                : "spec-and-audit-fallback",
+            workflowArtifactsConsulted:
+              slot.project.name === "codex-flow-runner"
+                ? ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"]
+                : [
+                    "../codex-flow-runner/AGENTS.md",
+                    "../codex-flow-runner/prompts/11-retrospectiva-workflow-apos-spec-audit.md",
+                  ],
+            summary: "workflow-gap-analysis nao concluiu de forma confiavel para a retrospectiva pos-auditoria",
+          },
         );
         this.logger.warn(
           "workflow-gap-analysis degradou para limitacao operacional nao bloqueante",
@@ -4641,10 +4874,98 @@ export class TicketRunner {
         "spec-triage",
         `Executando etapa spec-triage para ${spec.fileName}`,
       );
-      const validationSummary = await runTimedSpecTicketValidationStage(
-        `Executando etapa spec-ticket-validation para ${spec.fileName}`,
-      );
+      let validationExecution:
+        | {
+            summary: RunSpecsTicketValidationSummary;
+            packageContext: SpecTicketValidationPackageContext;
+          }
+        | undefined;
+      try {
+        validationExecution = await runTimedSpecTicketValidationStage(
+          `Executando etapa spec-ticket-validation para ${spec.fileName}`,
+        );
+      } catch (error) {
+        if (!(error instanceof RunnerSpecTicketValidationStageError)) {
+          throw error;
+        }
+
+        specTicketValidationSummary = error.partialSummary ?? specTicketValidationSummary;
+        specTicketValidationPackageContext = error.packageContext ?? specTicketValidationPackageContext;
+        if (specTicketValidationPackageContext) {
+          specTicketDerivationRetrospectiveSummary =
+            await runTimedSpecTicketDerivationRetrospectiveStage(
+              `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+              specTicketValidationSummary,
+              specTicketValidationPackageContext,
+              "unavailable",
+            );
+        }
+
+        const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
+        const finalStage: RunSpecsTriageFinalStage =
+          specTicketDerivationRetrospectiveSummary?.decision === "executed"
+            ? "spec-ticket-derivation-retrospective"
+            : "spec-ticket-validation";
+        const details = [
+          error.message,
+          specTicketDerivationRetrospectiveSummary?.summary,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        this.touchSlot(
+          slot,
+          "error",
+          `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada`,
+        );
+        this.logger.error("Erro no ciclo de triagem de spec", {
+          spec: spec.fileName,
+          specPath: spec.path,
+          stage: "spec-ticket-validation",
+          error: error.message,
+          durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
+          activeProjectName: slot.project.name,
+          activeProjectPath: slot.project.path,
+          derivationRetrospectiveDecision: specTicketDerivationRetrospectiveSummary?.decision,
+        });
+        await this.emitRunSpecsTriageMilestone({
+          spec: { ...spec },
+          outcome: "failure",
+          finalStage,
+          nextAction:
+            "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs.",
+          details,
+          timing: triageTiming,
+        });
+        flowSummary = this.buildRunSpecsFlowSummary({
+          slot,
+          spec,
+          outcome: "failure",
+          finalStage,
+          completionReason: "spec-ticket-validation-failure",
+          details,
+          triageTimingCollector,
+          flowTimingCollector,
+          specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          workflowGapAnalysis: workflowGapAnalysisSummary,
+          workflowImprovementTicket: workflowImprovementTicketSummary,
+          runAllSummary,
+        });
+        return;
+      }
+
+      const validationSummary = validationExecution.summary;
+      specTicketDerivationRetrospectiveSummary =
+        await runTimedSpecTicketDerivationRetrospectiveStage(
+          `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+          validationSummary,
+          validationExecution.packageContext,
+        );
       if (validationSummary.verdict !== "GO") {
+        const finalStage: RunSpecsTriageFinalStage =
+          specTicketDerivationRetrospectiveSummary.decision === "executed"
+            ? "spec-ticket-derivation-retrospective"
+            : "spec-ticket-validation";
         const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
         this.logger.info("Gate spec-ticket-validation bloqueou continuidade do /run_specs", {
           spec: spec.fileName,
@@ -4660,10 +4981,12 @@ export class TicketRunner {
         await this.emitRunSpecsTriageMilestone({
           spec: { ...spec },
           outcome: "blocked",
-          finalStage: "spec-ticket-validation",
+          finalStage,
           nextAction:
             "Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute /run_specs.",
-          details: validationSummary.summary,
+          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary.summary]
+            .filter(Boolean)
+            .join(" "),
           timing: triageTiming,
         });
         slot.currentSpec = null;
@@ -4676,12 +4999,15 @@ export class TicketRunner {
           slot,
           spec,
           outcome: "blocked",
-          finalStage: "spec-ticket-validation",
+          finalStage,
           completionReason: "spec-ticket-validation-no-go",
-          details: validationSummary.summary,
+          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary.summary]
+            .filter(Boolean)
+            .join(" "),
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: validationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           runAllSummary,
         });
         return;
@@ -4746,6 +5072,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4768,6 +5095,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4777,6 +5105,7 @@ export class TicketRunner {
       const stage =
         (error instanceof CodexStageExecutionError &&
           (error.stage === "spec-triage" ||
+            error.stage === "spec-ticket-derivation-retrospective" ||
             error.stage === "spec-close-and-version" ||
             error.stage === "spec-audit" ||
             error.stage === "spec-workflow-retrospective")) ||
@@ -4789,6 +5118,7 @@ export class TicketRunner {
       const finalStage: RunSpecsTriageFinalStage =
         stage === "spec-triage" ||
         stage === "spec-ticket-validation" ||
+        stage === "spec-ticket-derivation-retrospective" ||
         stage === "spec-close-and-version"
           ? stage
           : "unknown";
@@ -4797,10 +5127,13 @@ export class TicketRunner {
       if (triageFailed) {
         const failedAtCloseAndVersion = stage === "spec-close-and-version";
         const failedAtTicketValidation = stage === "spec-ticket-validation";
+        const failedAtDerivationRetrospective = stage === "spec-ticket-derivation-retrospective";
         const nextAction = failedAtCloseAndVersion
           ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
           : failedAtTicketValidation
             ? "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs."
+          : failedAtDerivationRetrospective
+            ? "Retrospectiva sistemica da derivacao falhou antes do fechamento. Corrija a falha e reexecute /run_specs."
           : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
         this.touchSlot(
           slot,
@@ -4809,6 +5142,8 @@ export class TicketRunner {
             ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
             : failedAtTicketValidation
               ? `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada`
+            : failedAtDerivationRetrospective
+              ? `Falha na retrospectiva sistemica da derivacao da spec ${spec.fileName}`
             : `Falha ao executar triagem da spec ${spec.fileName}`,
         );
         this.logger.error("Erro no ciclo de triagem de spec", {
@@ -4840,6 +5175,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4879,6 +5215,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4905,6 +5242,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4923,6 +5261,7 @@ export class TicketRunner {
           triageTimingCollector,
           flowTimingCollector,
           specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -4937,7 +5276,10 @@ export class TicketRunner {
     slot: ActiveRunnerSlot,
     spec: SpecRef,
     message: string,
-  ): Promise<{ summary: RunSpecsTicketValidationSummary }> {
+  ): Promise<{
+    summary: RunSpecsTicketValidationSummary;
+    packageContext: SpecTicketValidationPackageContext;
+  }> {
     const phase: RunnerState["phase"] = "spec-ticket-validation";
     this.touchSlot(slot, phase, message);
 
@@ -5082,9 +5424,14 @@ export class TicketRunner {
         });
       }
 
-      return { summary };
+      return { summary, packageContext };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const partialSummary =
+        error instanceof SpecTicketValidationExecutionError &&
+        error.partialResult.snapshots.length > 0
+          ? this.buildRunSpecsTicketValidationSummaryFromPartialExecution(error.partialResult)
+          : undefined;
       if (latestTurn !== null) {
         const failedTurn = latestTurn as SpecTicketValidationSessionTurnResult;
         await this.recordWorkflowTraceSuccess(slot, {
@@ -5098,7 +5445,7 @@ export class TicketRunner {
           diagnostics: failedTurn.diagnostics,
           summary: "Etapa spec-ticket-validation falhou no runner.",
           metadata: packageContext
-            ? this.buildSpecTicketValidationTraceMetadata(undefined, packageContext)
+            ? this.buildSpecTicketValidationTraceMetadata(partialSummary, packageContext)
             : undefined,
           decisionStatus: "failure",
           decisionErrorMessage: errorMessage,
@@ -5107,7 +5454,12 @@ export class TicketRunner {
 
       throw error instanceof RunnerSpecTicketValidationStageError
         ? error
-        : new RunnerSpecTicketValidationStageError(errorMessage, error);
+        : new RunnerSpecTicketValidationStageError(
+            errorMessage,
+            error,
+            partialSummary,
+            packageContext ?? undefined,
+          );
     }
   }
 
@@ -5331,6 +5683,106 @@ export class TicketRunner {
     return lines.join("\n").trim();
   }
 
+  private hasReviewedSpecTicketValidationGapHistory(
+    summary: RunSpecsTicketValidationSummary,
+  ): boolean {
+    return summary.cycleHistory.some(
+      (cycle) => cycle.openGapFingerprints.length > 0 || cycle.appliedCorrections.length > 0,
+    );
+  }
+
+  private hasStructuredSpecTicketValidationStructuredInputs(
+    summary: RunSpecsTicketValidationSummary,
+  ): boolean {
+    return summary.cycleHistory.length > 0 && summary.validationThreadId !== null;
+  }
+
+  private async buildSpecTicketDerivationRetrospectiveContext(
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    packageContext: SpecTicketValidationPackageContext,
+    validationSummary: RunSpecsTicketValidationSummary,
+  ): Promise<SpecTicketDerivationRetrospectiveContext> {
+    const workflowContext = await this.describeWorkflowRepoContext(activeProject);
+    const cycleHistoryLines =
+      validationSummary.cycleHistory.length > 0
+        ? validationSummary.cycleHistory.flatMap((cycle) => {
+            const reductionLabel =
+              cycle.realGapReductionFromPrevious === null
+                ? "n/a"
+                : cycle.realGapReductionFromPrevious
+                  ? "sim"
+                  : "nao";
+            return [
+              `### Ciclo ${String(cycle.cycleNumber)} [${cycle.phase}]`,
+              `- Veredito: ${cycle.verdict}`,
+              `- Confianca: ${cycle.confidence}`,
+              `- Resumo: ${cycle.summary}`,
+              `- Gaps abertos: ${String(cycle.openGapFingerprints.length)}`,
+              `- Reducao real de gaps vs. ciclo anterior: ${reductionLabel}`,
+              ...(cycle.appliedCorrections.length > 0
+                ? [
+                    "- Correcoes aplicadas neste ciclo:",
+                    ...cycle.appliedCorrections.map(
+                      (correction) =>
+                        `  - ${correction.description} (${correction.outcome}) [${correction.affectedArtifactPaths.join(", ") || "sem artefato"}]`,
+                    ),
+                  ]
+                : ["- Correcoes aplicadas neste ciclo: nenhuma"]),
+              "",
+            ];
+          })
+        : ["- Nenhum ciclo estruturado disponivel."];
+
+    const promptContext = [
+      "# Contexto estruturado do derivation-gap-analysis",
+      "",
+      `- Projeto avaliado: ${activeProject.name}`,
+      `- Caminho do projeto avaliado: ${activeProject.path}`,
+      `- Spec alvo: ${spec.path}`,
+      "- Natureza desta etapa: retrospectiva sistemica pre-run-all em contexto novo, separada do gate funcional.",
+      "- Input mode esperado: spec-ticket-validation-history",
+      `- Veredito funcional final utilizavel: ${validationSummary.verdict}`,
+      `- Confianca funcional final: ${validationSummary.confidence}`,
+      `- Motivo funcional final: ${validationSummary.finalReason}`,
+      `- Ciclos executados pelo gate funcional: ${String(validationSummary.cyclesExecuted)}`,
+      `- Gaps revisados no historico: ${this.hasReviewedSpecTicketValidationGapHistory(validationSummary) ? "sim" : "nao"}`,
+      `- Contexto do codex-flow-runner a consultar: ${workflowContext.displayPath}`,
+      `- Estado do contexto do codex-flow-runner: ${workflowContext.status}`,
+      "",
+      "## Fontes canonicas priorizadas no codex-flow-runner",
+      ...workflowContext.artifactHints.map((entry) => `- ${entry}`),
+      "",
+      "## Package final de tickets derivados",
+      packageContext.packageContext,
+      "",
+      "## Historico completo do gate funcional",
+      ...cycleHistoryLines,
+      "## Sinais finais do gate funcional",
+      `- Gaps finais abertos: ${String(validationSummary.finalOpenGapFingerprints.length)}`,
+      `- Correcoes acumuladas: ${String(validationSummary.appliedCorrections.length)}`,
+      `- Thread da validacao: ${validationSummary.validationThreadId ?? "indisponivel"}`,
+      "",
+      "## Regras de decisao obrigatorias",
+      "- Esta etapa nunca altera o desfecho funcional do projeto alvo.",
+      "- `publicationEligibility=true` so e valido com `classification=systemic-gap` e `confidence=high`.",
+      "- `systemic-hypothesis` registra apenas hipotese sistemica, sem ticket automatico.",
+      "- Em projeto externo, a etapa e read-only sobre spec/tickets/execplans/documentacao do projeto alvo.",
+      "- Se o contexto do codex-flow-runner nao estiver disponivel para sustentacao causal segura, use `operational-limitation`.",
+    ]
+      .join("\n")
+      .trim();
+
+    return {
+      inputMode: "spec-ticket-validation-history",
+      promptContext,
+      workflowArtifactsConsulted: workflowContext.artifactHints,
+      specContent: packageContext.specContent,
+      packageContext,
+      validationSummary,
+    };
+  }
+
   private async buildWorkflowGapAnalysisContext(
     activeProject: ProjectRef,
     spec: SpecRef,
@@ -5468,8 +5920,12 @@ export class TicketRunner {
   }
 
   private parseWorkflowGapAnalysisStageResult(
+    stage: Extract<
+      SpecFlowStage,
+      "spec-ticket-derivation-retrospective" | "spec-workflow-retrospective"
+    >,
     outputText: string,
-    context: WorkflowGapAnalysisContext,
+    context: Pick<WorkflowGapAnalysisContext, "inputMode" | "specContent">,
     activeProject: ProjectRef,
     spec: SpecRef,
   ): WorkflowGapAnalysisResult {
@@ -5478,14 +5934,14 @@ export class TicketRunner {
       parsed = parseWorkflowGapAnalysisOutput(outputText);
     } catch (error) {
       if (error instanceof WorkflowGapAnalysisParserError) {
-        throw new RunnerSpecStageContractError("spec-workflow-retrospective", error.message);
+        throw new RunnerSpecStageContractError(stage, error.message);
       }
       throw error;
     }
 
     if (parsed.inputMode !== context.inputMode) {
       throw new RunnerSpecStageContractError(
-        "spec-workflow-retrospective",
+        stage,
         `workflow-gap-analysis retornou inputMode=${parsed.inputMode}, mas o contexto exigia ${context.inputMode}.`,
       );
     }
@@ -5589,31 +6045,31 @@ export class TicketRunner {
   }
 
   private convertWorkflowGapAnalysisFailureToOperationalLimitation(
-    error: unknown,
-    spec: SpecRef,
-    activeProject: ProjectRef,
-    auditStageResult: SpecAuditStageResult,
-    _preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+    params: {
+      error: unknown;
+      stage: Extract<
+        SpecFlowStage,
+        "spec-ticket-derivation-retrospective" | "spec-workflow-retrospective"
+      >;
+      spec: SpecRef;
+      activeProject: ProjectRef;
+      inputMode: WorkflowGapAnalysisInputMode;
+      workflowArtifactsConsulted: string[];
+      summary: string;
+    },
   ): WorkflowGapAnalysisResult {
-    const inputMode: WorkflowGapAnalysisInputMode =
-      auditStageResult.followUpTicketsCreated > 0
-        ? "follow-up-tickets"
-        : "spec-and-audit-fallback";
-    const details = error instanceof Error ? error.message : String(error);
+    const details = params.error instanceof Error ? params.error.message : String(params.error);
     const code =
-      error instanceof RunnerSpecStageContractError
+      params.error instanceof RunnerSpecStageContractError
         ? "invalid-analysis-contract"
         : "analysis-execution-failed";
 
     return createWorkflowGapAnalysisOperationalLimitation({
-      inputMode,
-      summary: `workflow-gap-analysis nao concluiu de forma confiavel para ${spec.fileName}.`,
-      detail: `${activeProject.name}: ${details}`,
+      inputMode: params.inputMode,
+      summary: `${params.summary} (${params.spec.fileName}).`,
+      detail: `${params.activeProject.name}: ${details}`,
       followUpTicketPaths: [],
-      workflowArtifactsConsulted:
-        activeProject.name === "codex-flow-runner"
-          ? ["AGENTS.md", "prompts/"]
-          : ["../codex-flow-runner/AGENTS.md", "../codex-flow-runner/prompts/"],
+      workflowArtifactsConsulted: [...params.workflowArtifactsConsulted],
       code,
     });
   }
@@ -5868,6 +6324,76 @@ export class TicketRunner {
     };
   }
 
+  private buildRunSpecsTicketValidationSummaryFromPartialExecution(partialResult: {
+    cyclesExecuted: number;
+    snapshots: Array<{
+      cycleNumber: number;
+      phase: RunSpecsTicketValidationSummary["cycleHistory"][number]["phase"];
+      threadId: string;
+      turnResult: {
+        verdict: RunSpecsTicketValidationSummary["verdict"];
+        confidence: RunSpecsTicketValidationSummary["confidence"];
+        summary: string;
+        gaps: SpecTicketValidationGap[];
+      };
+      appliedCorrections: SpecTicketValidationAppliedCorrection[];
+      openGapFingerprints: string[];
+      realGapReductionFromPrevious: boolean | null;
+    }>;
+    validationThreadId: string | null;
+  }): RunSpecsTicketValidationSummary {
+    const lastSnapshot = partialResult.snapshots[partialResult.snapshots.length - 1];
+    if (!lastSnapshot) {
+      throw new Error("Resumo parcial de spec-ticket-validation exige ao menos um snapshot.");
+    }
+
+    const cycleHistory = partialResult.snapshots.map((snapshot) => ({
+      cycleNumber: snapshot.cycleNumber,
+      phase: snapshot.phase,
+      threadId: snapshot.threadId,
+      verdict: snapshot.turnResult.verdict,
+      confidence: snapshot.turnResult.confidence,
+      summary: snapshot.turnResult.summary,
+      openGapFingerprints: [...snapshot.openGapFingerprints],
+      appliedCorrections: snapshot.appliedCorrections.map((correction) => ({
+        description: correction.description,
+        affectedArtifactPaths: [...correction.affectedArtifactPaths],
+        linkedGapTypes: [...correction.linkedGapTypes],
+        outcome: correction.outcome,
+      })),
+      realGapReductionFromPrevious: snapshot.realGapReductionFromPrevious,
+    }));
+
+    return {
+      verdict: lastSnapshot.turnResult.verdict,
+      confidence: lastSnapshot.turnResult.confidence,
+      finalReason: "technical-failure-partial-history",
+      cyclesExecuted: partialResult.cyclesExecuted,
+      validationThreadId: partialResult.validationThreadId,
+      triageContextInherited: false,
+      summary: lastSnapshot.turnResult.summary,
+      gaps: lastSnapshot.turnResult.gaps.map((gap) => ({
+        gapType: gap.gapType,
+        summary: gap.summary,
+        affectedArtifactPaths: [...gap.affectedArtifactPaths],
+        requirementRefs: [...gap.requirementRefs],
+        evidence: [...gap.evidence],
+        probableRootCause: gap.probableRootCause,
+        isAutoCorrectable: gap.isAutoCorrectable,
+      })),
+      appliedCorrections: cycleHistory.flatMap((cycle) =>
+        cycle.appliedCorrections.map((correction) => ({
+          description: correction.description,
+          affectedArtifactPaths: [...correction.affectedArtifactPaths],
+          linkedGapTypes: [...correction.linkedGapTypes],
+          outcome: correction.outcome,
+        })),
+      ),
+      finalOpenGapFingerprints: [...lastSnapshot.openGapFingerprints],
+      cycleHistory,
+    };
+  }
+
   private buildSpecTicketValidationTraceMetadata(
     summary: RunSpecsTicketValidationSummary | undefined,
     packageContext: SpecTicketValidationPackageContext,
@@ -5918,6 +6444,30 @@ export class TicketRunner {
       ticketCount: packageContext.tickets.length,
       ticketPaths: packageContext.tickets.map((ticket) => ticket.relativePath),
       lineageSource: packageContext.lineageSource,
+    };
+  }
+
+  private buildSpecTicketDerivationRetrospectiveTraceMetadata(
+    summary: RunSpecsDerivationRetrospectiveSummary,
+  ): Record<string, unknown> {
+    return {
+      decision: summary.decision,
+      summary: summary.summary,
+      reviewedGapHistoryDetected: summary.reviewedGapHistoryDetected,
+      structuredInputAvailable: summary.structuredInputAvailable,
+      functionalVerdict: summary.functionalVerdict,
+      analysis: summary.analysis
+        ? this.buildWorkflowGapAnalysisTraceMetadata(summary.analysis)
+        : null,
+      workflowImprovementTicket: summary.workflowImprovementTicket
+        ? {
+            status: summary.workflowImprovementTicket.status,
+            targetRepoKind: summary.workflowImprovementTicket.targetRepoKind,
+            targetRepoDisplayPath: summary.workflowImprovementTicket.targetRepoDisplayPath,
+            ticketPath: summary.workflowImprovementTicket.ticketPath,
+            limitationCode: summary.workflowImprovementTicket.limitationCode,
+          }
+        : null,
     };
   }
 
@@ -7578,7 +8128,11 @@ export class TicketRunner {
     slot: ActiveRunnerSlot,
     stage: Extract<
       SpecFlowStage,
-      "spec-triage" | "spec-close-and-version" | "spec-audit" | "spec-workflow-retrospective"
+      | "spec-triage"
+      | "spec-ticket-derivation-retrospective"
+      | "spec-close-and-version"
+      | "spec-audit"
+      | "spec-workflow-retrospective"
     >,
     spec: SpecRef,
     message: string,
@@ -7976,6 +8530,7 @@ export class TicketRunner {
     triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
     specTicketValidation?: RunSpecsTicketValidationSummary;
+    specTicketDerivationRetrospective?: RunSpecsDerivationRetrospectiveSummary;
     workflowGapAnalysis?: WorkflowGapAnalysisResult;
     workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
     runAllSummary?: RunAllFlowSummary;
@@ -8007,6 +8562,14 @@ export class TicketRunner {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
               params.specTicketValidation,
             ),
+          }
+        : {}),
+      ...(params.specTicketDerivationRetrospective
+        ? {
+            specTicketDerivationRetrospective:
+              this.cloneRunSpecsDerivationRetrospectiveSummary(
+                params.specTicketDerivationRetrospective,
+              ),
           }
         : {}),
       ...(params.workflowGapAnalysis
@@ -8103,6 +8666,30 @@ export class TicketRunner {
     };
   }
 
+  private cloneRunSpecsDerivationRetrospectiveSummary(
+    summary: RunSpecsDerivationRetrospectiveSummary,
+  ): RunSpecsDerivationRetrospectiveSummary {
+    return {
+      decision: summary.decision,
+      summary: summary.summary,
+      reviewedGapHistoryDetected: summary.reviewedGapHistoryDetected,
+      structuredInputAvailable: summary.structuredInputAvailable,
+      functionalVerdict: summary.functionalVerdict,
+      ...(summary.analysis
+        ? {
+            analysis: this.cloneWorkflowGapAnalysisResult(summary.analysis),
+          }
+        : {}),
+      ...(summary.workflowImprovementTicket
+        ? {
+            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
+              summary.workflowImprovementTicket,
+            ),
+          }
+        : {}),
+    };
+  }
+
   private cloneWorkflowGapAnalysisResult(
     result: WorkflowGapAnalysisResult,
   ): WorkflowGapAnalysisResult {
@@ -8195,6 +8782,14 @@ export class TicketRunner {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
               summary.specTicketValidation,
             ),
+          }
+        : {}),
+      ...(summary.specTicketDerivationRetrospective
+        ? {
+            specTicketDerivationRetrospective:
+              this.cloneRunSpecsDerivationRetrospectiveSummary(
+                summary.specTicketDerivationRetrospective,
+              ),
           }
         : {}),
       ...(summary.workflowGapAnalysis
