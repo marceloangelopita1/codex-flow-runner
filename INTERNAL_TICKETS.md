@@ -49,6 +49,7 @@ Regra de fechamento/commit:
   - Use `NO_GO` apenas quando houver evidência técnica/funcional objetiva de que a entrega não é válida no ciclo atual.
   - Se a implementação for considerada correta e o único bloqueio for validação manual externa (fora do alcance da IA), feche como sucesso (`Closure reason: fixed`) e registre a validação manual pendente no ticket fechado.
   - Validação manual externa pendente, sozinha, não é motivo para forçar `split-follow-up`.
+  - Se o trabalho remanescente realmente depender de insumo/decisão externa e não houver próximo passo local executável, o follow-up deve ser criado com `Status: blocked`, preservando o backlog sem recolocar o item imediatamente na fila automática.
 - Guardrail de runtime para `NO_GO` repetido:
   - o runner aceita no máximo 3 recuperações de follow-up na mesma linhagem (cadeia de `Parent ticket` com ancestrais fechados como `split-follow-up`);
   - quando a linhagem excede esse limite, `/run-all` deve parar imediatamente com status de erro e manter o ticket aberto como trabalho não finalizado.
@@ -59,7 +60,8 @@ Regra de fechamento/commit:
   - `P1`: important, should be addressed in the next planned cycle.
   - `P2`: useful improvement, can wait without immediate risk.
 - Regra de consumo da fila (`/run-all`):
-  - Tickets abertos são consumidos por ordem de prioridade: `P0` antes de `P1`, e `P1` antes de `P2`.
+  - Apenas tickets elegíveis para automação (`Status: open`, `in-progress` ou sem status parseável) são consumidos por ordem de prioridade: `P0` antes de `P1`, e `P1` antes de `P2`.
+  - Tickets com `Status: blocked` permanecem visíveis no backlog, mas são ignorados pela fila automática até desbloqueio manual.
   - Em empates na mesma prioridade, a ordem não é um requisito funcional; fallback determinístico por nome de arquivo é aceitável.
 - Severity (`S1`, `S2`, `S3`):
   - `S1`: high impact.
@@ -96,7 +98,7 @@ Regra de fechamento/commit:
   - adicionar justificativa objetiva com links de evidência.
 - Nota de compatibilidade:
   - Esta matriz define como `Priority` é atribuída antes do enfileiramento.
-  - O comportamento de runtime da fila permanece inalterado em `src/integrations/ticket-queue.ts` (`P0 -> P1 -> P2`, com fallback por nome em caso de empate).
+  - Em runtime, `src/integrations/ticket-queue.ts` aplica `Priority` (`P0 -> P1 -> P2`, com fallback por nome em caso de empate) apenas sobre tickets elegíveis; itens `blocked` ficam fora do consumo automático.
 
 ## Campos obrigatórios (barra mínima de qualidade)
 Todo ticket deve incluir:

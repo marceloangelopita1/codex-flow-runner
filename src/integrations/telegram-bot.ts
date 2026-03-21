@@ -6249,8 +6249,15 @@ export class TelegramController {
 
     if (summary.flow === "run-all") {
       lines.push(`Tickets processados: ${summary.processedTicketsCount}/${summary.maxTicketsPerRound}`);
-      if (summary.ticket) {
-        lines.push(`Ticket de referencia: ${summary.ticket}`);
+      if (summary.lastProcessedTicket) {
+        lines.push(`Último ticket processado: ${summary.lastProcessedTicket}`);
+      }
+      if (summary.selectionTicket) {
+        lines.push(
+          summary.completionReason === "blocked-tickets-only"
+            ? `Próximo ticket bloqueado: ${summary.selectionTicket}`
+            : `Ticket afetado na seleção: ${summary.selectionTicket}`,
+        );
       }
       if (summary.details) {
         lines.push(`Detalhes: ${summary.details}`);
@@ -6676,8 +6683,13 @@ export class TelegramController {
       );
       if (state.lastRunFlowSummary.flow === "run-specs") {
         lines.push(`Última spec de fluxo: ${state.lastRunFlowSummary.spec.fileName}`);
-      } else if (state.lastRunFlowSummary.ticket) {
-        lines.push(`Último ticket de fluxo: ${state.lastRunFlowSummary.ticket}`);
+      } else {
+        if (state.lastRunFlowSummary.lastProcessedTicket) {
+          lines.push(`Último ticket processado no fluxo: ${state.lastRunFlowSummary.lastProcessedTicket}`);
+        }
+        if (state.lastRunFlowSummary.selectionTicket) {
+          lines.push(`Último ticket afetado na seleção: ${state.lastRunFlowSummary.selectionTicket}`);
+        }
       }
       if (state.lastRunFlowSummary.details) {
         lines.push(`Detalhes do último fluxo: ${state.lastRunFlowSummary.details}`);

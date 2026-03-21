@@ -24,9 +24,10 @@ const writeOpenTicket = async (
   repoPath: string,
   ticketName: string,
   priority?: string,
+  status = "open",
 ): Promise<void> => {
   const ticketPath = path.join(repoPath, "tickets", "open", ticketName);
-  const lines = [`# [TICKET] ${ticketName}`, "", "## Metadata"];
+  const lines = [`# [TICKET] ${ticketName}`, "", "## Metadata", `- Status: ${status}`];
   if (priority) {
     lines.push(`- Priority: ${priority}`);
   }
@@ -139,6 +140,24 @@ test("nextOpenTicket ignora README.md em tickets/open", async () => {
   }
 });
 
+test("nextOpenTicket ignora tickets com Status: blocked e escolhe o proximo elegivel", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    await Promise.all([
+      writeOpenTicket(repoPath, "2026-02-19-blocked-p0.md", "P0", "blocked"),
+      writeOpenTicket(repoPath, "2026-02-19-runnable-p1.md", "P1", "open"),
+    ]);
+
+    const nextTicket = await queue.nextOpenTicket();
+    assert.equal(nextTicket?.name, "2026-02-19-runnable-p1.md");
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
 test("listOpenTickets retorna lista completa em ordem deterministica de prioridade e nome", async () => {
   const repoPath = await createTempRepo();
   try {
@@ -161,6 +180,32 @@ test("listOpenTickets retorna lista completa em ordem deterministica de priorida
         "2026-02-19-c-p1.md",
         "2026-02-19-z-sem-prioridade.md",
       ],
+    );
+  } finally {
+    await cleanupTempRepo(repoPath);
+  }
+});
+
+test("describeOpenBacklog separa tickets elegiveis de tickets blocked", async () => {
+  const repoPath = await createTempRepo();
+  try {
+    const queue = new FileSystemTicketQueue(repoPath);
+    await queue.ensureStructure();
+
+    await Promise.all([
+      writeOpenTicket(repoPath, "2026-02-19-bloqueado-p0.md", "P0", "blocked"),
+      writeOpenTicket(repoPath, "2026-02-19-runnable-p1.md", "P1", "open"),
+      writeOpenTicket(repoPath, "2026-02-19-em-progresso-p2.md", "P2", "in-progress"),
+    ]);
+
+    const backlog = await queue.describeOpenBacklog();
+    assert.deepEqual(
+      backlog.runnableTickets.map((ticket) => ticket.name),
+      ["2026-02-19-runnable-p1.md", "2026-02-19-em-progresso-p2.md"],
+    );
+    assert.deepEqual(
+      backlog.blockedTickets.map((ticket) => ticket.name),
+      ["2026-02-19-bloqueado-p0.md"],
     );
   } finally {
     await cleanupTempRepo(repoPath);

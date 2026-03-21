@@ -31,8 +31,10 @@ Depois preencha os campos obrigatórios do template.
 - Crie com `Status: open`.
 - Atualize para `in-progress` ao iniciar implementação.
 - Atualize para `blocked` se faltar decisão/dependência externa.
+- Tickets `blocked` continuam no backlog, mas o `/run_all` não os consome até que alguém os destrave manualmente.
 - Mova para `tickets/closed/` quando encerrar e registre motivo de fechamento.
 - Use `Closure reason: split-follow-up` quando precisar encerrar o ticket atual por rastreabilidade e abrir um novo ticket de continuidade.
+- Se o follow-up representar apenas espera por insumo externo/manual sem próximo passo local, abra esse novo ticket já como `Status: blocked`.
 - Se um commit/push contém a solução de um ticket em `tickets/open/`, esse mesmo commit deve incluir a movimentação do ticket para `tickets/closed/` e o preenchimento da seção `Closure`.
 
 Exemplo de fechamento:

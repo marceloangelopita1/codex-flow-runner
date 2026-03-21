@@ -40,11 +40,14 @@ Fluxo por resultado:
   - registrar no ticket fechado o motivo do `NO_GO` e as pendências principais;
   - registrar a causa-raiz na taxonomia acima e dizer se o ajuste é local ou sistêmico;
   - criar um novo ticket em `tickets/open` com as pendências/falhas remanescentes, incluindo vínculos para o ticket pai e para o ExecPlan;
+  - se a pendência remanescente for apenas aguardar insumo/decisão externa sem próximo passo local executável pelo agente, criar o follow-up com `Status: blocked` e explicitar o gatilho de desbloqueio;
+  - não criar follow-up `open`/autoexecutável apenas para representar espera passiva por insumo externo/manual;
   - preencher no follow-up, quando aplicável:
     - `Source spec`;
     - `Source requirements (RFs/CAs)`;
     - `Inherited assumptions/defaults`;
     - `Workflow root cause`.
+  - quando a implementação já estiver tecnicamente concluída e faltar apenas validação manual externa, preferir `GO` com anotação explícita dessa validação pendente no ticket fechado, em vez de abrir novo follow-up;
   - quando fizer sentido referenciar commit futuro, use formulações textuais como `mesmo changeset de fechamento versionado pelo runner`, sem inventar hash;
   - definir prioridade inicial `P0` no follow-up quando o bloqueio impedir aceite.
 

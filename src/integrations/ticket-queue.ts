@@ -10,7 +10,9 @@ const PRIORITY_RANK: Readonly<Record<string, number>> = {
 
 const FALLBACK_PRIORITY_RANK = 3;
 const PRIORITY_METADATA_PATTERN = /^\s*(?:-\s*)?Priority\s*:\s*(P[0-2])\b/imu;
+const STATUS_METADATA_PATTERN = /^\s*(?:-\s*)?Status\s*:\s*(.+?)\s*$/imu;
 const IGNORED_OPEN_TICKET_FILE_NAMES = new Set(["README.md"]);
+const RUNNABLE_TICKET_STATUSES = new Set<TicketCandidateStatus>(["open", "in-progress", "unknown"]);
 
 export interface TicketRef {
   name: string;
@@ -39,9 +41,18 @@ export type ReadOpenTicketResult =
       ticketName: string;
     };
 
+export interface TicketBacklogSnapshot {
+  runnableTickets: TicketRef[];
+  blockedTickets: TicketRef[];
+}
+
+type TicketCandidateStatus = "open" | "in-progress" | "blocked" | "closed" | "unknown";
+
 interface TicketCandidate {
   name: string;
   priorityRank: number;
+  status: TicketCandidateStatus;
+  runnable: boolean;
 }
 
 export class FileSystemTicketQueue implements TicketQueue {
@@ -64,18 +75,30 @@ export class FileSystemTicketQueue implements TicketQueue {
   }
 
   async nextOpenTicket(): Promise<TicketRef | null> {
-    const candidates = await this.listPrioritizedOpenTicketCandidates();
-    const firstCandidate = candidates.at(0);
-    if (!firstCandidate) {
+    const backlog = await this.describeOpenBacklog();
+    const firstRunnableTicket = backlog.runnableTickets.at(0);
+    if (!firstRunnableTicket) {
       return null;
     }
 
-    return this.buildTicketRef(firstCandidate.name);
+    return firstRunnableTicket;
   }
 
   async listOpenTickets(): Promise<TicketRef[]> {
     const candidates = await this.listPrioritizedOpenTicketCandidates();
     return candidates.map((candidate) => this.buildTicketRef(candidate.name));
+  }
+
+  async describeOpenBacklog(): Promise<TicketBacklogSnapshot> {
+    const candidates = await this.listPrioritizedOpenTicketCandidates();
+    return {
+      runnableTickets: candidates
+        .filter((candidate) => candidate.runnable)
+        .map((candidate) => this.buildTicketRef(candidate.name)),
+      blockedTickets: candidates
+        .filter((candidate) => candidate.status === "blocked")
+        .map((candidate) => this.buildTicketRef(candidate.name)),
+    };
   }
 
   async readOpenTicket(ticketName: string): Promise<ReadOpenTicketResult> {
@@ -129,12 +152,7 @@ export class FileSystemTicketQueue implements TicketQueue {
     const candidates = files.filter(
       (file) => file.endsWith(".md") && !this.shouldIgnoreOpenTicketFile(file),
     );
-    const prioritizedCandidates = await Promise.all(
-      candidates.map(async (name): Promise<TicketCandidate> => ({
-        name,
-        priorityRank: await this.readPriorityRank(name),
-      })),
-    );
+    const prioritizedCandidates = await Promise.all(candidates.map((name) => this.readCandidate(name)));
 
     return prioritizedCandidates.sort((a, b) => {
       const byPriority = a.priorityRank - b.priorityRank;
@@ -145,13 +163,24 @@ export class FileSystemTicketQueue implements TicketQueue {
     });
   }
 
-  private async readPriorityRank(ticketName: string): Promise<number> {
+  private async readCandidate(ticketName: string): Promise<TicketCandidate> {
     const ticketPath = path.join(this.openDir, ticketName);
     try {
       const ticketContent = await fs.readFile(ticketPath, "utf8");
-      return this.extractPriorityRank(ticketContent);
+      const status = this.extractTicketStatus(ticketContent);
+      return {
+        name: ticketName,
+        priorityRank: this.extractPriorityRank(ticketContent),
+        status,
+        runnable: RUNNABLE_TICKET_STATUSES.has(status),
+      };
     } catch {
-      return FALLBACK_PRIORITY_RANK;
+      return {
+        name: ticketName,
+        priorityRank: FALLBACK_PRIORITY_RANK,
+        status: "unknown",
+        runnable: true,
+      };
     }
   }
 
@@ -162,6 +191,24 @@ export class FileSystemTicketQueue implements TicketQueue {
       return FALLBACK_PRIORITY_RANK;
     }
     return PRIORITY_RANK[priority] ?? FALLBACK_PRIORITY_RANK;
+  }
+
+  private extractTicketStatus(ticketContent: string): TicketCandidateStatus {
+    const rawStatus = ticketContent.match(STATUS_METADATA_PATTERN)?.[1]?.trim().toLowerCase();
+    if (!rawStatus) {
+      return "unknown";
+    }
+
+    if (
+      rawStatus === "open" ||
+      rawStatus === "in-progress" ||
+      rawStatus === "blocked" ||
+      rawStatus === "closed"
+    ) {
+      return rawStatus;
+    }
+
+    return "unknown";
   }
 
   private buildTicketRef(ticketName: string): TicketRef {

@@ -25,6 +25,7 @@ export type RunAllFinalStage = RunAllTimingStage | "unknown";
 
 export type RunAllCompletionReason =
   | "queue-empty"
+  | "blocked-tickets-only"
   | "max-tickets-reached"
   | "ticket-failure"
   | "ticket-reappeared"
@@ -41,7 +42,8 @@ export interface RunAllFlowSummary {
   activeProjectPath: string;
   processedTicketsCount: number;
   maxTicketsPerRound: number;
-  ticket?: string;
+  lastProcessedTicket?: string;
+  selectionTicket?: string;
   details?: string;
   codexPreferences?: CodexFlowPreferencesSnapshot;
   timing: FlowTimingSnapshot<RunAllTimingStage>;

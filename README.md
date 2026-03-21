@@ -122,7 +122,7 @@ Isso significa que, em muitos casos, uma pessoa pode sair de um pedido em lingua
 
 ## Resumo do fluxo real
 
-1. detectar o próximo ticket em `tickets/open/` por `Priority` (`P0 -> P1 -> P2`; empate com fallback por nome de arquivo);
+1. detectar o próximo ticket elegível em `tickets/open/` por `Priority` (`P0 -> P1 -> P2`; empate com fallback por nome de arquivo), ignorando itens marcados como `Status: blocked`;
 2. gerar ou atualizar ExecPlan em `execplans/`;
 3. fechar o ticket movendo para `tickets/closed/`;
 4. executar commit e push git no mesmo ciclo;
@@ -1066,9 +1066,11 @@ Observacoes operacionais:
 
 - o ciclo de fechamento e versionamento exige commit + push por ticket;
 - a etapa `close-and-version` prepara o estado final do ticket; o commit e push correspondentes são executados pelo runner após essa etapa;
+- antes do commit/push, o runner valida se o ticket realmente saiu de `tickets/open/`, apareceu em `tickets/closed/` e ficou com as metadata obrigatórias de fechamento coerentes;
 - cada comando `/run_all` processa no máximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada;
 - ao receber `SIGINT` ou `SIGTERM`, o runner entra em shutdown gracioso e aguarda drain bounded de operações em voo por até `SHUTDOWN_DRAIN_TIMEOUT_MS`;
 - indisponibilidade de validação manual externa ao agente (ex.: Telegram real indisponível) não deve, sozinha, forçar `NO_GO`; nesse caso, o fechamento pode ser `GO` com anotação explícita de validação manual pendente;
+- quando um follow-up depender apenas de insumo externo/manual e não houver próximo passo local executável, ele deve ser criado como `Status: blocked`; a rodada encerra com motivo observável quando restarem apenas tickets bloqueados;
 - para uma mesma cadeia de `NO_GO` (`Closure reason: split-follow-up` + `Parent ticket`), o runner aceita no máximo 3 recuperações; ao exceder esse limite, a rodada para em erro e a tarefa permanece não finalizada no backlog.
 
 ## Pre-requisitos operacionais

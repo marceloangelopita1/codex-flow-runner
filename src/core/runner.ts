@@ -93,7 +93,7 @@ import {
   GitVersioning,
 } from "../integrations/git-client.js";
 import { PlanSpecFinalActionId, PlanSpecFinalBlock } from "../integrations/plan-spec-parser.js";
-import { TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
+import { TicketBacklogSnapshot, TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import {
   CodexFlowPreferencesSnapshot,
   CodexInvocationPreferences,
@@ -461,6 +461,9 @@ interface TicketLineageMetadata {
   status: string | null;
   parentTicketPath: string | null;
   closureReason: string | null;
+  closedAtUtc: string | null;
+  relatedChangeset: string | null;
+  followUpTicketPath: string | null;
 }
 
 interface TicketNoGoRecoveryContext {
@@ -530,11 +533,23 @@ const TICKET_STATUS_METADATA_PATTERN = /^\s*-\s*Status\s*:\s*(.+?)\s*$/imu;
 const TICKET_PARENT_METADATA_PATTERN =
   /^\s*-\s*(?:Parent ticket(?:\s*\(optional\))?|Ticket pai(?:\s*\(opcional\))?)\s*:\s*(.+?)\s*$/imu;
 const TICKET_CLOSURE_REASON_METADATA_PATTERN = /^\s*-\s*Closure reason\s*:\s*(.+?)\s*$/imu;
+const TICKET_CLOSED_AT_METADATA_PATTERN = /^\s*-\s*Closed at \(UTC\)\s*:\s*(.+?)\s*$/imu;
+const TICKET_RELATED_CHANGESET_METADATA_PATTERN =
+  /^\s*-\s*Related PR\/commit\/execplan\s*:\s*(.+?)\s*$/imu;
+const TICKET_FOLLOW_UP_METADATA_PATTERN =
+  /^\s*-\s*Follow-up ticket(?:\s*\(required when `Closure reason: split-follow-up`\))?\s*:\s*(.+?)\s*$/imu;
 const TICKET_SOURCE_SPEC_METADATA_PATTERN =
   /^\s*-\s*(?:Source spec(?:\s*\(when applicable\))?|Spec pai(?:\s*\(opcional\))?)\s*:\s*(.+?)\s*$/imu;
 const SPEC_RELATED_TICKETS_BLOCK_PATTERN =
   /^\s*-\s*(?:Related tickets|Tickets relacionados)\s*:\s*\n((?:^\s{2,}-\s*.+\n?)*)/imu;
 const TOP_LEVEL_SECTION_HEADING_PATTERN = /^##\s+/mu;
+const VALID_TICKET_CLOSURE_REASONS = new Set([
+  "fixed",
+  "duplicate",
+  "invalid",
+  "wont-fix",
+  "split-follow-up",
+]);
 
 export interface RunnerRoundDependencies {
   activeProject: ProjectRef;
@@ -7561,11 +7576,23 @@ export class TicketRunner {
     const closureReason = this.normalizeTicketMetadataValue(
       ticketContent.match(TICKET_CLOSURE_REASON_METADATA_PATTERN)?.[1],
     );
+    const closedAtUtc = this.normalizeTicketMetadataValue(
+      ticketContent.match(TICKET_CLOSED_AT_METADATA_PATTERN)?.[1],
+    );
+    const relatedChangeset = this.normalizeTicketMetadataValue(
+      ticketContent.match(TICKET_RELATED_CHANGESET_METADATA_PATTERN)?.[1],
+    );
+    const followUpTicketPath = this.normalizeTicketReference(
+      this.normalizeTicketMetadataValue(ticketContent.match(TICKET_FOLLOW_UP_METADATA_PATTERN)?.[1]),
+    );
 
     return {
       status: status?.toLowerCase() ?? null,
       parentTicketPath,
       closureReason: closureReason?.toLowerCase() ?? null,
+      closedAtUtc,
+      relatedChangeset,
+      followUpTicketPath,
     };
   }
 
@@ -7675,11 +7702,13 @@ export class TicketRunner {
     const roundTimingCollector = this.createFlowTimingCollector<RunAllTimingStage>();
     const processedTickets = new Set<string>();
     const maxTicketsPerRound = this.env.RUN_ALL_MAX_TICKETS_PER_ROUND;
+    let lastProcessedTicket: string | undefined;
     const finalizeRound = async (params: {
       outcome: RunAllFlowSummary["outcome"];
       finalStage: RunAllFinalStage;
       completionReason: RunAllCompletionReason;
-      ticket?: string;
+      lastProcessedTicket?: string;
+      selectionTicket?: string;
       details?: string;
     }): Promise<RunAllFlowSummary> => {
       if (params.outcome === "failure" && params.finalStage !== "unknown") {
@@ -7692,7 +7721,8 @@ export class TicketRunner {
         outcome: params.outcome,
         finalStage: params.finalStage,
         completionReason: params.completionReason,
-        ticket: params.ticket,
+        lastProcessedTicket: params.lastProcessedTicket,
+        selectionTicket: params.selectionTicket,
         details: params.details,
         timingCollector: roundTimingCollector,
       });
@@ -7744,6 +7774,7 @@ export class TicketRunner {
           outcome: "success",
           finalStage: "select-ticket",
           completionReason: "max-tickets-reached",
+          lastProcessedTicket,
         });
       }
 
@@ -7762,7 +7793,34 @@ export class TicketRunner {
       );
 
       if (!ticket) {
+        const backlogSnapshot = await this.describeOpenTicketBacklog(slot.queue);
+        const nextBlockedTicket = backlogSnapshot?.blockedTickets.at(0);
         slot.isRunning = false;
+        if (nextBlockedTicket) {
+          this.touchSlot(
+            slot,
+            "idle",
+            "Rodada /run-all finalizada: restam apenas tickets blocked fora da fila automatica",
+          );
+          this.logger.info("Rodada /run-all finalizada com backlog apenas bloqueado", {
+            processedTicketsCount: processedTickets.size,
+            blockedTicketsCount: backlogSnapshot?.blockedTickets.length ?? 0,
+            nextBlockedTicket: nextBlockedTicket.name,
+            durationMs: this.buildFlowTimingSnapshot(roundTimingCollector).totalDurationMs,
+            activeProjectName: slot.project.name,
+            activeProjectPath: slot.project.path,
+          });
+          return finalizeRound({
+            outcome: "success",
+            finalStage: "select-ticket",
+            completionReason: "blocked-tickets-only",
+            lastProcessedTicket,
+            selectionTicket: nextBlockedTicket.name,
+            details:
+              "Restam apenas tickets com `Status: blocked`; a fila automatica nao os consome ate desbloqueio manual.",
+          });
+        }
+
         this.touchSlot(slot, "idle", "Rodada /run-all finalizada: nenhum ticket aberto restante");
         this.logger.info("Rodada /run-all finalizada sem tickets pendentes", {
           processedTicketsCount: processedTickets.size,
@@ -7774,6 +7832,7 @@ export class TicketRunner {
           outcome: "success",
           finalStage: "select-ticket",
           completionReason: "queue-empty",
+          lastProcessedTicket,
         });
       }
 
@@ -7790,7 +7849,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "select-ticket",
           completionReason: "ticket-reappeared",
-          ticket: ticket.name,
+          lastProcessedTicket: ticket.name,
+          selectionTicket: ticket.name,
           details: `Ticket ${ticket.name} reapareceu na fila apos tentativa de fechamento.`,
         });
       }
@@ -7826,7 +7886,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "select-ticket",
           completionReason: "no-go-limit-exceeded",
-          ticket: ticket.name,
+          lastProcessedTicket,
+          selectionTicket: ticket.name,
           details:
             `Ticket ${ticket.name} excedeu o limite de ${MAX_NO_GO_RECOVERIES_PER_TICKET} recuperacoes de NO_GO.`,
         });
@@ -7836,6 +7897,7 @@ export class TicketRunner {
       const ticketSummary = ticketProcessing.finalSummary;
       const succeeded = ticketProcessing.succeeded;
       processedTickets.add(ticket.name);
+      lastProcessedTicket = ticket.name;
       if (ticketSummary) {
         this.mergeTicketTimingIntoRunAllCollector(roundTimingCollector, ticketSummary.timing);
       }
@@ -7856,7 +7918,7 @@ export class TicketRunner {
           outcome: "failure",
           finalStage,
           completionReason: "ticket-failure",
-          ticket: ticket.name,
+          lastProcessedTicket: ticket.name,
           details:
             ticketFailureDetails ??
             `Ticket ${ticket.name} falhou durante a rodada /run-all no estagio ${finalStage}.`,
@@ -7868,6 +7930,7 @@ export class TicketRunner {
       outcome: "failure",
       finalStage: this.resolveRunAllFinalStageFromRunnerPhase(slot.phase),
       completionReason: "stopped",
+      lastProcessedTicket,
       details: "Rodada /run-all interrompida externamente antes de concluir o backlog.",
     });
   }
@@ -8161,6 +8224,7 @@ export class TicketRunner {
     slot.currentTicket = ticket.name;
     let finalSummary: TicketFinalSummary | null = null;
     let closeAndVersionResult: CodexStageResult | null = null;
+    const shouldValidateCloseArtifacts = await this.pathExists(ticket.openPath);
     const activeProject = { ...slot.project };
     this.logger.info("Processando ticket da rodada atual", {
       ticket: ticket.name,
@@ -8203,13 +8267,20 @@ export class TicketRunner {
         "close-and-version",
         closeAndVersionResult.diagnostics,
       );
+      if (shouldValidateCloseArtifacts) {
+        await this.validateCloseAndVersionArtifacts(
+          slot,
+          ticket,
+          closeAndVersionResult.diagnostics,
+        );
+      }
       await this.commitCloseAndVersion(
         slot,
         ticket,
         execPlanPath,
         closeAndVersionResult.diagnostics,
       );
-      const syncEvidence = await this.assertCloseAndVersion(
+      const syncEvidence = await this.assertCloseAndVersionGitSync(
         slot,
         ticket,
         closeAndVersionResult.diagnostics,
@@ -8455,7 +8526,87 @@ export class TicketRunner {
     };
   }
 
-  private async assertCloseAndVersion(
+  private async validateCloseAndVersionArtifacts(
+    slot: ActiveRunnerSlot,
+    ticket: TicketRef,
+    diagnostics?: CodexStageDiagnostics,
+  ): Promise<void> {
+    const validationIssues: string[] = [];
+    const openPathStillExists = await this.pathExists(ticket.openPath);
+    if (openPathStillExists) {
+      validationIssues.push("o arquivo ainda permanece em `tickets/open/` apos close-and-version");
+    }
+
+    let closedTicketContent = "";
+    try {
+      closedTicketContent = await fs.readFile(ticket.closedPath, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        validationIssues.push("o ticket nao foi encontrado em `tickets/closed/` apos close-and-version");
+      } else {
+        throw error;
+      }
+    }
+
+    if (closedTicketContent) {
+      const metadata = this.parseTicketLineageMetadata(closedTicketContent);
+      if (metadata.status !== "closed") {
+        validationIssues.push("a metadata obrigatoria `Status: closed` nao foi gravada no ticket fechado");
+      }
+      if (!metadata.closedAtUtc) {
+        validationIssues.push("a metadata obrigatoria `Closed at (UTC)` nao foi preenchida");
+      }
+      if (!metadata.closureReason || !VALID_TICKET_CLOSURE_REASONS.has(metadata.closureReason)) {
+        validationIssues.push("a metadata `Closure reason` esta ausente ou fora da taxonomia permitida");
+      }
+      if (!metadata.relatedChangeset) {
+        validationIssues.push("a metadata obrigatoria `Related PR/commit/execplan` nao foi preenchida");
+      }
+
+      if (metadata.closureReason === "split-follow-up") {
+        if (!metadata.followUpTicketPath) {
+          validationIssues.push(
+            "o fechamento `split-follow-up` nao declarou `Follow-up ticket` no ticket fechado",
+          );
+        } else {
+          const resolvedFollowUp = await this.resolveTicketReference(
+            slot.project.path,
+            metadata.followUpTicketPath,
+          );
+          if (!resolvedFollowUp) {
+            validationIssues.push(
+              `o follow-up declarado (${metadata.followUpTicketPath}) nao foi encontrado no projeto`,
+            );
+          } else {
+            const normalizedOpenDir = `${path.normalize(path.join(slot.project.path, "tickets", "open"))}${path.sep}`;
+            const normalizedResolvedPath = path.normalize(resolvedFollowUp.path);
+            if (!normalizedResolvedPath.startsWith(normalizedOpenDir)) {
+              validationIssues.push(
+                `o follow-up declarado (${metadata.followUpTicketPath}) nao aponta para \`tickets/open/\``,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    if (validationIssues.length === 0) {
+      return;
+    }
+
+    const details = `Validacao pos-close-and-version falhou: ${validationIssues.join("; ")}.`;
+    this.logger.error("Validacao estrutural do ticket falhou apos close-and-version", {
+      ticket: ticket.name,
+      openPath: ticket.openPath,
+      closedPath: ticket.closedPath,
+      validationIssues,
+      ...this.buildCloseAndVersionFailureHintLogContext(diagnostics),
+      ...this.buildCodexDiagnosticsLogContext(diagnostics),
+    });
+    throw new CodexStageExecutionError(ticket.name, "close-and-version", details);
+  }
+
+  private async assertCloseAndVersionGitSync(
     slot: ActiveRunnerSlot,
     ticket: TicketRef,
     diagnostics?: CodexStageDiagnostics,
@@ -8548,6 +8699,31 @@ export class TicketRunner {
         ? { codexCliTranscriptPreview: diagnostics.stderrPreview }
         : {}),
     };
+  }
+
+  private async describeOpenTicketBacklog(
+    queue: TicketQueue,
+  ): Promise<TicketBacklogSnapshot | null> {
+    const maybeQueue = queue as TicketQueue & {
+      describeOpenBacklog?: () => Promise<TicketBacklogSnapshot>;
+    };
+    if (typeof maybeQueue.describeOpenBacklog !== "function") {
+      return null;
+    }
+
+    return maybeQueue.describeOpenBacklog();
+  }
+
+  private async pathExists(targetPath: string): Promise<boolean> {
+    try {
+      await fs.stat(targetPath);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return false;
+      }
+      throw error;
+    }
   }
 
   private recordStageDiagnostics(
@@ -9010,7 +9186,8 @@ export class TicketRunner {
     outcome: RunAllFlowSummary["outcome"];
     finalStage: RunAllFinalStage;
     completionReason: RunAllCompletionReason;
-    ticket?: string;
+    lastProcessedTicket?: string;
+    selectionTicket?: string;
     details?: string;
     timingCollector: FlowTimingCollector<RunAllTimingStage>;
   }): RunAllFlowSummary {
@@ -9024,7 +9201,8 @@ export class TicketRunner {
       activeProjectPath: params.slot.project.path,
       processedTicketsCount: params.processedTicketsCount,
       maxTicketsPerRound: params.maxTicketsPerRound,
-      ...(params.ticket ? { ticket: params.ticket } : {}),
+      ...(params.lastProcessedTicket ? { lastProcessedTicket: params.lastProcessedTicket } : {}),
+      ...(params.selectionTicket ? { selectionTicket: params.selectionTicket } : {}),
       ...(params.details ? { details: params.details } : {}),
       ...(params.slot.codexPreferencesSnapshot
         ? {

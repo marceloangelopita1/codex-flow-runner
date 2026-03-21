@@ -6105,6 +6105,33 @@ test("envia resumo final de fluxo /run-all com tempos para chat configurado", as
   assert.equal(logger.infos[0]?.message, "Resumo final de fluxo enviado no Telegram");
 });
 
+test("envia resumo final de fluxo /run-all distinguindo ultimo ticket processado de bloqueio na selecao", async () => {
+  const { controller } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  await controller.sendRunFlowSummary(
+    createRunAllFlowSummary({
+      completionReason: "blocked-tickets-only",
+      processedTicketsCount: 1,
+      lastProcessedTicket: "2026-02-19-ticket-processado.md",
+      selectionTicket: "2026-02-19-ticket-bloqueado.md",
+      details: "Restam apenas tickets com Status: blocked.",
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: blocked-tickets-only/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Último ticket processado: 2026-02-19-ticket-processado\.md/u,
+  );
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Próximo ticket bloqueado: 2026-02-19-ticket-bloqueado\.md/u,
+  );
+  assert.match(sentMessages[0]?.text ?? "", /Detalhes: Restam apenas tickets com Status: blocked\./u);
+});
+
 test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de sucesso", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);
@@ -6658,6 +6685,25 @@ test("status inclui ultimo fluxo concluido com fase final e motivo de encerramen
   assert.match(reply, /Último motivo de encerramento: spec-ticket-validation-failure/u);
   assert.match(reply, /Última spec de fluxo: 2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.match(reply, /Detalhes do último fluxo: Nao foi possivel derivar com seguranca o pacote de tickets da spec/u);
+});
+
+test("status inclui rastreabilidade do ultimo ticket processado e do ticket afetado na selecao do run-all", () => {
+  const { controller } = createController();
+  const state = createState({
+    lastRunFlowSummary: createRunAllFlowSummary({
+      completionReason: "blocked-tickets-only",
+      lastProcessedTicket: "2026-02-19-ticket-processado.md",
+      selectionTicket: "2026-02-19-ticket-bloqueado.md",
+      details: "Restam apenas tickets blocked no backlog.",
+    }),
+  });
+
+  const reply = callBuildStatusReply(controller, state);
+
+  assert.match(reply, /Último fluxo concluído: run-all \(success\)/u);
+  assert.match(reply, /Último ticket processado no fluxo: 2026-02-19-ticket-processado\.md/u);
+  assert.match(reply, /Último ticket afetado na seleção: 2026-02-19-ticket-bloqueado\.md/u);
+  assert.match(reply, /Detalhes do último fluxo: Restam apenas tickets blocked no backlog\./u);
 });
 
 test("status inclui rastreabilidade da notificacao do resumo final de fluxo e sua falha", () => {
