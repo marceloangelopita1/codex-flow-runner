@@ -5,6 +5,17 @@ export type WorkflowImprovementTicketHandoffInputMode =
   | "follow-up-tickets"
   | "spec-and-audit-fallback";
 
+export type WorkflowImprovementTicketAnalysisStage =
+  | "spec-ticket-derivation-retrospective"
+  | "spec-workflow-retrospective";
+
+export interface WorkflowImprovementTicketTraceReference {
+  traceId: string;
+  requestPath: string;
+  responsePath: string;
+  decisionPath: string;
+}
+
 export interface WorkflowImprovementTicketDraftFinding {
   summary: string;
   affectedArtifactPaths: string[];
@@ -13,6 +24,7 @@ export interface WorkflowImprovementTicketDraftFinding {
 }
 
 export interface WorkflowImprovementTicketHandoff {
+  analysisStage: WorkflowImprovementTicketAnalysisStage;
   activeProjectName: string;
   activeProjectPath: string;
   sourceSpecPath: string;
@@ -24,6 +36,8 @@ export interface WorkflowImprovementTicketHandoff {
   causalHypothesis: string;
   benefitSummary: string;
   followUpTicketPaths: string[];
+  workflowArtifactsConsulted: string[];
+  trace: WorkflowImprovementTicketTraceReference | null;
   findings: WorkflowImprovementTicketDraftFinding[];
 }
 
@@ -55,6 +69,7 @@ export interface WorkflowImprovementTicketFindingCandidate {
 }
 
 export interface WorkflowImprovementTicketCandidate {
+  analysisStage: WorkflowImprovementTicketAnalysisStage;
   activeProjectName: string;
   activeProjectPath: string;
   sourceSpecPath: string;
@@ -67,6 +82,8 @@ export interface WorkflowImprovementTicketCandidate {
   causalHypothesis: string;
   benefitSummary: string;
   followUpTicketPaths: string[];
+  workflowArtifactsConsulted: string[];
+  trace: WorkflowImprovementTicketTraceReference | null;
   findings: WorkflowImprovementTicketFindingCandidate[];
   gapFingerprints: string[];
 }

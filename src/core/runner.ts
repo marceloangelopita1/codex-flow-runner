@@ -82,6 +82,7 @@ import {
 } from "../integrations/spec-planning-trace-store.js";
 import {
   FileSystemWorkflowTraceStore,
+  WorkflowStageTraceRecord,
   WorkflowTraceSourceCommand,
   WorkflowTraceStage,
   WorkflowTraceStore,
@@ -105,6 +106,7 @@ import {
   CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
 import {
+  WorkflowImprovementTicketAnalysisStage,
   WorkflowImprovementTicketCandidate,
   WorkflowImprovementTicketHandoff,
   WorkflowImprovementTicketPublicationResult,
@@ -317,6 +319,10 @@ interface SpecStageTraceValidation {
   summary?: string;
   metadata?: Record<string, unknown>;
 }
+
+type RunnerSpecStageResult = CodexStageResult & {
+  traceRecord: WorkflowStageTraceRecord | null;
+};
 
 interface SpecAuditStageResult {
   residualGapsDetected: boolean;
@@ -4723,21 +4729,27 @@ export class TicketRunner {
           derivationRetrospectiveContext: context.promptContext,
         };
         let parsedResult: WorkflowGapAnalysisResult | null = null;
-        await this.runSpecStage(slot, "spec-ticket-derivation-retrospective", retrospectiveSpec, message, {
-          validateResult: (result) => {
-            parsedResult = this.parseWorkflowGapAnalysisStageResult(
-              "spec-ticket-derivation-retrospective",
-              result.output,
-              context,
-              slot.project,
-              spec,
-            );
-            return {
-              summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
-              metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
-            };
+        const retrospectiveStageResult = await this.runSpecStage(
+          slot,
+          "spec-ticket-derivation-retrospective",
+          retrospectiveSpec,
+          message,
+          {
+            validateResult: (result) => {
+              parsedResult = this.parseWorkflowGapAnalysisStageResult(
+                "spec-ticket-derivation-retrospective",
+                result.output,
+                context,
+                slot.project,
+                spec,
+              );
+              return {
+                summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
+                metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
+              };
+            },
           },
-        });
+        );
 
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
@@ -4759,13 +4771,23 @@ export class TicketRunner {
           );
         }
 
+        const publicationHandoff = finalizedParsedResult.publicationHandoff
+          ? this.attachWorkflowImprovementTraceToHandoff(
+              finalizedParsedResult.publicationHandoff,
+              retrospectiveStageResult.traceRecord,
+            )
+          : undefined;
+        if (publicationHandoff) {
+          finalizedParsedResult.publicationHandoff = publicationHandoff;
+        }
+
         const publication =
           finalizedParsedResult.publicationEligibility &&
-          finalizedParsedResult.publicationHandoff
+          publicationHandoff
             ? await this.publishWorkflowImprovementTicketIfNeeded(
                 slot.project,
                 spec,
-                finalizedParsedResult.publicationHandoff,
+                publicationHandoff,
               )
             : undefined;
 
@@ -4884,24 +4906,30 @@ export class TicketRunner {
           workflowRetrospectiveContext: context.promptContext,
         };
         let parsedResult: WorkflowGapAnalysisResult | null = null;
-        await this.runSpecStage(slot, stage, retrospectiveSpec, message, {
-          validateResult: (result) => {
-            parsedResult = this.applyWorkflowGapAnalysisAntiDuplication(
-              this.parseWorkflowGapAnalysisStageResult(
-                stage,
-                result.output,
-                context,
-                slot.project,
-                spec,
-              ),
-              context.preRunHistoricalContext,
-            );
-            return {
-              summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
-              metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
-            };
+        const retrospectiveStageResult = await this.runSpecStage(
+          slot,
+          stage,
+          retrospectiveSpec,
+          message,
+          {
+            validateResult: (result) => {
+              parsedResult = this.applyWorkflowGapAnalysisAntiDuplication(
+                this.parseWorkflowGapAnalysisStageResult(
+                  stage,
+                  result.output,
+                  context,
+                  slot.project,
+                  spec,
+                ),
+                context.preRunHistoricalContext,
+              );
+              return {
+                summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
+                metadata: this.buildWorkflowGapAnalysisTraceMetadata(parsedResult),
+              };
+            },
           },
-        });
+        );
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
         const finalizedParsedResult = parsedResult as WorkflowGapAnalysisResult | null;
@@ -4920,13 +4948,23 @@ export class TicketRunner {
             "workflow-gap-analysis marcou publicationEligibility=true sem publicationHandoff.",
           );
         }
+        const publicationHandoff = finalizedParsedResult.publicationHandoff
+          ? this.attachWorkflowImprovementTraceToHandoff(
+              finalizedParsedResult.publicationHandoff,
+              retrospectiveStageResult.traceRecord,
+            )
+          : undefined;
+        if (publicationHandoff) {
+          finalizedParsedResult.publicationHandoff = publicationHandoff;
+        }
+
         const publication =
           finalizedParsedResult.publicationEligibility &&
-          finalizedParsedResult.publicationHandoff
+          publicationHandoff
             ? await this.publishWorkflowImprovementTicketIfNeeded(
                 slot.project,
                 spec,
-                finalizedParsedResult.publicationHandoff,
+                publicationHandoff,
               )
             : undefined;
 
@@ -6185,6 +6223,7 @@ export class TicketRunner {
       ...(parsed.publicationEligibility
         ? {
             publicationHandoff: this.buildWorkflowImprovementTicketHandoffFromGapAnalysis(
+              stage,
               activeProject,
               spec,
               context.specContent,
@@ -6196,12 +6235,14 @@ export class TicketRunner {
   }
 
   private buildWorkflowImprovementTicketHandoffFromGapAnalysis(
+    analysisStage: WorkflowImprovementTicketAnalysisStage,
     activeProject: ProjectRef,
     spec: SpecRef,
     specContent: string,
     result: WorkflowGapAnalysisResult,
   ): WorkflowImprovementTicketHandoff {
     return {
+      analysisStage,
       activeProjectName: activeProject.name,
       activeProjectPath: activeProject.path,
       sourceSpecPath: spec.path,
@@ -6216,12 +6257,31 @@ export class TicketRunner {
       causalHypothesis: result.causalHypothesis,
       benefitSummary: result.benefitSummary,
       followUpTicketPaths: [...result.followUpTicketPaths],
+      workflowArtifactsConsulted: [...result.workflowArtifactsConsulted],
+      trace: null,
       findings: result.findings.map((finding) => ({
         summary: finding.summary,
         affectedArtifactPaths: [...finding.affectedArtifactPaths],
         requirementRefs: [...finding.requirementRefs],
         evidence: [...finding.evidence],
       })),
+    };
+  }
+
+  private attachWorkflowImprovementTraceToHandoff(
+    handoff: WorkflowImprovementTicketHandoff,
+    traceRecord: WorkflowStageTraceRecord | null,
+  ): WorkflowImprovementTicketHandoff {
+    return {
+      ...handoff,
+      trace: traceRecord
+        ? {
+            traceId: traceRecord.traceId,
+            requestPath: traceRecord.requestPath,
+            responsePath: traceRecord.responsePath,
+            decisionPath: traceRecord.decisionPath,
+          }
+        : null,
     };
   }
 
@@ -6269,8 +6329,20 @@ export class TicketRunner {
         : null,
       publicationHandoff: result.publicationHandoff
         ? {
+            analysisStage: result.publicationHandoff.analysisStage,
             sourceSpecPath: result.publicationHandoff.sourceSpecPath,
             inputMode: result.publicationHandoff.inputMode,
+            workflowArtifactsConsulted: [
+              ...result.publicationHandoff.workflowArtifactsConsulted,
+            ],
+            trace: result.publicationHandoff.trace
+              ? {
+                  traceId: result.publicationHandoff.trace.traceId,
+                  requestPath: result.publicationHandoff.trace.requestPath,
+                  responsePath: result.publicationHandoff.trace.responsePath,
+                  decisionPath: result.publicationHandoff.trace.decisionPath,
+                }
+              : null,
             findings: result.publicationHandoff.findings.map((finding) => ({
               summary: finding.summary,
               affectedArtifactPaths: [...finding.affectedArtifactPaths],
@@ -6447,11 +6519,15 @@ export class TicketRunner {
       if (publication.status === "operational-limitation") {
         this.logger.warn("Ticket transversal de workflow registrou limitacao operacional", {
           ...logContext,
+          analysisStage: candidate.analysisStage,
+          traceId: candidate.trace?.traceId ?? null,
           detail: publication.detail,
         });
       } else {
         this.logger.info("Ticket transversal de workflow processado", {
           ...logContext,
+          analysisStage: candidate.analysisStage,
+          traceId: candidate.trace?.traceId ?? null,
           detail: publication.detail,
         });
       }
@@ -6496,6 +6572,7 @@ export class TicketRunner {
       evidence: this.sortUniqueStrings([...finding.evidence]),
     }));
     return {
+      analysisStage: handoff.analysisStage,
       activeProjectName: handoff.activeProjectName,
       activeProjectPath: handoff.activeProjectPath,
       sourceSpecPath: handoff.sourceSpecPath,
@@ -6510,6 +6587,15 @@ export class TicketRunner {
       causalHypothesis: handoff.causalHypothesis,
       benefitSummary: handoff.benefitSummary,
       followUpTicketPaths: this.sortUniqueStrings([...handoff.followUpTicketPaths]),
+      workflowArtifactsConsulted: this.sortUniqueStrings([...handoff.workflowArtifactsConsulted]),
+      trace: handoff.trace
+        ? {
+            traceId: handoff.trace.traceId,
+            requestPath: handoff.trace.requestPath,
+            responsePath: handoff.trace.responsePath,
+            decisionPath: handoff.trace.decisionPath,
+          }
+        : null,
       findings,
       gapFingerprints: findings.map((finding) => finding.fingerprint),
     };
@@ -8550,7 +8636,7 @@ export class TicketRunner {
         result: CodexStageResult,
       ) => Promise<SpecStageTraceValidation | void> | SpecStageTraceValidation | void;
     },
-  ): Promise<CodexStageResult> {
+  ): Promise<RunnerSpecStageResult> {
     const stageStartedAt = Date.now();
     const phase: RunnerState["phase"] = stage;
     this.touchSlot(slot, phase, message);
@@ -8585,7 +8671,7 @@ export class TicketRunner {
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
       });
-      await this.recordWorkflowTraceSuccess(slot, {
+      const traceRecord = await this.recordWorkflowTraceSuccess(slot, {
         kind: "spec",
         stage,
         targetName: spec.fileName,
@@ -8598,7 +8684,10 @@ export class TicketRunner {
         metadata: traceValidation?.metadata,
       });
 
-      return result;
+      return {
+        ...result,
+        traceRecord,
+      };
     } catch (error) {
       await this.recordWorkflowTraceFailure(slot, {
         kind: "spec",
@@ -8632,8 +8721,8 @@ export class TicketRunner {
   private async recordWorkflowTraceSuccess(
     slot: ActiveRunnerSlot,
     request: WorkflowTraceSuccessRequest,
-  ): Promise<void> {
-    await this.recordWorkflowTrace(slot, {
+  ): Promise<WorkflowStageTraceRecord | null> {
+    return this.recordWorkflowTrace(slot, {
       ...request,
       decisionStatus: request.decisionStatus ?? "success",
     });
@@ -8642,19 +8731,19 @@ export class TicketRunner {
   private async recordWorkflowTraceFailure(
     slot: ActiveRunnerSlot,
     request: WorkflowTraceFailureRequest,
-  ): Promise<void> {
+  ): Promise<WorkflowStageTraceRecord | null> {
     if (!(request.error instanceof CodexStageExecutionError)) {
-      return;
+      return null;
     }
 
     const promptTemplatePath = request.error.promptTemplatePath?.trim() ?? "";
     const promptText = request.error.promptText?.trim() ?? "";
     if (!promptTemplatePath || !promptText) {
-      return;
+      return null;
     }
 
     const diagnostics = request.error.diagnostics;
-    await this.recordWorkflowTrace(slot, {
+    return this.recordWorkflowTrace(slot, {
       kind: request.kind,
       stage: request.stage,
       targetName: request.targetName,
@@ -8676,15 +8765,15 @@ export class TicketRunner {
       decisionStatus: "success" | "failure";
       decisionErrorMessage?: string;
     },
-  ): Promise<void> {
+  ): Promise<WorkflowStageTraceRecord | null> {
     const sourceCommand = this.resolveWorkflowTraceSourceCommand(slot);
     if (!sourceCommand) {
-      return;
+      return null;
     }
 
     try {
       const traceStore = this.workflowTraceStoreFactory(slot.project.path);
-      await traceStore.recordStageTrace({
+      return await traceStore.recordStageTrace({
         kind: request.kind,
         stage: request.stage,
         sourceCommand,
@@ -8714,6 +8803,7 @@ export class TicketRunner {
         activeProjectPath: slot.project.path,
         error: error instanceof Error ? error.message : String(error),
       });
+      return null;
     }
   }
 
@@ -9134,6 +9224,7 @@ export class TicketRunner {
       ...(result.publicationHandoff
         ? {
             publicationHandoff: {
+              analysisStage: result.publicationHandoff.analysisStage,
               activeProjectName: result.publicationHandoff.activeProjectName,
               activeProjectPath: result.publicationHandoff.activeProjectPath,
               sourceSpecPath: result.publicationHandoff.sourceSpecPath,
@@ -9147,6 +9238,17 @@ export class TicketRunner {
               causalHypothesis: result.publicationHandoff.causalHypothesis,
               benefitSummary: result.publicationHandoff.benefitSummary,
               followUpTicketPaths: [...result.publicationHandoff.followUpTicketPaths],
+              workflowArtifactsConsulted: [
+                ...result.publicationHandoff.workflowArtifactsConsulted,
+              ],
+              trace: result.publicationHandoff.trace
+                ? {
+                    traceId: result.publicationHandoff.trace.traceId,
+                    requestPath: result.publicationHandoff.trace.requestPath,
+                    responsePath: result.publicationHandoff.trace.responsePath,
+                    decisionPath: result.publicationHandoff.trace.decisionPath,
+                  }
+                : null,
               findings: result.publicationHandoff.findings.map((finding) => ({
                 summary: finding.summary,
                 affectedArtifactPaths: [...finding.affectedArtifactPaths],

@@ -50,6 +50,7 @@ class StubGitVersioning implements GitVersioning {
 const createCandidate = (
   value: Partial<WorkflowImprovementTicketCandidate> = {},
 ): WorkflowImprovementTicketCandidate => ({
+  analysisStage: "spec-workflow-retrospective",
   activeProjectName: "codex-flow-runner",
   activeProjectPath: "/tmp/codex-flow-runner",
   sourceSpecPath: "docs/specs/2026-03-19-spec-ticket-validation.md",
@@ -62,6 +63,13 @@ const createCandidate = (
   causalHypothesis: "A retrospectiva pos-auditoria ainda nao fecha o backlog sistemico no stage correto.",
   benefitSummary: "Mover a publication para o pos-auditoria reduz recorrencia futura.",
   followUpTicketPaths: ["tickets/open/example.md"],
+  workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
+  trace: {
+    traceId: "trace-123",
+    requestPath: ".codex-flow-runner/flow-traces/requests/trace-123-request.md",
+    responsePath: ".codex-flow-runner/flow-traces/responses/trace-123-response.md",
+    decisionPath: ".codex-flow-runner/flow-traces/decisions/trace-123-decision.json",
+  },
   findings: [
     {
       fingerprint: "coverage-gap|tickets/open/example.md|rf-18",
@@ -120,10 +128,42 @@ test("publica ticket transversal no repositorio atual com commit/push observavel
       path.join(repoPath, ...(result.ticketPath ?? "").split("/")),
       "utf8",
     );
-    assert.match(ticketContent, /Source spec \(when applicable\): docs\/specs\/2026-03-19-spec-ticket-validation\.md/u);
+    assert.match(
+      ticketContent,
+      /Analysis stage \(when applicable\): spec-workflow-retrospective/u,
+    );
+    assert.match(
+      ticketContent,
+      /Active project \(when applicable\): codex-flow-runner \(\.\)/u,
+    );
+    assert.match(
+      ticketContent,
+      /Target repository \(when applicable\): codex-flow-runner \(\.\)/u,
+    );
+    assert.match(
+      ticketContent,
+      /Request ID: trace-123/u,
+    );
+    assert.match(
+      ticketContent,
+      /Source spec \(when applicable\): codex-flow-runner\/docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
+    );
+    assert.match(
+      ticketContent,
+      /Source spec canonical path \(when applicable\): docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
+    );
     assert.match(ticketContent, /Systemic gap fingerprints/u);
-    assert.match(ticketContent, /Workflow root cause \(when applicable\): systemic-instruction/u);
-    assert.match(ticketContent, /workflow-gap-analysis pos-auditoria/u);
+    assert.match(
+      ticketContent,
+      /Workflow root cause \(required for tickets created from workflow retrospectives or post-implementation audit\/review\): systemic-instruction/u,
+    );
+    assert.match(ticketContent, /Smallest plausible explanation \(audit\/review only\):/u);
+    assert.match(ticketContent, /Remediation scope \(audit\/review only\): generic-repository-instruction/u);
+    assert.match(
+      ticketContent,
+      /Decision file: codex-flow-runner\/\.codex-flow-runner\/flow-traces\/decisions\/trace-123-decision\.json/u,
+    );
+    assert.match(ticketContent, /workflow-gap-analysis pos-spec-audit/u);
     assert.match(ticketContent, /Hipotese causal consolidada:/u);
   } finally {
     await cleanupTempWorkspace(workspacePath);
@@ -160,6 +200,81 @@ test("publica ticket transversal no repositorio irmao quando o projeto ativo e e
       .then(() => true)
       .catch(() => false);
     assert.equal(ticketExists, true);
+    const ticketContent = await fs.readFile(ticketAbsolutePath, "utf8");
+    assert.match(
+      ticketContent,
+      /Source spec \(when applicable\): alpha-project\/docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
+    );
+    assert.match(
+      ticketContent,
+      /Source spec canonical path \(when applicable\): docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
+    );
+    assert.match(
+      ticketContent,
+      /Decision file: alpha-project\/\.codex-flow-runner\/flow-traces\/decisions\/trace-123-decision\.json/u,
+    );
+    assert.match(
+      ticketContent,
+      /Related docs\/execplans:\n(?:  - .+\n)*  - codex-flow-runner\/prompts\/11-retrospectiva-workflow-apos-spec-audit\.md/u,
+    );
+  } finally {
+    await cleanupTempWorkspace(workspacePath);
+  }
+});
+
+test("publica ticket transversal pre-run-all com wording stage-aware e paths qualificados por projeto", async () => {
+  const workspacePath = await createTempWorkspace();
+  try {
+    const externalRepoPath = path.join(workspacePath, "alpha-project");
+    const workflowRepoPath = path.join(workspacePath, "codex-flow-runner");
+    await fs.mkdir(externalRepoPath, { recursive: true });
+    await ensureRepoStructure(workflowRepoPath);
+    const publisher = new FileSystemWorkflowImprovementTicketPublisher({
+      now: () => new Date("2026-03-19T18:00:00.000Z"),
+      createGitVersioning: () => new StubGitVersioning(),
+    });
+
+    const result = await publisher.publish(
+      createCandidate({
+        analysisStage: "spec-ticket-derivation-retrospective",
+        activeProjectName: "alpha-project",
+        activeProjectPath: externalRepoPath,
+        inputMode: "spec-ticket-validation-history",
+        causalHypothesis:
+          "A retrospectiva pre-run-all ainda nao leva o backlog sistemico ao repositorio do workflow de forma explicita.",
+        benefitSummary:
+          "Publicar o backlog agregado antes do /run-all reduz recorrencia futura.",
+        workflowArtifactsConsulted: [
+          "../codex-flow-runner/AGENTS.md",
+          "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+        ],
+      }),
+    );
+
+    assert.equal(result.status, "created-and-pushed");
+    const ticketAbsolutePath = path.join(workflowRepoPath, ...(result.ticketPath ?? "").split("/"));
+    const ticketContent = await fs.readFile(ticketAbsolutePath, "utf8");
+    assert.match(
+      ticketContent,
+      /Analysis stage \(when applicable\): spec-ticket-derivation-retrospective/u,
+    );
+    assert.match(
+      ticketContent,
+      /derivation-gap-analysis pre-run-all/u,
+    );
+    assert.doesNotMatch(ticketContent, /pos-spec-audit/u);
+    assert.match(
+      ticketContent,
+      /Source spec \(when applicable\): alpha-project\/docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
+    );
+    assert.match(
+      ticketContent,
+      /Request file: alpha-project\/\.codex-flow-runner\/flow-traces\/requests\/trace-123-request\.md/u,
+    );
+    assert.match(
+      ticketContent,
+      /codex-flow-runner\/prompts\/12-retrospectiva-derivacao-tickets-pre-run-all\.md/u,
+    );
   } finally {
     await cleanupTempWorkspace(workspacePath);
   }

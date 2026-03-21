@@ -104,20 +104,24 @@ Todo ticket deve incluir:
 - Contexto (onde no pipeline/workflow).
 - Comportamento observado vs esperado.
 - Rastreabilidade de origem quando aplicável:
+  - stage/origem da analise quando o ticket nascer de retrospectiva de workflow;
+  - projeto ativo e repositorio alvo quando o ticket cruzar repositorios;
   - spec de origem;
+  - caminho humano qualificado por projeto para a spec de origem quando o display diferir da chave canonica;
+  - caminho canonico usado para dedupe/reuse quando isso for relevante para automacao;
   - IDs de RF/CA de origem;
   - assumptions/defaults herdados que importam para a implementação.
 - Passos de reprodução (quando possível).
-- Links de evidência (`requestId`, arquivo de log, artefato de resposta, saída de teste).
+- Links de evidência (`requestId`, `Request file`, `Response file`, `Decision file` e/ou saída de teste).
 - Avaliação de impacto (escopo + risco).
 - Critérios de fechamento observáveis.
 
-Quando um ticket for criado a partir de audit/review pós-implementação, inclua também:
+Quando um ticket for criado a partir de retrospectiva de workflow (`spec-ticket-derivation-retrospective` ou `spec-workflow-retrospective`) ou de audit/review pós-implementação, inclua também:
 - causa-raiz provável do workflow (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);
 - por que essa classificação de causa é a menor explicação plausível;
 - se a remediação é local ou se deve atualizar uma instrução genérica do repositório.
 
-Não exija esses três campos extras para tickets criados durante derivação pré-implementação, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
+Não exija esses três campos extras para tickets criados durante derivação pré-implementação que nao sejam retrospectivas sistemicas, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
 
 `Proposed solution` é opcional por design.
 

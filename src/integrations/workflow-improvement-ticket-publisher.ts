@@ -10,10 +10,29 @@ import {
 } from "../types/workflow-improvement-ticket.js";
 
 const TARGET_REPO_NAME = "codex-flow-runner";
+const TICKET_SOURCE_SPEC_CANONICAL_PATTERN =
+  /^\s*-\s*Source spec canonical path(?:\s*\(when applicable\))?\s*:\s*(.+?)\s*$/imu;
 const TICKET_SOURCE_SPEC_PATTERN =
   /^\s*-\s*Source spec(?:\s*\(when applicable\))?\s*:\s*(.+?)\s*$/imu;
 const TICKET_GAP_FINGERPRINTS_PATTERN =
   /^\s*-\s*Systemic gap fingerprints\s*:\s*(.+?)\s*$/imu;
+const WORKFLOW_REPO_RELATIVE_ROOTS = [
+  "AGENTS.md",
+  "DOCUMENTATION.md",
+  "INTERNAL_TICKETS.md",
+  "PLANS.md",
+  "SPECS.md",
+  "README.md",
+  "package.json",
+  "tsconfig.json",
+  "src/",
+  "prompts/",
+  "execplans/",
+  "tickets/templates/",
+  "docs/workflows/",
+  "docs/checkups/",
+  "docs/specs/templates/",
+] as const;
 
 export interface WorkflowImprovementTicketPublisher {
   publish(
@@ -102,7 +121,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
     const ticketFileName = this.buildTicketFileName(candidate);
     const ticketPath = path.posix.join("tickets/open", ticketFileName);
     const ticketAbsolutePath = path.join(targetRepo.path, ...ticketPath.split("/"));
-    const ticketContent = this.renderTicketContent(candidate);
+    const ticketContent = this.renderTicketContent(candidate, targetRepo);
 
     const writeResult = await this.writeTicketAtomically(ticketAbsolutePath, ticketContent);
     if (writeResult !== null) {
@@ -260,7 +279,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
         path.join(openTicketsPath, entry.name),
         "utf8",
       );
-      const sourceSpec = extractTicketSourceSpec(ticketContent);
+      const sourceSpec = extractTicketCanonicalSourceSpec(ticketContent);
       if (sourceSpec !== candidate.sourceSpecPath) {
         continue;
       }
@@ -292,15 +311,51 @@ export class FileSystemWorkflowImprovementTicketPublisher
     return `${datePrefix}-workflow-improvement-${specSlug}-${fingerprintHash}.md`;
   }
 
-  private renderTicketContent(candidate: WorkflowImprovementTicketCandidate): string {
+  private renderTicketContent(
+    candidate: WorkflowImprovementTicketCandidate,
+    targetRepo: ResolvedTargetRepo,
+  ): string {
     const createdAtUtc = formatTicketTimestamp(this.dependencies.now());
+    const analysisStageLabel = describeAnalysisStage(candidate.analysisStage);
+    const workflowArea = `${candidate.analysisStage} -> workflow-ticket-publication`;
+    const isPreRunAllRetrospective =
+      candidate.analysisStage === "spec-ticket-derivation-retrospective";
+    const activeProjectWorkspacePath = normalizeWorkspaceRelativePath(
+      path.relative(targetRepo.path, candidate.activeProjectPath),
+    );
     const sourceRequirements =
       candidate.sourceRequirements.length > 0 ? candidate.sourceRequirements.join(", ") : "";
     const inheritedAssumptions =
       candidate.inheritedAssumptionsDefaults.length > 0
         ? candidate.inheritedAssumptionsDefaults.join("; ")
         : "";
-
+    const sourceSpecDisplayPath = buildProjectQualifiedPath(
+      candidate.activeProjectName,
+      candidate.sourceSpecPath,
+    );
+    const qualifiedWorkflowArtifacts = sortUniqueStrings(
+      candidate.workflowArtifactsConsulted.map((artifactPath) =>
+        qualifyArtifactPathForDisplay(artifactPath, candidate),
+      ),
+    );
+    const qualifiedFollowUpTickets = sortUniqueStrings(
+      candidate.followUpTicketPaths.map((ticketPath) =>
+        buildProjectQualifiedPath(candidate.activeProjectName, ticketPath),
+      ),
+    );
+    const qualifiedFindingArtifacts = sortUniqueStrings(
+      candidate.findings.flatMap((finding) =>
+        finding.affectedArtifactPaths.map((artifactPath) =>
+          qualifyArtifactPathForDisplay(artifactPath, candidate),
+        ),
+      ),
+    );
+    const relatedDocs = sortUniqueStrings([
+      sourceSpecDisplayPath,
+      ...qualifiedWorkflowArtifacts,
+      ...qualifiedFollowUpTickets,
+      ...qualifiedFindingArtifacts,
+    ]);
     const findingSummaries = candidate.findings.map((finding) => `- ${finding.summary}`);
     const findingEvidenceLines = candidate.findings.flatMap((finding) => {
       const lines = [`- ${finding.summary}`];
@@ -308,7 +363,12 @@ export class FileSystemWorkflowImprovementTicketPublisher
         lines.push(`  - Requisitos relacionados: ${finding.requirementRefs.join(", ")}`);
       }
       if (finding.affectedArtifactPaths.length > 0) {
-        lines.push(`  - Artefatos afetados: ${finding.affectedArtifactPaths.join(", ")}`);
+        const qualifiedArtifacts = sortUniqueStrings(
+          finding.affectedArtifactPaths.map((artifactPath) =>
+            qualifyArtifactPathForDisplay(artifactPath, candidate),
+          ),
+        );
+        lines.push(`  - Artefatos afetados: ${qualifiedArtifacts.join(", ")}`);
       }
       if (finding.evidence.length > 0) {
         lines.push(`  - Evidencias: ${finding.evidence.join(" | ")}`);
@@ -316,16 +376,48 @@ export class FileSystemWorkflowImprovementTicketPublisher
       lines.push(`  - Fingerprint: ${finding.fingerprint}`);
       return lines;
     });
-    const relatedArtifacts = [
-      candidate.sourceSpecPath,
-      ...candidate.followUpTicketPaths,
-      ...candidate.findings.flatMap((finding) => finding.affectedArtifactPaths),
-    ].filter(Boolean);
-    const workflowArea = "spec-workflow-retrospective -> workflow-ticket-publication";
     const followUpSummary =
-      candidate.followUpTicketPaths.length > 0
-        ? candidate.followUpTicketPaths.join(", ")
+      qualifiedFollowUpTickets.length > 0
+        ? qualifiedFollowUpTickets.join(", ")
         : "fallback controlado em spec + resultado do spec-audit";
+    const traceId = candidate.trace?.traceId ?? "N/A - trilha desta retrospectiva nao foi persistida";
+    const requestFile = candidate.trace
+      ? qualifyArtifactPathForDisplay(candidate.trace.requestPath, candidate)
+      : "N/A - trilha desta retrospectiva nao foi persistida";
+    const responseFile = candidate.trace
+      ? qualifyArtifactPathForDisplay(candidate.trace.responsePath, candidate)
+      : "N/A - trilha desta retrospectiva nao foi persistida";
+    const decisionFile = candidate.trace
+      ? qualifyArtifactPathForDisplay(candidate.trace.decisionPath, candidate)
+      : "N/A - trilha desta retrospectiva nao foi persistida";
+    const activeProjectDescription = `${candidate.activeProjectName} (${activeProjectWorkspacePath})`;
+    const targetRepoDescription = `${TARGET_REPO_NAME} (${targetRepo.displayPath})`;
+    const scenario = isPreRunAllRetrospective
+      ? `a retrospectiva sistemica pre-run-all da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`
+      : `a retrospectiva sistemica pos-spec-audit da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`;
+    const problemStatement = isPreRunAllRetrospective
+      ? `A retrospectiva pre-run-all da spec ${candidate.sourceSpecFileName} encontrou evidencia de que a derivacao ainda introduz backlog sistemico reaproveitavel antes do /run-all. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`
+      : `A retrospectiva pos-spec-audit da spec ${candidate.sourceSpecFileName} encontrou evidencia de que o workflow atual contribuiu materialmente para gaps residuais reaproveitaveis. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`;
+    const detectionSummary = isPreRunAllRetrospective
+      ? "derivation-gap-analysis com high confidence antes do /run-all"
+      : "workflow-gap-analysis com high confidence apos spec-audit";
+    const expectedBehavior = isPreRunAllRetrospective
+      ? `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada durante a retrospectiva pre-run-all, reduzindo recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes antes do consumo da fila real.`
+      : `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada, reduzindo a recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes.`;
+    const reproductionSteps = isPreRunAllRetrospective
+      ? [
+          `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
+          "2. Revisar o historico completo de spec-ticket-validation e o pacote final de tickets derivados antes do /run-all.",
+          "3. Observar derivation-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
+        ]
+      : [
+          `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
+          "2. Revisar o resultado de spec-audit e os follow-ups funcionais abertos para a spec auditada.",
+          "3. Observar workflow-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
+        ];
+    const decisionLogSummary = isPreRunAllRetrospective
+      ? "Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence."
+      : "Ticket aberto automaticamente a partir da retrospectiva sistemica pos-spec-audit - follow-up sistemico reaproveitavel identificado com high confidence.";
 
     const closureRequirementLabel =
       candidate.sourceRequirements.length > 0
@@ -346,18 +438,24 @@ export class FileSystemWorkflowImprovementTicketPublisher
       "- Parent ticket (optional):",
       "- Parent execplan (optional):",
       "- Parent commit (optional):",
-      "- Request ID:",
-      `- Source spec (when applicable): ${candidate.sourceSpecPath}`,
+      `- Analysis stage (when applicable): ${candidate.analysisStage}`,
+      `- Active project (when applicable): ${activeProjectDescription}`,
+      `- Target repository (when applicable): ${targetRepoDescription}`,
+      `- Request ID: ${traceId}`,
+      `- Source spec (when applicable): ${sourceSpecDisplayPath}`,
+      `- Source spec canonical path (when applicable): ${candidate.sourceSpecPath}`,
       `- Source requirements (RFs/CAs, when applicable): ${sourceRequirements}`,
       `- Inherited assumptions/defaults (when applicable): ${inheritedAssumptions}`,
-      "- Workflow root cause (when applicable): systemic-instruction",
+      "- Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): systemic-instruction",
+      `- Smallest plausible explanation (audit/review only): ${candidate.causalHypothesis}`,
+      "- Remediation scope (audit/review only): generic-repository-instruction",
       `- Systemic gap fingerprints: ${JSON.stringify(candidate.gapFingerprints)}`,
       "- Related artifacts:",
-      "  - Request file:",
-      "  - Response file:",
-      "  - Log file:",
+      `  - Request file: ${requestFile}`,
+      `  - Response file: ${responseFile}`,
+      `  - Decision file: ${decisionFile}`,
       "- Related docs/execplans:",
-      ...relatedArtifacts.map((artifactPath) => `  - ${artifactPath}`),
+      ...relatedDocs.map((artifactPath) => `  - ${artifactPath}`),
       "",
       "## Classificacao de risco (check-up nao funcional, quando aplicavel)",
       "- Matriz aplicavel: nao",
@@ -367,32 +465,34 @@ export class FileSystemWorkflowImprovementTicketPublisher
       "- Risco operacional (1-5):",
       "- Score ponderado (10-50):",
       "- Prioridade resultante (`P0` | `P1` | `P2`):",
-      "- Justificativa objetiva (evidencias e impacto): gaps sistemicos observados com alta confianca durante workflow-gap-analysis pos-auditoria.",
+      `- Justificativa objetiva (evidencias e impacto): gaps sistemicos observados com alta confianca durante ${analysisStageLabel}.`,
       "",
       "## Context",
       `- Workflow area: ${workflowArea}`,
-      `- Scenario: a retrospectiva sistemica da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`,
+      `- Scenario: ${scenario}`,
+      `- Active project: ${candidate.activeProjectName}`,
+      `- Target repository: ${targetRepo.displayPath}`,
+      "- Path conventions: caminhos no formato `<projeto>/<path>` sao exibicoes humanas qualificadas por projeto; a chave canonica de dedupe continua em `Source spec canonical path`.",
       "- Input constraints: a publicacao deste ticket nao deve bloquear a rodada auditada; em projeto externo, o publish deve ocorrer apenas no repositorio do workflow.",
       "",
       "## Problem statement",
-      `A retrospectiva pos-auditoria da spec ${candidate.sourceSpecFileName} encontrou evidencia de que o workflow atual contribuiu materialmente para gaps residuais reaproveitaveis. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`,
+      problemStatement,
       "",
       "## Observed behavior",
       "- O que foi observado:",
       ...(findingSummaries.length > 0 ? findingSummaries : ["- Nenhum achado resumido."]),
       "- Frequencia (unico, recorrente, intermitente): recorrente",
-      "- Como foi detectado (warning/log/test/assert): workflow-gap-analysis com high confidence apos spec-audit",
+      `- Como foi detectado (warning/log/test/assert): ${detectionSummary}`,
       "",
       "## Expected behavior",
-      `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada, reduzindo a recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes.`,
+      expectedBehavior,
       "",
       "## Reproduction steps",
-      `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
-      "2. Revisar o resultado de spec-audit e os follow-ups funcionais abertos para a spec auditada.",
-      "3. Observar workflow-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
+      ...reproductionSteps,
       "",
       "## Evidence",
       `- Logs relevantes (trechos curtos e redigidos): resumo da retrospectiva = ${candidate.analysisSummary}`,
+      `- Artefatos de workflow consultados: ${qualifiedWorkflowArtifacts.join(", ") || "nenhum artefato adicional registrado"}`,
       "- Warnings/codes relevantes:",
       ...findingEvidenceLines,
       `- Tickets funcionais considerados: ${followUpSummary}`,
@@ -417,7 +517,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
       "- Evidencia observavel: a causa sistemica registrada neste ticket deixa de reaparecer em uma rodada equivalente de workflow-gap-analysis/workflow-ticket-publication, com rastreabilidade objetiva nos artefatos afetados.",
       "",
       "## Decision log",
-      `- ${this.dependencies.now().toISOString().slice(0, 10)} - Ticket aberto automaticamente a partir da retrospectiva sistemica pos-auditoria - follow-up sistemico reaproveitavel identificado com high confidence.`,
+      `- ${this.dependencies.now().toISOString().slice(0, 10)} - ${decisionLogSummary}`,
       "",
       "## Closure",
       "- Closed at (UTC):",
@@ -470,7 +570,95 @@ export class FileSystemWorkflowImprovementTicketPublisher
   }
 }
 
-const extractTicketSourceSpec = (content: string): string | null => {
+const describeAnalysisStage = (stage: WorkflowImprovementTicketCandidate["analysisStage"]): string =>
+  stage === "spec-ticket-derivation-retrospective"
+    ? "derivation-gap-analysis pre-run-all"
+    : "workflow-gap-analysis pos-spec-audit";
+
+const buildProjectQualifiedPath = (projectName: string, relativePath: string): string => {
+  const normalizedPath = normalizePathForDisplay(relativePath);
+  if (!normalizedPath || normalizedPath === ".") {
+    return projectName;
+  }
+
+  if (normalizedPath.startsWith(`${projectName}/`)) {
+    return normalizedPath;
+  }
+
+  return `${projectName}/${normalizedPath}`;
+};
+
+const qualifyArtifactPathForDisplay = (
+  artifactPath: string,
+  candidate: WorkflowImprovementTicketCandidate,
+): string => {
+  const normalizedPath = normalizePathForDisplay(artifactPath);
+  if (!normalizedPath) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath.startsWith(`${candidate.activeProjectName}/`)) {
+    return normalizedPath;
+  }
+  if (normalizedPath.startsWith(`${TARGET_REPO_NAME}/`)) {
+    return normalizedPath;
+  }
+  if (normalizedPath.startsWith(`../${TARGET_REPO_NAME}/`)) {
+    return buildProjectQualifiedPath(
+      TARGET_REPO_NAME,
+      normalizedPath.slice(`../${TARGET_REPO_NAME}/`.length),
+    );
+  }
+  if (normalizedPath.startsWith(`../${candidate.activeProjectName}/`)) {
+    return buildProjectQualifiedPath(
+      candidate.activeProjectName,
+      normalizedPath.slice(`../${candidate.activeProjectName}/`.length),
+    );
+  }
+  if (normalizedPath.startsWith("./")) {
+    return qualifyArtifactPathForDisplay(normalizedPath.slice(2), candidate);
+  }
+  if (normalizedPath.startsWith("../")) {
+    return normalizedPath;
+  }
+  if (candidate.activeProjectName === TARGET_REPO_NAME) {
+    return buildProjectQualifiedPath(TARGET_REPO_NAME, normalizedPath);
+  }
+  if (isLikelyWorkflowRepoArtifact(normalizedPath)) {
+    return buildProjectQualifiedPath(TARGET_REPO_NAME, normalizedPath);
+  }
+
+  return buildProjectQualifiedPath(candidate.activeProjectName, normalizedPath);
+};
+
+const isLikelyWorkflowRepoArtifact = (artifactPath: string): boolean =>
+  WORKFLOW_REPO_RELATIVE_ROOTS.some((root) =>
+    root.endsWith("/") ? artifactPath.startsWith(root) : artifactPath === root,
+  );
+
+const sortUniqueStrings = (values: string[]): string[] =>
+  [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right, "pt-BR"),
+  );
+
+const normalizePathForDisplay = (value: string): string =>
+  value.trim().replace(/\\/gu, "/");
+
+const normalizeWorkspaceRelativePath = (value: string): string => {
+  const normalized = normalizePathForDisplay(value);
+  if (!normalized || normalized === ".") {
+    return ".";
+  }
+
+  return normalized;
+};
+
+const extractTicketCanonicalSourceSpec = (content: string): string | null => {
+  const canonicalMatch = TICKET_SOURCE_SPEC_CANONICAL_PATTERN.exec(content);
+  if (canonicalMatch?.[1]?.trim()) {
+    return canonicalMatch[1].trim();
+  }
+
   const match = TICKET_SOURCE_SPEC_PATTERN.exec(content);
   return match?.[1]?.trim() || null;
 };

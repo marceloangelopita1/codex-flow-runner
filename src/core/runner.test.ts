@@ -4065,6 +4065,7 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
       ],
     });
     const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
     const queue: TicketQueue = {
       ensureStructure: async () => undefined,
       nextOpenTicket: async () => null,
@@ -4079,6 +4080,7 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
     });
     const runner = createRunner(logger, roundDependencies, {
       runnerOptions: {
+        workflowTraceStoreFactory,
         runFlowEventHandlers,
         workflowImprovementTicketPublisher: workflowPublisherHarness.publisher,
       },
@@ -4098,6 +4100,11 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
     assert.equal(derivationSummary?.decision, "executed");
     assert.equal(derivationSummary?.analysis?.classification, "systemic-gap");
     assert.equal(derivationSummary?.analysis?.publicationEligibility, true);
+    assert.equal(
+      derivationSummary?.analysis?.publicationHandoff?.analysisStage,
+      "spec-ticket-derivation-retrospective",
+    );
+    assert.ok(derivationSummary?.analysis?.publicationHandoff?.trace?.traceId);
     assert.equal(derivationSummary?.workflowImprovementTicket?.status, "created-and-pushed");
     assert.equal(
       derivationSummary?.workflowImprovementTicket?.targetRepoKind,
@@ -4111,6 +4118,30 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
     assert.equal(
       workflowPublisherHarness.gitClients.get(workflowRepoRoot)?.explicitPathPublishes.length,
       1,
+    );
+    const traceRecord = records.find(
+      (entry) => entry.request.stage === "spec-ticket-derivation-retrospective",
+    );
+    assert.equal(traceRecord?.request.decision.metadata?.classification, "systemic-gap");
+
+    const publishedTicketAbsolutePath = path.join(
+      workflowRepoRoot,
+      ...(derivationSummary?.workflowImprovementTicket?.ticketPath ?? "").split("/"),
+    );
+    const publishedTicketContent = await fs.readFile(publishedTicketAbsolutePath, "utf8");
+    const derivationTrace = derivationSummary?.analysis?.publicationHandoff?.trace;
+    assert.ok(derivationTrace);
+    assert.match(
+      publishedTicketContent,
+      /Analysis stage \(when applicable\): spec-ticket-derivation-retrospective/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /Source spec \(when applicable\): alpha-project\/docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u,
+    );
+    assert.equal(
+      publishedTicketContent.includes(`Decision file: alpha-project/${derivationTrace?.decisionPath}`),
+      true,
     );
 
     const specContentAfterRun = await fs.readFile(
@@ -4277,9 +4308,14 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
       specFileName,
     );
     assert.equal(
+      runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.analysisStage,
+      "spec-workflow-retrospective",
+    );
+    assert.equal(
       runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.inputMode,
       "follow-up-tickets",
     );
+    assert.ok(runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.trace?.traceId);
     assert.equal(
       "workflowImprovementTicket" in (runSpecsSummary.specTicketValidation ?? {}),
       false,
@@ -4300,6 +4336,22 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
     );
     assert.equal(traceRecord?.request.decision.metadata?.classification, "systemic-gap");
     assert.equal(traceRecord?.request.decision.metadata?.publicationEligibility, true);
+
+    const publishedTicketAbsolutePath = path.join(
+      fixture.projectRoot,
+      ...(runSpecsSummary.workflowImprovementTicket?.ticketPath ?? "").split("/"),
+    );
+    const publishedTicketContent = await fs.readFile(publishedTicketAbsolutePath, "utf8");
+    const workflowTrace = runSpecsSummary.workflowGapAnalysis?.publicationHandoff?.trace;
+    assert.ok(workflowTrace);
+    assert.match(
+      publishedTicketContent,
+      /Analysis stage \(when applicable\): spec-workflow-retrospective/u,
+    );
+    assert.equal(
+      publishedTicketContent.includes(`Decision file: codex-flow-runner/${workflowTrace?.decisionPath}`),
+      true,
+    );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);
   }

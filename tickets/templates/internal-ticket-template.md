@@ -11,17 +11,21 @@
 - Parent ticket (optional):
 - Parent execplan (optional):
 - Parent commit (optional):
+- Analysis stage (when applicable):
+- Active project (when applicable):
+- Target repository (when applicable):
 - Request ID:
 - Source spec (when applicable):
+- Source spec canonical path (when applicable):
 - Source requirements (RFs/CAs, when applicable):
 - Inherited assumptions/defaults (when applicable):
-- Workflow root cause (required only for tickets created from post-implementation audit/review): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
+- Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
 - Smallest plausible explanation (audit/review only):
 - Remediation scope (audit/review only): local | generic-repository-instruction
 - Related artifacts:
   - Request file:
   - Response file:
-  - Log file:
+  - Decision file:
 - Related docs/execplans:
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)

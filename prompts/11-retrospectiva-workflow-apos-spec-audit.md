@@ -23,6 +23,10 @@ Regras obrigatórias:
 - Quando o projeto auditado for externo, considerar dois contextos:
   - o projeto corrente onde o gap ocorreu;
   - `../codex-flow-runner` como origem potencial da melhoria sistêmica.
+- Quando citar artefatos em `workflowArtifactsConsulted`, `followUpTicketPaths` ou `findings[*].affectedArtifactPaths`, deixar explicito a qual contexto cada caminho pertence:
+  - artefatos do workflow devem usar `../codex-flow-runner/...` quando o projeto auditado for externo;
+  - artefatos do projeto auditado devem permanecer em caminho relativo ao projeto corrente;
+  - nao misturar referencias ambiguas sem contexto de repositorio.
 - Não reexecutar a auditoria funcional da spec.
 - Não alterar a spec do projeto corrente nesta etapa.
 - Não criar, publicar, fechar ticket, commitar nem fazer push nesta etapa.
@@ -46,6 +50,7 @@ Tarefa:
    - os artefatos relidos;
    - as evidências principais;
    - se haveria benefício reaproveitável para specs futuras.
+   - quando `publicationEligibility=true`, garantir que os caminhos citados permitam ao publisher distinguir projeto auditado de repositório do workflow sem ambiguidade.
 6. Incluir obrigatoriamente ao final da resposta o bloco parseável abaixo, sem texto extra entre o fechamento do bloco e o fim da resposta:
 
 [[WORKFLOW_GAP_ANALYSIS]]
