@@ -6248,9 +6248,9 @@ export class TicketRunner {
       sourceSpecPath: spec.path,
       sourceSpecFileName: spec.fileName,
       sourceSpecTitle: this.extractSpecTitle(specContent, spec.fileName),
-      inheritedAssumptionsDefaults: this.extractTopLevelBulletItems(
+      inheritedAssumptionsDefaults: this.extractTopLevelBulletItemsFromHeadings(
         specContent,
-        "Assumptions and defaults",
+        ["Assumptions and defaults", "Premissas e defaults"],
       ),
       inputMode: result.inputMode,
       analysisSummary: result.summary,
@@ -7214,6 +7214,24 @@ export class TicketRunner {
       return [];
     }
 
+    return this.extractBulletItemsFromSectionContent(sectionContent);
+  }
+
+  private extractTopLevelBulletItemsFromHeadings(
+    content: string,
+    headings: readonly string[],
+  ): string[] {
+    for (const heading of headings) {
+      const sectionContent = this.extractTopLevelSectionContent(content, heading);
+      if (sectionContent !== null) {
+        return this.extractBulletItemsFromSectionContent(sectionContent);
+      }
+    }
+
+    return [];
+  }
+
+  private extractBulletItemsFromSectionContent(sectionContent: string): string[] {
     return sectionContent
       .split(/\r?\n/gu)
       .map((line) => line.match(/^\s*-\s+(.+?)\s*$/u)?.[1]?.trim() ?? null)

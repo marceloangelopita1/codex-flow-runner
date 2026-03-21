@@ -77,6 +77,7 @@ Toda spec deve conter:
 - jornada(s) de uso e atores;
 - requisitos funcionais;
 - assumptions/defaults relevantes quando houver escolhas padrão;
+- usar o heading canonico `## Assumptions and defaults` nas specs locais; o workflow aceita aliases conhecidos de entrada, como `## Premissas e defaults`, apenas como compatibilidade com specs externas ou legadas;
 - critérios de aceitacao observaveis;
 - quando a spec participar de `/run_specs`, a seção `Gate de validacao dos tickets derivados` com veredito, gaps, correções, causa-raiz provavel, ciclos executados e histórico estritamente funcional;
 - quando a spec participar de `/run_specs`, a seção separada `Retrospectiva sistemica da derivacao dos tickets`, documentando ativacao/skip, classificação, confianca, frente causal, achados, artefatos consultados, elegibilidade de publication e resultado do ticket transversal ou limitação operacional;

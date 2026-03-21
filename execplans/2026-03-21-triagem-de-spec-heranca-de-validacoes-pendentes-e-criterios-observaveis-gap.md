@@ -20,14 +20,15 @@
 
 ## Progress
 - [x] 2026-03-21 18:13Z - Gap funcional confirmado no ticket pai e superfices compartilhadas de triagem/gate/extracao mapeadas.
-- [ ] 2026-03-21 18:13Z - Contrato documental de heranca e gate endurecido.
-- [ ] 2026-03-21 18:13Z - Extracao alias-aware e validacao automatizada concluidas.
+- [x] 2026-03-21 19:07Z - Contrato documental de heranca e gate endurecido em `codex-quality-gates.md`, prompts 01/09/10, `SPECS.md` e template de spec.
+- [x] 2026-03-21 19:10Z - Extracao alias-aware implementada no runner e validacao automatizada concluida com `npm test -- src/core/runner.test.ts src/core/spec-ticket-validation.test.ts` e `npm run check`.
 
 ## Surprises & Discoveries
 - 2026-03-21 18:13Z - A taxonomia do gate ja inclui `closure-criteria-gap` e `spec-inheritance-gap`; o problema atual e de instrucao/criterio, nao de parser/tipos.
 - 2026-03-21 18:13Z - A fixture `createSpecFileContent` em `src/core/runner.test.ts` ja materializa a secao `Validacoes pendentes ou manuais`, entao existe base pronta para testar a heranca faltante.
 - 2026-03-21 18:13Z - O template canonico de spec ja usa `## Assumptions and defaults`; o caso falho veio de spec externa com `## Premissas e defaults`, portanto a correcao precisa ser resiliente a input legado/externo sem abandonar o heading preferido.
 - 2026-03-21 18:13Z - O extrator atual `extractTopLevelBulletItems` depende de heading exato e nao tem aliasing, o que explica a perda silenciosa de contexto no handoff sistemico.
+- 2026-03-21 19:10Z - A retrospectiva pre-`/run-all` so executa no cenario correto quando o gate carrega historico funcional revisado (`NO_GO -> autocorrecao -> GO`), entao o teste de prova precisou simular esse caminho real em vez de forcar um passe `GO` direto.
 
 ## Decision Log
 - 2026-03-21 - Decisao: promover `Validacoes pendentes ou manuais` a item explicito do contrato compartilhado de triagem e do gate.
@@ -42,26 +43,27 @@
 - 2026-03-21 - Decisao: provar a correcao por fixture/teste do runner e por leitura das instrucoes compartilhadas, sem depender de rodada manual completa do gate.
   - Motivo: o comportamento desejado e deterministico e local a docs/prompts/extrator.
   - Impacto: os testes devem fazer assercao direta sobre contexto herdado e o markdown/trace associado.
+- 2026-03-21 - Decisao: provar o alias conhecido dentro da retrospectiva pre-`/run-all`, e nao por teste unitario isolado do extrator.
+  - Motivo: isso garante que o contexto herdado realmente chega ao handoff e ao ticket transversal publicado, cobrindo a integracao mais sensivel do gap real.
+  - Impacto: o teste do runner precisou montar um ciclo com historico funcional revisado para ativar a retrospectiva.
 
 ## Outcomes & Retrospective
-- Status final: planejamento concluido; implementacao e validacao ainda pendentes.
+- Status final: implementacao, validacao e fechamento do ticket concluidos; versionamento deste changeset em andamento nesta rodada.
 - O que deve existir ao final:
   - checklist e prompt de triagem explicitando heranca de validacoes pendentes/manuais;
   - gate/autocorrecao capazes de tratar a omissao dessa heranca como gap observavel antes do `/run-all`;
   - extracao de assumptions/defaults resiliente a `Assumptions and defaults` e `Premissas e defaults`;
   - testes mostrando que o contexto herdado chega aos artefatos relevantes.
 - O que fica pendente apos este plano:
-  - executar a implementacao nas docs/prompts/extrator;
-  - fechar o ticket correspondente com evidencia observavel;
+  - versionar o changeset;
   - eventualmente ampliar a lista de aliases apenas se novos casos reais surgirem.
 - Proximos passos:
-  - implementar primeiro o contrato compartilhado de triagem/gate;
-  - depois ajustar o extrator alias-aware no runner;
-  - por fim validar tudo com testes e leitura objetiva dos prompts/documentos atualizados.
+  - fazer commit/push do changeset;
+  - monitorar novos casos reais antes de ampliar a lista de aliases alem de `Assumptions and defaults` e `Premissas e defaults`.
 
 ## Context and Orientation
 - Arquivos principais:
-  - `tickets/open/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md` - ticket executor deste plano.
+  - `tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md` - ticket executor deste plano.
   - `tickets/closed/2026-03-20-workflow-improvement-2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding-324c08ec.md` - ticket pai fechado por split-follow-up.
   - `docs/workflows/codex-quality-gates.md` - checklist compartilhado do fluxo.
   - `prompts/01-avaliar-spec-e-gerar-tickets.md` - triagem/derivacao inicial dos tickets.
@@ -156,7 +158,7 @@
 
 ## Artifacts and Notes
 - Ticket executor:
-  - `tickets/open/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md`
+  - `tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md`
 - Ticket pai:
   - `tickets/closed/2026-03-20-workflow-improvement-2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding-324c08ec.md`
 - Spec externa que motivou o gap:

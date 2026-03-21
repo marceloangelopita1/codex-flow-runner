@@ -21,15 +21,17 @@ Este documento é referência compartilhada para:
 - Alinhamentos canônicos não exigem migração retroativa em massa; material histórico só precisa ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
 ## Checklist de triagem de spec
-- Extrair RFs, CAs, assumptions/defaults e não-escopo da spec.
+- Extrair RFs, CAs, assumptions/defaults, validacoes pendentes/manuais e não-escopo da spec.
 - Comparar cada RF/CA com evidências objetivas do código atual.
 - Para cada gap, apontar evidência concreta e classificar `atendido | parcial | nao atendido`.
 - Criar tickets independentes o bastante para outra IA executar sem depender de ticket irmão.
 - A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo parecer claro.
+- Quando a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente se cada item e relevante para cobertura ou aceite do pacote derivado; quando for, carregar esse contexto para o ticket e/ou para seus criterios de fechamento.
 - Em todo ticket derivado, registrar:
   - spec de origem;
   - RFs/CAs cobertos;
   - assumptions/defaults relevantes herdados da spec;
+  - validacoes pendentes ou manuais relevantes herdadas da spec, quando influenciarem cobertura ou aceite;
   - critérios de fechamento observáveis.
 
 ## Checklist de ExecPlan

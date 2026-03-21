@@ -15,7 +15,7 @@ Regras do repositório (obrigatórias):
 - Priorizar gaps considerando consumo real da fila: `/run-all` processa `P0` antes de `P1` e `P1` antes de `P2` (empate sem ordem funcional obrigatória).
 
 Tarefa:
-1. Ler a spec alvo e extrair RFs e critérios de aceitação (CAs).
+1. Ler a spec alvo e extrair RFs, critérios de aceitação (CAs), assumptions/defaults, validacoes pendentes ou manuais e nao-escopo.
 2. Comparar com o estado atual do código e classificar cada item como:
    - atendido
    - parcialmente atendido
@@ -25,11 +25,14 @@ Tarefa:
    - Mesmo contexto técnico e alta dependência: agrupar no mesmo ticket.
    - Contextos independentes ou risco diferente: separar em tickets distintos.
    - Gap grande: quebrar em tickets menores com entregáveis claros.
+   - Se a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente quais delas sao relevantes para cobertura ou aceite de cada ticket proposto.
 5. Criar os ticket(s) em `tickets/open/` usando o template oficial e preenchendo, quando aplicável:
    - `Source spec`;
    - `Source requirements (RFs/CAs)`;
    - `Inherited assumptions/defaults`;
+   - heranca explicita de `Validacoes pendentes ou manuais` da spec quando elas forem relevantes para o escopo, cobertura ou aceite do ticket;
    - closure criteria mapeados para evidências observáveis.
+   - Se alguma validacao pendente/manual presente na spec nao for herdada por nenhum ticket, justificar objetivamente por que ela nao e relevante ao pacote derivado atual.
 6. Atualizar a spec:
    - `Last reviewed at (UTC)` com timestamp atual;
    - `Related tickets` com os novos tickets;
@@ -40,5 +43,6 @@ Saída esperada no chat:
 - Matriz RF/CA x status (atendido/parcial/não atendido).
 - Lista dos gaps priorizados (P0/P1/P2, S1/S2/S3).
 - Assumptions/defaults relevantes herdados da spec.
+- Validacoes pendentes/manuais relevantes herdadas da spec e onde elas foram refletidas.
 - Quais tickets foram criados e por quê.
 - Caminhos dos arquivos criados/atualizados.

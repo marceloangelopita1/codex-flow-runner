@@ -1,27 +1,27 @@
 # [TICKET] Herdar validacoes pendentes da spec na triagem e endurecer criterios observaveis do pacote derivado
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-21 18:03Z
 - Reporter: Codex
-- Owner:
+- Owner: Codex
 - Source: local-run
 - Parent ticket (optional): tickets/closed/2026-03-20-workflow-improvement-2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding-324c08ec.md
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
 - Parent commit (optional):
 - Request ID: N/A - follow-up manual derivado de revisao do ticket pai
 - Source spec (when applicable): ../guiadomus-enrich-costs-and-bid/docs/specs/2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding.md
 - Source requirements (RFs/CAs, when applicable): ../guiadomus-enrich-costs-and-bid/docs/specs/2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding.md::Validacoes obrigatorias ainda nao automatizadas, ../guiadomus-enrich-costs-and-bid/docs/specs/2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding.md::Validacoes manuais pendentes
 - Inherited assumptions/defaults (when applicable): validacoes obrigatorias/manuais pendentes da spec precisam sobreviver na derivacao quando forem relevantes para cobertura e aceite dos tickets derivados; headings equivalentes como `Assumptions and defaults` e `Premissas e defaults` nao devem zerar a heranca de contexto; o gate deve conseguir detectar e corrigir ausencia dessa heranca antes da rodada real.
-- Workflow root cause (required only for tickets created from post-implementation audit/review): systemic-instruction
-- Smallest plausible explanation (audit/review only): o contrato compartilhado de triagem e validacao prioriza RFs/CAs, assumptions/defaults e nao-escopo, mas nao promove de forma explicita `Validacoes pendentes ou manuais` como item obrigatorio de heranca para os tickets derivados; em paralelo, a extracao de assumptions/defaults depende de heading exato e perde contexto quando a spec usa variante conhecida.
-- Remediation scope (audit/review only): generic-repository-instruction
+- Workflow root cause (required for workflow retrospectives or post-implementation audit/review): systemic-instruction
+- Smallest plausible explanation (workflow retrospectives/audit/review): o contrato compartilhado de triagem e validacao prioriza RFs/CAs, assumptions/defaults e nao-escopo, mas nao promove de forma explicita `Validacoes pendentes ou manuais` como item obrigatorio de heranca para os tickets derivados; em paralelo, a extracao de assumptions/defaults depende de heading exato e perde contexto quando a spec usa variante conhecida.
+- Remediation scope (workflow retrospectives/audit/review): generic-repository-instruction
 - Related artifacts:
   - Request file: N/A - o ticket pai nao preservou a trilha da retrospectiva que o originou
   - Response file: N/A - o ticket pai nao preservou a trilha da retrospectiva que o originou
-  - Log file: N/A - a evidência veio do historico funcional resumido no ticket pai
+  - Decision file: N/A - a evidencia veio do historico funcional resumido no ticket pai
 - Related docs/execplans:
   - tickets/closed/2026-03-20-workflow-improvement-2026-03-20-estrategia-v3-de-custos-e-bid-para-caixa-extrajudicial-com-overlay-de-funding-324c08ec.md
   - ../codex-flow-runner/docs/specs/2026-02-19-approved-spec-triage-run-specs.md
@@ -98,9 +98,10 @@ A triagem da spec deve herdar de forma explicita validacoes pendentes/manuais re
 
 ## Decision log
 - 2026-03-21 - Ticket aberto manualmente a partir da revisao do ticket pai - a melhoria substantiva que motivou o follow-up automatico precisa ser isolada em ticket proprio, com evidencias e closure criteria mais especificos do que o backlog sistemico amplo original.
+- 2026-03-21 - Implementacao concluida com checklist/prompt/gate endurecidos, extracao alias-aware para `Assumptions and defaults`/`Premissas e defaults` e prova automatizada do contexto herdado na retrospectiva pre-`/run-all`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-03-21 19:08Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
 - Follow-up ticket (required when `Closure reason: split-follow-up`):

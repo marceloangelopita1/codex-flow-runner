@@ -1251,9 +1251,12 @@ const createSpecFileContent = (
   outline = createPlanSpecOutline(),
   options: {
     assumptionsAndDefaults?: string[];
+    assumptionsHeading?: "Assumptions and defaults" | "Premissas e defaults";
     decisionsAndTradeOffs?: string[];
     relatedTickets?: string[];
     includeTicketValidationSection?: boolean;
+    mandatoryValidations?: string[];
+    pendingManualValidations?: string[];
   } = {},
 ): string =>
   [
@@ -1286,7 +1289,7 @@ const createSpecFileContent = (
     "## Requisitos funcionais",
     ...outline.requirements.map((item) => `- ${item}`),
     "",
-    "## Assumptions and defaults",
+    `## ${options.assumptionsHeading ?? "Assumptions and defaults"}`,
     ...(options.assumptionsAndDefaults && options.assumptionsAndDefaults.length > 0
       ? options.assumptionsAndDefaults.map((item) => `- ${item}`)
       : ["- Nenhum"]),
@@ -1299,9 +1302,11 @@ const createSpecFileContent = (
     "",
     "## Validacoes pendentes ou manuais",
     "- Validacoes obrigatorias ainda nao automatizadas:",
-    ...outline.mandatoryValidations.map((item) => `  - ${item}`),
+    ...(options.mandatoryValidations ?? outline.mandatoryValidations).map((item) => `  - ${item}`),
     "- Validacoes manuais pendentes:",
-    ...outline.pendingManualValidations.map((item) => `  - ${item}`),
+    ...(options.pendingManualValidations ?? outline.pendingManualValidations).map(
+      (item) => `  - ${item}`,
+    ),
     "",
     "## Riscos e impacto",
     `- Risco funcional: ${outline.knownRisks.join("; ")}`,
@@ -1325,6 +1330,7 @@ const setupRunSpecsFixture = async (
   options: {
     projectRoot?: string;
     activeProjectName?: string;
+    specContent?: string;
   } = {},
 ): Promise<{
   projectRoot: string;
@@ -1342,15 +1348,16 @@ const setupRunSpecsFixture = async (
   await fs.mkdir(path.dirname(specPath), { recursive: true });
   await fs.writeFile(
     specPath,
-    createSpecFileContent(
-      "Spec de teste para /run_specs",
-      "Validar encadeamento da triagem com gate antes do /run-all.",
-      createPlanSpecOutline(),
-      {
-        relatedTickets,
-        includeTicketValidationSection: true,
-      },
-    ),
+    options.specContent ??
+      createSpecFileContent(
+        "Spec de teste para /run_specs",
+        "Validar encadeamento da triagem com gate antes do /run-all.",
+        createPlanSpecOutline(),
+        {
+          relatedTickets,
+          includeTicketValidationSection: true,
+        },
+      ),
     "utf8",
   );
 
@@ -4351,6 +4358,155 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
     assert.equal(
       publishedTicketContent.includes(`Decision file: codex-flow-runner/${workflowTrace?.decisionPath}`),
       true,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs aceita alias conhecido de assumptions/defaults na retrospectiva pre-run-all", async () => {
+  const relatedTickets = [`tickets/open/${ticketA.name}`];
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+    specContent: createSpecFileContent(
+      "Spec de teste para /run_specs",
+      "Validar heranca de assumptions/defaults com alias conhecido.",
+      createPlanSpecOutline(),
+      {
+        relatedTickets,
+        includeTicketValidationSection: true,
+        assumptionsHeading: "Premissas e defaults",
+        assumptionsAndDefaults: [
+          "Assumir funding overlay configurado por projeto.",
+          "Manter fallback manual para validacoes externas pendentes.",
+        ],
+        mandatoryValidations: [
+          "Confirmar que tickets derivados citam validacoes obrigatorias ainda nao automatizadas quando relevantes.",
+        ],
+        pendingManualValidations: [
+          "Revisar se os closure criteria deixam explicitas as validacoes manuais herdadas.",
+        ],
+      },
+    ),
+  });
+
+  try {
+    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
+    const logger = new SpyLogger();
+    const workflowPublisherHarness = createWorkflowImprovementTicketPublisherHarness();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura revisada para habilitar a retrospectiva pre-run-all com alias conhecido.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel antes da retrospectiva pre-run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda precisa de ajuste no pacote derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao carregou todo o contexto esperado para o gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A triagem precisa preservar assumptions/defaults mesmo quando a spec usa alias conhecido.",
+      causalHypothesis:
+        "A extracao de assumptions/defaults depende de heading canonico e perde contexto quando o projeto alvo usa variante conhecida.",
+      benefitSummary:
+        "Aceitar alias conhecido evita perder contexto relevante antes do /run-all sem relaxar o contrato canonico da spec local.",
+      findings: [
+        {
+          summary: "O handoff sistemico precisa manter assumptions/defaults herdados de specs externas.",
+          affectedArtifactPaths: ["src/core/runner.ts"],
+          requirementRefs: ["RF-20", "CA-08"],
+          evidence: [
+            "A spec de teste usa `Premissas e defaults` em vez do heading canonico em ingles.",
+          ],
+        },
+      ],
+      followUpTicketPaths: relatedTickets,
+      workflowArtifactsConsulted: [
+        "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
+      ],
+    });
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory } = createWorkflowTraceCollector();
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        workflowImprovementTicketPublisher: workflowPublisherHarness.publisher,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.status,
+      "created-and-pushed",
+    );
+    assert.deepEqual(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.publicationHandoff
+        ?.inheritedAssumptionsDefaults,
+      [
+        "Assumir funding overlay configurado por projeto.",
+        "Manter fallback manual para validacoes externas pendentes.",
+      ],
+    );
+
+    assert.ok(runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.ticketPath);
+    const publishedTicketAbsolutePath = path.join(
+      fixture.projectRoot,
+      ...(
+        runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket?.ticketPath ??
+        ""
+      ).split("/"),
+    );
+    const publishedTicketContent = await fs.readFile(publishedTicketAbsolutePath, "utf8");
+    assert.match(
+      publishedTicketContent,
+      /Inherited assumptions\/defaults \(when applicable\): Assumir funding overlay configurado por projeto\.; Manter fallback manual para validacoes externas pendentes\./u,
     );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);

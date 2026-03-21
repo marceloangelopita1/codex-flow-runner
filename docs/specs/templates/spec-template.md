@@ -32,6 +32,7 @@
 - RF-02:
 - RF-03:
 
+<!-- Heading canonico: use exatamente "## Assumptions and defaults" nas specs locais. O workflow aceita "## Premissas e defaults" apenas como alias de compatibilidade de leitura para specs externas ou legadas. -->
 ## Assumptions and defaults
 - 
 

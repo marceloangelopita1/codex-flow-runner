@@ -101,10 +101,10 @@ O workflow deve prevenir ou absorver automaticamente a causa sistemica registrad
 - Closure reason: split-follow-up
 - Related PR/commit/execplan:
   - Follow-up ticket: `tickets/closed/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md`
-  - Follow-up ticket: `tickets/open/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md`
+  - Follow-up ticket: `tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md`
   - ExecPlan: `execplans/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md`
   - ExecPlan: `execplans/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md`
-- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/closed/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md ; tickets/open/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
+- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/closed/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md ; tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
 - Resultado final do fechamento: split-follow-up preparatorio, sem implementacao de codigo nesta mudanca.
 - Motivo do split:
   - o ticket automatico original mistura contrato do ticket transversal de workflow com regras de heranca de contexto da spec na triagem;
