@@ -4,6 +4,25 @@ Runner de tickets com **Node.js + TypeScript** para executar um fluxo **sequenci
 
 Em termos simples: este projeto liga **Telegram + Codex CLI + Git** para automatizar pequenas entregas em um ou mais repositórios.
 
+## Regra estrutural mais importante
+
+Para o runner descobrir e trocar de projeto corretamente, este repositório e os projetos alvo precisam ficar como diretórios **irmãos** dentro da mesma pasta apontada por `PROJECTS_ROOT_PATH`.
+
+Exemplo correto:
+
+```txt
+/home/SEU_USUARIO/projetos/
+├── codex-flow-runner/
+├── projeto-alvo-a/
+└── projeto-alvo-b/
+```
+
+Em termos práticos:
+
+- `PROJECTS_ROOT_PATH` aponta para a pasta-pai comum;
+- o runner olha apenas para o **primeiro nível** dessa pasta;
+- se o projeto alvo estiver em outra raiz ou em uma subpasta mais funda, ele não aparecerá em `/projects`.
+
 ## O que este projeto faz, em linguagem simples
 
 Pense nele como um "operador automatizado" que trabalha assim:
@@ -48,7 +67,7 @@ E vale acrescentar uma quarta ideia:
 
 - **spec**: é uma especificação do que o sistema deve fazer, escrita em Markdown. Ela pode ser funcional (o que o software deve fazer) ou não funcional (qualidade, operação, segurança, desempenho, observabilidade etc.).
 
-Isso significa que o runner pode estar rodando dentro do repositório `codex-flow-runner`, mas o código que ele vai modificar pode estar em **outro projeto**, desde que esse outro projeto esteja dentro de `PROJECTS_ROOT_PATH`.
+Isso significa que o runner pode estar rodando dentro do repositório `codex-flow-runner`, mas o código que ele vai modificar pode estar em **outro projeto**. Para isso funcionar, `codex-flow-runner` e cada projeto alvo precisam ficar como irmãos imediatos dentro de `PROJECTS_ROOT_PATH`.
 
 ## Duas formas de usar o runner
 
@@ -66,7 +85,7 @@ Fluxo:
 
 Fluxo:
 
-1. usar `/plan_spec` no Telegram;
+1. usar `/plan_spec` ou `/discover_spec` no Telegram;
 2. descrever em linguagem simples o que você quer;
 3. responder as perguntas de refinamento que o fluxo fizer;
 4. mandar criar a spec;
@@ -76,6 +95,13 @@ Fluxo:
 Esse segundo caminho é o mais interessante para pessoas não técnicas, porque elas podem começar pelo comportamento desejado do sistema, sem precisar escrever tarefas técnicas logo de cara.
 
 ## Fluxo de especificacao em linguagem natural
+
+Hoje existem dois jeitos de conduzir essa etapa pelo Telegram:
+
+- `/plan_spec`: caminho mais leve, bom para refinamento rápido;
+- `/discover_spec`: caminho mais profundo, pensado para uma entrevista estruturada antes de materializar a spec.
+
+Nos passos abaixo, vou usar `/plan_spec` como exemplo porque ele é o fluxo mais curto. A ideia geral é a mesma em `/discover_spec`, mas com uma entrevista mais aprofundada.
 
 Em termos simples, o fluxo de spec funciona assim:
 
@@ -102,19 +128,21 @@ Compatibilidade do projeto alvo com o workflow completo continua sendo pre-requi
 
 ## Como uma spec vira implementação
 
-Depois que a spec existe no projeto, o caminho fica assim:
+Depois que a spec existe no projeto, o caminho real fica assim:
 
 1. `/specs` lista as specs elegiveis do projeto ativo;
-2. em projeto compatível com o workflow completo, `/run_specs <arquivo>` executa a triagem da spec;
-3. essa triagem deriva apenas tickets em `tickets/open/`;
-4. quando algum ticket exigir execução mais segura, o plano correspondente e criado em `execplans/` a partir do ticket;
-5. quando a triagem conclui com sucesso, o fluxo encadeia a rodada de tickets;
-6. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositório com a spec original;
-7. a partir dai o comportamento segue a mesma lógica do `/run_all`, mas com a spec voltando a ser o gate final do ciclo.
+2. em projeto compatível com o workflow completo, `/run_specs <arquivo>` inicia `spec-triage` para ler a spec e derivar apenas tickets em `tickets/open/`;
+3. o runner executa `spec-ticket-validation`, que revisa o pacote derivado, pode aplicar autocorreções controladas e devolve um veredito funcional `GO` ou `NO_GO`;
+4. quando houver historico revisado de gaps com insumo estruturado suficiente, o runner executa `spec-ticket-derivation-retrospective`, uma retrospectiva sistêmica pre-`/run_all` que não bloqueia a implementação do projeto alvo;
+5. se o veredito funcional for `GO`, o runner executa `spec-close-and-version` para fechar e versionar a triagem da spec;
+6. so depois disso o fluxo encadeia `/run_all`, que processa os tickets abertos do projeto de forma sequencial;
+7. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositório com a spec original;
+8. se `spec-audit` apontar gap residual real, o runner ainda executa `spec-workflow-retrospective`, que olha para o processo e pode gerar melhoria no proprio workflow.
 
 Em outras palavras:
 
 - `/plan_spec` ajuda a transformar uma ideia em spec;
+- `/discover_spec` ajuda quando você quer uma descoberta mais guiada e profunda antes de escrever a spec;
 - `/run_specs` ajuda a transformar a spec em backlog executável;
 - `/run_all` executa os tickets desse backlog.
 
@@ -122,11 +150,24 @@ Isso significa que, em muitos casos, uma pessoa pode sair de um pedido em lingua
 
 ## Resumo do fluxo real
 
+### Quando você usa `/run_all`
+
 1. detectar o próximo ticket elegível em `tickets/open/` por `Priority` (`P0 -> P1 -> P2`; empate com fallback por nome de arquivo), ignorando itens marcados como `Status: blocked`;
-2. gerar ou atualizar ExecPlan em `execplans/`;
-3. fechar o ticket movendo para `tickets/closed/`;
-4. executar commit e push git no mesmo ciclo;
-5. expor status e controle por Telegram.
+2. executar a etapa `plan`, que gera ou atualiza o ExecPlan em `execplans/` quando necessário;
+3. executar a etapa `implement`, aplicando a mudança no projeto alvo;
+4. executar a etapa `close-and-version`, que fecha o ticket e prepara o estado final esperado;
+5. validar o fechamento, mover o ticket para `tickets/closed/` e executar `git commit` + `git push` no mesmo ciclo;
+6. refletir tudo isso no status do runner e nas mensagens do Telegram.
+
+### Quando você usa `/run_specs`
+
+1. executar `spec-triage` para ler a spec e derivar tickets;
+2. executar `spec-ticket-validation`, que valida o pacote derivado e decide se o fluxo pode continuar;
+3. executar `spec-ticket-derivation-retrospective` quando houver histórico revisado de gaps e insumo estruturado suficiente; se isso não existir, a etapa é pulada de forma explícita;
+4. executar `spec-close-and-version` quando a triagem estiver funcionalmente aprovada;
+5. encadear `/run_all` para processar os tickets abertos;
+6. executar `spec-audit` ao final do backlog;
+7. se houver gap residual real, executar `spec-workflow-retrospective` para aprender com a rodada e eventualmente gerar melhoria no workflow.
 
 ## O papel da pasta `prompts/`
 
@@ -139,10 +180,15 @@ Isso é importante porque o runner não chama o Codex de forma solta ou improvis
 Exemplos de etapas:
 
 - `prompts/01-avaliar-spec-e-gerar-tickets.md`: analisar uma spec e abrir tickets quando houver gaps;
+- `prompts/09-validar-tickets-derivados-da-spec.md` e `prompts/10-autocorrigir-tickets-derivados-da-spec.md`: validar e corrigir, quando permitido, o pacote derivado antes do `/run_all`;
+- `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`: registrar a retrospectiva sistêmica pre-`/run_all` quando houver histórico revisado de gaps;
 - `prompts/02-criar-execplan-para-ticket.md`: transformar um ticket em plano de execução;
 - `prompts/03-executar-execplan-atual.md`: implementar o plano no repositório alvo;
 - `prompts/04-encerrar-ticket-commit-push.md`: fechar ticket, versionar e publicar;
-- `prompts/05-07`: concluir tratamento de spec e materializar specs criadas via `/plan_spec`.
+- `prompts/05-encerrar-tratamento-spec-commit-push.md`: concluir a triagem da spec e versionar esse resultado;
+- `prompts/08-auditar-spec-apos-run-all.md`: auditar a spec depois da execução do backlog;
+- `prompts/11-retrospectiva-workflow-apos-spec-audit.md`: fazer a retrospectiva sistêmica pós-`spec-audit`;
+- `prompts/06-materializar-spec-planejada.md` e `prompts/07-versionar-spec-planejada-commit-push.md`: materializar e versionar specs criadas via `/plan_spec`.
 
 Na prática, a automacao funciona como uma esteira:
 
@@ -695,6 +741,8 @@ PROJECTS_ROOT_PATH=/home/SEU_USUARIO/projetos
 Importante:
 
 - `PROJECTS_ROOT_PATH` deve apontar para a **pasta-pai**, não para a pasta do repositório;
+- `codex-flow-runner` e cada projeto alvo precisam ficar diretamente dentro dessa pasta-pai;
+- o runner não faz busca recursiva em subpastas; ele descobre apenas diretórios do primeiro nível;
 - o app carrega automaticamente o `.env` da raiz ao iniciar;
 - para `npm run dev` e `npm start`, você **não** precisa rodar `source .env`.
 - não commite seu `.env`; ele deve ficar apenas na sua máquina.
@@ -764,6 +812,8 @@ entao o novo projeto deve ficar como "irmao" do `codex-flow-runner`, por exemplo
 ```txt
 /home/SEU_USUARIO/projetos/hello-world-runner-demo
 ```
+
+Isso não é apenas um exemplo de organização. Esse é o formato que o runner usa para descobrir projetos elegíveis.
 
 No WSL:
 
@@ -1028,6 +1078,7 @@ Regras de descoberta:
 
 - o runner descobre projetos elegiveis no primeiro nível de `PROJECTS_ROOT_PATH`;
 - projeto elegivel = diretório que possui `.git` e `tickets/open/`;
+- em outras palavras, o runner espera encontrar `codex-flow-runner` e os projetos alvo como pastas irmãs diretas dentro da mesma pasta-pai;
 - o projeto ativo global e restaurado de `PROJECTS_ROOT_PATH/.codex-flow-runner/active-project.json` quando valido;
 - se o estado persistido estiver ausente, invalido ou desatualizado, o bootstrap usa fallback para o primeiro projeto elegivel em ordem alfabetica e persiste a nova selecao;
 - não existe fallback de compatibilidade para `REPO_PATH`.
@@ -1106,6 +1157,9 @@ npm run dev
 - `/run_specs <arquivo>` -> em projeto compatível com o workflow completo, executa triagem da spec informada, encadeia a rodada de tickets e finaliza com `spec-audit`
 - `/codex_chat` -> inicia conversa livre com Codex no projeto ativo
 - `/codex-chat` -> alias legado compatível para `/codex_chat`
+- `/discover_spec` -> inicia sessão stateful de descoberta profunda de spec
+- `/discover_spec_status` -> mostra diagnóstico detalhado da sessão `/discover_spec`
+- `/discover_spec_cancel` -> encerra manualmente a sessão `/discover_spec`
 - `/plan_spec` -> inicia sessão interativa para criar e refinar uma spec em linguagem natural
 - `/plan_spec_status` -> mostra diagnóstico detalhado da sessão `/plan_spec`
 - `/plan_spec_cancel` -> encerra manualmente a sessão `/plan_spec`

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Objetivo do repositório
-Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop sequencial (planejar → implementar → fechar ticket + commit/push) e expondo acompanhamento/controle por Telegram.
+Este projeto automatiza um workflow sequencial com Codex CLI, Git e Telegram para operar tickets e specs em um projeto ativo: triagem de spec, derivação de tickets, execução sequencial, fechamento/versionamento e acompanhamento operacional.
 
 ## Documentação para IA
 - Preserve o contexto auto-carregado para regras recorrentes, estáveis e acionáveis; detalhes, exemplos e racional devem viver em documentação referenciada.
@@ -16,6 +16,10 @@ Este projeto automatiza um fluxo de tickets com Codex SDK, executando um loop se
   - `src/integrations`: integrações externas (Codex, Telegram, filesystem).
   - `src/config`: leitura/validação de configuração.
 - Sempre priorize fluxo **sequencial** (sem paralelização de tickets).
+
+## Projetos alvo
+- O runner descobre projetos elegíveis apenas no primeiro nível de `PROJECTS_ROOT_PATH`.
+- `codex-flow-runner` e os projetos alvo devem ficar como diretórios irmãos dentro dessa pasta-pai.
 
 ## Tickets e ExecPlans
 - Convenção esperada:
