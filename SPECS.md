@@ -80,8 +80,8 @@ Toda spec deve conter:
 - usar o heading canonico `## Assumptions and defaults` nas specs locais; o workflow aceita aliases conhecidos de entrada, como `## Premissas e defaults`, apenas como compatibilidade com specs externas ou legadas;
 - critérios de aceitacao observaveis;
 - quando a spec participar de `/run_specs`, a seção `Gate de validacao dos tickets derivados` com veredito, gaps, correções, causa-raiz provavel, ciclos executados e histórico estritamente funcional;
-- quando a spec participar de `/run_specs`, a seção separada `Retrospectiva sistemica da derivacao dos tickets`, documentando ativacao/skip, classificação, confianca, frente causal, achados, artefatos consultados, elegibilidade de publication e resultado do ticket transversal ou limitação operacional;
-- write-back da seção `Retrospectiva sistemica da derivacao dos tickets` só é permitido quando a execução ocorrer no próprio `codex-flow-runner`; em projeto externo, a superficie observavel desta fase e trace/log/resumo;
+- quando a spec participar de `/run_specs`, a seção separada `Retrospectiva sistemica da derivacao dos tickets`, documentando ativacao/skip, classificação, confianca, frente causal, achados, artefatos consultados, elegibilidade de publication e resultado do ticket transversal ou limitação operacional; a secao continua canonica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`, caso em que pode permanecer `n/a`;
+- write-back automatico da seção `Retrospectiva sistemica da derivacao dos tickets` só é permitido quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execução ocorrer no próprio `codex-flow-runner`; com a flag desligada, a secao pode permanecer `n/a` e, em projeto externo, a superficie observavel desta fase continua sendo trace/log/resumo;
 - restrições técnicas relevantes quando houver;
 - validações obrigatórias/manuais pendentes quando houver;
 - não-escopo;

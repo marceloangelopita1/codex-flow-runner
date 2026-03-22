@@ -1,7 +1,7 @@
 # [TICKET] Alinhar documentacao canonica e historico minimo da feature flag de retrospectivas
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -29,6 +29,7 @@
   - Decision file:
 - Related docs/execplans:
   - docs/specs/2026-03-22-feature-flag-para-retrospectivas-sistemicas-de-workflow.md
+  - execplans/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md
   - SPECS.md
   - docs/specs/templates/spec-template.md
   - docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md
@@ -95,12 +96,21 @@ Defina evidencias objetivas para encerrar o ticket.
 - Requisito/RF/CA coberto: RF-23
 - Evidencia observavel: `docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md` e `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` recebem nota documental minima apontando a dependencia futura da feature flag, sem reescrever o historico funcional ja concluido.
 
+## Closure validation
+- Criterio 1 (`RF-21`, `RF-22`, `CA-14`): atendido.
+  Evidencia objetiva: `SPECS.md` explicita que a secao `Retrospectiva sistemica da derivacao dos tickets` continua canonica mesmo com `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`, pode permanecer `n/a` e so recebe write-back automatico quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` no proprio `codex-flow-runner`; `docs/specs/templates/spec-template.md` espelha a mesma regra textual para novas specs. Revalidado com `rg -n "Retrospectiva sistemica da derivacao dos tickets|RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED|write-back|n/a" SPECS.md docs/specs/templates/spec-template.md` e `git diff -- SPECS.md docs/specs/templates/spec-template.md` em 2026-03-22 20:03Z.
+- Criterio 2 (`RF-23`): atendido.
+  Evidencia objetiva: `docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md` e `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` receberam apenas uma nota historica minima no `Historico de atualizacao`, apontando que futuras ativacoes passaram a depender de `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true`, sem reescrever status, evidencias ou conclusoes funcionais anteriores. Revalidado com `rg -n "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED" docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` e `git diff -- docs/specs/2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` em 2026-03-22 20:03Z.
+- Checklist aplicado (`docs/workflows/codex-quality-gates.md`): concluido.
+  Evidencia objetiva: releitura do diff, do ticket, do ExecPlan `execplans/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md`, da spec de origem `docs/specs/2026-03-22-feature-flag-para-retrospectivas-sistemicas-de-workflow.md` e do proprio checklist de fechamento antes da decisao final; nenhum gap tecnico/funcional residual foi encontrado.
+
 ## Decision log
 - 2026-03-22 - Ticket aberto a partir da avaliacao da spec - a mudanca aprovada altera o contrato canonico de ativacao, e esse alinhamento documental ficou separado do ticket P0 de runtime para manter risco e aceite independentes.
+- 2026-03-22 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem, `DOCUMENTATION.md` e `docs/workflows/codex-quality-gates.md`; resultado final `GO`, sem follow-up, porque os closure criteria documentais foram atendidos integralmente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-22 20:03Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
