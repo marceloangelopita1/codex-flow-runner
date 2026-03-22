@@ -1,7 +1,7 @@
 # [TICKET] Tornar `/run_all` resiliente a bloqueios externos e explicito na observabilidade de selecao
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P0
 - Severity: S2
 - Created at (UTC): 2026-03-21 19:34Z
@@ -106,21 +106,23 @@ O runner deve tornar visivel e respeitar a diferenca entre trabalho elegivel par
 
 ## Closure criteria
 - Requisito/RF/CA coberto: semantica de backlog bloqueado
-- Evidencia observavel: `INTERNAL_TICKETS.md`, template e prompt de fechamento passam a explicitar quando follow-up `external/manual` deve ser `blocked` em vez de novo ticket `open`.
+- Evidencia observavel: `rg -n "Status: blocked|external/manual|validacao manual externa|split-follow-up|aguardar insumo/decisao externa|nao criar follow-up open" INTERNAL_TICKETS.md README.md prompts/04-encerrar-ticket-commit-push.md tickets/templates/internal-ticket-template.md` confirmou, em `2026-03-22`, matches coerentes em `INTERNAL_TICKETS.md`, `README.md`, `prompts/04-encerrar-ticket-commit-push.md` e `tickets/templates/internal-ticket-template.md`, incluindo a regra de follow-up `external/manual` sem proximo passo local como `Status: blocked`.
 - Requisito/RF/CA coberto: consumo automatico da fila
-- Evidencia observavel: `src/integrations/ticket-queue.ts` e `src/core/runner.ts` deixam de selecionar tickets `blocked` em `/run_all`, e os testes cobrem fila mista com `open` + `blocked`.
+- Evidencia observavel: `src/integrations/ticket-queue.ts` expoe `blockedTickets` e marca apenas `open | in-progress | unknown` como elegiveis; `npx tsx --test src/integrations/ticket-queue.test.ts src/core/runner.test.ts` passou com `117` testes verdes em `2026-03-22`, incluindo `nextOpenTicket ignora tickets com Status: blocked e escolhe o proximo elegivel` e `requestRunAll encerra de forma acionavel quando restam apenas tickets blocked`.
 - Requisito/RF/CA coberto: protecao contra churn sem progresso
-- Evidencia observavel: existe guardrail observavel impedindo nova cadeia equivalente de `split-follow-up` quando o estado remanescente e apenas espera por insumo externo/manual sem progresso local.
+- Evidencia observavel: o contrato de fechamento em `INTERNAL_TICKETS.md`, `README.md` e `prompts/04-encerrar-ticket-commit-push.md` impede follow-up `open` para espera passiva e orienta `Status: blocked`; a suite `npx tsx --test src/core/runner.test.ts` permaneceu verde dentro das validacoes acima, cobrindo o encerramento acionavel com `completionReason: blocked-tickets-only`.
 - Requisito/RF/CA coberto: consistencia de fechamento
-- Evidencia observavel: `close-and-version` falha cedo quando um ticket movido para `tickets/closed/` nao ficou com metadata minima coerente (`Status: closed`, `Closed at (UTC)`, `Closure reason`).
+- Evidencia observavel: `npx tsx --test src/core/runner.test.ts` passou com o caso `runner falha no pos-close-and-version quando o ticket movido fica com metadata incoerente`, validando o guardrail para `Status: closed`, `Closed at (UTC)` e `Closure reason`.
 - Requisito/RF/CA coberto: observabilidade do resumo final
-- Evidencia observavel: o resumo final de `run-all` no Telegram distingue o ultimo ticket processado do ticket bloqueado/recusado em `select-ticket`, evitando ambiguidade do atual `Ticket de referencia`.
+- Evidencia observavel: `src/types/flow-timing.ts` carrega `lastProcessedTicket` e `selectionTicket`; `npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts` passou com `251` testes verdes em `2026-03-22`, incluindo `envia resumo final de fluxo /run-all distinguindo ultimo ticket processado de bloqueio na selecao` e `status inclui rastreabilidade do ultimo ticket processado e do ticket afetado na selecao do run-all`.
 
 ## Decision log
 - 2026-03-21 - Ticket aberto a partir de diagnostico real de falha do `/run_all` em projeto externo - a parada por `no-go-limit-exceeded` se mostrou efeito colateral de contrato insuficiente entre tickets `blocked`, follow-up `external/manual`, fila automatica e resumo final.
+- 2026-03-22 - Baseline do tree atual mostrou que runtime, prompt e documentacao principal ja cobriam os cinco closure criteria; o unico gap residual real estava no template `tickets/templates/internal-ticket-template.md`, corrigido com patch minimo e revalidado por `rg` e suites focadas verdes.
+- 2026-03-22 - Decisao final de fechamento: `GO` tecnico/funcional, sem follow-up - a entrega atual satisfaz os criterios do ExecPlan e nao depende de validacao manual externa pendente para aceite tecnico.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-22 16:09Z
+- Closure reason: fixed
+- Related PR/commit/execplan: `execplans/2026-03-21-run-all-bloqueios-externos-e-observabilidade-de-selecao-gap.md`; mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

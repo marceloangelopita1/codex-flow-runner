@@ -2,6 +2,7 @@
 
 ## Metadata
 - Status: open
+- Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
 - Created at (UTC): YYYY-MM-DD HH:MMZ
@@ -89,3 +90,4 @@ Defina evidencias objetivas para encerrar o ticket.
 - Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
 - Related PR/commit/execplan:
 - Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
