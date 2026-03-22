@@ -133,11 +133,11 @@ Depois que a spec existe no projeto, o caminho real fica assim:
 1. `/specs` lista as specs elegiveis do projeto ativo;
 2. em projeto compatível com o workflow completo, `/run_specs <arquivo>` inicia `spec-triage` para ler a spec e derivar apenas tickets em `tickets/open/`;
 3. o runner executa `spec-ticket-validation`, que revisa o pacote derivado, pode aplicar autocorreções controladas e devolve um veredito funcional `GO` ou `NO_GO`;
-4. quando houver historico revisado de gaps com insumo estruturado suficiente, o runner executa `spec-ticket-derivation-retrospective`, uma retrospectiva sistêmica pre-`/run_all` que não bloqueia a implementação do projeto alvo;
+4. se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver historico revisado de gaps com insumo estruturado suficiente, o runner executa `spec-ticket-derivation-retrospective`, uma retrospectiva sistêmica pre-`/run_all` que não bloqueia a implementação do projeto alvo;
 5. se o veredito funcional for `GO`, o runner executa `spec-close-and-version` para fechar e versionar a triagem da spec;
 6. so depois disso o fluxo encadeia `/run_all`, que processa os tickets abertos do projeto de forma sequencial;
 7. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositório com a spec original;
-8. se `spec-audit` apontar gap residual real, o runner ainda executa `spec-workflow-retrospective`, que olha para o processo e pode gerar melhoria no proprio workflow.
+8. se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e `spec-audit` apontar gap residual real, o runner ainda executa `spec-workflow-retrospective`, que olha para o processo e pode gerar melhoria no proprio workflow.
 
 Em outras palavras:
 
@@ -163,11 +163,11 @@ Isso significa que, em muitos casos, uma pessoa pode sair de um pedido em lingua
 
 1. executar `spec-triage` para ler a spec e derivar tickets;
 2. executar `spec-ticket-validation`, que valida o pacote derivado e decide se o fluxo pode continuar;
-3. executar `spec-ticket-derivation-retrospective` quando houver histórico revisado de gaps e insumo estruturado suficiente; se isso não existir, a etapa é pulada de forma explícita;
+3. executar `spec-ticket-derivation-retrospective` somente quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver histórico revisado de gaps e insumo estruturado suficiente; se a flag estiver desligada ou o insumo não existir, a etapa não entra no fluxo observável;
 4. executar `spec-close-and-version` quando a triagem estiver funcionalmente aprovada;
 5. encadear `/run_all` para processar os tickets abertos;
 6. executar `spec-audit` ao final do backlog;
-7. se houver gap residual real, executar `spec-workflow-retrospective` para aprender com a rodada e eventualmente gerar melhoria no workflow.
+7. se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver gap residual real, executar `spec-workflow-retrospective` para aprender com a rodada e eventualmente gerar melhoria no workflow.
 
 ## O papel da pasta `prompts/`
 
@@ -718,6 +718,7 @@ POLL_INTERVAL_MS=5000
 RUN_ALL_MAX_TICKETS_PER_ROUND=20
 SHUTDOWN_DRAIN_TIMEOUT_MS=30000
 PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM=false
+RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false
 ```
 
 Explicacao rápida:
@@ -725,6 +726,7 @@ Explicacao rápida:
 - `TELEGRAM_BOT_TOKEN`: token criado pelo `@BotFather`;
 - `TELEGRAM_ALLOWED_CHAT_ID`: chat autorizado a controlar o bot;
 - `PROJECTS_ROOT_PATH`: pasta-pai onde ficam os projetos que o runner pode gerenciar.
+- `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED`: controla as retrospectivas sistêmicas pre-`/run_all` e pós-`spec-audit`; o padrão é `false` e qualquer mudança exige restart do runner.
 
 Para um fork em:
 
@@ -1112,6 +1114,7 @@ Opcionais:
 - `RUN_ALL_MAX_TICKETS_PER_ROUND` (padrão: `20`)
 - `SHUTDOWN_DRAIN_TIMEOUT_MS` (padrão: `30000`)
 - `PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM` (padrão: `false`)
+- `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED` (padrão: `false`)
 
 Observacoes operacionais:
 
@@ -1119,6 +1122,9 @@ Observacoes operacionais:
 - a etapa `close-and-version` prepara o estado final do ticket; o commit e push correspondentes são executados pelo runner após essa etapa;
 - antes do commit/push, o runner valida se o ticket realmente saiu de `tickets/open/`, apareceu em `tickets/closed/` e ficou com as metadata obrigatórias de fechamento coerentes;
 - cada comando `/run_all` processa no máximo `RUN_ALL_MAX_TICKETS_PER_ROUND` tickets por rodada;
+- `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false` mantém `/run_specs` focado no fluxo funcional da spec e suprime as retrospectivas sistêmicas, a publication de ticket transversal e os blocos correspondentes no resumo final;
+- `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` reabilita as retrospectivas sistêmicas pre-`/run_all` e pós-`spec-audit`;
+- alterar `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED` no `.env` so tem efeito apos reiniciar o processo do runner;
 - ao receber `SIGINT` ou `SIGTERM`, o runner entra em shutdown gracioso e aguarda drain bounded de operações em voo por até `SHUTDOWN_DRAIN_TIMEOUT_MS`;
 - indisponibilidade de validação manual externa ao agente (ex.: Telegram real indisponível) não deve, sozinha, forçar `NO_GO`; nesse caso, o fechamento pode ser `GO` com anotação explícita de validação manual pendente;
 - quando um follow-up depender apenas de insumo externo/manual e não houver próximo passo local executável, ele deve ser criado como `Status: blocked`; a rodada encerra com motivo observável quando restarem apenas tickets bloqueados;

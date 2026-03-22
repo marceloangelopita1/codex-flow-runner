@@ -6,13 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-22 19:18Z
-- Last reviewed at (UTC): 2026-03-22 19:33Z
+- Last reviewed at (UTC): 2026-03-22 19:52Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md
+  - tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md
   - tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md
 - Related execplans:
-  - Nenhum ainda; criar apenas a partir dos tickets derivados, quando necessário para execução segura.
+  - execplans/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md
 - Related commits:
   - A definir
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
@@ -133,7 +133,7 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: GO (high)
@@ -179,16 +179,16 @@
   - A necessidade e o escopo desta mudança foram consolidados nesta spec com decisão explícita de produto: feature flag única, default desligado e observabilidade restrita a logs/traces internos quando a flag estiver `false`.
   - A spec já identifica as superfícies principais da mudança: configuração (`src/config/env.ts`, `.env.example`), orquestração (`src/core/runner.ts`), resumo final (`src/types/flow-timing.ts`, `src/integrations/telegram-bot.ts`) e documentação canônica (`README.md`, `SPECS.md`, template de spec e notas mínimas nas specs históricas relevantes).
   - A triagem inicial desta spec foi concluída com derivação de 2 tickets em `tickets/open/`, separados entre runtime/configuração e alinhamento documental canônico/histórico.
+  - O ticket de runtime/configuração [`tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`] foi concluído com fechamento técnico `GO`, cobrindo flag em `AppEnv`, bootstrap, guardas de runtime, documentação operacional mínima e testes automatizados, com validação manual externa pendente registrada no próprio ticket fechado.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`: implementar `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED` com default `false`, log técnico de bootstrap, guard nas duas retrospectivas e supressão de publication/write-back/resumo/timing quando `false`, preservando o comportamento atual quando `true`.
-  - `tickets/open/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`: atualizar `.env.example`, `README.md` e testes automatizados para refletir o contrato operacional da flag, incluindo restart obrigatório.
   - `tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md`: alinhar `SPECS.md`, `docs/specs/templates/spec-template.md` e as specs históricas `2026-03-19-...` e `2026-03-20-...` com a ativação condicional por feature flag, sem reescrever histórico funcional.
 - Evidencias de validacao:
   - Leitura do contrato atual em `README.md`, `SPECS.md` e `docs/specs/templates/spec-template.md`.
   - Leitura das specs antecedentes `2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md` e `2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md`.
   - Leitura do estado atual de configuração e orquestração em `src/config/env.ts`, `src/config/env.test.ts`, `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/integrations/telegram-bot.ts`.
   - Revisão de gaps concluída em 2026-03-22 19:24Z, com classificação `atendido | parcialmente atendido | não atendido` por RF/CA e abertura dos tickets derivados acima.
-  - Validacao final da triagem concluida em 2026-03-22 19:33Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as pendencias abertas e a rastreabilidade para os 2 tickets em `tickets/open/`.
+  - Validacao final da triagem concluida em 2026-03-22 19:33Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as pendencias abertas e a rastreabilidade inicial para os 2 tickets derivados.
+  - Fechamento tecnico do ticket de runtime/configuracao registrado em 2026-03-22 19:52Z, mantendo a spec em `Spec treatment: pending` apenas pelo ticket documental ainda aberto.
 
 ## Auditoria final de entrega
 - Auditoria executada em:

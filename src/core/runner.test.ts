@@ -680,6 +680,7 @@ const env: AppEnv = {
   RUN_ALL_MAX_TICKETS_PER_ROUND: 20,
   SHUTDOWN_DRAIN_TIMEOUT_MS: 30000,
   PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: false,
+  RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: true,
 };
 
 const activeProjectA: ProjectRef = {
@@ -3813,6 +3814,182 @@ test("requestRunSpecs executa retrospectiva pre-run-all quando um gap revisado t
     assert.equal(
       records.some((entry) => entry.request.stage === "spec-ticket-derivation-retrospective"),
       true,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecs suprime retrospectivas sistemicas por feature flag e mantem o fluxo funcional", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura corrigida para liberar a auditoria funcional.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel antes da retrospectiva.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao contem ticket dedicado para o novo gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      summary: "Esta retrospectiva nao deveria rodar com a feature flag desligada.",
+      publicationEligibility: true,
+    });
+    codex.stageOutputs["spec-workflow-retrospective"] = createWorkflowGapAnalysisOutput({
+      summary: "Esta retrospectiva pos-auditoria nao deveria rodar com a feature flag desligada.",
+      publicationEligibility: true,
+    });
+    codex.stageOutputs["spec-audit"] = createSpecAuditOutput({
+      residualGapsDetected: true,
+      followUpTicketsCreated: 1,
+    });
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return nextTicketCalls === 1 ? (fixture.tickets[0] ?? null) : null;
+      },
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      envOverride: {
+        RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: false,
+      },
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-triage`,
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+      ],
+    );
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(runSpecsSummary.finalStage, "spec-audit");
+    assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+    assert.equal(runSpecsSummary.specTicketDerivationRetrospective, undefined);
+    assert.equal(runSpecsSummary.workflowGapAnalysis, undefined);
+    assert.equal(runSpecsSummary.workflowImprovementTicket, undefined);
+    assert.deepEqual(runSpecsSummary.triageTiming.completedStages, [
+      "spec-triage",
+      "spec-ticket-validation",
+      "spec-close-and-version",
+    ]);
+    assert.deepEqual(runSpecsSummary.timing.completedStages, [
+      "spec-triage",
+      "spec-ticket-validation",
+      "spec-close-and-version",
+      "run-all",
+      "spec-audit",
+    ]);
+    assert.equal(
+      runSpecsSummary.triageTiming.durationsByStageMs["spec-ticket-derivation-retrospective"],
+      undefined,
+    );
+    assert.equal(
+      runSpecsSummary.timing.durationsByStageMs["spec-workflow-retrospective"],
+      undefined,
+    );
+
+    const suppressedRetrospectiveTraces = records.filter(
+      (entry) =>
+        entry.request.stage === "spec-ticket-derivation-retrospective" ||
+        entry.request.stage === "spec-workflow-retrospective",
+    );
+    assert.deepEqual(
+      suppressedRetrospectiveTraces.map((entry) => ({
+        stage: entry.request.stage,
+        promptTemplatePath: entry.request.promptTemplatePath,
+        suppressedByFeatureFlag: entry.request.decision.metadata?.suppressedByFeatureFlag,
+      })),
+      [
+        {
+          stage: "spec-ticket-derivation-retrospective",
+          promptTemplatePath: "(suppressed-by-feature-flag)",
+          suppressedByFeatureFlag: true,
+        },
+        {
+          stage: "spec-workflow-retrospective",
+          promptTemplatePath: "(suppressed-by-feature-flag)",
+          suppressedByFeatureFlag: true,
+        },
+      ],
+    );
+    assert.equal(
+      logger.infos.some(
+        (entry) => entry.message === "Retrospectiva pre-run-all suprimida por feature flag",
+      ),
+      true,
+    );
+    assert.equal(
+      logger.infos.some(
+        (entry) => entry.message === "Retrospectiva pos-spec-audit suprimida por feature flag",
+      ),
+      true,
+    );
+
+    const specContent = await fs.readFile(
+      path.join(fixture.projectRoot, "docs", "specs", specFileName),
+      "utf8",
+    );
+    assert.doesNotMatch(
+      specContent,
+      /Esta retrospectiva nao deveria rodar com a feature flag desligada\./u,
     );
   } finally {
     await cleanupTempProjectRoot(fixture.projectRoot);

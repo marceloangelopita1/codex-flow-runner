@@ -391,6 +391,12 @@ const bootstrap = async () => {
   logger.info("Encaminhamento de saida raw /plan_spec para Telegram", {
     enabled: env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM,
   });
+  logger.info("Feature flag de retrospectivas sistemicas do /run_specs", {
+    featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
+    enabled: env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED,
+    defaultValue: false,
+    requiresRestart: true,
+  });
   logger.info("Runner aguardando comando /run-all no Telegram", {
     activeProjectName: initialRoundDependencies.activeProject.name,
     activeProjectPath: initialRoundDependencies.activeProject.path,

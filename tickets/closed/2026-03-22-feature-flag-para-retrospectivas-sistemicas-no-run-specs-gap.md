@@ -1,7 +1,7 @@
 # [TICKET] Controlar retrospectivas sistemicas do /run_specs por feature flag desligada por padrao
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -112,12 +112,31 @@ Defina evidencias objetivas para encerrar o ticket.
 - Requisito/RF/CA coberto: validacoes manuais herdadas da spec
 - Evidencia observavel: a entrega registra explicitamente a execucao de ao menos uma rodada real com a flag em `false` e outra em `true`, alem da confirmacao manual de que mudar o `.env` sem restart nao altera o comportamento em voo.
 
+## Closure validation
+- Criterio 1 (`RF-01`, `RF-02`, `RF-03`, `RF-17`, `RF-18`, `RF-19`, `RF-20`, `RF-24`, `RF-25`; `CA-01`, `CA-02`, `CA-03`, `CA-13`): atendido.
+  Evidencia objetiva: `src/config/env.ts` adiciona `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED` com default `false`; `src/config/env.test.ts` cobre default, parsing `true`/`false` e valor invalido; `src/main.ts` registra `featureFlag`, `enabled`, `defaultValue: false` e `requiresRestart: true`; `.env.example` e `README.md` documentam o nome canonico, o default desligado e o efeito sobre `/run_specs`. Validado novamente com `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` e `rg -n "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED|requiresRestart|retrospectivas sistemicas|run_specs" README.md .env.example src/main.ts src/config/env.ts src/config/env.test.ts src/core/runner.ts src/integrations/telegram-bot.test.ts` em 2026-03-22 19:52Z.
+- Criterio 2 (`RF-04`, `RF-05`, `RF-06`, `RF-07`, `RF-08`, `RF-09`, `RF-10`, `RF-12`, `RF-13`, `RF-14`; `CA-04`, `CA-05`, `CA-06`, `CA-07`, `CA-08`, `CA-09`, `CA-10`): atendido.
+  Evidencia objetiva: `src/core/runner.ts` passou a barrar as duas retrospectivas quando a flag esta desligada e a registrar apenas logs/traces internos com `suppressedByFeatureFlag`; o teste `requestRunSpecs suprime retrospectivas sistemicas por feature flag e mantem o fluxo funcional` prova ausencia de execucao, publication, write-back e timing observavel; `src/integrations/telegram-bot.test.ts` prova ausencia dos blocos sistemicos no resumo final. Validado novamente com `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` e `npm test` em 2026-03-22 19:52Z.
+- Criterio 3 (`RF-11`): atendido.
+  Evidencia objetiva: o mesmo teste de `src/core/runner.test.ts` termina com `finalStage=spec-audit`, `completedStages=["spec-triage","spec-ticket-validation","spec-close-and-version","run-all","spec-audit"]` e sem duracoes para retrospectivas, provando que `spec-ticket-validation`, `spec-close-and-version`, `/run_all` e `spec-audit` continuam operando normalmente com a flag desligada. Revalidado em `npm test` e `npm run check` em 2026-03-22 19:52Z.
+- Criterio 4 (`RF-15`, `RF-16`; `CA-11`, `CA-12`): atendido.
+  Evidencia objetiva: o fixture-base de `src/core/runner.test.ts` permanece com `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: true`, e os cenarios existentes para `spec-ticket-derivation-retrospective` e `spec-workflow-retrospective` seguiram verdes nos reruns de `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` e `npm test` em 2026-03-22 19:52Z, preservando o comportamento atual quando a flag esta ligada.
+- Criterio 5 (validacoes manuais herdadas da spec): pendente como validacao manual externa, sem bloquear o aceite tecnico desta rodada.
+  Evidencia objetiva: o contrato de bootstrap esta implementado e documentado (`src/main.ts` registra `requiresRestart: true`, nao existe toggle em runtime e `AppEnv` e carregado no bootstrap), mas nao havia ambiente real configurado no workspace para executar duas rodadas reais de `/run_specs` com Telegram/logs/write-back observaveis em `false` e `true`, nem para provar em execucao viva que alterar `.env` sem restart nao muda a rodada em voo. Classificacao do gap remanescente: `external/manual`. Escopo: local ao ambiente operacional de validacao.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O fechamento funcional deste ticket e `GO`.
+- Validacao manual ainda necessaria: executar uma rodada real de `/run_specs` com `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`, reiniciar o runner, executar outra com `true` e depois alterar `.env` sem restart para confirmar que a rodada em voo nao muda.
+- Como executar: usar este mesmo changeset em ambiente real com Telegram configurado, comparar logs tecnicos, resumo final do Telegram e write-back da spec entre as rodadas `false` e `true`, e registrar a evidencia operacional da exigencia de restart.
+- Responsavel operacional: operador do runner com acesso ao ambiente real e ao Telegram configurado.
+
 ## Decision log
 - 2026-03-22 - Ticket aberto a partir da avaliacao da spec - o default aprovado (`false`) ainda nao existe no runtime, e o backlog sistemico continua ativo por padrao no `/run_specs`.
+- 2026-03-22 - Fechamento tecnico revalidado contra diff, spec, ExecPlan e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente, sem follow-up automatico porque nao ha proximo passo local executavel pelo agente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-22 19:52Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

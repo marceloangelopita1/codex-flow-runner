@@ -61,7 +61,7 @@ O repositorio ainda documenta a retrospectiva sistemica como comportamento canon
 `SPECS.md`, o template oficial e as specs historicas relevantes devem deixar explicito que a secao de retrospectiva continua canonica, mas a execucao/write-back automatico depende de `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true`, podendo permanecer `n/a` quando a flag estiver desligada.
 
 ## Inherited validations from source spec
-- As validacoes manuais da spec sobre rodadas reais com a flag em `false` e `true`, restart e legibilidade do resumo final nao sao herdadas por este ticket porque ele nao altera runtime nem superficies observaveis em execucao. Elas ficam integralmente cobertas pelo ticket irmao `tickets/open/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`.
+- As validacoes manuais da spec sobre rodadas reais com a flag em `false` e `true`, restart e legibilidade do resumo final nao sao herdadas por este ticket porque ele nao altera runtime nem superficies observaveis em execucao. Elas ficam integralmente cobertas pelo ticket irmao `tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`.
 
 ## Reproduction steps
 1. Ler `SPECS.md` e confirmar que a secao de retrospectiva e descrita como obrigatoria/canonica sem qualquer nota sobre ativacao por feature flag.

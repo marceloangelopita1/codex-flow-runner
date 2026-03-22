@@ -29,6 +29,7 @@ const envSchema = z.object({
   RUN_ALL_MAX_TICKETS_PER_ROUND: z.coerce.number().int().positive().default(20),
   SHUTDOWN_DRAIN_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: booleanFromEnv.default(false),
+  RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: booleanFromEnv.default(false),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

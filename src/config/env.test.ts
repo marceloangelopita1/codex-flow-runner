@@ -50,6 +50,7 @@ test("parseEnv aceita TELEGRAM_ALLOWED_CHAT_ID e aplica defaults", () => {
   assert.equal(env.RUN_ALL_MAX_TICKETS_PER_ROUND, 20);
   assert.equal(env.SHUTDOWN_DRAIN_TIMEOUT_MS, 30000);
   assert.equal(env.PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM, false);
+  assert.equal(env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED, false);
 });
 
 test("parseEnv aceita RUN_ALL_MAX_TICKETS_PER_ROUND customizado", () => {
@@ -150,5 +151,36 @@ test("parseEnv falha quando PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM recebe valo
         PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM: "talvez",
       }),
     /PLAN_SPEC_FORWARD_RAW_OUTPUT_TO_TELEGRAM/u,
+  );
+});
+
+test("parseEnv aceita RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED como boolean string", () => {
+  const enabled = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: "true",
+  });
+  assert.equal(enabled.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED, true);
+
+  const disabled = parseEnv({
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_ALLOWED_CHAT_ID: "42",
+    PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+    RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: "false",
+  });
+  assert.equal(disabled.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED, false);
+});
+
+test("parseEnv falha quando RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED recebe valor invalido", () => {
+  assert.throws(
+    () =>
+      parseEnv({
+        TELEGRAM_BOT_TOKEN: "token",
+        TELEGRAM_ALLOWED_CHAT_ID: "42",
+        PROJECTS_ROOT_PATH: "/home/mapita/projetos",
+        RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED: "talvez",
+      }),
+    /RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED/u,
   );
 });

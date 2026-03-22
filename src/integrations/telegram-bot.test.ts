@@ -6197,6 +6197,42 @@ test("envia resumo final de fluxo /run-specs com spec-workflow-retrospective com
   );
 });
 
+test("envia resumo final de /run-specs sem blocos sistemicos quando a feature flag os suprimiu", async () => {
+  const { controller } = createController();
+  const sentMessages = mockSendMessage(controller);
+  callCaptureNotificationChat(controller, "99");
+
+  await controller.sendRunFlowSummary(
+    createRunSpecsFlowSummary({
+      finalStage: "spec-audit",
+      timing: createRunSpecsFlowTimingSnapshot({
+        finishedAtUtc: "2026-02-19T15:09:00.000Z",
+        totalDurationMs: 540000,
+        durationsByStageMs: {
+          "spec-triage": 90000,
+          "spec-close-and-version": 90000,
+          "run-all": 300000,
+          "spec-audit": 60000,
+        },
+        completedStages: ["spec-triage", "spec-close-and-version", "run-all", "spec-audit"],
+      }),
+      triageTiming: createRunSpecsTriageTimingSnapshot(),
+      specTicketDerivationRetrospective: undefined,
+      workflowGapAnalysis: undefined,
+      workflowImprovementTicket: undefined,
+    }),
+  );
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-audit/u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Retrospectiva sistemica da derivacao/u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.doesNotMatch(
+    sentMessages[0]?.text ?? "",
+    /spec-ticket-derivation-retrospective|spec-workflow-retrospective/u,
+  );
+});
+
 test("envia resumo final de /run-specs com resultado de workflow-gap-analysis elegivel para publication", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);

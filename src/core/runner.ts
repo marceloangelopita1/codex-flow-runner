@@ -4862,6 +4862,57 @@ export class TicketRunner {
       }
     };
 
+    const recordSuppressedSpecTicketDerivationRetrospectiveIfEligible = async (
+      validationSummary: RunSpecsTicketValidationSummary | undefined,
+      packageContext: SpecTicketValidationPackageContext | undefined,
+      functionalVerdict: RunSpecsDerivationRetrospectiveSummary["functionalVerdict"] =
+        validationSummary?.verdict ?? "unavailable",
+    ): Promise<void> => {
+      const reviewedGapHistoryDetected = validationSummary
+        ? this.hasReviewedSpecTicketValidationGapHistory(validationSummary)
+        : false;
+      const structuredInputAvailable = validationSummary
+        ? this.hasStructuredSpecTicketValidationStructuredInputs(validationSummary)
+        : false;
+      if (!reviewedGapHistoryDetected || !structuredInputAvailable || !packageContext) {
+        return;
+      }
+
+      const summary =
+        "Retrospectiva sistemica da derivacao suprimida por RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false.";
+      this.logger.info("Retrospectiva pre-run-all suprimida por feature flag", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+        featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
+        featureFlagEnabled: false,
+        functionalVerdict,
+      });
+      await this.recordWorkflowTraceSuccess(slot, {
+        kind: "spec",
+        stage: "spec-ticket-derivation-retrospective",
+        targetName: spec.fileName,
+        targetPath: spec.path,
+        promptTemplatePath: "(suppressed-by-feature-flag)",
+        promptText:
+          "Retrospectiva pre-run-all suprimida sem invocacao ao Codex porque RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false.",
+        outputText: summary,
+        summary,
+        metadata: {
+          suppressedByFeatureFlag: true,
+          featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
+          featureFlagEnabled: false,
+          reviewedGapHistoryDetected,
+          structuredInputAvailable,
+          functionalVerdict,
+          ticketCount: packageContext.tickets.length,
+          ticketPaths: packageContext.tickets.map((ticket) => ticket.relativePath),
+          lineageSource: packageContext.lineageSource,
+        },
+      });
+    };
+
     const runTimedSpecAuditStage = async (message: string): Promise<SpecAuditStageResult> => {
       const stage: Extract<RunSpecsFlowTimingStage, "spec-audit"> = "spec-audit";
       const stageStartedAt = Date.now();
@@ -5040,6 +5091,49 @@ export class TicketRunner {
       }
     };
 
+    const recordSuppressedSpecWorkflowRetrospectiveIfEligible = async (
+      auditStageResult: SpecAuditStageResult,
+      preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
+      preRunRetrospectiveSummary: RunSpecsDerivationRetrospectiveSummary | undefined,
+    ): Promise<void> => {
+      if (!auditStageResult.residualGapsDetected) {
+        return;
+      }
+
+      const summary =
+        "Retrospectiva sistemica pos-spec-audit suprimida por RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false.";
+      this.logger.info("Retrospectiva pos-spec-audit suprimida por feature flag", {
+        spec: spec.fileName,
+        specPath: spec.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+        featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
+        featureFlagEnabled: false,
+        followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+      });
+      await this.recordWorkflowTraceSuccess(slot, {
+        kind: "spec",
+        stage: "spec-workflow-retrospective",
+        targetName: spec.fileName,
+        targetPath: spec.path,
+        promptTemplatePath: "(suppressed-by-feature-flag)",
+        promptText:
+          "Retrospectiva pos-spec-audit suprimida sem invocacao ao Codex porque RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false.",
+        outputText: summary,
+        summary,
+        metadata: {
+          suppressedByFeatureFlag: true,
+          featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
+          featureFlagEnabled: false,
+          residualGapsDetected: auditStageResult.residualGapsDetected,
+          followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+          preAuditOpenTicketCount: preAuditOpenTickets.length,
+          preAuditOpenTicketPaths: preAuditOpenTickets.map((ticket) => ticket.relativePath),
+          preRunRetrospectiveDecision: preRunRetrospectiveSummary?.decision ?? null,
+        },
+      });
+    };
+
     try {
       await runTimedTriageStage(
         "spec-triage",
@@ -5062,13 +5156,21 @@ export class TicketRunner {
 
         specTicketValidationSummary = error.partialSummary ?? specTicketValidationSummary;
         specTicketValidationPackageContext = error.packageContext ?? specTicketValidationPackageContext;
-        specTicketDerivationRetrospectiveSummary =
-          await runTimedSpecTicketDerivationRetrospectiveStage(
-            `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+        if (this.env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED) {
+          specTicketDerivationRetrospectiveSummary =
+            await runTimedSpecTicketDerivationRetrospectiveStage(
+              `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+              specTicketValidationSummary,
+              specTicketValidationPackageContext,
+              "unavailable",
+            );
+        } else {
+          await recordSuppressedSpecTicketDerivationRetrospectiveIfEligible(
             specTicketValidationSummary,
             specTicketValidationPackageContext,
             "unavailable",
           );
+        }
 
         const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
         const finalStage: RunSpecsTriageFinalStage =
@@ -5124,15 +5226,22 @@ export class TicketRunner {
       }
 
       const validationSummary = validationExecution.summary;
-      specTicketDerivationRetrospectiveSummary =
-        await runTimedSpecTicketDerivationRetrospectiveStage(
-          `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+      if (this.env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED) {
+        specTicketDerivationRetrospectiveSummary =
+          await runTimedSpecTicketDerivationRetrospectiveStage(
+            `Executando etapa spec-ticket-derivation-retrospective para ${spec.fileName}`,
+            validationSummary,
+            validationExecution.packageContext,
+          );
+      } else {
+        await recordSuppressedSpecTicketDerivationRetrospectiveIfEligible(
           validationSummary,
           validationExecution.packageContext,
         );
+      }
       if (validationSummary.verdict !== "GO") {
         const finalStage: RunSpecsTriageFinalStage =
-          specTicketDerivationRetrospectiveSummary.decision === "executed"
+          specTicketDerivationRetrospectiveSummary?.decision === "executed"
             ? "spec-ticket-derivation-retrospective"
             : "spec-ticket-validation";
         const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
@@ -5153,7 +5262,7 @@ export class TicketRunner {
           finalStage,
           nextAction:
             "Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute /run_specs.",
-          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary.summary]
+          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary?.summary]
             .filter(Boolean)
             .join(" "),
           timing: triageTiming,
@@ -5170,7 +5279,7 @@ export class TicketRunner {
           outcome: "blocked",
           finalStage,
           completionReason: "spec-ticket-validation-no-go",
-          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary.summary]
+          details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary?.summary]
             .filter(Boolean)
             .join(" "),
           triageTimingCollector,
@@ -5221,15 +5330,23 @@ export class TicketRunner {
         );
         let finalStage: RunSpecsFlowFinalStage = "spec-audit";
         if (specAuditResult.residualGapsDetected) {
-          const retrospectiveResult = await runTimedSpecWorkflowRetrospectiveStage(
-            `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
-            specAuditResult,
-            preAuditOpenTickets,
-            specTicketDerivationRetrospectiveSummary,
-          );
-          workflowGapAnalysisSummary = retrospectiveResult.analysis;
-          workflowImprovementTicketSummary = retrospectiveResult.publication;
-          finalStage = "spec-workflow-retrospective";
+          if (this.env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED) {
+            const retrospectiveResult = await runTimedSpecWorkflowRetrospectiveStage(
+              `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
+              specAuditResult,
+              preAuditOpenTickets,
+              specTicketDerivationRetrospectiveSummary,
+            );
+            workflowGapAnalysisSummary = retrospectiveResult.analysis;
+            workflowImprovementTicketSummary = retrospectiveResult.publication;
+            finalStage = "spec-workflow-retrospective";
+          } else {
+            await recordSuppressedSpecWorkflowRetrospectiveIfEligible(
+              specAuditResult,
+              preAuditOpenTickets,
+              specTicketDerivationRetrospectiveSummary,
+            );
+          }
         }
         slot.currentSpec = null;
         this.touchSlot(slot, "idle", `Fluxo /run_specs finalizado para ${spec.fileName}`);
