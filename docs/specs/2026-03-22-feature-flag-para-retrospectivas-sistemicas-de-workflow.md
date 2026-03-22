@@ -2,19 +2,22 @@
 
 ## Metadata
 - Spec ID: 2026-03-22-feature-flag-para-retrospectivas-sistemicas-de-workflow
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-22 19:18Z
-- Last reviewed at (UTC): 2026-03-22 19:52Z
+- Last reviewed at (UTC): 2026-03-22 20:06Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md
-  - tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md
+  - tickets/closed/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md
 - Related execplans:
   - execplans/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md
+  - execplans/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md
 - Related commits:
-  - A definir
+  - f4f204f - `chore(specs): triage 2026-03-22-feature-flag-para-retrospectivas-sistemicas-de-workflow.md`
+  - c4776a6 - `chore(tickets): close 2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`
+  - a15de4f - `chore(tickets): close 2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md`
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -132,7 +135,7 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md [fonte=source-spec]
   - tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
@@ -167,38 +170,42 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Exercitar ao menos uma rodada real com `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false` e outra com `true`, confirmando a diferença de comportamento no Telegram, nos logs e no write-back de spec.
+  - Nenhuma pendencia local bloqueante foi encontrada nesta auditoria final; a cobertura objetiva dos RFs/CAs ficou sustentada por releitura de codigo/documentacao e reexecucao da validacao automatizada.
 - Validacoes manuais pendentes:
-  - Confirmar em execução real que alterar a flag no `.env` sem reiniciar o processo não muda o comportamento em voo, reforçando o contrato de bootstrap.
-  - Confirmar em execução real que, com a flag desligada, o fluxo permanece legível para um operador externo e não expõe blocos sistêmicos no resumo final.
+  - Validacao operacional externa recomendada: exercitar ao menos uma rodada real com `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false` e outra com `true`, confirmando a diferenca de comportamento no Telegram, nos logs e no write-back de spec.
+  - Validacao operacional externa recomendada: confirmar em execucao real que alterar a flag no `.env` sem reiniciar o processo nao muda o comportamento em voo, reforcando o contrato de bootstrap.
+  - Validacao operacional externa recomendada: confirmar em execucao real que, com a flag desligada, o fluxo permanece legivel para um operador externo e nao expoe blocos sistemicos no resumo final.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
-- Resultado da validacao final da triagem: a releitura desta spec, dos 2 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual confirmou que a triagem esta consistente, sem gap adicional fora da rastreabilidade ja aberta; por isso o documento permanece em `Status: approved` com `Spec treatment: pending`.
+- Estado geral: attended
+- Resultado da auditoria final: a releitura desta spec, dos 2 tickets fechados da linhagem, dos 2 ExecPlans relacionados, de `docs/workflows/codex-quality-gates.md` e do estado atual de codigo/documentacao confirmou que os RF-01..RF-25 e CA-01..CA-14 ficaram cobertos pelo changeset entregue, sem gap funcional residual local; por isso o documento passa a `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - A necessidade e o escopo desta mudança foram consolidados nesta spec com decisão explícita de produto: feature flag única, default desligado e observabilidade restrita a logs/traces internos quando a flag estiver `false`.
   - A spec já identifica as superfícies principais da mudança: configuração (`src/config/env.ts`, `.env.example`), orquestração (`src/core/runner.ts`), resumo final (`src/types/flow-timing.ts`, `src/integrations/telegram-bot.ts`) e documentação canônica (`README.md`, `SPECS.md`, template de spec e notas mínimas nas specs históricas relevantes).
-  - A triagem inicial desta spec foi concluída com derivação de 2 tickets em `tickets/open/`, separados entre runtime/configuração e alinhamento documental canônico/histórico.
-  - O ticket de runtime/configuração [`tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`] foi concluído com fechamento técnico `GO`, cobrindo flag em `AppEnv`, bootstrap, guardas de runtime, documentação operacional mínima e testes automatizados, com validação manual externa pendente registrada no próprio ticket fechado.
+  - A triagem inicial desta spec foi concluida com derivacao de 2 tickets independentes, separados entre runtime/configuracao e alinhamento documental canonico/historico, e ambos foram encerrados com `Closure reason: fixed`.
+  - O ticket de runtime/configuracao [`tickets/closed/2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md`] entregou a flag em `AppEnv`, o log tecnico de bootstrap, os guardas de runtime, a supressao observavel dos blocos sistemicos quando `false` e a preservacao do comportamento atual quando `true`.
+  - O ticket documental [`tickets/closed/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md`] alinhou `SPECS.md`, `docs/specs/templates/spec-template.md` e as notas historicas minimas das specs de 2026-03-19 e 2026-03-20 com a ativacao condicional por feature flag.
 - Pendencias em aberto:
-  - `tickets/open/2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md`: alinhar `SPECS.md`, `docs/specs/templates/spec-template.md` e as specs históricas `2026-03-19-...` e `2026-03-20-...` com a ativação condicional por feature flag, sem reescrever histórico funcional.
+  - Nenhuma.
 - Evidencias de validacao:
   - Leitura do contrato atual em `README.md`, `SPECS.md` e `docs/specs/templates/spec-template.md`.
   - Leitura das specs antecedentes `2026-03-19-retrospectiva-sistemica-do-workflow-apos-spec-audit.md` e `2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md`.
-  - Leitura do estado atual de configuração e orquestração em `src/config/env.ts`, `src/config/env.test.ts`, `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/integrations/telegram-bot.ts`.
+  - Leitura do estado atual de configuracao e orquestracao em `src/config/env.ts`, `src/config/env.test.ts`, `src/main.ts`, `src/core/runner.ts`, `src/core/runner.test.ts`, `src/integrations/telegram-bot.ts` e `src/integrations/telegram-bot.test.ts`.
   - Revisão de gaps concluída em 2026-03-22 19:24Z, com classificação `atendido | parcialmente atendido | não atendido` por RF/CA e abertura dos tickets derivados acima.
   - Validacao final da triagem concluida em 2026-03-22 19:33Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as pendencias abertas e a rastreabilidade inicial para os 2 tickets derivados.
-  - Fechamento tecnico do ticket de runtime/configuracao registrado em 2026-03-22 19:52Z, mantendo a spec em `Spec treatment: pending` apenas pelo ticket documental ainda aberto.
+  - Fechamento tecnico do ticket de runtime/configuracao registrado em 2026-03-22 19:52Z, com `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build` verdes no fechamento do ticket.
+  - Fechamento tecnico do ticket documental registrado em 2026-03-22 20:03Z, com releitura do diff, do ticket, do ExecPlan correspondente, da spec de origem e do checklist compartilhado sem gap residual documental.
+  - Auditoria final desta spec em 2026-03-22 20:06Z reexecutou `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`, releu os tickets/ExecPlans da linhagem e confirmou ausencia de tickets abertos relacionados em `tickets/open/`.
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-- Resultado:
+- Auditoria executada em: 2026-03-22 20:06Z
+- Resultado: sem gaps residuais funcionais locais; a spec foi auditada contra o estado atual do repositorio, os tickets fechados relacionados, os ExecPlans relacionados, o checklist `docs/workflows/codex-quality-gates.md` e as validacoes automatizadas reexecutadas nesta etapa.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - 
+  - nenhum
 - Causas-raiz sistemicas identificadas:
-  - 
+  - nenhuma; as validacoes operacionais externas restantes permanecem apenas como recomendacao de ambiente real e nao configuram gap funcional residual desta spec nesta auditoria
 - Ajustes genericos promovidos ao workflow:
-  - 
+  - nenhum; esta etapa permaneceu estritamente na auditoria funcional da spec corrente
 
 ## Riscos e impacto
 - Risco funcional: desligar as retrospectivas por padrão pode reduzir a captura automática de melhorias sistêmicas do próprio workflow.
@@ -218,3 +225,4 @@
 - 2026-03-22 19:18Z - Versão inicial da spec criada com `Status: approved` e `Spec treatment: pending`, consolidando a adoção da feature flag `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED` para controlar as retrospectivas sistêmicas pre-`/run_all` e pós-`spec-audit`.
 - 2026-03-22 19:24Z - Revisão de gaps de implementação concluída sem alteração de código; tickets `2026-03-22-feature-flag-para-retrospectivas-sistemicas-no-run-specs-gap.md` e `2026-03-22-documentacao-canonica-da-feature-flag-de-retrospectivas-gap.md` foram abertos em `tickets/open/`, e o status permaneceu `approved` com `Spec treatment: pending`.
 - 2026-03-22 19:33Z - Validacao final da triagem concluida com releitura da spec, dos tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` e `Spec treatment: pending` por ainda depender dos 2 tickets abertos.
+- 2026-03-22 20:06Z - Auditoria final concluida com releitura da spec, dos 2 tickets fechados, dos 2 ExecPlans relacionados, do checklist `docs/workflows/codex-quality-gates.md`, do estado atual do codigo/documentacao e reexecucao de `npx tsx --test src/config/env.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`; sem gaps residuais funcionais locais, a spec passou para `Status: attended` e `Spec treatment: done`.
