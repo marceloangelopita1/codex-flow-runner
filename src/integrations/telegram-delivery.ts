@@ -29,6 +29,8 @@ export interface TelegramDeliveryResult {
   chunkCount: number;
   policy: string;
   logicalMessageType: string;
+  primaryMessageId: number | null;
+  messages: TelegramDeliveredMessage[];
 }
 
 export interface TelegramDeliveryFailure {
@@ -93,6 +95,11 @@ interface TelegramDeliveryServiceOptions {
   wait: (delayMs: number) => Promise<void>;
 }
 
+export interface TelegramDeliveredMessage {
+  chunkIndex: number;
+  messageId: number | null;
+}
+
 export interface DeliverTelegramTextMessageInput {
   destinationChatId: string;
   text: string;
@@ -101,6 +108,7 @@ export interface DeliverTelegramTextMessageInput {
   logMessages: TelegramDeliveryLogMessages;
   context?: Record<string, unknown>;
   extra?: unknown;
+  formatChunk?: (value: { chunk: string; chunkIndex: number; chunkCount: number }) => string;
 }
 
 const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
@@ -135,18 +143,48 @@ export const RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY: TelegramDeliveryPolicy 
   maxBackoffMs: 10_000,
 };
 
+export const INTERACTIVE_TELEGRAM_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "interactive-message",
+  maxAttempts: 2,
+  baseBackoffMs: 500,
+  maxBackoffMs: 2_000,
+};
+
+export const CALLBACK_CHAT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "callback-chat-message",
+  maxAttempts: 2,
+  baseBackoffMs: 500,
+  maxBackoffMs: 2_000,
+};
+
+export const TICKET_OPEN_CONTENT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "ticket-open-content",
+  maxAttempts: 2,
+  baseBackoffMs: 500,
+  maxBackoffMs: 2_000,
+  chunking: {
+    maxChunkLength: 3500,
+    includePartHeader: false,
+  },
+};
+
 export class TelegramDeliveryService {
   constructor(private readonly options: TelegramDeliveryServiceOptions) {}
 
   async deliverTextMessage(input: DeliverTelegramTextMessageInput): Promise<TelegramDeliveryResult> {
-    const chunks = this.buildChunks(input.text, input.policy);
+    const chunks = this.buildChunks(input);
     let maxAttemptUsed = 0;
+    const messages: TelegramDeliveredMessage[] = [];
 
     for (const [index, chunk] of chunks.entries()) {
       for (let attempt = 1; attempt <= input.policy.maxAttempts; attempt += 1) {
         try {
-          await this.options.sendMessage(input.destinationChatId, chunk, input.extra);
+          const response = await this.options.sendMessage(input.destinationChatId, chunk, input.extra);
           maxAttemptUsed = Math.max(maxAttemptUsed, attempt);
+          messages.push({
+            chunkIndex: index + 1,
+            messageId: this.readOutgoingMessageId(response),
+          });
           break;
         } catch (error) {
           const classification = this.classifySendError(error);
@@ -211,6 +249,8 @@ export class TelegramDeliveryService {
       chunkCount: chunks.length,
       policy: input.policy.name,
       logicalMessageType: input.logicalMessageType,
+      primaryMessageId: messages[0]?.messageId ?? null,
+      messages,
     };
 
     this.options.logger.info(input.logMessages.success, {
@@ -366,12 +406,31 @@ export class TelegramDeliveryService {
     return String(error);
   }
 
-  private buildChunks(text: string, policy: TelegramDeliveryPolicy): string[] {
-    if (!policy.chunking) {
-      return [text];
+  private readOutgoingMessageId(message: unknown): number | null {
+    if (!message || typeof message !== "object") {
+      return null;
     }
 
-    const rawChunks = this.chunkText(text, policy.chunking.maxChunkLength);
+    const value = (message as { message_id?: unknown }).message_id;
+    return typeof value === "number" ? value : null;
+  }
+
+  private buildChunks(input: DeliverTelegramTextMessageInput): string[] {
+    const rawChunks = this.chunkText(input.text, input.policy.chunking?.maxChunkLength);
+    if (!input.formatChunk) {
+      return this.formatChunks(rawChunks, input.policy);
+    }
+
+    return rawChunks.map((chunk, index) =>
+      input.formatChunk?.({
+        chunk,
+        chunkIndex: index + 1,
+        chunkCount: rawChunks.length,
+      }) ?? chunk,
+    );
+  }
+
+  private formatChunks(rawChunks: string[], policy: TelegramDeliveryPolicy): string[] {
     return rawChunks.map((chunk, index) =>
       rawChunks.length <= 1 || !policy.chunking?.includePartHeader
         ? chunk
@@ -379,10 +438,10 @@ export class TelegramDeliveryService {
     );
   }
 
-  private chunkText(content: string, maxChunkLength: number): string[] {
+  private chunkText(content: string, maxChunkLength?: number): string[] {
     const normalizedContent = content.replace(/\r\n/g, "\n");
     const source = normalizedContent.length > 0 ? normalizedContent : "(arquivo vazio)";
-    if (source.length <= maxChunkLength) {
+    if (!maxChunkLength || source.length <= maxChunkLength) {
       return [source];
     }
 

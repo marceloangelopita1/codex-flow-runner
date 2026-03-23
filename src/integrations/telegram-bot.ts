@@ -48,11 +48,17 @@ import {
   RunnerFlowSummary,
 } from "../types/flow-timing.js";
 import {
+  CALLBACK_CHAT_DELIVERY_POLICY,
+  DeliverTelegramTextMessageInput,
+  INTERACTIVE_TELEGRAM_DELIVERY_POLICY,
   isTelegramMessageDeliveryDispatchError,
   RUN_FLOW_SUMMARY_DELIVERY_POLICY,
   RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY,
+  TelegramDeliveryLogMessages,
+  TelegramDeliveryResult,
   TelegramDeliveryService,
   TICKET_FINAL_SUMMARY_DELIVERY_POLICY,
+  TICKET_OPEN_CONTENT_DELIVERY_POLICY,
 } from "./telegram-delivery.js";
 import {
   PlanSpecFinalActionId,
@@ -539,7 +545,6 @@ const TICKETS_OPEN_TICKET_NOT_FOUND_REPLY =
   "❌ Ticket selecionado nao encontrado em tickets/open/. Use /tickets_open para atualizar.";
 const TICKETS_OPEN_TICKET_INVALID_REPLY =
   "❌ Ticket selecionado invalido. Use /tickets_open para atualizar.";
-const TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH = 3500;
 const IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL = "▶️ Implementar este ticket";
 const TICKET_RUN_CALLBACK_PREFIX = "ticket-run:";
 const TICKET_RUN_CALLBACK_EXECUTE_PREFIX = "ticket-run:execute:";
@@ -932,83 +937,211 @@ export class TelegramController {
   }
 
   async sendDiscoverSpecOutput(chatId: string, rawOutput: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, this.buildDiscoverSpecRawOutputReply(rawOutput));
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildDiscoverSpecRawOutputReply(rawOutput),
+      logicalMessageType: "discover-spec-raw-output",
+      logMessages: {
+        success: "Saida bruta de /discover_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar saida bruta de /discover_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar saida bruta de /discover_spec no Telegram",
+      },
+      context: {
+        flow: "discover-spec",
+      },
+    });
   }
 
   async sendDiscoverSpecFailure(chatId: string, details?: string): Promise<void> {
     this.planSpecQuestionCallbackContexts.delete(chatId);
     this.planSpecFinalCallbackContexts.delete(chatId);
-    await this.bot.telegram.sendMessage(chatId, this.buildDiscoverSpecInteractiveFailureReply(details));
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildDiscoverSpecInteractiveFailureReply(details),
+      logicalMessageType: "discover-spec-failure",
+      logMessages: {
+        success: "Falha interativa de /discover_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar falha interativa de /discover_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar falha interativa de /discover_spec no Telegram",
+      },
+      context: {
+        flow: "discover-spec",
+      },
+    });
   }
 
   async sendDiscoverSpecMessage(chatId: string, message: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, message);
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: message,
+      logicalMessageType: "discover-spec-message",
+      logMessages: {
+        success: "Mensagem de /discover_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar mensagem de /discover_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar mensagem de /discover_spec no Telegram",
+      },
+      context: {
+        flow: "discover-spec",
+      },
+    });
   }
 
   async sendDiscoverSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
     const rendered = this.buildInteractivePlanningQuestionReply("discover-spec", question);
-    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
+    const delivery = await this.deliverInteractiveChatMessage({
+      chatId,
+      text: rendered.text,
+      extra: rendered.extra,
+      logicalMessageType: "discover-spec-question",
+      logMessages: {
+        success: "Pergunta de /discover_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar pergunta de /discover_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar pergunta de /discover_spec no Telegram",
+      },
+      context: {
+        flow: "discover-spec",
+        sessionId: state.discoverSpecSession?.sessionId ?? null,
+      },
+    });
     this.registerPlanSpecQuestionCallbackContext(
       "discover-spec",
       chatId,
       question,
-      this.resolveOutgoingMessageId(sentMessage),
+      delivery.primaryMessageId,
       state.discoverSpecSession?.sessionId ?? null,
     );
   }
 
   async sendDiscoverSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
     const rendered = this.buildInteractivePlanningFinalReply("discover-spec", finalBlock);
-    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
+    const delivery = await this.deliverInteractiveChatMessage({
+      chatId,
+      text: rendered.text,
+      extra: rendered.extra,
+      logicalMessageType: "discover-spec-finalization",
+      logMessages: {
+        success: "Finalizacao de /discover_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar finalizacao de /discover_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar finalizacao de /discover_spec no Telegram",
+      },
+      context: {
+        flow: "discover-spec",
+        sessionId: state.discoverSpecSession?.sessionId ?? null,
+      },
+    });
     this.registerPlanSpecFinalCallbackContext(
       "discover-spec",
       chatId,
       finalBlock,
-      this.resolveOutgoingMessageId(sentMessage),
+      delivery.primaryMessageId,
       state.discoverSpecSession?.sessionId ?? null,
     );
   }
 
   async sendPlanSpecQuestion(chatId: string, question: PlanSpecQuestionBlock): Promise<void> {
     const rendered = this.buildInteractivePlanningQuestionReply("plan-spec", question);
-    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
+    const delivery = await this.deliverInteractiveChatMessage({
+      chatId,
+      text: rendered.text,
+      extra: rendered.extra,
+      logicalMessageType: "plan-spec-question",
+      logMessages: {
+        success: "Pergunta de /plan_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar pergunta de /plan_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar pergunta de /plan_spec no Telegram",
+      },
+      context: {
+        flow: "plan-spec",
+        sessionId: state.planSpecSession?.sessionId ?? null,
+      },
+    });
     this.registerPlanSpecQuestionCallbackContext(
       "plan-spec",
       chatId,
       question,
-      this.resolveOutgoingMessageId(sentMessage),
+      delivery.primaryMessageId,
       state.planSpecSession?.sessionId ?? null,
     );
   }
 
   async sendPlanSpecFinalization(chatId: string, finalBlock: PlanSpecFinalBlock): Promise<void> {
     const rendered = this.buildInteractivePlanningFinalReply("plan-spec", finalBlock);
-    const sentMessage = await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
     const state = this.getState();
+    const delivery = await this.deliverInteractiveChatMessage({
+      chatId,
+      text: rendered.text,
+      extra: rendered.extra,
+      logicalMessageType: "plan-spec-finalization",
+      logMessages: {
+        success: "Finalizacao de /plan_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar finalizacao de /plan_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar finalizacao de /plan_spec no Telegram",
+      },
+      context: {
+        flow: "plan-spec",
+        sessionId: state.planSpecSession?.sessionId ?? null,
+      },
+    });
     this.registerPlanSpecFinalCallbackContext(
       "plan-spec",
       chatId,
       finalBlock,
-      this.resolveOutgoingMessageId(sentMessage),
+      delivery.primaryMessageId,
       state.planSpecSession?.sessionId ?? null,
     );
   }
 
   async sendPlanSpecRawOutput(chatId: string, rawOutput: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecRawOutputReply(rawOutput));
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildPlanSpecRawOutputReply(rawOutput),
+      logicalMessageType: "plan-spec-raw-output",
+      logMessages: {
+        success: "Saida bruta de /plan_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar saida bruta de /plan_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar saida bruta de /plan_spec no Telegram",
+      },
+      context: {
+        flow: "plan-spec",
+      },
+    });
   }
 
   async sendPlanSpecFailure(chatId: string, details?: string): Promise<void> {
     this.planSpecQuestionCallbackContexts.delete(chatId);
     this.planSpecFinalCallbackContexts.delete(chatId);
-    await this.bot.telegram.sendMessage(chatId, this.buildPlanSpecInteractiveFailureReply(details));
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildPlanSpecInteractiveFailureReply(details),
+      logicalMessageType: "plan-spec-failure",
+      logMessages: {
+        success: "Falha interativa de /plan_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar falha interativa de /plan_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar falha interativa de /plan_spec no Telegram",
+      },
+      context: {
+        flow: "plan-spec",
+      },
+    });
   }
 
   async sendPlanSpecMessage(chatId: string, message: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, message);
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: message,
+      logicalMessageType: "plan-spec-message",
+      logMessages: {
+        success: "Mensagem de /plan_spec enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar mensagem de /plan_spec no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar mensagem de /plan_spec no Telegram",
+      },
+      context: {
+        flow: "plan-spec",
+      },
+    });
   }
 
   async sendRunSpecsTriageMilestone(event: RunSpecsTriageLifecycleEvent): Promise<void> {
@@ -1138,15 +1271,53 @@ export class TelegramController {
     const session = state.codexChatSession;
     const sessionId = session && session.chatId === chatId ? (session.sessionId ?? null) : null;
     const rendered = this.buildCodexChatOutputReply(rawOutput, sessionId);
-    await this.bot.telegram.sendMessage(chatId, rendered.text, rendered.extra);
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: rendered.text,
+      extra: rendered.extra,
+      logicalMessageType: "codex-chat-output",
+      logMessages: {
+        success: "Saida de /codex_chat enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar saida de /codex_chat no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar saida de /codex_chat no Telegram",
+      },
+      context: {
+        flow: "codex-chat",
+        sessionId,
+      },
+    });
   }
 
   async sendCodexChatFailure(chatId: string, details?: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, this.buildCodexChatInteractiveFailureReply(details));
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildCodexChatInteractiveFailureReply(details),
+      logicalMessageType: "codex-chat-failure",
+      logMessages: {
+        success: "Falha interativa de /codex_chat enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar falha interativa de /codex_chat no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar falha interativa de /codex_chat no Telegram",
+      },
+      context: {
+        flow: "codex-chat",
+      },
+    });
   }
 
   async sendCodexChatMessage(chatId: string, message: string): Promise<void> {
-    await this.bot.telegram.sendMessage(chatId, message);
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: message,
+      logicalMessageType: "codex-chat-message",
+      logMessages: {
+        success: "Mensagem de /codex_chat enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar mensagem de /codex_chat no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar mensagem de /codex_chat no Telegram",
+      },
+      context: {
+        flow: "codex-chat",
+      },
+    });
   }
 
   createImplementTicketCallbackData(
@@ -5265,19 +5436,6 @@ export class TelegramController {
     return callbackQuery.message.message_id;
   }
 
-  private resolveOutgoingMessageId(message: unknown): number | null {
-    if (!message || typeof message !== "object") {
-      return null;
-    }
-
-    const value = (message as { message_id?: unknown }).message_id;
-    if (typeof value !== "number") {
-      return null;
-    }
-
-    return value;
-  }
-
   private createCallbackAuditContext(value: CallbackAuditContext): CallbackAuditContext {
     return {
       ...value,
@@ -5462,136 +5620,163 @@ export class TelegramController {
     ticketFileName: string,
     content: string,
   ): Promise<void> {
-    const chunks = this.chunkTicketContent(content, TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH);
-    const totalChunks = chunks.length;
-
-    for (const [index, chunk] of chunks.entries()) {
-      const chunkHeader = totalChunks > 1 ? `Parte ${index + 1}/${totalChunks}` : "Parte única";
-      const message = [
-        `🧾 Ticket aberto: ${ticketFileName}`,
-        chunkHeader,
-        "",
-        chunk,
-      ].join("\n");
-      await this.bot.telegram.sendMessage(chatId, message);
-    }
+    await this.telegramDelivery.deliverTextMessage({
+      destinationChatId: chatId,
+      text: content,
+      policy: TICKET_OPEN_CONTENT_DELIVERY_POLICY,
+      logicalMessageType: "tickets-open-content",
+      logMessages: {
+        success: "Conteudo de ticket aberto enviado no Telegram",
+        transientFailure: "Falha transitoria ao enviar conteudo de ticket aberto no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar conteudo de ticket aberto no Telegram",
+      },
+      context: {
+        flow: "tickets-open",
+        ticketFileName,
+      },
+      formatChunk: ({ chunk, chunkIndex, chunkCount }) =>
+        [
+          `🧾 Ticket aberto: ${ticketFileName}`,
+          chunkCount > 1 ? `Parte ${chunkIndex}/${chunkCount}` : "Parte única",
+          "",
+          chunk,
+        ].join("\n"),
+    });
   }
 
   private async sendImplementSelectedTicketAction(chatId: string, ticketFileName: string): Promise<void> {
     const callbackData = this.createImplementTicketCallbackData(chatId, ticketFileName);
-    await this.bot.telegram.sendMessage(chatId, this.buildImplementSelectedTicketReply(ticketFileName), {
-      reply_markup: {
-        inline_keyboard: [[{
-          text: IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL,
-          callback_data: callbackData,
-        }]],
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: this.buildImplementSelectedTicketReply(ticketFileName),
+      extra: {
+        reply_markup: {
+          inline_keyboard: [[{
+            text: IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL,
+            callback_data: callbackData,
+          }]],
+        },
+      },
+      logicalMessageType: "tickets-open-implement-action",
+      logMessages: {
+        success: "CTA de implementacao de ticket aberto enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar CTA de implementacao de ticket aberto no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar CTA de implementacao de ticket aberto no Telegram",
+      },
+      context: {
+        flow: "tickets-open",
+        ticketFileName,
       },
     });
   }
 
-  private chunkTicketContent(content: string, maxChunkLength: number): string[] {
-    const normalizedContent = content.replace(/\r\n/g, "\n");
-    const source = normalizedContent.length > 0 ? normalizedContent : "(arquivo vazio)";
-    if (source.length <= maxChunkLength) {
-      return [source];
-    }
-
-    const chunks: string[] = [];
-    let cursor = 0;
-    while (cursor < source.length) {
-      const maxEnd = Math.min(cursor + maxChunkLength, source.length);
-      let chunkEnd = maxEnd;
-
-      if (maxEnd < source.length) {
-        const breakAt = source.lastIndexOf("\n", maxEnd - 1);
-        if (breakAt >= cursor) {
-          chunkEnd = breakAt + 1;
-        }
-      }
-
-      if (chunkEnd <= cursor) {
-        chunkEnd = maxEnd;
-      }
-
-      chunks.push(source.slice(cursor, chunkEnd));
-      cursor = chunkEnd;
-    }
-
-    return chunks;
-  }
-
   private async sendSpecsCallbackChatMessage(chatId: string, message: string): Promise<void> {
-    if (!chatId || chatId === "unknown") {
-      return;
-    }
-
-    try {
-      await this.bot.telegram.sendMessage(chatId, message);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar confirmação de callback de /specs no chat", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.sendCallbackChatMessage(chatId, message, {
+      flow: "specs",
+      logicalMessageType: "specs-callback-message",
+      success: "Confirmacao de callback de /specs enviada no Telegram",
+      transientFailure: "Falha transitoria ao enviar confirmação de callback de /specs no chat",
+      definitiveFailure: "Falha definitiva ao enviar confirmação de callback de /specs no chat",
+    });
   }
 
   private async sendTicketsOpenCallbackChatMessage(chatId: string, message: string): Promise<void> {
-    if (!chatId || chatId === "unknown") {
-      return;
-    }
-
-    try {
-      await this.bot.telegram.sendMessage(chatId, message);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar confirmação de callback de /tickets_open no chat", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.sendCallbackChatMessage(chatId, message, {
+      flow: "tickets-open",
+      logicalMessageType: "tickets-open-callback-message",
+      success: "Confirmacao de callback de /tickets_open enviada no Telegram",
+      transientFailure: "Falha transitoria ao enviar confirmação de callback de /tickets_open no chat",
+      definitiveFailure: "Falha definitiva ao enviar confirmação de callback de /tickets_open no chat",
+    });
   }
 
   private async sendPlanSpecCallbackChatMessage(chatId: string, message: string): Promise<void> {
-    if (!chatId || chatId === "unknown") {
-      return;
-    }
-
-    try {
-      await this.bot.telegram.sendMessage(chatId, message);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar confirmação de callback de /plan_spec no chat", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.sendCallbackChatMessage(chatId, message, {
+      flow: "plan-spec",
+      logicalMessageType: "plan-spec-callback-message",
+      success: "Confirmacao de callback de /plan_spec enviada no Telegram",
+      transientFailure: "Falha transitoria ao enviar confirmação de callback de /plan_spec no chat",
+      definitiveFailure: "Falha definitiva ao enviar confirmação de callback de /plan_spec no chat",
+    });
   }
 
   private async sendTicketRunCallbackChatMessage(chatId: string, message: string): Promise<void> {
-    if (!chatId || chatId === "unknown") {
-      return;
-    }
-
-    try {
-      await this.bot.telegram.sendMessage(chatId, message);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar confirmação de callback de implementacao de ticket", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.sendCallbackChatMessage(chatId, message, {
+      flow: "ticket-run",
+      logicalMessageType: "ticket-run-callback-message",
+      success: "Confirmacao de callback de implementacao de ticket enviada no Telegram",
+      transientFailure: "Falha transitoria ao enviar confirmação de callback de implementacao de ticket",
+      definitiveFailure: "Falha definitiva ao enviar confirmação de callback de implementacao de ticket",
+    });
   }
 
   private async sendCodexChatCallbackChatMessage(chatId: string, message: string): Promise<void> {
+    await this.sendCallbackChatMessage(chatId, message, {
+      flow: "codex-chat",
+      logicalMessageType: "codex-chat-callback-message",
+      success: "Confirmacao de callback de /codex_chat enviada no Telegram",
+      transientFailure: "Falha transitoria ao enviar confirmação de callback de /codex_chat no chat",
+      definitiveFailure: "Falha definitiva ao enviar confirmação de callback de /codex_chat no chat",
+    });
+  }
+
+  private async deliverInteractiveChatMessage(input: {
+    chatId: string;
+    text: string;
+    logicalMessageType: string;
+    logMessages: TelegramDeliveryLogMessages;
+    extra?: unknown;
+    context?: Record<string, unknown>;
+    formatChunk?: DeliverTelegramTextMessageInput["formatChunk"];
+  }): Promise<TelegramDeliveryResult> {
+    return this.telegramDelivery.deliverTextMessage({
+      destinationChatId: input.chatId,
+      text: input.text,
+      policy: INTERACTIVE_TELEGRAM_DELIVERY_POLICY,
+      logicalMessageType: input.logicalMessageType,
+      logMessages: input.logMessages,
+      ...(input.extra ? { extra: input.extra } : {}),
+      ...(input.context ? { context: input.context } : {}),
+      ...(input.formatChunk ? { formatChunk: input.formatChunk } : {}),
+    });
+  }
+
+  private async sendCallbackChatMessage(
+    chatId: string,
+    message: string,
+    delivery: {
+      flow: string;
+      logicalMessageType: string;
+      success: string;
+      transientFailure: string;
+      definitiveFailure: string;
+    },
+  ): Promise<void> {
     if (!chatId || chatId === "unknown") {
       return;
     }
 
     try {
-      await this.bot.telegram.sendMessage(chatId, message);
-    } catch (error) {
-      this.logger.warn("Falha ao enviar confirmação de callback de /codex_chat no chat", {
-        chatId,
-        error: error instanceof Error ? error.message : String(error),
+      await this.telegramDelivery.deliverTextMessage({
+        destinationChatId: chatId,
+        text: message,
+        policy: CALLBACK_CHAT_DELIVERY_POLICY,
+        logicalMessageType: delivery.logicalMessageType,
+        logMessages: {
+          success: delivery.success,
+          transientFailure: delivery.transientFailure,
+          definitiveFailure: delivery.definitiveFailure,
+        },
+        context: {
+          flow: delivery.flow,
+        },
       });
+    } catch (error) {
+      if (isTelegramMessageDeliveryDispatchError(error)) {
+        return;
+      }
+
+      throw error;
     }
   }
 

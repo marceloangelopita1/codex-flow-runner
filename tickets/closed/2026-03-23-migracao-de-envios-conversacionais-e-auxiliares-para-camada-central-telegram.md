@@ -1,7 +1,7 @@
 # [TICKET] Envios conversacionais e auxiliares do Telegram ainda usam `sendMessage(...)` bruto fora da camada central
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -9,7 +9,7 @@
 - Reporter: Codex
 - Owner:
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md
+- Parent ticket (optional): tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Analysis stage (when applicable): spec-triage
@@ -110,10 +110,26 @@ Os envios baseados em `sendMessage(...)` para superfícies conversacionais e aux
 
 ## Decision log
 - 2026-03-23 - Ticket aberto para concluir a centralização dos envios `sendMessage(...)` fora do caminho crítico e preservar contratos interativos já existentes.
+- 2026-03-23 14:48Z - Releitura final do diff, do ExecPlan, da spec e do checklist de `docs/workflows/codex-quality-gates.md` concluída com veredito técnico `GO`: a migração dos fluxos alvo está implementada, auditada por código e validada por testes automatizados/regressão complementar, restando apenas smoke manual externo em Telegram real.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Final decision: GO
+- Closed at (UTC): 2026-03-23 14:48Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - ExecPlan: `execplans/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner
+- Closure criteria validation:
+  - RF-02, RF-08, CA-04: validado por auditoria de código em `src/integrations/telegram-bot.ts` e `src/integrations/telegram-delivery.ts`, onde `/plan_spec`, `/discover_spec` e `/codex_chat` passaram a delegar envio para `deliverTextMessage(...)` com política explícita; `npx tsx --test src/integrations/telegram-delivery.test.ts src/integrations/telegram-bot.test.ts` ficou verde (`152/152`), incluindo cenários de pergunta/finalização/callback desses fluxos.
+  - RF-09, RF-10, CA-05: validado pela extensão de `TelegramDeliveryResult` com `primaryMessageId/messages`, preservação de `reply_markup` no serviço central e testes `retorna message_id e aplica formatacao centralizada de chunks para ticket aberto`, `pergunta de /discover_spec reutiliza callback compartilhado sem misturar com /plan_spec`, `finalizacao de /discover_spec renderiza secoes enriquecidas...`, `callback de pergunta do /plan_spec...` e `callback final do /plan_spec...`, todos verdes no recorte automatizado.
+  - RF-14: validado por `rg -n "bot\\.telegram\\.sendMessage\\(" src/integrations/telegram-bot.ts src/integrations/telegram-delivery.ts`, restando apenas o adaptador interno em `src/integrations/telegram-bot.ts:751`; `sendTicketOpenContent(...)`, CTA de implementação e mensagens auxiliares de callback agora usam a camada central com políticas explícitas.
+  - RF-15, CA-09: validado pelos testes `politica interativa faz retry leve e registra logging padronizado` e `politica de callback falha com erro estruturado e logging definitivo` em `src/integrations/telegram-delivery.test.ts`, além do recorte `npx tsx --test ...` e da regressão completa `npm test` (`428/428`), confirmando logging com política, tipo lógico, tentativas, classe/código de erro e resultado final.
+  - RF-17, RF-20, CA-12: validado por leitura de código e auditoria `rg -n "answerCbQuery|editMessageText|deliverTextMessage" ...`, confirmando `answerCbQuery(...)`/`editMessageText(...)` fora do núcleo inicial, e pelos testes de callbacks/regressão que permaneceram verdes sem mudança intencional de UX textual.
+  - Validação manual pendente relevante: não bloqueia o aceite técnico. A entrega técnica foi concluída; ainda falta exercitar manualmente, em chat Telegram real autorizado, um fluxo entre `/plan_spec`, `/discover_spec` ou `/codex_chat`, percorrendo ao menos uma etapa com `reply_markup` e callback para confirmar coerência visual/textual. Como executar: iniciar o comando no bot, acionar um botão inline e verificar resposta/callback no mesmo chat. Responsável operacional: operador/maintainer com acesso ao bot real.
+- Validation summary:
+  - `npx tsx --test src/integrations/telegram-delivery.test.ts src/integrations/telegram-bot.test.ts` -> verde (`152/152`)
+  - `npm test` -> verde (`428/428`)
+  - `npm run check` -> verde
+  - `npm run build` -> verde
 - Follow-up ticket (required when `Closure reason: split-follow-up`):
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
