@@ -6,10 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 02:32Z
-- Last reviewed at (UTC): 2026-03-23 02:32Z
+- Last reviewed at (UTC): 2026-03-23 03:08Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md
+  - tickets/open/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
+  - tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
+  - tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md
+  - tickets/closed/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md
   - tickets/closed/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md
 - Related execplans:
   - Nenhum ainda.
@@ -135,25 +138,49 @@
 - Nota de uso: esta secao permanece `n/a` ate que esta spec seja executada via `/run_specs`; o foco da spec e a qualidade do ticket transversal de melhoria de workflow, e nao um gate funcional ja rodado nesta linhagem.
 - Politica historica: alinhamentos desta secao nao exigem migracao retroativa em massa; material historico so deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-23T03:07:57.312Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado cobre de forma coerente as tres frentes abertas da spec: contrato/validacao do ticketDraft, renderizacao editorial com filtro de contexto e barra minima documental. Os tickets herdam explicitamente RNFs, restricoes tecnicas/documentais e validacoes manuais aplicaveis onde isso afeta implementacao, aceite ou documentacao, e os Closure criteria tornam esse aceite observavel sem exigir campos exclusivos de post-implementation audit/review para origem spec-triage.
+- Ciclos executados: 0
+- Thread da validacao: 019d18a8-596b-7d62-944b-32e7a91ca092
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: GO (high)
+  - Resumo: O pacote derivado cobre de forma coerente as tres frentes abertas da spec: contrato/validacao do ticketDraft, renderizacao editorial com filtro de contexto e barra minima documental. Os tickets herdam explicitamente RNFs, restricoes tecnicas/documentais e validacoes manuais aplicaveis onde isso afeta implementacao, aceite ou documentacao, e os Closure criteria tornam esse aceite observavel sem exigir campos exclusivos de post-implementation audit/review para origem spec-triage.
+  - Thread: 019d18a8-596b-7d62-944b-32e7a91ca092
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Nenhuma.
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip:
-  - n/a - spec criada manualmente para evolucao do proprio workflow.
-- Classificacao final:
-  - n/a
-- Confianca:
-  - n/a
-- Frente causal analisada:
-  - n/a
+- Executada: nao
+- Motivo de ativacao ou skip: pulada porque o gate funcional nao revisou gaps em nenhum ciclo.
+- Classificacao final: n/a
+- Confianca: n/a
+- Frente causal analisada: n/a
 - Achados sistemicos:
   - n/a
 - Artefatos do workflow consultados:
   - n/a
-- Elegibilidade de publicacao:
-  - n/a
+- Elegibilidade de publicacao: n/a
 - Resultado do ticket transversal ou limitacao operacional:
   - n/a
-- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional e continua canonica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`. Com a flag desligada, a secao pode permanecer `n/a` e nao recebe write-back automatico. Se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
@@ -167,16 +194,18 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
+- Resultado da validacao final da triagem: a releitura desta spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual confirmou consistencia documental entre os gaps registrados, as evidencias citadas e a rastreabilidade aberta; por isso o documento permanece em `Status: approved` com `Spec treatment: pending`.
 - Itens atendidos:
   - O repositório ja possui `spec-ticket-derivation-retrospective` e `spec-workflow-retrospective` como pontos canonicos de descoberta do backlog sistemico.
   - O workflow ja possui `workflow-gap-analysis` parseavel, publication cross-repo, deduplicacao por fingerprints e trilha request/response/decision.
   - O publisher atual ja preserva boa parte da rastreabilidade operacional e da qualificacao cross-repo necessarias para tickets automaticos confiaveis.
   - A discussao que motivou esta spec ja delimitou com clareza os principais gaps de qualidade: titulo pouco orientado ao problema, excesso de assumptions/defaults irrelevantes, solucao confundida com beneficio e fechamento generico demais.
 - Pendencias em aberto:
-  - Derivar ticket(s) para endurecer prompts, contrato parseavel, handoff tipado, publisher, documentacao e testes da criacao automatica do ticket transversal.
-  - Substituir a autoria generica atual por um contrato estruturado de `ticketDraft` ou equivalente.
-  - Tornar falhas de qualidade editorial observaveis e testaveis antes da publicacao do ticket automatico.
+  - `prompts/11-retrospectiva-workflow-apos-spec-audit.md` e `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` ainda nao exigem um `ticketDraft` parseavel obrigatorio quando `publicationEligibility=true`; o runner continua sintetizando `publicationHandoff` internamente a partir de `summary`, `causalHypothesis`, `benefitSummary` e findings. Ticket derivado: `tickets/open/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md`.
+  - `src/types/workflow-improvement-ticket.ts`, `src/core/runner.ts` e `src/integrations/workflow-improvement-ticket-publisher.ts` ainda nao carregam/renderizam titulo orientado ao problema, `problemStatement`, `expectedBehavior`, `proposedSolution`, `closureCriteria` por superficie e `relevantAssumptionsDefaults` filtradas como fonte primaria; `Source requirements` segue simplificado como `RFs/CAs`. Ticket derivado: `tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md`.
+  - `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e a documentacao compartilhada ainda nao explicitam a barra minima editorial do ticket automatico de retrospectiva sistemica. Ticket derivado: `tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md`.
 - Evidencias de validacao:
+  - Validacao final da triagem concluida em 2026-03-23 03:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as 3 pendencias abertas e a rastreabilidade derivada na propria spec.
   - `prompts/11-retrospectiva-workflow-apos-spec-audit.md`
   - `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`
   - `src/core/runner.ts`
@@ -187,7 +216,7 @@
   - `src/integrations/workflow-improvement-ticket-publisher.test.ts`
   - `INTERNAL_TICKETS.md`
   - `tickets/templates/internal-ticket-template.md`
-  - `tickets/open/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md`
+  - `tickets/closed/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md`
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -213,3 +242,5 @@
 
 ## Historico de atualizacao
 - 2026-03-23 02:32Z - Versao inicial da spec.
+- 2026-03-23 02:58Z - Triagem de gaps concluida contra prompts, runner, parser, tipos, publisher, testes e documentacao canonica; 3 tickets derivados abertos para contrato/validacao editorial, renderizacao/filtro de contexto e barra minima documental.
+- 2026-03-23 03:08Z - Validacao final da triagem concluida com releitura da spec, dos tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` e `Spec treatment: pending` por ainda depender dos 3 tickets abertos.
