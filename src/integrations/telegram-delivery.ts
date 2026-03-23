@@ -452,9 +452,14 @@ export class TelegramDeliveryService {
       let chunkEnd = maxEnd;
 
       if (maxEnd < source.length) {
-        const breakAt = source.lastIndexOf("\n", maxEnd - 1);
-        if (breakAt >= cursor) {
-          chunkEnd = breakAt + 1;
+        const sectionBreakAt = source.lastIndexOf("\n\n", maxEnd - 1);
+        if (sectionBreakAt >= cursor) {
+          chunkEnd = sectionBreakAt + 2;
+        } else {
+          const breakAt = source.lastIndexOf("\n", maxEnd - 1);
+          if (breakAt >= cursor) {
+            chunkEnd = breakAt + 1;
+          }
         }
       }
 

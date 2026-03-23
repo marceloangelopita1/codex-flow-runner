@@ -13,7 +13,7 @@
   - preenchimento/clonagem desses summaries no runner;
   - adaptacao minima das superficies consumidoras e dos testes para o novo contrato.
 - Fora de escopo:
-  - reorganizacao editorial completa das mensagens de Telegram, ordem final de secoes, deduplicacao textual e chunking semantico; isso pertence ao ticket irmao `tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`;
+  - reorganizacao editorial completa das mensagens de Telegram, ordem final de secoes, deduplicacao textual e chunking semantico; isso pertence ao ticket irmao `tickets/closed/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`;
   - mudar a semantica funcional das etapas de `/run_specs`;
   - alterar a camada robusta de entrega Telegram alem do necessario para preservar compatibilidade;
   - fechar ticket, mover arquivo para `tickets/closed/`, commitar ou fazer push nesta etapa.
@@ -54,7 +54,7 @@
 - Status final: implementacao concluida, validada localmente e aceita para fechamento operacional em `GO`.
 - O que funcionou: o recorte entre contrato de dados e rendering editorial permitiu enriquecer runner, prompts e Telegram sem mexer no fluxo funcional nem na camada robusta de entrega.
 - O que ficou pendente: a rodada separada de redesign editorial/chunking prevista no ticket irmao.
-- Proximos passos: usar o contrato novo como insumo do ticket `tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`, depois fechar a linhagem com auditoria final da spec.
+- Proximos passos: usar o contrato novo como insumo do ticket `tickets/closed/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`, depois fechar a linhagem com auditoria final da spec.
 
 ## Context and Orientation
 - Arquivos principais:
@@ -187,7 +187,7 @@
 - Spec de origem:
   - `docs/specs/2026-03-23-qualidade-informacional-e-formato-editorial-das-mensagens-de-run-specs-no-telegram.md`
 - Ticket correlato fora do escopo direto:
-  - `tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`
+  - `tickets/closed/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`
 - Referencias obrigatorias consumidas no planejamento:
   - `PLANS.md`
   - `SPECS.md`

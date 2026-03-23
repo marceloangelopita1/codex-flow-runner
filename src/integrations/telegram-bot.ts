@@ -44,6 +44,7 @@ import {
   FlowNotificationDelivery,
   FlowNotificationDispatchError,
   FlowTimingSnapshot,
+  RunAllFlowSummary,
   RunSpecsFlowSummary,
   RunnerFlowSummary,
 } from "../types/flow-timing.js";
@@ -339,6 +340,11 @@ type ParsedCodexChatCallbackData =
   | {
       status: "invalid";
     };
+
+interface EditorialSection {
+  title: string;
+  lines: string[];
+}
 
 type ParsedSpecsCallbackData =
   | {
@@ -6227,23 +6233,23 @@ export class TelegramController {
   private buildRunFlowSummaryMessage(summary: RunnerFlowSummary): string {
     const lines = [
       "📣 Resumo final de fluxo",
-      `Fluxo: ${summary.flow}`,
-      `Projeto ativo: ${summary.activeProjectName}`,
-      `Caminho do projeto: ${summary.activeProjectPath}`,
-      `Resultado: ${this.renderOutcome(summary.outcome)}`,
-      `Fase final: ${summary.finalStage}`,
-      `Motivo de encerramento: ${summary.completionReason}`,
-      `Timestamp UTC: ${summary.timestampUtc}`,
     ];
-    if (summary.codexPreferences) {
-      lines.push(
-        `Codex utilizado: ${summary.codexPreferences.model} | reasoning ${summary.codexPreferences.reasoningEffort} | velocidade ${this.renderCodexSpeedLabel(summary.codexPreferences.speed)}`,
-      );
-    } else {
-      lines.push("Codex utilizado: snapshot indisponivel");
-    }
 
     if (summary.flow === "run-all") {
+      lines.push(`Fluxo: ${summary.flow}`);
+      lines.push(`Projeto ativo: ${summary.activeProjectName}`);
+      lines.push(`Caminho do projeto: ${summary.activeProjectPath}`);
+      lines.push(`Resultado: ${this.renderOutcome(summary.outcome)}`);
+      lines.push(`Fase final: ${summary.finalStage}`);
+      lines.push(`Motivo de encerramento: ${summary.completionReason}`);
+      lines.push(`Timestamp UTC: ${summary.timestampUtc}`);
+      if (summary.codexPreferences) {
+        lines.push(
+          `Codex utilizado: ${summary.codexPreferences.model} | reasoning ${summary.codexPreferences.reasoningEffort} | velocidade ${this.renderCodexSpeedLabel(summary.codexPreferences.speed)}`,
+        );
+      } else {
+        lines.push("Codex utilizado: snapshot indisponivel");
+      }
       lines.push(`Tickets processados: ${summary.processedTicketsCount}/${summary.maxTicketsPerRound}`);
       if (summary.lastProcessedTicket) {
         lines.push(`Último ticket processado: ${summary.lastProcessedTicket}`);
@@ -6258,60 +6264,80 @@ export class TelegramController {
       if (summary.details) {
         lines.push(`Detalhes: ${summary.details}`);
       }
-      this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_ALL_TIMING_STAGE_ORDER);
+      lines.push("Tempos do fluxo");
+      lines.push(...this.buildTimingDetailLines(summary.timing, RUN_ALL_TIMING_STAGE_ORDER));
       return lines.join("\n");
     }
 
-    lines.push(`Spec: ${summary.spec.fileName}`);
-    lines.push(`Caminho da spec: ${summary.spec.path}`);
-    if (summary.details) {
-      lines.push(`Detalhes: ${summary.details}`);
-    }
+    const sections: EditorialSection[] = [
+      {
+        title: "Visao geral do fluxo",
+        lines: this.buildRunSpecsOverviewLines(summary),
+      },
+    ];
+
     if (summary.specTriage) {
-      this.appendRunSpecsSpecTriageLines(lines, summary.specTriage);
+      sections.push({
+        title: "Pre-/run_all: spec-triage",
+        lines: this.buildRunSpecsSpecTriageLines(summary.specTriage),
+      });
     }
     if (summary.specTicketValidation) {
-      this.appendRunSpecsTicketValidationLines(lines, summary.specTicketValidation);
+      sections.push({
+        title: "Pre-/run_all: spec-ticket-validation",
+        lines: this.buildRunSpecsTicketValidationLines(summary.specTicketValidation),
+      });
     }
     if (summary.specTicketDerivationRetrospective) {
-      this.appendSpecTicketDerivationRetrospectiveLines(
-        lines,
-        summary.specTicketDerivationRetrospective,
-      );
+      sections.push({
+        title: "Pre-/run_all: retrospectiva da derivacao",
+        lines: this.buildSpecTicketDerivationRetrospectiveLines(
+          summary.specTicketDerivationRetrospective,
+        ),
+      });
     }
     if (summary.specCloseAndVersion) {
-      this.appendRunSpecsSpecCloseAndVersionLines(lines, summary.specCloseAndVersion);
+      sections.push({
+        title: "Pre-/run_all: spec-close-and-version",
+        lines: this.buildRunSpecsSpecCloseAndVersionLines(summary.specCloseAndVersion),
+      });
     }
     if (summary.specAudit) {
-      this.appendRunSpecsSpecAuditLines(lines, summary.specAudit);
+      sections.push({
+        title: "Pos-/run_all: spec-audit",
+        lines: this.buildRunSpecsSpecAuditLines(summary.specAudit),
+      });
     }
     if (summary.workflowGapAnalysis) {
-      this.appendWorkflowGapAnalysisLines(
-        lines,
-        summary.workflowGapAnalysis,
-        "Retrospectiva sistemica pos-spec-audit",
-      );
+      sections.push({
+        title: "Pos-/run_all: retrospectiva sistemica",
+        lines: this.buildWorkflowGapAnalysisDetailLines(summary.workflowGapAnalysis),
+      });
     }
     if (summary.workflowImprovementTicket) {
-      this.appendWorkflowImprovementTicketLines(
-        lines,
-        summary.workflowImprovementTicket,
-        "Ticket transversal pos-spec-audit",
-      );
+      sections.push({
+        title: "Pos-/run_all: ticket transversal",
+        lines: this.buildWorkflowImprovementTicketLines(summary.workflowImprovementTicket),
+      });
     }
-    this.appendTimingLines(lines, "Tempos do fluxo", summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER);
-    this.appendTimingLines(lines, "Tempos da triagem", summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
+
+    sections.push({
+      title: "Timing do fluxo completo",
+      lines: this.buildTimingDetailLines(summary.timing, RUN_SPECS_FLOW_TIMING_STAGE_ORDER),
+    });
+    sections.push({
+      title: "Timing da triagem pre-/run_all",
+      lines: this.buildTimingDetailLines(summary.triageTiming, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER),
+    });
 
     if (summary.runAllSummary) {
-      lines.push(
-        `Resumo /run-all encadeado: ${this.renderOutcome(summary.runAllSummary.outcome)} (${summary.runAllSummary.completionReason})`,
-      );
-      lines.push(
-        `Tickets processados no /run-all encadeado: ${summary.runAllSummary.processedTicketsCount}/${summary.runAllSummary.maxTicketsPerRound}`,
-      );
+      sections.push({
+        title: "Resultado do /run_all encadeado",
+        lines: this.buildChainedRunAllSummaryLines(summary.runAllSummary),
+      });
     }
 
-    return lines.join("\n");
+    return this.renderEditorialMessage(lines, sections);
   }
 
   private renderOutcome(outcome: "success" | "failure" | "blocked"): string {
@@ -6326,19 +6352,65 @@ export class TelegramController {
     return "falha";
   }
 
-  private appendRunSpecsTicketValidationLines(
-    lines: string[],
+  private renderEditorialMessage(headerLines: string[], sections: EditorialSection[]): string {
+    const blocks = [headerLines.join("\n")];
+    for (const section of sections) {
+      if (section.lines.length === 0) {
+        continue;
+      }
+      blocks.push([section.title, ...section.lines].join("\n"));
+    }
+
+    return blocks.join("\n\n");
+  }
+
+  private buildRunSpecsOverviewLines(summary: RunSpecsFlowSummary): string[] {
+    const lines = [
+      `Fluxo: ${summary.flow}`,
+      `Projeto ativo: ${summary.activeProjectName}`,
+      `Caminho do projeto: ${summary.activeProjectPath}`,
+      `Spec: ${summary.spec.fileName}`,
+      `Caminho da spec: ${summary.spec.path}`,
+      `Resultado: ${this.renderOutcome(summary.outcome)}`,
+      `Fase final: ${summary.finalStage}`,
+      `Motivo de encerramento: ${summary.completionReason}`,
+      `Timestamp UTC: ${summary.timestampUtc}`,
+    ];
+
+    if (summary.codexPreferences) {
+      lines.push(
+        `Codex utilizado: ${summary.codexPreferences.model} | reasoning ${summary.codexPreferences.reasoningEffort} | velocidade ${this.renderCodexSpeedLabel(summary.codexPreferences.speed)}`,
+      );
+    } else {
+      lines.push("Codex utilizado: snapshot indisponivel");
+    }
+
+    if (summary.details) {
+      lines.push(`Leitura operacional: ${summary.details}`);
+    }
+
+    return lines;
+  }
+
+  private buildRunSpecsTicketValidationLines(
     summary: NonNullable<RunSpecsFlowSummary["specTicketValidation"]>,
-  ): void {
-    lines.push("Gate spec-ticket-validation");
-    lines.push(`Veredito: ${summary.verdict}`);
-    lines.push(`Confianca final: ${summary.confidence}`);
-    lines.push(`Motivo final: ${summary.finalReason}`);
-    lines.push(`Ciclos executados: ${summary.cyclesExecuted}`);
-    lines.push(`Resumo do gate: ${summary.summary}`);
+  ): string[] {
+    const finalGapCount =
+      summary.finalOpenGapFingerprints.length > 0
+        ? summary.finalOpenGapFingerprints.length
+        : summary.gaps.length;
+    const lines = [
+      `Veredito: ${summary.verdict}`,
+      `Confianca final: ${summary.confidence}`,
+      `Motivo final: ${summary.finalReason}`,
+      `Ciclos executados: ${summary.cyclesExecuted}`,
+      `Revalidacao executada: ${summary.cycleHistory.length > 1 ? `sim (${summary.cycleHistory.length - 1} rodada(s) adicional(is))` : "nao"}`,
+      `Contagem final de gaps: ${finalGapCount}`,
+      `Sintese final do gate: ${summary.summary}`,
+    ];
 
     if (summary.cycleHistory.length > 1) {
-      lines.push("Historico por ciclo:");
+      lines.push("Evolucao por ciclo:");
       for (const cycle of summary.cycleHistory) {
         const reductionLabel =
           cycle.realGapReductionFromPrevious === null
@@ -6347,20 +6419,21 @@ export class TelegramController {
               ? "sim"
               : "nao";
         lines.push(
-          `- ciclo ${cycle.cycleNumber} [${cycle.phase}]: ${cycle.verdict}/${cycle.confidence} | gaps=${cycle.openGapFingerprints.length} | reducao=${reductionLabel}`,
+          `- ciclo ${cycle.cycleNumber} [${cycle.phase}]: ${cycle.verdict}/${cycle.confidence} | gaps=${cycle.openGapFingerprints.length} | reducao-real=${reductionLabel}`,
         );
+        lines.push(`  sinal do ciclo: ${cycle.summary}`);
         if (cycle.appliedCorrections.length > 0) {
           lines.push(
-            `  correcoes: ${cycle.appliedCorrections.map((correction) => `${correction.description} (${correction.outcome})`).join("; ")}`,
+            `  correcoes deste ciclo: ${cycle.appliedCorrections.map((correction) => `${correction.description} (${correction.outcome})`).join("; ")}`,
           );
         }
       }
     }
 
     if (summary.gaps.length === 0) {
-      lines.push("Gaps finais: nenhum");
+      lines.push("Gaps finais detalhados: nenhum");
     } else {
-      lines.push("Gaps finais:");
+      lines.push("Gaps finais detalhados:");
       for (const gap of summary.gaps) {
         const requirementSuffix =
           gap.requirementRefs.length > 0
@@ -6370,94 +6443,122 @@ export class TelegramController {
       }
     }
 
-    if (summary.appliedCorrections.length === 0) {
-      lines.push("Correcoes aplicadas: nenhuma");
-    } else {
-      lines.push("Correcoes aplicadas:");
-      for (const correction of summary.appliedCorrections) {
-        lines.push(`- ${correction.description} (${correction.outcome})`);
+    lines.push(
+      `Sintese final das correcoes aplicadas: ${this.buildAppliedCorrectionSummary(summary.appliedCorrections)}`,
+    );
+
+    return lines;
+  }
+
+  private buildAppliedCorrectionSummary(
+    corrections: NonNullable<RunSpecsFlowSummary["specTicketValidation"]>["appliedCorrections"],
+  ): string {
+    if (!corrections || corrections.length === 0) {
+      return "nenhuma";
+    }
+
+    const outcomes = new Map<string, number>();
+    const affectedArtifacts = new Set<string>();
+    const linkedGapTypes = new Set<string>();
+    for (const correction of corrections) {
+      outcomes.set(correction.outcome, (outcomes.get(correction.outcome) ?? 0) + 1);
+      for (const artifactPath of correction.affectedArtifactPaths) {
+        affectedArtifacts.add(artifactPath);
+      }
+      for (const gapType of correction.linkedGapTypes) {
+        linkedGapTypes.add(gapType);
       }
     }
 
+    const outcomeSummary = Array.from(outcomes.entries())
+      .map(([outcome, count]) => `${outcome}=${count}`)
+      .join(", ");
+    const artifactPaths = Array.from(affectedArtifacts);
+    const artifactSummary =
+      artifactPaths.length === 0
+        ? "artefatos nao informados"
+        : artifactPaths.length <= 2
+          ? `artefatos ${artifactPaths.join(", ")}`
+          : `${artifactPaths.length} artefatos impactados`;
+    const gapSummary =
+      linkedGapTypes.size === 0
+        ? "sem gap vinculado"
+        : linkedGapTypes.size === 1
+          ? `frente ${Array.from(linkedGapTypes)[0]}`
+          : `${linkedGapTypes.size} frentes de gap`;
+
+    return `${corrections.length} ajuste(s); resultados ${outcomeSummary}; ${artifactSummary}; ${gapSummary}`;
   }
 
-  private appendRunSpecsSpecTriageLines(
-    lines: string[],
+  private buildRunSpecsSpecTriageLines(
     summary: NonNullable<RunSpecsFlowSummary["specTriage"]>,
-  ): void {
-    lines.push("Resumo spec-triage");
-    lines.push(`Status da spec apos triagem: ${summary.specStatusAfterTriage}`);
-    lines.push(`Spec treatment apos triagem: ${summary.specTreatmentAfterTriage}`);
-    lines.push(`Tickets derivados criados: ${summary.derivedTicketsCreated}`);
-    lines.push(`Resumo: ${summary.summary}`);
+  ): string[] {
+    return [
+      `Status da spec apos triagem: ${summary.specStatusAfterTriage}`,
+      `Spec treatment apos triagem: ${summary.specTreatmentAfterTriage}`,
+      `Tickets derivados criados: ${summary.derivedTicketsCreated}`,
+      `Efeito observavel da triagem: ${summary.summary}`,
+    ];
   }
 
-  private appendSpecTicketDerivationRetrospectiveLines(
-    lines: string[],
+  private buildSpecTicketDerivationRetrospectiveLines(
     summary: NonNullable<RunSpecsFlowSummary["specTicketDerivationRetrospective"]>,
-  ): void {
-    lines.push("Retrospectiva sistemica da derivacao");
-    lines.push(`Decisao: ${summary.decision}`);
-    lines.push(`Gaps revisados detectados: ${summary.reviewedGapHistoryDetected ? "sim" : "nao"}`);
-    lines.push(`Insumos estruturados disponiveis: ${summary.structuredInputAvailable ? "sim" : "nao"}`);
-    lines.push(`Veredito funcional associado: ${summary.functionalVerdict}`);
-    lines.push(`Resumo: ${summary.summary}`);
+  ): string[] {
+    const lines = [
+      `Decisao: ${summary.decision}`,
+      `Gaps revisados detectados: ${summary.reviewedGapHistoryDetected ? "sim" : "nao"}`,
+      `Insumos estruturados disponiveis: ${summary.structuredInputAvailable ? "sim" : "nao"}`,
+      `Veredito funcional associado: ${summary.functionalVerdict}`,
+      `Sintese da retrospectiva: ${summary.summary}`,
+    ];
 
     if (summary.analysis) {
-      this.appendWorkflowGapAnalysisDetails(lines, summary.analysis);
+      lines.push("Analise sistemica associada:");
+      lines.push(...this.buildWorkflowGapAnalysisDetailLines(summary.analysis));
     }
 
     if (summary.workflowImprovementTicket) {
-      this.appendWorkflowImprovementTicketLines(
-        lines,
-        summary.workflowImprovementTicket,
-        "Ticket transversal da derivacao",
-      );
+      lines.push("Ticket transversal ou limitacao associada:");
+      lines.push(...this.buildWorkflowImprovementTicketLines(summary.workflowImprovementTicket));
     }
+
+    return lines;
   }
 
-  private appendRunSpecsSpecCloseAndVersionLines(
-    lines: string[],
+  private buildRunSpecsSpecCloseAndVersionLines(
     summary: NonNullable<RunSpecsFlowSummary["specCloseAndVersion"]>,
-  ): void {
-    lines.push("Resumo spec-close-and-version");
-    lines.push(`Fechamento concluido: ${summary.closureCompleted ? "sim" : "nao"}`);
-    lines.push(`Resultado de versionamento: ${summary.versioningResult}`);
-    lines.push(`Commit hash: ${summary.commitHash ?? "n/a"}`);
-    lines.push(`Resumo: ${summary.summary}`);
+  ): string[] {
+    return [
+      `Fechamento concluido: ${summary.closureCompleted ? "sim" : "nao"}`,
+      `Resultado de versionamento: ${summary.versioningResult}`,
+      `Commit hash: ${summary.commitHash ?? "n/a"}`,
+      `Resultado observavel: ${summary.summary}`,
+    ];
   }
 
-  private appendRunSpecsSpecAuditLines(
-    lines: string[],
+  private buildRunSpecsSpecAuditLines(
     summary: NonNullable<RunSpecsFlowSummary["specAudit"]>,
-  ): void {
-    lines.push("Resumo spec-audit");
-    lines.push(`Gaps residuais detectados: ${summary.residualGapsDetected ? "sim" : "nao"}`);
-    lines.push(`Follow-up tickets criados: ${summary.followUpTicketsCreated}`);
-    lines.push(`Status da spec apos auditoria: ${summary.specStatusAfterAudit}`);
-    lines.push(`Resumo: ${summary.summary}`);
+  ): string[] {
+    return [
+      `Gaps residuais detectados: ${summary.residualGapsDetected ? "sim" : "nao"}`,
+      `Follow-up tickets criados: ${summary.followUpTicketsCreated}`,
+      `Status da spec apos auditoria: ${summary.specStatusAfterAudit}`,
+      `Resultado observavel da auditoria: ${summary.summary}`,
+    ];
   }
 
-  private appendWorkflowGapAnalysisLines(
-    lines: string[],
+  private buildWorkflowGapAnalysisDetailLines(
     summary: NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>,
-    title = "Retrospectiva sistemica",
-  ): void {
-    lines.push(title);
-    this.appendWorkflowGapAnalysisDetails(lines, summary);
-  }
-
-  private appendWorkflowGapAnalysisDetails(
-    lines: string[],
-    summary: NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>,
-  ): void {
-    lines.push(`Classificacao: ${summary.classification}`);
-    lines.push(`Confianca: ${summary.confidence}`);
-    lines.push(`Modo de entrada: ${summary.inputMode}`);
-    lines.push(`Elegivel para publication: ${summary.publicationEligibility ? "sim" : "nao"}`);
-    lines.push(`Resumo: ${summary.summary}`);
-    lines.push(`Hipotese causal: ${summary.causalHypothesis}`);
-    lines.push(`Beneficio esperado: ${summary.benefitSummary}`);
+  ): string[] {
+    const lines = [
+      `Classificacao: ${summary.classification}`,
+      `Confianca: ${summary.confidence}`,
+      `Modo de entrada: ${summary.inputMode}`,
+      `Elegivel para publication: ${summary.publicationEligibility ? "sim" : "nao"}`,
+      `Sintese da analise: ${summary.summary}`,
+      `Hipotese causal: ${summary.causalHypothesis}`,
+      `Beneficio esperado: ${summary.benefitSummary}`,
+    ];
 
     if (summary.followUpTicketPaths.length === 0) {
       lines.push("Follow-ups funcionais considerados: fallback spec + audit");
@@ -6493,16 +6594,14 @@ export class TelegramController {
       lines.push(`Limitacao operacional: ${summary.limitation.code}`);
       lines.push(`Detalhe da limitacao: ${summary.limitation.detail}`);
     }
+
+    return lines;
   }
 
-  private appendWorkflowImprovementTicketLines(
-    lines: string[],
+  private buildWorkflowImprovementTicketLines(
     summary: NonNullable<RunSpecsFlowSummary["workflowImprovementTicket"]>,
-    title = "Ticket transversal de workflow",
-  ): void {
-    lines.push(title);
-    lines.push(`Resultado: ${summary.status}`);
-    lines.push(`Detalhe: ${summary.detail}`);
+  ): string[] {
+    const lines = [`Resultado: ${summary.status}`, `Detalhe: ${summary.detail}`];
 
     if (summary.targetRepoDisplayPath) {
       lines.push(`Repositorio alvo: ${summary.targetRepoDisplayPath}`);
@@ -6516,17 +6615,43 @@ export class TelegramController {
     if (summary.limitationCode) {
       lines.push(`Limitacao de publication: ${summary.limitationCode}`);
     }
+
+    return lines;
   }
 
-  private appendTimingLines<Stage extends string>(
-    lines: string[],
-    title: string,
+  private buildChainedRunAllSummaryLines(summary: RunAllFlowSummary): string[] {
+    const lines = [
+      `Resultado: ${this.renderOutcome(summary.outcome)}`,
+      `Fase final do /run_all: ${summary.finalStage}`,
+      `Motivo de encerramento do /run_all: ${summary.completionReason}`,
+      `Tickets processados no /run_all: ${summary.processedTicketsCount}/${summary.maxTicketsPerRound}`,
+    ];
+
+    if (summary.lastProcessedTicket) {
+      lines.push(`Ultimo ticket processado: ${summary.lastProcessedTicket}`);
+    }
+    if (summary.selectionTicket) {
+      lines.push(
+        summary.completionReason === "blocked-tickets-only"
+          ? `Proximo ticket bloqueado: ${summary.selectionTicket}`
+          : `Ticket afetado na selecao: ${summary.selectionTicket}`,
+      );
+    }
+    if (summary.details) {
+      lines.push(`Leitura operacional do /run_all: ${summary.details}`);
+    }
+
+    return lines;
+  }
+
+  private buildTimingDetailLines<Stage extends string>(
     timing: FlowTimingSnapshot<Stage>,
     orderedStages: readonly Stage[],
-  ): void {
-    lines.push(title);
-    lines.push(`Tempo total: ${this.formatDurationMs(timing.totalDurationMs)}`);
-    lines.push("Duracao por fase:");
+  ): string[] {
+    const lines = [
+      `Tempo total: ${this.formatDurationMs(timing.totalDurationMs)}`,
+      "Duracao por fase:",
+    ];
 
     const timedStages = this.listTimedStagesInOrder(timing, orderedStages);
     if (timedStages.length === 0) {
@@ -6540,6 +6665,18 @@ export class TelegramController {
     if (timing.interruptedStage) {
       lines.push(`Fase interrompida: ${timing.interruptedStage}`);
     }
+
+    return lines;
+  }
+
+  private appendTimingLines<Stage extends string>(
+    lines: string[],
+    title: string,
+    timing: FlowTimingSnapshot<Stage>,
+    orderedStages: readonly Stage[],
+  ): void {
+    lines.push(title);
+    lines.push(...this.buildTimingDetailLines(timing, orderedStages));
   }
 
   private listTimedStagesInOrder<Stage extends string>(
@@ -6613,51 +6750,62 @@ export class TelegramController {
       }
     }
 
-    this.appendTimingLines(lines, "Tempos do ticket", summary.timing, TICKET_TIMING_STAGE_ORDER);
+    lines.push("Tempos do ticket");
+    lines.push(...this.buildTimingDetailLines(summary.timing, TICKET_TIMING_STAGE_ORDER));
     return lines.join("\n");
   }
 
   private buildRunSpecsTriageMilestoneMessage(event: RunSpecsTriageLifecycleEvent): string {
-    const outcomeLabel = this.renderOutcome(event.outcome);
-    const lines = [
-      "🧭 Marco da triagem /run_specs",
-      `Spec: ${event.spec.fileName}`,
-      `Caminho da spec: ${event.spec.path}`,
-      `Resultado: ${outcomeLabel}`,
-      `Fase final: ${event.finalStage}`,
-      `Proxima acao: ${event.nextAction}`,
+    const sections: EditorialSection[] = [
+      {
+        title: "Visao geral da triagem",
+        lines: [
+          `Spec: ${event.spec.fileName}`,
+          `Caminho da spec: ${event.spec.path}`,
+          `Resultado: ${this.renderOutcome(event.outcome)}`,
+          `Fase final: ${event.finalStage}`,
+          `Proxima acao: ${event.nextAction}`,
+          ...(event.details ? [`Leitura operacional: ${event.details}`] : []),
+        ],
+      },
     ];
 
-    if (event.details) {
-      lines.push(`Detalhes: ${event.details}`);
-    }
-
     if (event.specTicketValidation) {
-      lines.push("Snapshot spec-ticket-validation");
-      lines.push(`Veredito: ${event.specTicketValidation.verdict}`);
-      lines.push(`Confianca final: ${event.specTicketValidation.confidence}`);
-      lines.push(`Motivo final: ${event.specTicketValidation.finalReason}`);
-      lines.push(`Ciclos executados: ${event.specTicketValidation.cyclesExecuted}`);
-      lines.push(`Resumo do gate: ${event.specTicketValidation.summary}`);
+      sections.push({
+        title: "Snapshot do gate funcional pre-/run_all",
+        lines: [
+          `Veredito: ${event.specTicketValidation.verdict}`,
+          `Confianca final: ${event.specTicketValidation.confidence}`,
+          `Motivo final: ${event.specTicketValidation.finalReason}`,
+          `Ciclos executados: ${event.specTicketValidation.cyclesExecuted}`,
+          `Sintese do gate: ${event.specTicketValidation.summary}`,
+        ],
+      });
     }
 
     if (event.specTicketDerivationRetrospective) {
-      lines.push("Snapshot retrospectiva da derivacao");
-      lines.push(`Decisao: ${event.specTicketDerivationRetrospective.decision}`);
-      lines.push(
-        `Gaps revisados detectados: ${event.specTicketDerivationRetrospective.reviewedGapHistoryDetected ? "sim" : "nao"}`,
-      );
-      if (event.specTicketDerivationRetrospective.analysis) {
-        lines.push(
-          `Classificacao: ${event.specTicketDerivationRetrospective.analysis.classification}`,
-        );
-        lines.push(`Confianca: ${event.specTicketDerivationRetrospective.analysis.confidence}`);
-      }
-      lines.push(`Resumo: ${event.specTicketDerivationRetrospective.summary}`);
+      sections.push({
+        title: "Snapshot da retrospectiva da derivacao",
+        lines: [
+          `Decisao: ${event.specTicketDerivationRetrospective.decision}`,
+          `Gaps revisados detectados: ${event.specTicketDerivationRetrospective.reviewedGapHistoryDetected ? "sim" : "nao"}`,
+          ...(event.specTicketDerivationRetrospective.analysis
+            ? [
+                `Classificacao: ${event.specTicketDerivationRetrospective.analysis.classification}`,
+                `Confianca: ${event.specTicketDerivationRetrospective.analysis.confidence}`,
+              ]
+            : []),
+          `Sintese da retrospectiva: ${event.specTicketDerivationRetrospective.summary}`,
+        ],
+      });
     }
 
-    this.appendTimingLines(lines, "Tempos da triagem", event.timing, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);
-    return lines.join("\n");
+    sections.push({
+      title: "Timing da triagem pre-/run_all",
+      lines: this.buildTimingDetailLines(event.timing, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER),
+    });
+
+    return this.renderEditorialMessage(["🧭 Marco da triagem /run_specs"], sections);
   }
 
   private async resolveStatusCodexPreferences(

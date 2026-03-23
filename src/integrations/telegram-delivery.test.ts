@@ -92,6 +92,58 @@ test("retorna message_id e aplica formatacao centralizada de chunks para ticket 
   assert.equal(logger.infos[0]?.context?.logicalMessageType, "tickets-open-content");
 });
 
+test("chunking prefere fronteira de secao antes de quebrar apenas por newline", async () => {
+  const logger = new SpyLogger();
+  const sentMessages: string[] = [];
+  const service = new TelegramDeliveryService({
+    logger,
+    sendMessage: async (_chatId, text) => {
+      sentMessages.push(text);
+      return Promise.resolve({ message_id: 900 + sentMessages.length });
+    },
+    wait: async () => Promise.resolve(),
+  });
+
+  await service.deliverTextMessage({
+    destinationChatId: "42",
+    text: [
+      "Secao A",
+      "linha a1",
+      "linha a2",
+      "",
+      "Secao B",
+      "linha b1",
+      "linha b2",
+      "",
+      "Secao C",
+      "linha c1",
+      "linha c2",
+    ].join("\n"),
+    logicalMessageType: "sectioned-summary",
+    policy: {
+      name: "sectioned-summary",
+      maxAttempts: 1,
+      baseBackoffMs: 1,
+      maxBackoffMs: 1,
+      chunking: {
+        maxChunkLength: 26,
+        includePartHeader: false,
+      },
+    },
+    logMessages: {
+      success: "Resumo seccionado enviado no Telegram",
+      transientFailure: "Falha transitoria ao enviar resumo seccionado no Telegram",
+      definitiveFailure: "Falha definitiva ao enviar resumo seccionado no Telegram",
+    },
+  });
+
+  assert.deepEqual(sentMessages, [
+    "Secao A\nlinha a1\nlinha a2\n\n",
+    "Secao B\nlinha b1\nlinha b2\n\n",
+    "Secao C\nlinha c1\nlinha c2",
+  ]);
+});
+
 test("politica interativa faz retry leve e registra logging padronizado", async () => {
   const logger = new SpyLogger();
   const retryDelays: number[] = [];

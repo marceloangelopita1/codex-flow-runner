@@ -1,7 +1,7 @@
 # [TICKET] Mensagens de /run_specs no Telegram ainda usam montagem append-only com duplicacao e chunking sem contexto de secao
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -93,23 +93,45 @@ As mensagens de `/run_specs` devem ser montadas por secoes editoriais estaveis, 
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-01, RF-02, RF-07, CA-03.
 - Evidencia observavel: milestone e resumo final passam a usar ordem editorial estavel, com secoes distinguiveis para visao geral, fases pre-`/run_all`, fases pos-`/run_all`, timings e resultado do `/run_all`; testes de Telegram verificam rotulos e ordem.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts` passou a renderizar milestone e resumo final via `renderEditorialMessage(...)`, com secoes `Visao geral da triagem`, `Pre-/run_all`, `Pos-/run_all`, timings e `Resultado do /run_all encadeado`; `src/integrations/telegram-bot.test.ts` valida ordem e rotulos com `assertOrderedSubstrings(...)`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` e `npm test` passaram em 2026-03-23 17:14Z.
 - Requisito/RF/CA coberto: RF-13, RF-14, RF-15, CA-05, CA-10.
 - Evidencia observavel: o bloco de `spec-ticket-validation` mostra evolucao entre ciclos, contagem de gaps finais e revalidacao quando houver, sem repetir literalmente a mesma correcao em historico e agregado; testes fazem asserts negativos para duplicacao textual.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts` passou a expor `Revalidacao executada`, `Contagem final de gaps`, `Evolucao por ciclo` e `Sintese final das correcoes aplicadas`; o teste `envia historico por ciclo no resumo de /run-specs quando houve revalidacao` em `src/integrations/telegram-bot.test.ts` verifica a ausencia de repeticao literal da mesma correcao com `countOccurrences(...) === 1`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts` passou em 2026-03-23 17:14Z.
 - Requisito/RF/CA coberto: RF-16, RF-17, RF-18, CA-06, CA-07.
 - Evidencia observavel: a retrospectiva da derivacao separa execucao, analise sistemica e ticket/limitacao associada; rotulos deixam de reutilizar `Resumo` sem qualificacao; timings de triagem e fluxo completo ficam com escopo autoexplicativo.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts` passou a usar `Sintese da retrospectiva`, `Analise sistemica associada`, `Ticket transversal ou limitacao associada`, `Timing do fluxo completo` e `Timing da triagem pre-/run_all`; os testes `envia resumo final de /run-specs distinguindo gate funcional, retrospectiva da derivacao e retrospectiva pos-spec-audit` e `envia resumo final de fluxo /run-specs com tempos e snapshot parcial em falha` confirmam os rotulos qualificados; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts` passou em 2026-03-23 17:14Z.
 - Requisito/RF/CA coberto: RF-19, RF-20, RF-21, RF-22, RF-24, CA-08.
 - Evidencia observavel: o renderer passa a ser orientado a secoes/view-models editoriais; a suite cobre sucesso, `NO_GO`, falha tecnica de triagem, retrospectiva executada, retrospectiva pulada e mensagens longas chunkadas com asserts editoriais especificos e verificacao de fronteira de secao quando aplicavel.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts` foi refatorado para builders editoriais por secao e `src/integrations/telegram-delivery.ts` passou a preferir `\\n\\n` antes de `\\n` no chunking; `src/integrations/telegram-delivery.test.ts` valida a quebra por fronteira de secao e `src/integrations/telegram-bot.test.ts` cobre sucesso, `NO_GO`, falha tecnica, retrospectiva executada/pulada e resumo longo; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, `npm test`, `npm run check` e `npm run build` passaram em 2026-03-23 17:14Z.
 - Requisito/RF/CA coberto: RF-23, CA-09.
 - Evidencia observavel: `sendRunSpecsTriageMilestone` e `sendRunFlowSummary` continuam usando `TelegramDeliveryService` com logging/retry/chunking centralizados, e os testes existentes de entrega permanecem passando.
+- Validacao de fechamento: o diff manteve `sendRunSpecsTriageMilestone(...)` e `sendRunFlowSummary(...)` no caminho central de `TelegramDeliveryService`; `src/integrations/telegram-delivery.test.ts` e os cenarios de envio em `src/integrations/telegram-bot.test.ts` permaneceram verdes; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` concluiu com 430 testes aprovados em 2026-03-23 17:14Z.
 - Requisito/RF/CA coberto: validacoes manuais herdadas da spec.
 - Evidencia observavel: o ticket registra exemplos reais de mensagem apos implementacao e documenta o resultado das tres validacoes manuais herdadas, mesmo que permaneçam como cheque manual externo ao fechamento automatico.
+- Validacao de fechamento: a implementacao tecnica ficou concluida e validada localmente; a coleta de exemplos reais em Telegram continua externa ao agente e foi registrada abaixo como validacao manual pendente, com procedimento e responsavel operacional explicitos. Pela regra de fechamento deste workflow, isso mantem o resultado em `GO` com anotacao de validacao manual externa pendente.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O aceite tecnico local desta etapa ficou coberto por `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build`, todos verdes em 2026-03-23 17:14Z.
+- Validacoes manuais externas ainda necessarias:
+  - Revisar em chat Telegram autorizado se o novo marco de triagem ficou informativo sem virar resumo final prematuro.
+  - Validar em mensagens reais chunkadas se a hierarquia visual continua agradavel quando o resumo final ocupa mais de uma parte.
+  - Confirmar com operador do workflow que as perguntas "o que aconteceu?", "o que mudou?" e "o que faco agora?" podem ser respondidas apenas pelo Telegram apos uma rodada real de `/run_specs`.
+- Como executar a validacao manual:
+  - Rodar `/run_specs <spec-aprovada>` em ambiente com bot Telegram autorizado.
+  - Capturar o milestone de triagem e o resumo final reais, inclusive quando houver chunking.
+  - Registrar no historico operacional ou na trilha da rodada os exemplos reais e o resultado objetivo de cada uma das tres validacoes.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado e a uma spec elegivel para rodada real.
+- Motivo para nao bloquear o aceite: a implementacao local ja demonstrou o comportamento exigido por diff, codigo e suites automatizadas; o remanescente depende apenas de exercicio operacional externo ao agente.
 
 ## Decision log
 - 2026-03-23 - Ticket derivado separadamente do contrato de summaries para manter escopo editorial executavel e respeitar a ordem de dependencia da fila (`P0` antes de `P1`).
+- 2026-03-23 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-23 17:14Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.

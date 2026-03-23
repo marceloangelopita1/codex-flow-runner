@@ -2300,6 +2300,19 @@ const createRunSpecsFlowSummary = (
   };
 };
 
+const assertOrderedSubstrings = (text: string, substrings: string[]): void => {
+  let previousIndex = -1;
+  for (const substring of substrings) {
+    const currentIndex = text.indexOf(substring);
+    assert.notEqual(currentIndex, -1, `trecho ausente: ${substring}`);
+    assert.ok(currentIndex > previousIndex, `ordem inesperada para: ${substring}`);
+    previousIndex = currentIndex;
+  }
+};
+
+const countOccurrences = (text: string, substring: string): number =>
+  text.split(substring).length - 1;
+
 const flushAsyncWork = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
@@ -5788,11 +5801,14 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Proxima acao:/u);
-  assert.match(sentMessages[0]?.text ?? "", /Snapshot spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Visao geral da triagem/u);
+  assert.match(sentMessages[0]?.text ?? "", /Snapshot do gate funcional pre-\/run_all/u);
   assert.match(sentMessages[0]?.text ?? "", /Veredito: GO/u);
-  assert.match(sentMessages[0]?.text ?? "", /Snapshot retrospectiva da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Sintese do gate: Gate aprovou o pacote derivado antes do \/run-all\./u);
+  assert.match(sentMessages[0]?.text ?? "", /Snapshot da retrospectiva da derivacao/u);
   assert.match(sentMessages[0]?.text ?? "", /Decisao: executed/u);
-  assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
+  assert.match(sentMessages[0]?.text ?? "", /Sintese da retrospectiva: Retrospectiva pre-run-all concluiu com hipótese sistêmica fraca\./u);
+  assert.match(sentMessages[0]?.text ?? "", /Timing da triagem pre-\/run_all/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- spec-triage: 1m 30s \(90000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- spec-close-and-version: 1m 30s \(90000 ms\)/u);
@@ -5922,9 +5938,9 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
   assert.equal(sentMessages[1]?.chatId, "42");
   assert.match(sentMessages[1]?.text ?? "", /Resultado: falha/u);
   assert.match(sentMessages[1]?.text ?? "", /Fase final: spec-close-and-version/u);
-  assert.match(sentMessages[1]?.text ?? "", /Detalhes: falha simulada/u);
-  assert.match(sentMessages[1]?.text ?? "", /Snapshot spec-ticket-validation/u);
-  assert.match(sentMessages[1]?.text ?? "", /Snapshot retrospectiva da derivacao/u);
+  assert.match(sentMessages[1]?.text ?? "", /Leitura operacional: falha simulada/u);
+  assert.match(sentMessages[1]?.text ?? "", /Snapshot do gate funcional pre-\/run_all/u);
+  assert.match(sentMessages[1]?.text ?? "", /Snapshot da retrospectiva da derivacao/u);
   assert.match(sentMessages[1]?.text ?? "", /Tempo total: 1m 0s \(60000 ms\)/u);
   assert.match(sentMessages[1]?.text ?? "", /- spec-triage: 40s \(40000 ms\)/u);
   assert.match(sentMessages[1]?.text ?? "", /- spec-close-and-version: 20s \(20000 ms\)/u);
@@ -6277,23 +6293,35 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
 
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]?.chatId, "99");
-  assert.match(sentMessages[0]?.text ?? "", /Fluxo: run-specs/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
-  assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-audit/u);
-  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: completed/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
-  assert.match(sentMessages[0]?.text ?? "", /Tickets derivados criados: 2/u);
-  assert.match(sentMessages[0]?.text ?? "", /Gate spec-ticket-validation/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-close-and-version/u);
-  assert.match(sentMessages[0]?.text ?? "", /Commit hash: abc123def456/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-audit/u);
-  assert.match(sentMessages[0]?.text ?? "", /Status da spec apos auditoria: attended/u);
-  assert.match(sentMessages[0]?.text ?? "", /Veredito: GO/u);
-  assert.match(sentMessages[0]?.text ?? "", /Gaps finais: nenhum/u);
-  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 9m 0s \(540000 ms\)/u);
-  assert.match(sentMessages[0]?.text ?? "", /- run-all: 5m 0s \(300000 ms\)/u);
-  assert.match(sentMessages[0]?.text ?? "", /- spec-audit: 1m 0s \(60000 ms\)/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: sucesso \(queue-empty\)/u);
+  const successSummaryText = sentMessages[0]?.text ?? "";
+  assert.match(successSummaryText, /Fluxo: run-specs/u);
+  assert.match(successSummaryText, /Resultado: sucesso/u);
+  assert.match(successSummaryText, /Fase final: spec-audit/u);
+  assert.match(successSummaryText, /Motivo de encerramento: completed/u);
+  assert.match(successSummaryText, /Pre-\/run_all: spec-triage/u);
+  assert.match(successSummaryText, /Tickets derivados criados: 2/u);
+  assert.match(successSummaryText, /Pre-\/run_all: spec-ticket-validation/u);
+  assert.match(successSummaryText, /Pre-\/run_all: spec-close-and-version/u);
+  assert.match(successSummaryText, /Commit hash: abc123def456/u);
+  assert.match(successSummaryText, /Pos-\/run_all: spec-audit/u);
+  assert.match(successSummaryText, /Status da spec apos auditoria: attended/u);
+  assert.match(successSummaryText, /Veredito: GO/u);
+  assert.match(successSummaryText, /Gaps finais detalhados: nenhum/u);
+  assert.match(successSummaryText, /Tempo total: 9m 0s \(540000 ms\)/u);
+  assert.match(successSummaryText, /- run-all: 5m 0s \(300000 ms\)/u);
+  assert.match(successSummaryText, /- spec-audit: 1m 0s \(60000 ms\)/u);
+  assert.match(successSummaryText, /Resultado do \/run_all encadeado/u);
+  assert.match(successSummaryText, /Motivo de encerramento do \/run_all: queue-empty/u);
+  assertOrderedSubstrings(successSummaryText, [
+    "Visao geral do fluxo",
+    "Pre-/run_all: spec-triage",
+    "Pre-/run_all: spec-ticket-validation",
+    "Pre-/run_all: spec-close-and-version",
+    "Pos-/run_all: spec-audit",
+    "Timing do fluxo completo",
+    "Timing da triagem pre-/run_all",
+    "Resultado do /run_all encadeado",
+  ]);
 });
 
 test("envia resumo final de fluxo /run-specs com spec-workflow-retrospective como fase final", async () => {
@@ -6399,7 +6427,7 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: retrospectiva sistemica/u);
   assert.match(sentMessages[0]?.text ?? "", /Classificacao: systemic-gap/u);
   assert.match(sentMessages[0]?.text ?? "", /Elegivel para publication: sim/u);
   assert.match(
@@ -6410,7 +6438,7 @@ test("envia resumo final de /run-specs com resultado de workflow-gap-analysis el
     sentMessages[0]?.text ?? "",
     /Falta um contrato parseavel dedicado para workflow-gap-analysis\./u,
   );
-  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: ticket transversal/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: created-and-pushed/u);
   assert.match(
     sentMessages[0]?.text ?? "",
@@ -6452,7 +6480,7 @@ test("envia resumo final de /run-specs com referencia historica pre-run-all sem 
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: retrospectiva sistemica/u);
   assert.match(sentMessages[0]?.text ?? "", /Elegivel para publication: nao/u);
   assert.match(sentMessages[0]?.text ?? "", /Referencia historica pre-run-all: sim/u);
   assert.match(
@@ -6486,9 +6514,9 @@ test("envia resumo final de /run-specs distinguindo gate funcional, retrospectiv
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Gate spec-ticket-validation/u);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica da derivacao/u);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: retrospectiva da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: retrospectiva sistemica/u);
 });
 
 test("envia resumo final de /run-specs distinguindo retrospectiva da derivacao pre-run-all", async () => {
@@ -6507,10 +6535,10 @@ test("envia resumo final de /run-specs distinguindo retrospectiva da derivacao p
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: retrospectiva da derivacao/u);
   assert.match(sentMessages[0]?.text ?? "", /Decisao: executed/u);
   assert.match(sentMessages[0]?.text ?? "", /Modo de entrada: spec-ticket-validation-history/u);
-  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal ou limitacao associada:/u);
   assert.match(
     sentMessages[0]?.text ?? "",
     /Ticket transversal agregado da derivacao foi publicado antes do \/run-all\./u,
@@ -6565,15 +6593,16 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
     /Codex utilizado: gpt-5\.4 \| reasoning high \| velocidade Fast/u,
   );
   assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
-  assert.match(sentMessages[0]?.text ?? "", /Detalhes: falha simulada no run-all encadeado/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-close-and-version/u);
+  assert.match(sentMessages[0]?.text ?? "", /Leitura operacional: falha simulada no run-all encadeado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-triage/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 2m 45s \(165000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- run-all: 30s \(30000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase interrompida: run-all/u);
-  assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
+  assert.match(sentMessages[0]?.text ?? "", /Timing da triagem pre-\/run_all/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
-  assert.match(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado: falha \(ticket-failure\)/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado do \/run_all encadeado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento do \/run_all: ticket-failure/u);
 });
 
 test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async () => {
@@ -6638,18 +6667,25 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
     sentMessages[0]?.text ?? "",
     /Motivo de encerramento: spec-ticket-validation-no-go/u,
   );
-  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-triage/u);
   assert.match(sentMessages[0]?.text ?? "", /Veredito: NO_GO/u);
   assert.match(sentMessages[0]?.text ?? "", /Confianca final: medium/u);
-  assert.match(sentMessages[0]?.text ?? "", /Gaps finais:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Contagem final de gaps: 1/u);
+  assert.match(sentMessages[0]?.text ?? "", /Gaps finais detalhados:/u);
   assert.match(sentMessages[0]?.text ?? "", /coverage-gap: RF-01 ainda sem ticket dedicado\./u);
-  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resumo \/run-all encadeado/u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resultado do \/run_all encadeado/u);
 });
 
 test("envia historico por ciclo no resumo de /run-specs quando houve revalidacao", async () => {
   const { controller } = createController();
   const sentMessages = mockSendMessage(controller);
   callCaptureNotificationChat(controller, "99");
+  const repeatedCorrection: RunSpecsTicketValidationSummary["appliedCorrections"][number] = {
+    description: "Adicionar cobertura explicita de RF-01 no ticket derivado.",
+    affectedArtifactPaths: ["tickets/open/2026-02-19-flow-a.md"],
+    linkedGapTypes: ["coverage-gap"],
+    outcome: "applied",
+  };
 
   await controller.sendRunFlowSummary(
     createRunSpecsFlowSummary({
@@ -6681,34 +6717,34 @@ test("envia historico por ciclo no resumo de /run-specs quando houve revalidacao
             confidence: "high",
             summary: "Revalidacao ainda encontrou o mesmo gap.",
             openGapFingerprints: ["coverage-gap|tickets/open/2026-02-19-flow-a.md|rf-01"],
-            appliedCorrections: [
-              {
-                description: "Adicionar cobertura explicita de RF-01 no ticket derivado.",
-                affectedArtifactPaths: ["tickets/open/2026-02-19-flow-a.md"],
-                linkedGapTypes: ["coverage-gap"],
-                outcome: "applied",
-              },
-            ],
+            appliedCorrections: [repeatedCorrection],
             realGapReductionFromPrevious: false,
           }),
         ],
+        appliedCorrections: [repeatedCorrection],
       }),
     }),
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Historico por ciclo:/u);
+  const cycleHistoryText = sentMessages[0]?.text ?? "";
+  assert.match(cycleHistoryText, /Evolucao por ciclo:/u);
   assert.match(
-    sentMessages[0]?.text ?? "",
-    /ciclo 0 \[initial-validation\]: NO_GO\/high \| gaps=1 \| reducao=n\/a/u,
+    cycleHistoryText,
+    /ciclo 0 \[initial-validation\]: NO_GO\/high \| gaps=1 \| reducao-real=n\/a/u,
   );
   assert.match(
-    sentMessages[0]?.text ?? "",
-    /ciclo 1 \[revalidation\]: NO_GO\/high \| gaps=1 \| reducao=nao/u,
+    cycleHistoryText,
+    /ciclo 1 \[revalidation\]: NO_GO\/high \| gaps=1 \| reducao-real=nao/u,
   );
   assert.match(
-    sentMessages[0]?.text ?? "",
-    /correcoes: Adicionar cobertura explicita de RF-01 no ticket derivado\. \(applied\)/u,
+    cycleHistoryText,
+    /correcoes deste ciclo: Adicionar cobertura explicita de RF-01 no ticket derivado\. \(applied\)/u,
+  );
+  assert.match(cycleHistoryText, /Sintese final das correcoes aplicadas: 1 ajuste\(s\);/u);
+  assert.equal(
+    countOccurrences(cycleHistoryText, "Adicionar cobertura explicita de RF-01 no ticket derivado."),
+    1,
   );
 });
 
@@ -6749,11 +6785,11 @@ test("envia resumo final de /run-specs com limitacao operacional da retrospectiv
   );
 
   assert.equal(sentMessages.length, 1);
-  assert.match(sentMessages[0]?.text ?? "", /Retrospectiva sistemica pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: retrospectiva sistemica/u);
   assert.match(sentMessages[0]?.text ?? "", /Classificacao: operational-limitation/u);
   assert.match(sentMessages[0]?.text ?? "", /Limitacao operacional: workflow-repo-context-missing/u);
   assert.match(sentMessages[0]?.text ?? "", /Detalhe da limitacao: Repositorio codex-flow-runner nao encontrado/u);
-  assert.match(sentMessages[0]?.text ?? "", /Ticket transversal pos-spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Pos-\/run_all: ticket transversal/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: operational-limitation/u);
   assert.match(sentMessages[0]?.text ?? "", /Limitacao de publication: target-repo-missing/u);
 });
