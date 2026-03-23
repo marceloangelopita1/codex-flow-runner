@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-03-23-qualidade-editorial-e-contratual-do-ticket-transversal-de-melhoria-de-workflow
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-23 02:32Z
-- Last reviewed at (UTC): 2026-03-23 04:01Z
+- Last reviewed at (UTC): 2026-03-23 04:06Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
@@ -19,7 +19,10 @@
   - execplans/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
   - execplans/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md
 - Related commits:
-  - Nenhum ainda.
+  - 11d7fd6 - `chore(specs): triage 2026-03-23-qualidade-editorial-e-contratual-do-ticket-transversal-de-melhoria-de-workflow.md`
+  - cddb9bb - `chore(tickets): close 2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md`
+  - 9e2438b - `chore(tickets): close 2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md`
+  - c30d951 - `chore(tickets): close 2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md`
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
@@ -189,16 +192,15 @@
 - Cobertura local desta execucao:
   - Em 2026-03-23 03:44Z, `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` validou localmente cenarios same-repo e cross-repo em fixtures, incluindo titulo editorial, `Proposed solution` concreta, `Closure criteria` observaveis, assumptions filtradas e degradacao nao bloqueante para `ticketDraft` invalido.
 - Validacoes obrigatorias ainda nao automatizadas:
-  - Executar ao menos uma rodada automatizada no proprio `codex-flow-runner` com `systemic-gap` elegivel e confirmar que o ticket publicado usa titulo orientado ao problema, `Proposed solution` concreta e `Closure criteria` observaveis.
-  - Executar ao menos uma rodada automatizada em projeto externo com publicacao cross-repo e confirmar que a qualidade editorial do ticket permanece alta sem perder qualificacao de paths e trilha request/response/decision.
+  - Nenhuma pendencia local bloqueante foi encontrada nesta auditoria final; a cobertura objetiva dos RFs/CAs ficou sustentada por releitura da spec, dos tickets fechados, dos ExecPlans relacionados, do estado atual do codigo/documentacao, por `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e por `npm run check`, todos verdes em 2026-03-23 04:06Z.
 - Validacoes manuais pendentes:
-  - Exercitar uma spec de origem com lista longa de assumptions/defaults e confirmar que o ticket transversal publica apenas o subconjunto relevante para remediacao do workflow.
-  - Exercitar um caminho em que o prompt retorne `publicationEligibility=true`, mas o bloco de autoria do ticket esteja incompleto, e confirmar que o fluxo registra limitacao operacional nao bloqueante sem publicar ticket placeholder generico.
-  - Revisar manualmente um ticket publicado a partir de cada retrospectiva e confirmar que outra IA consegue planejar a implementacao sem precisar reler os traces completos da rodada original.
+  - Validacao operacional externa recomendada: exercitar ao menos uma rodada real no proprio `codex-flow-runner` com `systemic-gap` elegivel e confirmar no ticket publicado titulo orientado ao problema, `Proposed solution` concreta e `Closure criteria` observaveis.
+  - Validacao operacional externa recomendada: exercitar ao menos uma rodada real em projeto externo com publicacao cross-repo e confirmar que a qualidade editorial permanece alta sem perder paths qualificados e trilha request/response/decision.
+  - Validacao operacional externa recomendada: revisar manualmente tickets publicados a partir de cada retrospectiva e confirmar que outra IA consegue planejar a implementacao sem reler os traces completos da rodada original.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
-- Resultado da validacao final da triagem: a releitura desta spec, dos tickets derivados, de `SPECS.md`, `DOCUMENTATION.md`, do ExecPlan desta frente e do diff atual confirmou que as tres frentes derivadas desta spec ja foram implementadas; a spec permanece em `Status: approved` com `Spec treatment: pending` apenas ate a auditoria final separada desta linhagem.
+- Estado geral: attended
+- Resultado da auditoria final: a releitura desta spec, dos 3 tickets fechados da linhagem, dos 3 ExecPlans relacionados, de `docs/workflows/codex-quality-gates.md` e do estado atual de codigo/documentacao confirmou que RF-01..RF-21 e CA-01..CA-11 ficaram cobertos pelo changeset entregue, sem gap funcional residual local; por isso o documento passa a `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - O repositório ja possui `spec-ticket-derivation-retrospective` e `spec-workflow-retrospective` como pontos canonicos de descoberta do backlog sistemico.
   - O workflow ja possui `workflow-gap-analysis` parseavel, publication cross-repo, deduplicacao por fingerprints e trilha request/response/decision.
@@ -212,12 +214,13 @@
   - `src/integrations/workflow-improvement-ticket-publisher.test.ts` e `src/core/runner.test.ts` agora travam cenarios pre-run-all e pos-`spec-audit`, current-project e workflow-sibling, com asserts editoriais para titulo orientado ao problema, assumptions filtradas, `Proposed solution` concreta e `Closure criteria` especificos.
   - `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e `docs/workflows/codex-quality-gates.md` agora explicitam a barra minima editorial do ticket automatico de retrospectiva sistemica, incluindo titulo orientado ao problema, contexto filtrado, heranca seletiva de contexto, `Proposed solution` concreta quando houver direcao e `Closure criteria` observaveis por superficie.
 - Pendencias em aberto:
-  - Nenhuma pendencia tecnica nova nesta spec; resta apenas a auditoria final separada da propria spec.
+  - Nenhuma.
 - Evidencias de validacao:
   - Validacao final da triagem concluida em 2026-03-23 03:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as 3 pendencias abertas e a rastreabilidade derivada na propria spec.
   - Execucao do subgap contratual concluida em 2026-03-23 03:27Z com `rg` sobre prompts/tipos/parser/runner, `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/core/runner.test.ts` e `npm run check`, todos verdes.
   - Execucao da frente editorial/filtro de contexto concluida em 2026-03-23 03:44Z com `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts`, `npm run check`, `rg` de propagacao do contrato editorial e diff restrito ao renderer/testes; tudo verde e sem reabrir prompts, parser ou tipos compartilhados.
   - Execucao da frente documental concluida em 2026-03-23 03:56Z com releitura do ticket, da spec, do ExecPlan e do checklist compartilhado, alem de `rg` sobre `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e `docs/workflows/codex-quality-gates.md` para confirmar a barra minima editorial e a optionalidade preservada de `Proposed solution`.
+  - Auditoria final desta spec em 2026-03-23 04:06Z releu a spec, os 3 tickets fechados, os 3 ExecPlans relacionados, `docs/workflows/codex-quality-gates.md`, o estado atual de `src/core/runner.ts`, `src/integrations/workflow-gap-analysis-parser.ts`, `src/integrations/workflow-improvement-ticket-publisher.ts`, `src/types/workflow-gap-analysis.ts`, `src/types/workflow-improvement-ticket.ts`, `INTERNAL_TICKETS.md` e `tickets/templates/internal-ticket-template.md`, reexecutou `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `npm run check`, e confirmou ausencia de tickets abertos relacionados em `tickets/open/`.
   - `prompts/11-retrospectiva-workflow-apos-spec-audit.md`
   - `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`
   - `src/core/runner.ts`
@@ -233,14 +236,14 @@
   - `tickets/closed/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md`
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-- Resultado:
+- Auditoria executada em: 2026-03-23 04:06Z
+- Resultado: sem gaps residuais funcionais locais; a spec foi auditada contra o estado atual do repositorio, os tickets fechados relacionados, os ExecPlans relacionados, o checklist `docs/workflows/codex-quality-gates.md` e as validacoes automatizadas reexecutadas nesta etapa.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - 
+  - nenhum
 - Causas-raiz sistemicas identificadas:
-  - 
+  - nenhuma; as validacoes operacionais externas restantes permanecem apenas como recomendacao de ambiente real e nao configuram gap funcional residual desta spec nesta auditoria
 - Ajustes genericos promovidos ao workflow:
-  - 
+  - nenhum; esta etapa permaneceu estritamente na auditoria funcional da spec corrente
 
 ## Riscos e impacto
 - Risco funcional: um contrato editorial forte demais pode tornar o prompt mais sensivel a violacoes formais se a implementacao nao balancear bem obrigatoriedade e ergonomia.
@@ -264,3 +267,4 @@
 - 2026-03-23 03:50Z - Ticket `workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap` foi fechado com resultado `GO` apos releitura de diff, ticket, ExecPlan, spec de origem e quality gates, com `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `npm run check` verdes; a spec segue `pending` apenas pelo ticket documental ainda aberto.
 - 2026-03-23 03:56Z - Ticket `barra-minima-documental-para-ticket-sistemico-automatico-gap` atualizou `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e `docs/workflows/codex-quality-gates.md` para explicitar a barra minima editorial do ticket automatico; a spec segue `pending` apenas ate o fechamento formal do ticket e a auditoria final em etapa separada.
 - 2026-03-23 04:01Z - Ticket `barra-minima-documental-para-ticket-sistemico-automatico-gap` foi fechado com resultado `GO` apos revalidacao dos closure criteria por `rg`, releitura do diff, do ticket, do ExecPlan, da spec de origem e do checklist compartilhado; a spec segue `pending` apenas ate a auditoria final separada desta linhagem.
+- 2026-03-23 04:06Z - Auditoria final concluida com releitura da spec, dos 3 tickets fechados, dos 3 ExecPlans relacionados, do checklist `docs/workflows/codex-quality-gates.md`, do estado atual do codigo/documentacao e reexecucao de `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `npm run check`; sem gaps residuais funcionais locais, a spec passou para `Status: attended` e `Spec treatment: done`.
