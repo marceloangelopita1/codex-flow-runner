@@ -2,11 +2,11 @@
 
 ## Metadata
 - Spec ID: 2026-03-23-qualidade-informacional-e-formato-editorial-das-mensagens-de-run-specs-no-telegram
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-23 16:09Z
-- Last reviewed at (UTC): 2026-03-23 17:14Z
+- Last reviewed at (UTC): 2026-03-23 17:19Z
 - Source: operational-gap
 - Related tickets:
   - [tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
@@ -15,7 +15,7 @@
   - [execplans/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../execplans/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
   - [execplans/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md](../../execplans/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md)
 - Related commits:
-  - n/a
+  - chore(specs): audit 2026-03-23-qualidade-informacional-e-formato-editorial-das-mensagens-de-run-specs-no-telegram.md (este changeset)
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -113,16 +113,16 @@
 - Exigir HTML, Markdown avançado, arquivos anexos, tabelas renderizadas ou qualquer recurso fora do envelope atual de texto do Telegram.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - O marco de triagem de `/run_specs` passa a incluir snapshot funcional de `spec-ticket-validation` e, quando aplicável, de `spec-ticket-derivation-retrospective`, além de `Resultado`, `Fase final` e `Próxima ação`.
-- [ ] CA-02 - Em cenário `NO_GO` ou falha técnica pre-`/run_all`, o marco de triagem continua mostrando o melhor contexto funcional já disponível das fases concluídas, sem depender apenas de um campo textual genérico de detalhes.
-- [ ] CA-03 - O resumo final de `/run_specs` passa a seguir ordem editorial estável e distinguível entre visão geral, fases pre-`/run_all`, fases pós-`/run_all`, timings e resultado do `/run_all` encadeado.
-- [ ] CA-04 - O resumo final passa a exibir resumo dedicado de `spec-triage`, `spec-close-and-version` e `spec-audit` quando essas fases ocorrerem, e não apenas seus nomes e tempos.
-- [ ] CA-05 - O bloco de `spec-ticket-validation` deixa de repetir literalmente a mesma correção aplicada em histórico por ciclo e em agregados finais.
-- [ ] CA-06 - O bloco de `spec-ticket-derivation-retrospective` deixa de usar rótulos ambíguos ou duplicados para resumos de camadas diferentes, distinguindo claramente execução da retrospectiva e análise sistêmica.
-- [ ] CA-07 - Quando o resumo final incluir timings de triagem e do fluxo completo, ambos ficam com escopo claramente distinguível e não soam como duplicação editorial do mesmo bloco.
-- [ ] CA-08 - Os testes automatizados de `src/integrations/telegram-bot.test.ts` e os testes correlatos do runner passam a cobrir sucesso, bloqueio por `NO_GO`, falha técnica de triagem, retrospectiva executada, retrospectiva pulada e mensagens longas chunkadas com asserts editoriais específicos.
-- [ ] CA-09 - O caminho de envio das mensagens de `/run_specs` continua utilizando a camada robusta central de entrega do Telegram sem regressão em retry, chunking, logging ou estado observável de notificações críticas.
-- [ ] CA-10 - Pela leitura isolada do Telegram, o operador passa a conseguir identificar com clareza: se o `/run_all` vai começar ou foi bloqueado, qual foi o resultado do gate, o que mudou entre ciclos de validação quando houver revalidação, se houve achado sistêmico na derivação e qual foi o resultado funcional da auditoria final.
+- [x] CA-01 - O marco de triagem de `/run_specs` passa a incluir snapshot funcional de `spec-ticket-validation` e, quando aplicável, de `spec-ticket-derivation-retrospective`, além de `Resultado`, `Fase final` e `Próxima ação`.
+- [x] CA-02 - Em cenário `NO_GO` ou falha técnica pre-`/run_all`, o marco de triagem continua mostrando o melhor contexto funcional já disponível das fases concluídas, sem depender apenas de um campo textual genérico de detalhes.
+- [x] CA-03 - O resumo final de `/run_specs` passa a seguir ordem editorial estável e distinguível entre visão geral, fases pre-`/run_all`, fases pós-`/run_all`, timings e resultado do `/run_all` encadeado.
+- [x] CA-04 - O resumo final passa a exibir resumo dedicado de `spec-triage`, `spec-close-and-version` e `spec-audit` quando essas fases ocorrerem, e não apenas seus nomes e tempos.
+- [x] CA-05 - O bloco de `spec-ticket-validation` deixa de repetir literalmente a mesma correção aplicada em histórico por ciclo e em agregados finais.
+- [x] CA-06 - O bloco de `spec-ticket-derivation-retrospective` deixa de usar rótulos ambíguos ou duplicados para resumos de camadas diferentes, distinguindo claramente execução da retrospectiva e análise sistêmica.
+- [x] CA-07 - Quando o resumo final incluir timings de triagem e do fluxo completo, ambos ficam com escopo claramente distinguível e não soam como duplicação editorial do mesmo bloco.
+- [x] CA-08 - Os testes automatizados de `src/integrations/telegram-bot.test.ts` e os testes correlatos do runner passam a cobrir sucesso, bloqueio por `NO_GO`, falha técnica de triagem, retrospectiva executada, retrospectiva pulada e mensagens longas chunkadas com asserts editoriais específicos.
+- [x] CA-09 - O caminho de envio das mensagens de `/run_specs` continua utilizando a camada robusta central de entrega do Telegram sem regressão em retry, chunking, logging ou estado observável de notificações críticas.
+- [x] CA-10 - Pela leitura isolada do Telegram, o operador passa a conseguir identificar com clareza: se o `/run_all` vai começar ou foi bloqueado, qual foi o resultado do gate, o que mudou entre ciclos de validação quando houver revalidação, se houve achado sistêmico na derivação e qual foi o resultado funcional da auditoria final.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -202,12 +202,15 @@
 - Validações obrigatórias ainda não automatizadas:
   - Nenhuma no escopo local desta implementação; a cobertura automatizada editorial/chunking foi adicionada em `src/integrations/telegram-bot.test.ts` e `src/integrations/telegram-delivery.test.ts`.
 - Validações manuais pendentes:
+  - Nenhuma como bloqueio residual desta spec após a auditoria final.
+- Smokes operacionais externos recomendados (não bloqueantes para `Status: attended` e `Spec treatment: done`):
   - Revisar com exemplos reais de execução se o novo marco de triagem ficou informativo sem virar resumo final prematuro.
   - Validar em mensagens reais se a nova hierarquia visual permanece agradável quando o resumo final for chunkado em mais de uma parte.
   - Confirmar manualmente que operadores conseguem responder mais rápido às perguntas “o que aconteceu?”, “o que mudou?” e “o que faço agora?” usando apenas a mensagem do Telegram.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
+- Resultado da auditoria final: em 2026-03-23T17:19:39Z a releitura desta spec, dos 2 tickets fechados relacionados, dos 2 execplans relacionados, de `docs/workflows/codex-quality-gates.md`, do estado atual do código e das validações observáveis do repositório confirmou atendimento de RF-01..RF-24 e CA-01..CA-10, sem gap funcional residual local; por isso a spec passa a `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - O projeto já possui base robusta de entrega no Telegram, evitando que esta spec precise resolver confiabilidade de transporte.
   - O fluxo `/run_specs` agora expõe no milestone de triagem snapshots estruturados de `spec-ticket-validation` e `spec-ticket-derivation-retrospective`, inclusive em cenarios de `NO_GO` e falha tecnica pre-`/run_all`.
@@ -219,24 +222,24 @@
   - O chunking de mensagens longas agora prefere fronteiras de seção (`\n\n`) antes de recorrer a `\n`, preservando melhor a leitura editorial sem bypass da camada central de entrega.
   - A suíte automatizada agora trava a qualidade editorial mínima exigida para sucesso, `NO_GO`, falha técnica de triagem, retrospectiva executada/pulada e chunking longo com preservação de fronteira de seção quando aplicável.
 - Pendências em aberto:
-  - `tickets/closed/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md` foi encerrado como `GO` com validacao manual externa pendente; os exemplos reais de Telegram e o resultado das tres validacoes herdadas permanecem registrados como pendencia operacional fora do aceite tecnico local.
-  - A auditoria final continua pendente apos a implementacao para confirmar, com exemplos reais, que o ganho informacional nao degradou escaneabilidade nem proxima acao operacional.
+  - Nenhuma lacuna funcional residual foi encontrada no projeto corrente durante esta auditoria final.
+  - Permanecem apenas smokes operacionais externos recomendados em `Validacoes pendentes ou manuais`, sem bloquear `Status: attended` nem `Spec treatment: done`.
 - Evidências de validação:
-  - Execucao de `npx tsx --test src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, cobrindo ordem editorial do milestone e do resumo final, deduplicacao semantica do gate funcional e chunking com preferencia por fronteira de secao.
-  - Execucao de `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, sustentando os cenarios do runner e do Telegram para sucesso, `NO_GO`, falha tecnica pre-`/run_all` e summaries dedicados no fluxo `/run_specs`.
-  - Execucao de `npm test`, `npm run check` e `npm run build`, sustentando o contrato novo nas suites completas, na tipagem compartilhada e na compilacao do fluxo.
+  - Execucao nesta auditoria de `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, cobrindo milestone, resumo final, snapshots parciais, `NO_GO`, falha tecnica pre-`/run_all`, retrospectiva executada/pulada e chunking com preferencia por fronteira de secao.
+  - Execucao nesta auditoria de `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test`, sustentando o contrato novo nas suites completas do repositório sem regressões observáveis.
+  - Execucao nesta auditoria de `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`, confirmando tipagem e compilação do fluxo completo com o contrato editorial final.
   - Releitura de `docs/specs/2026-02-19-telegram-run-status-notification.md`, `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md`, `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` e `docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md`.
-  - Inspecao e atualizacao de `src/integrations/telegram-bot.ts`, `src/integrations/telegram-delivery.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/telegram-delivery.test.ts`, confirmando a entrega do redesign editorial e do chunking com contexto de secao.
+  - Releitura dos tickets fechados `tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md` e `tickets/closed/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md`, dos execplans homônimos e inspeção das superfícies `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/integrations/telegram-bot.ts`, `src/integrations/telegram-delivery.ts` e testes correlatos.
 
 ## Auditoria final de entrega
-- Auditoria executada em: n/a
-- Resultado: n/a
+- Auditoria executada em: 2026-03-23T17:19:39Z
+- Resultado: a releitura integral desta spec, dos 2 tickets fechados relacionados, dos 2 execplans relacionados, do checklist `docs/workflows/codex-quality-gates.md`, do estado atual do código e das suites executadas nesta auditoria confirmou atendimento de RF-01..RF-24 e CA-01..CA-10. Não foram encontrados gaps técnicos residuais; a spec permanece em `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - n/a
+  - nenhum
 - Causas-raiz sistêmicas identificadas:
-  - n/a
+  - nenhuma
 - Ajustes genéricos promovidos ao workflow:
-  - n/a
+  - nenhum
 
 ## Riscos e impacto
 - Risco funcional: aumentar densidade informacional sem critério pode produzir mensagens mais completas porém mais cansativas e menos úteis para operação rápida.
@@ -260,3 +263,4 @@
 - 2026-03-23 16:53Z - Ticket de contrato fechado como `fixed` em `tickets/closed/`; a spec permanece pendente apenas pelo ticket editorial/chunking e pela auditoria final.
 - 2026-03-23 17:10Z - Renderer editorial por secoes, deduplicacao semantica do gate e chunking com fronteira de secao implementados e validados localmente; permanecem pendentes apenas as validacoes manuais com exemplos reais e a auditoria final da spec.
 - 2026-03-23 17:14Z - Ticket editorial/chunking fechado como `fixed` com resultado final `GO`; seguem pendentes apenas as validacoes manuais externas em Telegram real e a auditoria final da spec.
+- 2026-03-23 17:19Z - Auditoria final apos a rodada encadeada releu a spec, os 2 tickets fechados, os 2 execplans, `docs/workflows/codex-quality-gates.md`, o estado atual do codigo e as suites `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/telegram-delivery.test.ts`, `npm test`, `npm run check` e `npm run build`; sem gaps residuais funcionais locais, a spec foi promovida para `Status: attended` com `Spec treatment: done`.
