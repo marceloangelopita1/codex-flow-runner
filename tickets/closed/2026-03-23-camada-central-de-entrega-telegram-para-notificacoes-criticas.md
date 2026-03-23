@@ -1,7 +1,7 @@
 # [TICKET] Camada central de entrega Telegram ainda nao cobre notificações críticas fora dos resumos finais
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -116,10 +116,45 @@ O repositório deve introduzir uma camada central de entrega Telegram orientada 
 
 ## Decision log
 - 2026-03-23 - Ticket aberto na triagem da spec para isolar a fundação crítica da camada central e a migração dos envios operacionais mais sensíveis.
+- 2026-03-23 - Diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md` foram relidos na etapa de fechamento; o resultado final ficou `GO` porque os critérios técnicos/funcionais foram validados com evidência objetiva e o único item remanescente e validação manual externa prevista no próprio ticket.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-23 14:25Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+  - PR: N/A
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+- Resultado final do fechamento: `GO`
+- Evidencia objetiva por closure criterion:
+  - `RF-01`, `RF-03`, `RF-04`, `CA-01`: o componente central nomeado existe em `src/integrations/telegram-delivery.ts` com políticas declarativas e ponto canônico `deliverTextMessage(...)`, enquanto `sendTicketFinalSummary(...)`, `sendRunSpecsTriageMilestone(...)` e `sendRunFlowSummary(...)` delegam explicitamente para ele em `src/integrations/telegram-bot.ts`; validação executada com `rg -n "deliverTextMessage|RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY|RUN_FLOW_SUMMARY_DELIVERY_POLICY|TICKET_FINAL_SUMMARY_DELIVERY_POLICY|sendRunSpecsTriageMilestone|sendRunFlowSummary|sendTicketFinalSummary" src/integrations/telegram-bot.ts src/integrations/telegram-delivery.ts`.
+  - `RF-05`, `RF-06`, `RF-12`, `CA-02`, `CA-09`: a nova camada preserva retry bounded, backoff, classificação de erro, chunking e falha estruturada em `src/integrations/telegram-delivery.ts`; a cobertura automatizada prova falha transitória, falha definitiva e metadados estruturados para resumos finais em `src/integrations/telegram-bot.test.ts`; validações executadas com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts` e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test`.
+  - `RF-15`, `CA-09`: os testes verificam logging padronizado com `policy`, `logicalMessageType`, `destinationChatId`, `errorClass`, `errorCode` e `result` em sucesso, retry e falha definitiva para os envios críticos; evidência objetiva em `src/integrations/telegram-bot.test.ts` para milestone, resumo final de ticket e resumo final de fluxo; validação executada com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts`.
+  - `RF-07`, `CA-03`: `sendRunSpecsTriageMilestone(...)` deixou de usar envio bruto e agora usa a camada central com política `run-specs-triage-milestone`; o teste `reenvia milestone de triagem /run_specs em falha transitoria com logging padronizado` prova retry bounded e entrega; validação executada com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts`.
+  - `RF-11`, `CA-06`: o chunking configurável saiu do método específico e ficou sob responsabilidade da política `RUN_FLOW_SUMMARY_DELIVERY_POLICY` em `src/integrations/telegram-delivery.ts`; o teste `envio de resumo final de fluxo grande usa chunking e retorna delivery estruturado` permanece verde em `src/integrations/telegram-bot.test.ts`; validação executada com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts`.
+  - `RF-13`, `CA-07`: `/status` continua expondo último sucesso e última falha definitiva, e o runner preserva o último evento entregue ao registrar nova falha; evidência objetiva nos testes `runner preserva ultimo evento entregue e registra falha definitiva quando envio do resumo falha`, `runner mantém ultimo evento entregue ao registrar nova falha definitiva de notificacao`, `status inclui rastreabilidade da notificacao do resumo final de fluxo e sua falha` e `status inclui falha definitiva de notificacao separada do ultimo evento entregue`; validações executadas com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts`.
+  - `RF-16`, `RF-18`, `CA-11`: a auditoria final de diff mostra mudanças restritas a `src/integrations`, testes e write-back documental da spec, sem outbox, persistência, storage adicional ou deslocamento de lógica de negócio do runner; validações executadas com `git diff -- src/main.ts src/core/runner.ts src/integrations src/config src/types docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md`, `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`.
+  - Validação manual pendente relevante: a entrega técnica foi concluída, mas a execução em ambiente real do milestone de `/run_specs` com falha transitória simulada ainda não foi executada neste workspace. Classificação do gap remanescente: `external/manual`. Escopo: local ao ambiente operacional de validação.
+- Entrega tecnica concluida:
+  - `src/integrations/telegram-delivery.ts` centraliza política, retry bounded, backoff, classificação, chunking e logging.
+  - `sendTicketFinalSummary(...)`, `sendRunSpecsTriageMilestone(...)` e `sendRunFlowSummary(...)` delegam o transporte para a nova camada.
+  - Os contratos observáveis do runner e do `/status` foram preservados.
+- Validacoes executadas:
+  - `rg -n "deliverTextMessage|RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY|RUN_FLOW_SUMMARY_DELIVERY_POLICY|TICKET_FINAL_SUMMARY_DELIVERY_POLICY|sendRunSpecsTriageMilestone|sendRunFlowSummary|sendTicketFinalSummary" src/integrations/telegram-bot.ts src/integrations/telegram-delivery.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts src/core/runner.test.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run build`
+  - `git diff -- src/main.ts src/core/runner.ts src/integrations src/config src/types docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md`
+- Validacao manual externa pendente: sim.
+- Validacao manual ainda necessaria:
+  - executar em chat Telegram autorizado um `/run_specs <spec>` que emita milestone antes da rodada `/run_all`, simulando uma falha transitória no primeiro envio do marco;
+  - confirmar que o milestone chega após retry, que os logs registram a tentativa transitória e o resultado final, e que a rodada `/run_all` permanece acionável.
+- Como executar a validacao manual:
+  - iniciar o runner em ambiente com Telegram real habilitado;
+  - disparar `/run_specs <spec>` em chat autorizado;
+  - induzir uma falha transitória controlada no primeiro `sendMessage(...)` do milestone;
+  - verificar no chat e nos logs que houve retry e entrega final do milestone antes da continuação operacional.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado e ao ambiente onde a falha transitória possa ser simulada.

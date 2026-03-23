@@ -39,16 +39,21 @@ import {
   TicketFinalSummary,
   TicketNotificationDispatchError,
   TicketNotificationDelivery,
-  TicketNotificationErrorClass,
 } from "../types/ticket-final-summary.js";
 import {
   FlowNotificationDelivery,
   FlowNotificationDispatchError,
-  FlowNotificationErrorClass,
   FlowTimingSnapshot,
   RunSpecsFlowSummary,
   RunnerFlowSummary,
 } from "../types/flow-timing.js";
+import {
+  isTelegramMessageDeliveryDispatchError,
+  RUN_FLOW_SUMMARY_DELIVERY_POLICY,
+  RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY,
+  TelegramDeliveryService,
+  TICKET_FINAL_SUMMARY_DELIVERY_POLICY,
+} from "./telegram-delivery.js";
 import {
   PlanSpecFinalActionId,
   PlanSpecFinalBlock,
@@ -442,23 +447,10 @@ interface TelegramApiErrorLike {
   response?: {
     error_code?: unknown;
     description?: unknown;
-    parameters?: {
-      retry_after?: unknown;
-    };
   };
   on?: {
     method?: unknown;
   };
-  code?: unknown;
-  cause?: unknown;
-}
-
-interface TicketNotificationSendErrorClassification {
-  retryable: boolean;
-  errorClass: TicketNotificationErrorClass | FlowNotificationErrorClass;
-  errorCode?: string;
-  retryAfterMs?: number;
-  message: string;
 }
 
 type PlanSpecCallbackContextValidationResult<TContext> =
@@ -548,7 +540,6 @@ const TICKETS_OPEN_TICKET_NOT_FOUND_REPLY =
 const TICKETS_OPEN_TICKET_INVALID_REPLY =
   "❌ Ticket selecionado invalido. Use /tickets_open para atualizar.";
 const TICKETS_OPEN_CONTENT_CHUNK_MAX_LENGTH = 3500;
-const RUN_FLOW_SUMMARY_CHUNK_MAX_LENGTH = 3500;
 const IMPLEMENT_SELECTED_TICKET_BUTTON_LABEL = "▶️ Implementar este ticket";
 const TICKET_RUN_CALLBACK_PREFIX = "ticket-run:";
 const TICKET_RUN_CALLBACK_EXECUTE_PREFIX = "ticket-run:execute:";
@@ -673,15 +664,6 @@ const TELEGRAM_LONG_POLLING_CONFLICT_CODE = 409;
 const TELEGRAM_GET_UPDATES_METHOD = "getUpdates";
 const TELEGRAM_LONG_POLLING_CONFLICT_SNIPPET = "other getupdates request";
 const TELEGRAM_BOT_NOT_RUNNING_MESSAGE = "Bot is not running!";
-const TICKET_FINAL_SUMMARY_MAX_ATTEMPTS = 4;
-const TICKET_FINAL_SUMMARY_BASE_BACKOFF_MS = 1000;
-const TICKET_FINAL_SUMMARY_MAX_BACKOFF_MS = 10_000;
-const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
-  "ETIMEDOUT",
-  "ECONNRESET",
-  "EAI_AGAIN",
-  "ENETUNREACH",
-]);
 const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as const;
 const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = [
   "spec-triage",
@@ -729,6 +711,7 @@ const START_REPLY_LINES = [
 
 export class TelegramController {
   private readonly bot: Telegraf;
+  private readonly telegramDelivery: TelegramDeliveryService;
   private notificationChatId: string | null;
   private specsCallbackContextCounter = 0;
   private readonly specsCallbackContexts = new Map<string, SpecsCallbackContextState>();
@@ -756,6 +739,16 @@ export class TelegramController {
   ) {
     this.bot = new Telegraf(token, {
       handlerTimeout: TELEGRAM_HANDLER_TIMEOUT_MS,
+    });
+    this.telegramDelivery = new TelegramDeliveryService({
+      logger: this.logger,
+      sendMessage: (chatId: string, text: string, extra?: unknown) =>
+        this.bot.telegram.sendMessage(
+          chatId,
+          text,
+          extra as Parameters<typeof this.bot.telegram.sendMessage>[2],
+        ),
+      wait: (delayMs: number) => this.waitForTicketFinalSummaryRetry(delayMs),
     });
     this.notificationChatId = allowedChatId ?? null;
     this.registerHandlers();
@@ -876,25 +869,20 @@ export class TelegramController {
 
     const destinationChatId = this.notificationChatId;
     const payload = this.buildTicketFinalSummaryMessage(summary);
-
-    for (let attempt = 1; attempt <= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS; attempt += 1) {
-      try {
-        await this.bot.telegram.sendMessage(destinationChatId, payload);
-
-        const delivery: TicketNotificationDelivery = {
-          channel: "telegram",
-          destinationChatId,
-          deliveredAtUtc: new Date().toISOString(),
-          attempts: attempt,
-          maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-        };
-
-        this.logger.info("Resumo final de ticket enviado no Telegram", {
+    try {
+      const delivery = await this.telegramDelivery.deliverTextMessage({
+        destinationChatId,
+        text: payload,
+        policy: TICKET_FINAL_SUMMARY_DELIVERY_POLICY,
+        logicalMessageType: "ticket-final-summary",
+        logMessages: {
+          success: "Resumo final de ticket enviado no Telegram",
+          transientFailure: "Falha transitoria ao enviar resumo final de ticket no Telegram",
+          definitiveFailure: "Falha definitiva ao enviar resumo final de ticket no Telegram",
+        },
+        context: {
           ticket: summary.ticket,
           status: summary.status,
-          chatId: destinationChatId,
-          attempt,
-          maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
           ...(summary.status === "failure"
             ? {
                 telegramMessagePreview: this.limit(payload),
@@ -914,196 +902,33 @@ export class TelegramController {
                   : {}),
               }
             : {}),
-        });
+        },
+      });
 
-        return delivery;
-      } catch (error) {
-        const classification = this.classifyTicketNotificationSendError(error);
-        const isLastAttempt = attempt >= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS;
-        const canRetry = classification.retryable && !isLastAttempt;
-
-        const attemptContext = {
-          ticket: summary.ticket,
-          status: summary.status,
-          chatId: destinationChatId,
-          attempt,
-          maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-          errorCode: classification.errorCode,
-          errorClass: classification.errorClass,
-          error: classification.message,
-        };
-
-        if (!canRetry) {
-          const failedAtUtc = new Date().toISOString();
-          this.logger.error("Falha definitiva ao enviar resumo final de ticket no Telegram", {
-            ...attemptContext,
-            failedAtUtc,
-            retryable: classification.retryable,
-          });
-
-          throw new TicketNotificationDispatchError(
-            "Falha definitiva ao enviar resumo final de ticket no Telegram",
-            {
-              channel: "telegram",
-              destinationChatId,
-              failedAtUtc,
-              attempts: attempt,
-              maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-              errorMessage: classification.message,
-              ...(classification.errorCode ? { errorCode: classification.errorCode } : {}),
-              errorClass: classification.errorClass,
-              retryable: classification.retryable,
-            },
-            { cause: error },
-          );
-        }
-
-        const retryDelayMs = this.resolveTicketFinalSummaryRetryDelayMs(classification, attempt);
-        this.logger.warn("Falha transitoria ao enviar resumo final de ticket no Telegram", {
-          ...attemptContext,
-          retryDelayMs,
-        });
-
-        await this.waitForTicketFinalSummaryRetry(retryDelayMs);
+      return {
+        channel: "telegram",
+        destinationChatId: delivery.destinationChatId,
+        deliveredAtUtc: delivery.deliveredAtUtc,
+        attempts: delivery.attempts,
+        maxAttempts: delivery.maxAttempts,
+      };
+    } catch (error) {
+      if (isTelegramMessageDeliveryDispatchError(error)) {
+        throw new TicketNotificationDispatchError(error.message, {
+          channel: "telegram",
+          destinationChatId: error.failure.destinationChatId,
+          failedAtUtc: error.failure.failedAtUtc,
+          attempts: error.failure.attempts,
+          maxAttempts: error.failure.maxAttempts,
+          errorMessage: error.failure.errorMessage,
+          ...(error.failure.errorCode ? { errorCode: error.failure.errorCode } : {}),
+          errorClass: error.failure.errorClass,
+          retryable: error.failure.retryable,
+        }, { cause: error });
       }
+
+      throw error;
     }
-
-    return null;
-  }
-
-  private classifyTicketNotificationSendError(
-    error: unknown,
-  ): TicketNotificationSendErrorClassification {
-    const apiError = this.readTelegramApiErrorContext(error);
-    if (apiError?.errorCode === 429) {
-      return {
-        retryable: true,
-        errorClass: "telegram-rate-limit",
-        errorCode: "429",
-        retryAfterMs: apiError.retryAfterMs,
-        message: apiError.message,
-      };
-    }
-
-    if (typeof apiError?.errorCode === "number" && apiError.errorCode >= 500 && apiError.errorCode <= 599) {
-      return {
-        retryable: true,
-        errorClass: "telegram-server",
-        errorCode: String(apiError.errorCode),
-        message: apiError.message,
-      };
-    }
-
-    const transportErrorCode = this.readTransportErrorCode(error);
-    if (transportErrorCode && RETRYABLE_TRANSPORT_ERROR_CODES.has(transportErrorCode)) {
-      return {
-        retryable: true,
-        errorClass: "transport",
-        errorCode: transportErrorCode,
-        message: this.resolveErrorMessage(error),
-      };
-    }
-
-    return {
-      retryable: false,
-      errorClass: "non-retryable",
-      ...(apiError?.errorCode !== undefined
-        ? { errorCode: String(apiError.errorCode) }
-        : transportErrorCode
-          ? { errorCode: transportErrorCode }
-          : {}),
-      message: apiError?.message ?? this.resolveErrorMessage(error),
-    };
-  }
-
-  private readTelegramApiErrorContext(
-    error: unknown,
-  ): { errorCode?: number; retryAfterMs?: number; message: string } | null {
-    if (!error || typeof error !== "object") {
-      return null;
-    }
-
-    const maybeTelegramError = error as TelegramApiErrorLike;
-    const description = maybeTelegramError.response?.description;
-    const messageFromApi = typeof description === "string" ? description : null;
-    const message = messageFromApi ?? this.resolveErrorMessage(error);
-    const errorCode = this.readNumericValue(maybeTelegramError.response?.error_code);
-    const retryAfterSeconds = this.readNumericValue(maybeTelegramError.response?.parameters?.retry_after);
-    const retryAfterMs =
-      retryAfterSeconds !== undefined ? Math.max(0, Math.floor(retryAfterSeconds * 1000)) : undefined;
-
-    return {
-      ...(errorCode !== undefined ? { errorCode } : {}),
-      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
-      message,
-    };
-  }
-
-  private readTransportErrorCode(error: unknown): string | undefined {
-    if (!error || typeof error !== "object") {
-      return undefined;
-    }
-
-    const maybeCode = (error as { code?: unknown }).code;
-    if (typeof maybeCode === "string") {
-      return maybeCode.toUpperCase();
-    }
-
-    const cause = (error as { cause?: unknown }).cause;
-    if (!cause || typeof cause !== "object") {
-      return undefined;
-    }
-
-    const causeCode = (cause as { code?: unknown }).code;
-    if (typeof causeCode === "string") {
-      return causeCode.toUpperCase();
-    }
-
-    return undefined;
-  }
-
-  private resolveTicketFinalSummaryRetryDelayMs(
-    classification: TicketNotificationSendErrorClassification,
-    attempt: number,
-  ): number {
-    if (classification.retryAfterMs !== undefined) {
-      return Math.min(TICKET_FINAL_SUMMARY_MAX_BACKOFF_MS, classification.retryAfterMs);
-    }
-
-    const exponentialBackoffMs =
-      TICKET_FINAL_SUMMARY_BASE_BACKOFF_MS * Math.pow(2, Math.max(attempt - 1, 0));
-    return Math.min(TICKET_FINAL_SUMMARY_MAX_BACKOFF_MS, exponentialBackoffMs);
-  }
-
-  private waitForTicketFinalSummaryRetry(delayMs: number): Promise<void> {
-    if (delayMs <= 0) {
-      return Promise.resolve();
-    }
-
-    return new Promise((resolve) => {
-      setTimeout(resolve, delayMs);
-    });
-  }
-
-  private readNumericValue(value: unknown): number | undefined {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-
-    if (typeof value !== "string") {
-      return undefined;
-    }
-
-    const numericValue = Number(value);
-    return Number.isFinite(numericValue) ? numericValue : undefined;
-  }
-
-  private resolveErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return String(error);
   }
 
   async sendDiscoverSpecOutput(chatId: string, rawOutput: string): Promise<void> {
@@ -1197,10 +1022,25 @@ export class TelegramController {
       return;
     }
 
-    await this.bot.telegram.sendMessage(
-      this.notificationChatId,
-      this.buildRunSpecsTriageMilestoneMessage(event),
-    );
+    await this.telegramDelivery.deliverTextMessage({
+      destinationChatId: this.notificationChatId,
+      text: this.buildRunSpecsTriageMilestoneMessage(event),
+      policy: RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY,
+      logicalMessageType: "run-specs-triage-milestone",
+      logMessages: {
+        success: "Milestone de triagem de /run_specs enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar milestone de triagem de /run_specs no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar milestone de triagem de /run_specs no Telegram",
+      },
+      context: {
+        specFileName: event.spec.fileName,
+        specPath: event.spec.path,
+        outcome: event.outcome,
+        finalStage: event.finalStage,
+        nextAction: this.limit(event.nextAction),
+        ...(event.details ? { details: this.limit(event.details) } : {}),
+      },
+    });
   }
 
   async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<FlowNotificationDelivery | null> {
@@ -1215,20 +1055,14 @@ export class TelegramController {
 
     const destinationChatId = this.notificationChatId;
     const payload = this.buildRunFlowSummaryMessage(summary);
-    const rawChunks = this.chunkTicketContent(payload, RUN_FLOW_SUMMARY_CHUNK_MAX_LENGTH);
-    const chunks = rawChunks.map((chunk, index) =>
-      rawChunks.length <= 1 ? chunk : [`Parte ${index + 1}/${rawChunks.length}`, "", chunk].join("\n"),
-    );
     const flowContext = {
       flow: summary.flow,
       outcome: summary.outcome,
       finalStage: summary.finalStage,
       completionReason: summary.completionReason,
       totalDurationMs: summary.timing.totalDurationMs,
-      chunkCount: chunks.length,
       activeProjectName: summary.activeProjectName,
       activeProjectPath: summary.activeProjectPath,
-      chatId: destinationChatId,
       ...(summary.flow === "run-all"
         ? {
             processedTicketsCount: summary.processedTicketsCount,
@@ -1244,82 +1078,59 @@ export class TelegramController {
           }
         : {}),
     };
+    try {
+      const delivery = await this.telegramDelivery.deliverTextMessage({
+        destinationChatId,
+        text: payload,
+        policy: RUN_FLOW_SUMMARY_DELIVERY_POLICY,
+        logicalMessageType: "run-flow-summary",
+        logMessages: {
+          success: "Resumo final de fluxo enviado no Telegram",
+          transientFailure: "Falha transitoria ao enviar resumo final de fluxo no Telegram",
+          definitiveFailure: "Falha definitiva ao enviar resumo final de fluxo no Telegram",
+        },
+        context: flowContext,
+      });
 
-    let maxAttemptUsed = 0;
-    for (const [index, chunk] of chunks.entries()) {
-      for (let attempt = 1; attempt <= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS; attempt += 1) {
-        try {
-          await this.bot.telegram.sendMessage(destinationChatId, chunk);
-          maxAttemptUsed = Math.max(maxAttemptUsed, attempt);
-          break;
-        } catch (error) {
-          const classification = this.classifyTicketNotificationSendError(error);
-          const isLastAttempt = attempt >= TICKET_FINAL_SUMMARY_MAX_ATTEMPTS;
-          const canRetry = classification.retryable && !isLastAttempt;
-          const chunkContext = {
-            ...flowContext,
-            chunkIndex: index + 1,
-            attempt,
-            maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-            errorCode: classification.errorCode,
-            errorClass: classification.errorClass,
-            error: classification.message,
-          };
-
-          if (!canRetry) {
-            const failedAtUtc = new Date().toISOString();
-            this.logger.error("Falha definitiva ao enviar resumo final de fluxo no Telegram", {
-              ...chunkContext,
-              failedAtUtc,
-              retryable: classification.retryable,
-            });
-
-            throw new FlowNotificationDispatchError(
-              "Falha definitiva ao enviar resumo final de fluxo no Telegram",
-              {
-                channel: "telegram",
-                destinationChatId,
-                failedAtUtc,
-                attempts: attempt,
-                maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-                errorMessage: classification.message,
-                ...(classification.errorCode ? { errorCode: classification.errorCode } : {}),
-                errorClass: classification.errorClass as FlowNotificationErrorClass,
-                retryable: classification.retryable,
-                failedChunkIndex: index + 1,
-                chunkCount: chunks.length,
-              },
-              { cause: error },
-            );
-          }
-
-          const retryDelayMs = this.resolveTicketFinalSummaryRetryDelayMs(classification, attempt);
-          this.logger.warn("Falha transitoria ao enviar resumo final de fluxo no Telegram", {
-            ...chunkContext,
-            retryDelayMs,
-          });
-
-          await this.waitForTicketFinalSummaryRetry(retryDelayMs);
-        }
+      return {
+        channel: "telegram",
+        destinationChatId: delivery.destinationChatId,
+        deliveredAtUtc: delivery.deliveredAtUtc,
+        attempts: delivery.attempts,
+        maxAttempts: delivery.maxAttempts,
+        chunkCount: delivery.chunkCount,
+      };
+    } catch (error) {
+      if (isTelegramMessageDeliveryDispatchError(error)) {
+        throw new FlowNotificationDispatchError(error.message, {
+          channel: "telegram",
+          destinationChatId: error.failure.destinationChatId,
+          failedAtUtc: error.failure.failedAtUtc,
+          attempts: error.failure.attempts,
+          maxAttempts: error.failure.maxAttempts,
+          errorMessage: error.failure.errorMessage,
+          ...(error.failure.errorCode ? { errorCode: error.failure.errorCode } : {}),
+          errorClass: error.failure.errorClass,
+          retryable: error.failure.retryable,
+          ...(error.failure.failedChunkIndex
+            ? { failedChunkIndex: error.failure.failedChunkIndex }
+            : {}),
+          chunkCount: error.failure.chunkCount,
+        }, { cause: error });
       }
+
+      throw error;
+    }
+  }
+
+  private waitForTicketFinalSummaryRetry(delayMs: number): Promise<void> {
+    if (delayMs <= 0) {
+      return Promise.resolve();
     }
 
-    const delivery: FlowNotificationDelivery = {
-      channel: "telegram",
-      destinationChatId,
-      deliveredAtUtc: new Date().toISOString(),
-      attempts: maxAttemptUsed,
-      maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
-      chunkCount: chunks.length,
-    };
-
-    this.logger.info("Resumo final de fluxo enviado no Telegram", {
-      ...flowContext,
-      attempts: maxAttemptUsed,
-      maxAttempts: TICKET_FINAL_SUMMARY_MAX_ATTEMPTS,
+    return new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
     });
-
-    return delivery;
   }
 
   async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {

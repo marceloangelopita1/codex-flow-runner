@@ -5750,6 +5750,65 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
   assert.match(sentMessages[0]?.text ?? "", /- spec-close-and-version: 1m 30s \(90000 ms\)/u);
 });
 
+test("reenvia milestone de triagem /run_specs em falha transitoria com logging padronizado", async () => {
+  const { controller, logger } = createController({ allowedChatId: "42" });
+  const retryDelaysMs: number[] = [];
+  callSetTicketFinalSummaryRetryWait(controller, async (delayMs: number) => {
+    retryDelaysMs.push(delayMs);
+  });
+
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: (chatId: string, text: string, extra?: unknown) => Promise<unknown>;
+      };
+    };
+  };
+
+  let attempts = 0;
+  internalController.bot.telegram.sendMessage = async (chatId: string, text: string) => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw createTelegramSendMessageError({
+        errorCode: 429,
+        description: "Too Many Requests",
+        retryAfterSeconds: 2,
+      });
+    }
+
+    return Promise.resolve({ chatId, text, message_id: 700 + attempts });
+  };
+
+  await controller.sendRunSpecsTriageMilestone({
+    spec: {
+      fileName: "2026-02-19-approved-spec-triage-run-specs.md",
+      path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
+    },
+    outcome: "success",
+    finalStage: "spec-close-and-version",
+    nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+    timing: createRunSpecsTriageTimingSnapshot(),
+  });
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(retryDelaysMs, [2000]);
+  assert.equal(
+    logger.warnings[0]?.message,
+    "Falha transitoria ao enviar milestone de triagem de /run_specs no Telegram",
+  );
+  assert.equal(logger.warnings[0]?.context?.policy, "run-specs-triage-milestone");
+  assert.equal(logger.warnings[0]?.context?.logicalMessageType, "run-specs-triage-milestone");
+  assert.equal(logger.warnings[0]?.context?.destinationChatId, "42");
+  assert.equal(logger.warnings[0]?.context?.errorClass, "telegram-rate-limit");
+  assert.equal(logger.warnings[0]?.context?.errorCode, "429");
+  assert.equal(
+    logger.infos.find(
+      (entry) => entry.message === "Milestone de triagem de /run_specs enviada no Telegram",
+    )?.context?.result,
+    "delivered",
+  );
+});
+
 test("envia milestone de triagem /run_specs para chat capturado por callback de /specs", async () => {
   const { controller } = createController({
     eligibleSpecs: [
@@ -5846,6 +5905,10 @@ test("envia resumo final para chat autorizado configurado", async () => {
   assert.match(delivery?.deliveredAtUtc ?? "", /^\d{4}-\d{2}-\d{2}T/u);
   assert.equal(delivery?.attempts, 1);
   assert.equal(delivery?.maxAttempts, 4);
+  assert.equal(logger.infos[0]?.context?.policy, "ticket-final-summary");
+  assert.equal(logger.infos[0]?.context?.logicalMessageType, "ticket-final-summary");
+  assert.equal(logger.infos[0]?.context?.destinationChatId, "42");
+  assert.equal(logger.infos[0]?.context?.result, "delivered");
 });
 
 test("nao envia resumo final quando modo sem restricao nao tem chat de notificacao", async () => {
@@ -5955,6 +6018,9 @@ test("reenvia resumo final em falhas transitorias e entrega com metadados de ten
     ).length,
     2,
   );
+  assert.equal(logger.warnings[0]?.context?.policy, "ticket-final-summary");
+  assert.equal(logger.warnings[0]?.context?.logicalMessageType, "ticket-final-summary");
+  assert.equal(logger.warnings[0]?.context?.destinationChatId, "42");
 });
 
 test("falha nao retentavel encerra envio sem retries adicionais", async () => {
@@ -6104,6 +6170,10 @@ test("envia resumo final de fluxo /run-all com tempos para chat configurado", as
   assert.match(sentMessages[0]?.text ?? "", /- close-and-version: 50s \(50000 ms\)/u);
   assert.equal(logger.warnings.length, 0);
   assert.equal(logger.infos[0]?.message, "Resumo final de fluxo enviado no Telegram");
+  assert.equal(logger.infos[0]?.context?.policy, "run-flow-summary");
+  assert.equal(logger.infos[0]?.context?.logicalMessageType, "run-flow-summary");
+  assert.equal(logger.infos[0]?.context?.destinationChatId, "42");
+  assert.equal(logger.infos[0]?.context?.result, "delivered");
 });
 
 test("envia resumo final de fluxo /run-all distinguindo ultimo ticket processado de bloqueio na selecao", async () => {
@@ -6666,6 +6736,9 @@ test("envio de resumo final de fluxo falha com erro estruturado quando o Telegra
   assert.equal(logger.errors[0]?.context?.outcome, "success");
   assert.equal(logger.errors[0]?.context?.finalStage, "select-ticket");
   assert.equal(logger.errors[0]?.context?.chunkIndex, 1);
+  assert.equal(logger.errors[0]?.context?.policy, "run-flow-summary");
+  assert.equal(logger.errors[0]?.context?.logicalMessageType, "run-flow-summary");
+  assert.equal(logger.errors[0]?.context?.destinationChatId, "42");
 });
 
 test("status inclui modelo e reasoning selecionados e observados", () => {
