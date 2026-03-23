@@ -1,7 +1,7 @@
 # [TICKET] Explicitar a barra minima documental do ticket sistemico automatico
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P2
 - Severity: S2
@@ -35,6 +35,7 @@
   - docs/workflows/codex-quality-gates.md
   - INTERNAL_TICKETS.md
   - tickets/templates/internal-ticket-template.md
+  - execplans/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -97,12 +98,22 @@ A documentacao canonica deve explicitar a barra minima de qualidade para tickets
 - Requisito/RF/CA coberto: RF-21
 - Evidencia observavel: a documentacao atualizada preserva a optionalidade de `Proposed solution` no template geral, nao exige migracao retroativa em massa e nao altera a semantica do fluxo sequencial nem das retrospectivas.
 
+## Closure validation
+- Criterio 1 (`RF-18`, `CA-10`): atendido.
+  Evidencia objetiva: `INTERNAL_TICKETS.md` agora inclui a secao `Barra minima adicional para ticket sistemico automatico` com titulo orientado ao problema, contexto filtrado, `Problem statement`/`Expected behavior` autocontidos, remediacao concreta quando houver direcao, `Closure criteria` por superficie e heranca seletiva de assumptions/RNFs/restricoes/validacoes; `tickets/templates/internal-ticket-template.md` espelha essas regras nas superfices de titulo, contexto, comportamento esperado, `Proposed solution` e `Closure criteria`; `docs/workflows/codex-quality-gates.md` passou a apontar `INTERNAL_TICKETS.md` como fonte canonica e a exigir a conferencia desse contrato na triagem. Revalidado em 2026-03-23 04:01Z com `rg -n "ticket sist[eê]mico autom[aá]tico|t[ií]tulo orientado ao problema|contexto filtrado|redund[aâ]ncia|remedia[cç][aã]o concreta|Closure criteria|closure criteria|comportamento esperado|assumptions|RNFs|restri[cç][oõ]es|valida[cç][oõ]es" INTERNAL_TICKETS.md tickets/templates/internal-ticket-template.md docs/workflows/codex-quality-gates.md`.
+- Criterio 2 (`RF-21`): atendido.
+  Evidencia objetiva: `INTERNAL_TICKETS.md` preserva `Proposed solution` como opcional por design e limita a nova barra aos tickets automaticos; `tickets/templates/internal-ticket-template.md` manteve `Proposed solution (optional)` com a instrucao `Nao obrigatorio. Preencher somente se houver direcao clara`; `docs/workflows/codex-quality-gates.md` e `DOCUMENTATION.md` mantem explicita a politica de nao exigir migracao retroativa em massa; a auditoria de escopo mostrou pacote restrito a documentacao canonica, spec viva, este ticket e o ExecPlan, sem alterar prompts, codigo ou testes. Revalidado em 2026-03-23 04:01Z com `rg -n "Proposed solution|opcional|Nao obrigatorio|Preencher somente se houver dire[cç][aã]o clara|nao exigem migra[cç][aã]o retroativa|fluxo sequencial|retrospectiva" INTERNAL_TICKETS.md tickets/templates/internal-ticket-template.md docs/workflows/codex-quality-gates.md DOCUMENTATION.md`, `git diff -- INTERNAL_TICKETS.md docs/specs/2026-03-23-qualidade-editorial-e-contratual-do-ticket-transversal-de-melhoria-de-workflow.md docs/workflows/codex-quality-gates.md tickets/templates/internal-ticket-template.md execplans/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md` e `git status --short`.
+
+## Manual validation pending
+- Nenhuma validacao manual externa pendente para o escopo deste ticket. O proprio ticket herdou `Inherited pending/manual validations: nenhuma`, e o aceite aqui e integralmente documental por leitura, `rg` e auditoria de diff.
+
 ## Decision log
 - 2026-03-23 - Ticket aberto a partir da triagem da spec - a barra minima documental e um pacote separado porque pode ser entregue sem depender do mesmo changeset tecnico do contrato/publisher.
+- 2026-03-23 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
+- Closed at (UTC): 2026-03-23 04:01Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md (commit: mesmo changeset de fechamento versionado pelo runner)
 - Follow-up ticket (required when `Closure reason: split-follow-up`):
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

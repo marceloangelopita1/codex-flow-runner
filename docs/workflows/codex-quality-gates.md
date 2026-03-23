@@ -19,6 +19,7 @@ Este documento é referência compartilhada para:
 - Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explícito em reduzir retrabalho e promover a melhoria contínua do workflow.
 - O contrato canônico de derivação é `spec -> tickets` na triagem inicial e `ticket -> execplan` quando necessário.
 - Alinhamentos canônicos não exigem migração retroativa em massa; material histórico só precisa ser ajustado quando for tocado depois ou quando houver impacto funcional real.
+- A barra mínima editorial do ticket sistêmico automático vive em `INTERNAL_TICKETS.md`; este checklist apenas verifica que o contrato canônico foi aplicado sem duplicá-lo aqui.
 
 ## Checklist de triagem de spec
 - Extrair RFs, CAs, RNFs, restricoes tecnicas/documentais relevantes, assumptions/defaults, validacoes pendentes/manuais e não-escopo da spec.
@@ -35,6 +36,7 @@ Este documento é referência compartilhada para:
   - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
   - validacoes pendentes ou manuais relevantes herdadas da spec, quando influenciarem cobertura ou aceite;
   - critérios de fechamento observáveis.
+- Quando o ticket derivado for um ticket automático de retrospectiva sistêmica, conferir contra `INTERNAL_TICKETS.md` que o rascunho final ficou com título orientado ao problema, contexto filtrado, herança seletiva de contexto e fechamento observável por superfície.
 
 ## Checklist de ExecPlan
 - Ler ticket inteiro e todas as referências obrigatórias antes de planejar.

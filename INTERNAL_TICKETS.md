@@ -113,7 +113,8 @@ Todo ticket deve incluir:
   - caminho canonico usado para dedupe/reuse quando isso for relevante para automacao;
   - IDs de RF/CA de origem;
   - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
-  - assumptions/defaults herdados que importam para a implementação.
+  - assumptions/defaults herdados que importam para a implementação;
+  - validacoes pendentes ou manuais herdadas da spec, quando influenciarem cobertura ou aceite.
 - Passos de reprodução (quando possível).
 - Links de evidência (`requestId`, `Request file`, `Response file`, `Decision file` e/ou saída de teste).
 - Avaliação de impacto (escopo + risco).
@@ -129,6 +130,19 @@ Quando um ticket for criado a partir de retrospectiva de workflow (`spec-ticket-
 Não exija esses três campos extras para tickets criados durante derivação pré-implementação que nao sejam retrospectivas sistemicas, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
 
 `Proposed solution` é opcional por design.
+
+### Barra mínima adicional para ticket sistêmico automático
+Quando o ticket nascer automaticamente de retrospectiva sistêmica do workflow, além da barra mínima genérica acima, aplique também estas regras editoriais:
+- usar título orientado ao problema sistêmico principal, sem transformar o nome da spec de origem no sujeito do ticket salvo quando isso for necessário para desambiguar;
+- manter contexto filtrado: carregar apenas o que muda materialmente a remediação, sem despejar a retrospectiva completa, a spec inteira ou traces redundantes;
+- escrever `Problem statement` e `Expected behavior` de forma autocontida, no mesmo contexto causal, para que outra IA consiga entender o gap e o comportamento esperado sem releitura externa;
+- evitar redundância evitável entre `Context`, `Problem statement`, `Observed behavior`, `Expected behavior` e `Impact assessment`; cada seção deve acrescentar informação nova;
+- preservar `Proposed solution` como seção opcional do template geral, mas, quando houver direção concreta, o ticket sistêmico automático deve nomear as superfícies de workflow ou documentação que precisam de remediação;
+- definir `Closure criteria` como evidências observáveis por superfície afetada; frases genéricas de "não recorrência" não bastam como critério único de fechamento;
+- herdar apenas assumptions/defaults, RNFs, restrições técnicas/documentais e validações pendentes/manuais que alterem materialmente implementação, aceite, documentação ou fechamento;
+- deixar o ticket executável por outra IA sem depender de memória oral ou reconstrução manual do trace bruto.
+
+Essa barra vale para novos tickets automáticos e para tickets históricos apenas quando forem tocados novamente; não exige migração retroativa em massa.
 
 ## Convenção de nome
 Use nome de arquivo:

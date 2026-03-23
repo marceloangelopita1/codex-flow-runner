@@ -1,5 +1,7 @@
 # [TICKET] <titulo-curto-do-problema>
 
+Para ticket automatico de retrospectiva sistemica, use titulo orientado ao problema principal do workflow; nao use a spec de origem como sujeito do ticket, salvo para desambiguar.
+
 ## Metadata
 - Status: open
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
@@ -18,8 +20,11 @@
 - Request ID:
 - Source spec (when applicable):
 - Source spec canonical path (when applicable):
-- Source requirements (RFs/CAs, when applicable):
+- Source requirements (RFs/CAs/RNFs/restricoes, when applicable):
 - Inherited assumptions/defaults (when applicable):
+- Inherited RNFs (when applicable):
+- Inherited technical/documentary constraints (when applicable):
+- Inherited pending/manual validations (when applicable):
 - Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): spec | ticket | execplan | execution | validation | systemic-instruction | external/manual
 - Smallest plausible explanation (audit/review only):
 - Remediation scope (audit/review only): local | generic-repository-instruction
@@ -44,6 +49,8 @@
 - Scenario:
 - Input constraints:
 
+Para tickets automaticos de retrospectiva sistemica, mantenha apenas o contexto filtrado necessario para remediacao; nao replique a spec inteira nem o trace bruto.
+
 ## Problem statement
 Descreva o problema objetivamente, sem propor solucao obrigatoriamente.
 
@@ -53,7 +60,7 @@ Descreva o problema objetivamente, sem propor solucao obrigatoriamente.
 - Como foi detectado (warning/log/test/assert):
 
 ## Expected behavior
-Descreva o comportamento esperado para o mesmo contexto.
+Descreva o comportamento esperado para o mesmo contexto. No caso automatico de retrospectiva sistemica, esse texto deve ser executavel por outra IA sem releitura externa.
 
 ## Reproduction steps
 1. 
@@ -75,10 +82,10 @@ Descreva o comportamento esperado para o mesmo contexto.
 - 
 
 ## Proposed solution (optional)
-Nao obrigatorio. Preencher somente se houver direcao clara.
+Nao obrigatorio. Preencher somente se houver direcao clara. Para ticket automatico de retrospectiva sistemica, quando houver direcao concreta, nomeie as superficies de workflow/documentacao que precisam mudar.
 
 ## Closure criteria
-Defina evidencias objetivas para encerrar o ticket.
+Defina evidencias objetivas para encerrar o ticket. Para ticket automatico de retrospectiva sistemica, prefira criterios por superficie afetada e evite usar "nao recorrencia" como criterio unico.
 - Requisito/RF/CA coberto:
 - Evidencia observavel:
 
