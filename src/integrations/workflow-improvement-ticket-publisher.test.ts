@@ -62,6 +62,26 @@ const createCandidate = (
   analysisSummary: "Gap sistemico identificado com alta confianca.",
   causalHypothesis: "A retrospectiva pos-auditoria ainda nao fecha o backlog sistemico no stage correto.",
   benefitSummary: "Mover a publication para o pos-auditoria reduz recorrencia futura.",
+  ticketDraft: {
+    title: "Publication automatica sem contrato editorial suficiente",
+    problemStatement:
+      "O workflow ainda pode publicar backlog sistemico sem um ticketDraft completo.",
+    expectedBehavior:
+      "Publication elegivel deve transportar um ticketDraft parseavel e suficiente.",
+    proposedSolution:
+      "Exigir e propagar ticketDraft estruturado antes da publication do ticket.",
+    reproductionSteps: [
+      "Executar retrospectiva sistemica com publicationEligibility=true.",
+    ],
+    impactFunctional: "O ticket transversal perde executabilidade por outra IA.",
+    impactOperational: "A triagem futura depende de releitura do trace bruto.",
+    regressionRisk: "Baixo com degradacao nao bloqueante.",
+    relevantAssumptionsDefaults: ["Nao bloquear a rodada principal em GO."],
+    closureCriteria: [
+      "Publication elegivel sem ticketDraft valido vira operational-limitation observavel.",
+    ],
+    affectedWorkflowSurfaces: ["prompts", "parser", "runner"],
+  },
   followUpTicketPaths: ["tickets/open/example.md"],
   workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
   trace: {

@@ -1,4 +1,7 @@
-import type { WorkflowImprovementTicketHandoff } from "./workflow-improvement-ticket.js";
+import type {
+  WorkflowImprovementTicketDraft,
+  WorkflowImprovementTicketHandoff,
+} from "./workflow-improvement-ticket.js";
 
 export const WORKFLOW_GAP_ANALYSIS_CLASSIFICATIONS = [
   "systemic-gap",
@@ -69,7 +72,13 @@ export interface WorkflowGapAnalysisResult {
   followUpTicketPaths: string[];
   limitation: WorkflowGapAnalysisOperationalLimitation | null;
   historicalReference: WorkflowGapAnalysisHistoricalReference | null;
+  ticketDraft: WorkflowImprovementTicketDraft | null;
   publicationHandoff?: WorkflowImprovementTicketHandoff;
+}
+
+export interface WorkflowGapAnalysisParseResult {
+  analysis: WorkflowGapAnalysisResult;
+  ticketDraftContractError: string | null;
 }
 
 export const createWorkflowGapAnalysisOperationalLimitation = (params: {
@@ -95,4 +104,5 @@ export const createWorkflowGapAnalysisOperationalLimitation = (params: {
     detail: params.detail,
   },
   historicalReference: null,
+  ticketDraft: null,
 });

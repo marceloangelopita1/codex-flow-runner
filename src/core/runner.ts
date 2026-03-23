@@ -126,6 +126,7 @@ import {
 } from "../types/spec-ticket-validation.js";
 import {
   WorkflowGapAnalysisInputMode,
+  WorkflowGapAnalysisParseResult,
   WorkflowGapAnalysisResult,
   createWorkflowGapAnalysisOperationalLimitation,
 } from "../types/workflow-gap-analysis.js";
@@ -4751,12 +4752,16 @@ export class TicketRunner {
           message,
           {
             validateResult: (result) => {
-              parsedResult = this.parseWorkflowGapAnalysisStageResult(
+              parsedResult = this.finalizeWorkflowGapAnalysisResult(
                 "spec-ticket-derivation-retrospective",
-                result.output,
-                context,
+                this.parseWorkflowGapAnalysisStageResult(
+                  "spec-ticket-derivation-retrospective",
+                  result.output,
+                  context,
+                ),
                 slot.project,
                 spec,
+                context.specContent,
               );
               return {
                 summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
@@ -4979,15 +4984,23 @@ export class TicketRunner {
           message,
           {
             validateResult: (result) => {
-              parsedResult = this.applyWorkflowGapAnalysisAntiDuplication(
-                this.parseWorkflowGapAnalysisStageResult(
-                  stage,
-                  result.output,
-                  context,
-                  slot.project,
-                  spec,
-                ),
-                context.preRunHistoricalContext,
+              const parsedOutput = this.parseWorkflowGapAnalysisStageResult(
+                stage,
+                result.output,
+                context,
+              );
+              parsedResult = this.finalizeWorkflowGapAnalysisResult(
+                stage,
+                {
+                  analysis: this.applyWorkflowGapAnalysisAntiDuplication(
+                    parsedOutput.analysis,
+                    context.preRunHistoricalContext,
+                  ),
+                  ticketDraftContractError: parsedOutput.ticketDraftContractError,
+                },
+                slot.project,
+                spec,
+                context.specContent,
               );
               return {
                 summary: this.renderWorkflowGapAnalysisTraceSummary(parsedResult),
@@ -6321,11 +6334,9 @@ export class TicketRunner {
       "spec-ticket-derivation-retrospective" | "spec-workflow-retrospective"
     >,
     outputText: string,
-    context: Pick<WorkflowGapAnalysisContext, "inputMode" | "specContent">,
-    activeProject: ProjectRef,
-    spec: SpecRef,
-  ): WorkflowGapAnalysisResult {
-    let parsed: WorkflowGapAnalysisResult;
+    context: Pick<WorkflowGapAnalysisContext, "inputMode">,
+  ): WorkflowGapAnalysisParseResult {
+    let parsed: WorkflowGapAnalysisParseResult;
     try {
       parsed = parseWorkflowGapAnalysisOutput(outputText);
     } catch (error) {
@@ -6335,34 +6346,102 @@ export class TicketRunner {
       throw error;
     }
 
-    if (parsed.inputMode !== context.inputMode) {
+    if (parsed.analysis.inputMode !== context.inputMode) {
       throw new RunnerSpecStageContractError(
         stage,
-        `workflow-gap-analysis retornou inputMode=${parsed.inputMode}, mas o contexto exigia ${context.inputMode}.`,
+        `workflow-gap-analysis retornou inputMode=${parsed.analysis.inputMode}, mas o contexto exigia ${context.inputMode}.`,
       );
     }
 
     return {
-      ...parsed,
-      workflowArtifactsConsulted: [...parsed.workflowArtifactsConsulted],
-      followUpTicketPaths: [...parsed.followUpTicketPaths],
-      findings: parsed.findings.map((finding) => ({
-        summary: finding.summary,
-        affectedArtifactPaths: [...finding.affectedArtifactPaths],
-        requirementRefs: [...finding.requirementRefs],
-        evidence: [...finding.evidence],
-      })),
-      ...(parsed.publicationEligibility
-        ? {
-            publicationHandoff: this.buildWorkflowImprovementTicketHandoffFromGapAnalysis(
-              stage,
-              activeProject,
-              spec,
-              context.specContent,
-              parsed,
-            ),
-          }
-        : {}),
+      analysis: {
+        ...parsed.analysis,
+        workflowArtifactsConsulted: [...parsed.analysis.workflowArtifactsConsulted],
+        followUpTicketPaths: [...parsed.analysis.followUpTicketPaths],
+        findings: parsed.analysis.findings.map((finding) => ({
+          summary: finding.summary,
+          affectedArtifactPaths: [...finding.affectedArtifactPaths],
+          requirementRefs: [...finding.requirementRefs],
+          evidence: [...finding.evidence],
+        })),
+        ticketDraft: parsed.analysis.ticketDraft
+          ? {
+              title: parsed.analysis.ticketDraft.title,
+              problemStatement: parsed.analysis.ticketDraft.problemStatement,
+              expectedBehavior: parsed.analysis.ticketDraft.expectedBehavior,
+              proposedSolution: parsed.analysis.ticketDraft.proposedSolution,
+              reproductionSteps: [...parsed.analysis.ticketDraft.reproductionSteps],
+              impactFunctional: parsed.analysis.ticketDraft.impactFunctional,
+              impactOperational: parsed.analysis.ticketDraft.impactOperational,
+              regressionRisk: parsed.analysis.ticketDraft.regressionRisk,
+              relevantAssumptionsDefaults: [
+                ...parsed.analysis.ticketDraft.relevantAssumptionsDefaults,
+              ],
+              closureCriteria: [...parsed.analysis.ticketDraft.closureCriteria],
+              affectedWorkflowSurfaces: [
+                ...parsed.analysis.ticketDraft.affectedWorkflowSurfaces,
+              ],
+            }
+          : null,
+      },
+      ticketDraftContractError: parsed.ticketDraftContractError,
+    };
+  }
+
+  private finalizeWorkflowGapAnalysisResult(
+    stage: Extract<
+      SpecFlowStage,
+      "spec-ticket-derivation-retrospective" | "spec-workflow-retrospective"
+    >,
+    parsed: WorkflowGapAnalysisParseResult,
+    activeProject: ProjectRef,
+    spec: SpecRef,
+    specContent: string,
+  ): WorkflowGapAnalysisResult {
+    const analysis = parsed.analysis;
+
+    if (!analysis.publicationEligibility) {
+      return analysis;
+    }
+
+    if (parsed.ticketDraftContractError || analysis.ticketDraft === null) {
+      const detail = parsed.ticketDraftContractError
+        ? parsed.ticketDraftContractError
+        : 'campo obrigatorio "ticketDraft" ausente para publicationEligibility=true.';
+      const degraded = createWorkflowGapAnalysisOperationalLimitation({
+        inputMode: analysis.inputMode,
+        summary:
+          "Retrospectiva sistemica identificou backlog elegivel, mas o ticketDraft contratual nao estava publicavel com seguranca.",
+        detail: `${activeProject.name}: ${stage} retornou publicationEligibility=true sem ticketDraft valido. ${detail}`,
+        followUpTicketPaths: [...analysis.followUpTicketPaths],
+        workflowArtifactsConsulted: [...analysis.workflowArtifactsConsulted],
+        code: "invalid-analysis-contract",
+      });
+
+      this.logger.warn(
+        "Retrospectiva sistemica suprimiu publication por ticketDraft ausente ou invalido",
+        {
+          spec: spec.fileName,
+          stage,
+          activeProjectName: activeProject.name,
+          activeProjectPath: activeProject.path,
+          inputMode: analysis.inputMode,
+          detail,
+        },
+      );
+
+      return degraded;
+    }
+
+    return {
+      ...analysis,
+      publicationHandoff: this.buildWorkflowImprovementTicketHandoffFromGapAnalysis(
+        stage,
+        activeProject,
+        spec,
+        specContent,
+        analysis,
+      ),
     };
   }
 
@@ -6373,6 +6452,13 @@ export class TicketRunner {
     specContent: string,
     result: WorkflowGapAnalysisResult,
   ): WorkflowImprovementTicketHandoff {
+    if (result.ticketDraft === null) {
+      throw new RunnerSpecStageContractError(
+        analysisStage,
+        "workflow-gap-analysis marcou publicationEligibility=true sem ticketDraft valido.",
+      );
+    }
+
     return {
       analysisStage,
       activeProjectName: activeProject.name,
@@ -6380,14 +6466,26 @@ export class TicketRunner {
       sourceSpecPath: spec.path,
       sourceSpecFileName: spec.fileName,
       sourceSpecTitle: this.extractSpecTitle(specContent, spec.fileName),
-      inheritedAssumptionsDefaults: this.extractTopLevelBulletItemsFromHeadings(
-        specContent,
-        ["Assumptions and defaults", "Premissas e defaults"],
-      ),
+      inheritedAssumptionsDefaults: [...result.ticketDraft.relevantAssumptionsDefaults],
       inputMode: result.inputMode,
       analysisSummary: result.summary,
       causalHypothesis: result.causalHypothesis,
       benefitSummary: result.benefitSummary,
+      ticketDraft: {
+        title: result.ticketDraft.title,
+        problemStatement: result.ticketDraft.problemStatement,
+        expectedBehavior: result.ticketDraft.expectedBehavior,
+        proposedSolution: result.ticketDraft.proposedSolution,
+        reproductionSteps: [...result.ticketDraft.reproductionSteps],
+        impactFunctional: result.ticketDraft.impactFunctional,
+        impactOperational: result.ticketDraft.impactOperational,
+        regressionRisk: result.ticketDraft.regressionRisk,
+        relevantAssumptionsDefaults: [
+          ...result.ticketDraft.relevantAssumptionsDefaults,
+        ],
+        closureCriteria: [...result.ticketDraft.closureCriteria],
+        affectedWorkflowSurfaces: [...result.ticketDraft.affectedWorkflowSurfaces],
+      },
       followUpTicketPaths: [...result.followUpTicketPaths],
       workflowArtifactsConsulted: [...result.workflowArtifactsConsulted],
       trace: null,
@@ -6406,6 +6504,21 @@ export class TicketRunner {
   ): WorkflowImprovementTicketHandoff {
     return {
       ...handoff,
+      ticketDraft: {
+        title: handoff.ticketDraft.title,
+        problemStatement: handoff.ticketDraft.problemStatement,
+        expectedBehavior: handoff.ticketDraft.expectedBehavior,
+        proposedSolution: handoff.ticketDraft.proposedSolution,
+        reproductionSteps: [...handoff.ticketDraft.reproductionSteps],
+        impactFunctional: handoff.ticketDraft.impactFunctional,
+        impactOperational: handoff.ticketDraft.impactOperational,
+        regressionRisk: handoff.ticketDraft.regressionRisk,
+        relevantAssumptionsDefaults: [
+          ...handoff.ticketDraft.relevantAssumptionsDefaults,
+        ],
+        closureCriteria: [...handoff.ticketDraft.closureCriteria],
+        affectedWorkflowSurfaces: [...handoff.ticketDraft.affectedWorkflowSurfaces],
+      },
       trace: traceRecord
         ? {
             traceId: traceRecord.traceId,
@@ -6459,11 +6572,51 @@ export class TicketRunner {
             findingFingerprints: [...result.historicalReference.findingFingerprints],
           }
         : null,
+      ticketDraft: result.ticketDraft
+        ? {
+            title: result.ticketDraft.title,
+            problemStatement: result.ticketDraft.problemStatement,
+            expectedBehavior: result.ticketDraft.expectedBehavior,
+            proposedSolution: result.ticketDraft.proposedSolution,
+            reproductionSteps: [...result.ticketDraft.reproductionSteps],
+            impactFunctional: result.ticketDraft.impactFunctional,
+            impactOperational: result.ticketDraft.impactOperational,
+            regressionRisk: result.ticketDraft.regressionRisk,
+            relevantAssumptionsDefaults: [
+              ...result.ticketDraft.relevantAssumptionsDefaults,
+            ],
+            closureCriteria: [...result.ticketDraft.closureCriteria],
+            affectedWorkflowSurfaces: [
+              ...result.ticketDraft.affectedWorkflowSurfaces,
+            ],
+          }
+        : null,
       publicationHandoff: result.publicationHandoff
         ? {
             analysisStage: result.publicationHandoff.analysisStage,
             sourceSpecPath: result.publicationHandoff.sourceSpecPath,
             inputMode: result.publicationHandoff.inputMode,
+            ticketDraft: {
+              title: result.publicationHandoff.ticketDraft.title,
+              problemStatement: result.publicationHandoff.ticketDraft.problemStatement,
+              expectedBehavior: result.publicationHandoff.ticketDraft.expectedBehavior,
+              proposedSolution: result.publicationHandoff.ticketDraft.proposedSolution,
+              reproductionSteps: [
+                ...result.publicationHandoff.ticketDraft.reproductionSteps,
+              ],
+              impactFunctional: result.publicationHandoff.ticketDraft.impactFunctional,
+              impactOperational: result.publicationHandoff.ticketDraft.impactOperational,
+              regressionRisk: result.publicationHandoff.ticketDraft.regressionRisk,
+              relevantAssumptionsDefaults: [
+                ...result.publicationHandoff.ticketDraft.relevantAssumptionsDefaults,
+              ],
+              closureCriteria: [
+                ...result.publicationHandoff.ticketDraft.closureCriteria,
+              ],
+              affectedWorkflowSurfaces: [
+                ...result.publicationHandoff.ticketDraft.affectedWorkflowSurfaces,
+              ],
+            },
             workflowArtifactsConsulted: [
               ...result.publicationHandoff.workflowArtifactsConsulted,
             ],
@@ -6718,6 +6871,27 @@ export class TicketRunner {
       analysisSummary: handoff.analysisSummary,
       causalHypothesis: handoff.causalHypothesis,
       benefitSummary: handoff.benefitSummary,
+      ticketDraft: {
+        title: handoff.ticketDraft.title,
+        problemStatement: handoff.ticketDraft.problemStatement,
+        expectedBehavior: handoff.ticketDraft.expectedBehavior,
+        proposedSolution: handoff.ticketDraft.proposedSolution,
+        reproductionSteps: this.sortUniqueStrings([
+          ...handoff.ticketDraft.reproductionSteps,
+        ]),
+        impactFunctional: handoff.ticketDraft.impactFunctional,
+        impactOperational: handoff.ticketDraft.impactOperational,
+        regressionRisk: handoff.ticketDraft.regressionRisk,
+        relevantAssumptionsDefaults: this.sortUniqueStrings([
+          ...handoff.ticketDraft.relevantAssumptionsDefaults,
+        ]),
+        closureCriteria: this.sortUniqueStrings([
+          ...handoff.ticketDraft.closureCriteria,
+        ]),
+        affectedWorkflowSurfaces: this.sortUniqueStrings([
+          ...handoff.ticketDraft.affectedWorkflowSurfaces,
+        ]),
+      },
       followUpTicketPaths: this.sortUniqueStrings([...handoff.followUpTicketPaths]),
       workflowArtifactsConsulted: this.sortUniqueStrings([...handoff.workflowArtifactsConsulted]),
       trace: handoff.trace
@@ -9534,6 +9708,25 @@ export class TicketRunner {
             findingFingerprints: [...result.historicalReference.findingFingerprints],
           }
         : null,
+      ticketDraft: result.ticketDraft
+        ? {
+            title: result.ticketDraft.title,
+            problemStatement: result.ticketDraft.problemStatement,
+            expectedBehavior: result.ticketDraft.expectedBehavior,
+            proposedSolution: result.ticketDraft.proposedSolution,
+            reproductionSteps: [...result.ticketDraft.reproductionSteps],
+            impactFunctional: result.ticketDraft.impactFunctional,
+            impactOperational: result.ticketDraft.impactOperational,
+            regressionRisk: result.ticketDraft.regressionRisk,
+            relevantAssumptionsDefaults: [
+              ...result.ticketDraft.relevantAssumptionsDefaults,
+            ],
+            closureCriteria: [...result.ticketDraft.closureCriteria],
+            affectedWorkflowSurfaces: [
+              ...result.ticketDraft.affectedWorkflowSurfaces,
+            ],
+          }
+        : null,
       ...(result.publicationHandoff
         ? {
             publicationHandoff: {
@@ -9550,6 +9743,27 @@ export class TicketRunner {
               analysisSummary: result.publicationHandoff.analysisSummary,
               causalHypothesis: result.publicationHandoff.causalHypothesis,
               benefitSummary: result.publicationHandoff.benefitSummary,
+              ticketDraft: {
+                title: result.publicationHandoff.ticketDraft.title,
+                problemStatement: result.publicationHandoff.ticketDraft.problemStatement,
+                expectedBehavior: result.publicationHandoff.ticketDraft.expectedBehavior,
+                proposedSolution: result.publicationHandoff.ticketDraft.proposedSolution,
+                reproductionSteps: [
+                  ...result.publicationHandoff.ticketDraft.reproductionSteps,
+                ],
+                impactFunctional: result.publicationHandoff.ticketDraft.impactFunctional,
+                impactOperational: result.publicationHandoff.ticketDraft.impactOperational,
+                regressionRisk: result.publicationHandoff.ticketDraft.regressionRisk,
+                relevantAssumptionsDefaults: [
+                  ...result.publicationHandoff.ticketDraft.relevantAssumptionsDefaults,
+                ],
+                closureCriteria: [
+                  ...result.publicationHandoff.ticketDraft.closureCriteria,
+                ],
+                affectedWorkflowSurfaces: [
+                  ...result.publicationHandoff.ticketDraft.affectedWorkflowSurfaces,
+                ],
+              },
               followUpTicketPaths: [...result.publicationHandoff.followUpTicketPaths],
               workflowArtifactsConsulted: [
                 ...result.publicationHandoff.workflowArtifactsConsulted,

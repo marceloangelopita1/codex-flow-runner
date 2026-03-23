@@ -216,6 +216,7 @@ const createWorkflowGapAnalysisSummary = (
   followUpTicketPaths: [],
   limitation: null,
   historicalReference: null,
+  ticketDraft: null,
   ...value,
 });
 

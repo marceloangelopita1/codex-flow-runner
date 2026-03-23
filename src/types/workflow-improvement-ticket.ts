@@ -23,6 +23,20 @@ export interface WorkflowImprovementTicketDraftFinding {
   evidence: string[];
 }
 
+export interface WorkflowImprovementTicketDraft {
+  title: string;
+  problemStatement: string;
+  expectedBehavior: string;
+  proposedSolution: string;
+  reproductionSteps: string[];
+  impactFunctional: string;
+  impactOperational: string;
+  regressionRisk: string;
+  relevantAssumptionsDefaults: string[];
+  closureCriteria: string[];
+  affectedWorkflowSurfaces: string[];
+}
+
 export interface WorkflowImprovementTicketHandoff {
   analysisStage: WorkflowImprovementTicketAnalysisStage;
   activeProjectName: string;
@@ -35,6 +49,7 @@ export interface WorkflowImprovementTicketHandoff {
   analysisSummary: string;
   causalHypothesis: string;
   benefitSummary: string;
+  ticketDraft: WorkflowImprovementTicketDraft;
   followUpTicketPaths: string[];
   workflowArtifactsConsulted: string[];
   trace: WorkflowImprovementTicketTraceReference | null;
@@ -81,6 +96,7 @@ export interface WorkflowImprovementTicketCandidate {
   analysisSummary: string;
   causalHypothesis: string;
   benefitSummary: string;
+  ticketDraft: WorkflowImprovementTicketDraft;
   followUpTicketPaths: string[];
   workflowArtifactsConsulted: string[];
   trace: WorkflowImprovementTicketTraceReference | null;

@@ -376,6 +376,56 @@ const createSpecAuditOutput = (value: {
     "[[/SPEC_AUDIT_RESULT]]",
   ].join("\n");
 
+const createWorkflowTicketDraftPayload = (value: Partial<{
+  title: string;
+  problemStatement: string;
+  expectedBehavior: string;
+  proposedSolution: string;
+  reproductionSteps: string[];
+  impactFunctional: string;
+  impactOperational: string;
+  regressionRisk: string;
+  relevantAssumptionsDefaults: string[];
+  closureCriteria: string[];
+  affectedWorkflowSurfaces: string[];
+}> = {}) => ({
+  title:
+    value.title ??
+    "Contrato editorial insuficiente para ticket transversal automatico",
+  problemStatement:
+    value.problemStatement ??
+    "A retrospectiva sistemica ainda pode habilitar publication sem um handoff editorial completo.",
+  expectedBehavior:
+    value.expectedBehavior ??
+    "Publication elegivel deve exigir ticketDraft parseavel e materialmente suficiente.",
+  proposedSolution:
+    value.proposedSolution ??
+    "Exigir ticketDraft estruturado em prompts, parser e runner antes de publicar.",
+  reproductionSteps:
+    value.reproductionSteps ?? [
+      "Executar uma retrospectiva sistemica com publicationEligibility=true.",
+    ],
+  impactFunctional:
+    value.impactFunctional ??
+    "Tickets automaticos deixam de ser executaveis sem releitura do trace bruto.",
+  impactOperational:
+    value.impactOperational ??
+    "A triagem futura perde tempo reconstruindo contexto editorial faltante.",
+  regressionRisk:
+    value.regressionRisk ??
+    "Baixo, desde que a degradacao continue nao bloqueante para a rodada principal.",
+  relevantAssumptionsDefaults:
+    value.relevantAssumptionsDefaults ?? [
+      "E preferivel nao publicar ticket algum a publicar placeholder generico.",
+    ],
+  closureCriteria:
+    value.closureCriteria ?? [
+      "Publication elegivel sem ticketDraft valido vira operational-limitation observavel.",
+    ],
+  affectedWorkflowSurfaces:
+    value.affectedWorkflowSurfaces ?? ["prompts", "parser", "runner"],
+});
+
 const createWorkflowGapAnalysisOutput = (value: {
   classification?:
     | "systemic-gap"
@@ -400,6 +450,7 @@ const createWorkflowGapAnalysisOutput = (value: {
   }>;
   workflowArtifactsConsulted?: string[];
   followUpTicketPaths?: string[];
+  ticketDraft?: Record<string, unknown> | null;
   historicalReference?:
     | {
         summary: string;
@@ -439,6 +490,12 @@ const createWorkflowGapAnalysisOutput = (value: {
           "prompts/11-retrospectiva-workflow-apos-spec-audit.md",
         ],
         followUpTicketPaths: value.followUpTicketPaths ?? [],
+        ticketDraft:
+          value.ticketDraft === undefined
+            ? value.publicationEligibility
+              ? createWorkflowTicketDraftPayload()
+              : null
+            : value.ticketDraft,
         limitation: value.limitation ?? null,
         historicalReference: value.historicalReference ?? null,
       },
@@ -4819,7 +4876,7 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
   }
 });
 
-test("requestRunSpecs aceita alias conhecido de assumptions/defaults na retrospectiva pre-run-all", async () => {
+test("requestRunSpecs propaga relevantAssumptionsDefaults do ticketDraft na retrospectiva pre-run-all", async () => {
   const relatedTickets = [`tickets/open/${ticketA.name}`];
   const fixture = await setupRunSpecsFixture([ticketA.name], {
     activeProjectName: "codex-flow-runner",
@@ -4901,6 +4958,12 @@ test("requestRunSpecs aceita alias conhecido de assumptions/defaults na retrospe
         },
       ],
       followUpTicketPaths: relatedTickets,
+      ticketDraft: createWorkflowTicketDraftPayload({
+        relevantAssumptionsDefaults: [
+          "Assumir funding overlay configurado por projeto.",
+          "Manter fallback manual para validacoes externas pendentes.",
+        ],
+      }),
       workflowArtifactsConsulted: [
         "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
       ],
@@ -5382,6 +5445,145 @@ test("requestRunSpecs cai para spec + audit quando nao ha follow-up e registra a
     assert.match(retrospectiveContext, /\.\.\/codex-flow-runner/u);
   } finally {
     await cleanupTempProjectRoot(workspaceRoot);
+  }
+});
+
+test("requestRunSpecs degrada publicationEligibility=true com ticketDraft incompleto para operational-limitation sem publicar placeholder", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name], {
+    activeProjectName: "codex-flow-runner",
+  });
+  try {
+    await ensureWorkflowImprovementRepoStructure(fixture.projectRoot);
+    const logger = new SpyLogger();
+    const workflowPublisherHarness = createWorkflowImprovementTicketPublisherHarness();
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationAutoCorrectHandler = createSpecTicketValidationAutoCorrectHandler(
+      fixture.projectRoot,
+      "Cobertura revisada para exercitar a degradacao contratual do ticketDraft.",
+    );
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "high",
+        summary: "Primeiro passe encontrou gap auto-corrigivel antes da retrospectiva pre-run-all.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda precisa de ajuste no pacote derivado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O pacote derivado ainda nao carregou todo o contexto esperado para o gate."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: true,
+          },
+        ],
+        appliedCorrections: [],
+      }),
+      createSpecTicketValidationPassResult({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote derivado ficou apto apos a revisao do gap.",
+        gaps: [],
+        appliedCorrections: [],
+      }),
+    ];
+    codex.stageOutputs["spec-ticket-derivation-retrospective"] = createWorkflowGapAnalysisOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "spec-ticket-validation-history",
+      summary: "A derivacao encontrou backlog sistemico elegivel, mas o rascunho editorial veio incompleto.",
+      causalHypothesis:
+        "O prompt retornou publicationEligibility=true sem closureCriteria suficiente no ticketDraft.",
+      benefitSummary:
+        "Bloquear a publication do placeholder preserva a qualidade do backlog sistemico.",
+      findings: [
+        {
+          summary: "O ticketDraft veio sem closureCriteria observavel.",
+          affectedArtifactPaths: ["prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md"],
+          requirementRefs: ["RF-13", "RF-14", "CA-03", "CA-09"],
+          evidence: ["O draft estrutural nao trouxe todos os campos minimos exigidos pelo contrato."],
+        },
+      ],
+      ticketDraft: createWorkflowTicketDraftPayload({
+        closureCriteria: [],
+      }),
+    });
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => null,
+      closeTicket: async () => undefined,
+    };
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        workflowTraceStoreFactory,
+        workflowImprovementTicketPublisher: workflowPublisherHarness.publisher,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecs(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo /run_specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "success");
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.classification,
+      "operational-limitation",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.limitation?.code,
+      "invalid-analysis-contract",
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.analysis?.publicationEligibility,
+      false,
+    );
+    assert.equal(
+      runSpecsSummary.specTicketDerivationRetrospective?.workflowImprovementTicket,
+      undefined,
+    );
+    assert.equal(
+      workflowPublisherHarness.gitClients.get(fixture.projectRoot)?.explicitPathPublishes.length ??
+        0,
+      0,
+    );
+    assert.equal(
+      logger.warnings.some((entry) =>
+        entry.message ===
+        "Retrospectiva sistemica suprimiu publication por ticketDraft ausente ou invalido"
+      ),
+      true,
+    );
+
+    const derivationTrace = records.find(
+      (entry) => entry.request.stage === "spec-ticket-derivation-retrospective",
+    );
+    assert.equal(
+      derivationTrace?.request.decision.metadata?.classification,
+      "operational-limitation",
+    );
+    assert.equal(
+      (derivationTrace?.request.decision.metadata?.limitation as { code?: string } | null)?.code,
+      "invalid-analysis-contract",
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
   }
 });
 

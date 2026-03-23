@@ -63,6 +63,19 @@ Tarefa:
   "summary": "resumo objetivo da conclusao",
   "causalHypothesis": "menor causa plausivel do workflow",
   "benefitSummary": "como a melhoria reduziria recorrencia futura",
+  "ticketDraft": {
+    "title": "titulo orientado ao problema sistemico principal",
+    "problemStatement": "problema do workflow descrito de forma autocontida",
+    "expectedBehavior": "comportamento esperado no mesmo contexto causal",
+    "proposedSolution": "superficies do workflow que precisam ser ajustadas",
+    "reproductionSteps": ["passo observavel para reproduzir o problema"],
+    "impactFunctional": "impacto funcional objetivo",
+    "impactOperational": "impacto operacional objetivo",
+    "regressionRisk": "risco de regressao objetivo",
+    "relevantAssumptionsDefaults": ["assumption/default relevante para a remediacao"],
+    "closureCriteria": ["evidencia observavel de fechamento"],
+    "affectedWorkflowSurfaces": ["prompt|parser|runner|publisher|documentacao|testes"]
+  },
   "findings": [
     {
       "summary": "achado sistêmico objetivo",
@@ -85,6 +98,8 @@ Tarefa:
 
 Regras do bloco parseável:
 - `publicationEligibility=true` só é válido com `classification=systemic-gap` e `confidence=high`.
+- Quando `publicationEligibility=true`, `ticketDraft` e obrigatorio e deve conter `title`, `problemStatement`, `expectedBehavior`, `proposedSolution`, `reproductionSteps`, `impactFunctional`, `impactOperational`, `regressionRisk`, `relevantAssumptionsDefaults`, `closureCriteria` e `affectedWorkflowSurfaces`, todos materialmente preenchidos.
+- Quando `publicationEligibility=false`, use `"ticketDraft": null` a menos que haja motivo forte para carregar um rascunho valido apenas como contexto adicional.
 - `systemic-hypothesis` deve usar `confidence=medium`.
 - `findings` pode ser vazio apenas em `not-systemic`, `emphasis-only` ou `operational-limitation`.
 - `limitation` deve ser `null` exceto quando `classification=operational-limitation`.

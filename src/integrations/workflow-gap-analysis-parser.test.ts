@@ -16,6 +16,30 @@ const buildOutput = (payload: Record<string, unknown>): string =>
     "[[/WORKFLOW_GAP_ANALYSIS]]",
   ].join("\n");
 
+const buildTicketDraft = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  title: "Contrato editorial insuficiente no ticket transversal automatico",
+  problemStatement:
+    "A retrospectiva ainda permite publication sem um rascunho editorial estruturado.",
+  expectedBehavior:
+    "Publication elegivel so deve ocorrer quando o ticketDraft estiver completo e parseavel.",
+  proposedSolution:
+    "Exigir ticketDraft estruturado em prompts, parser e runner antes de publicar.",
+  reproductionSteps: [
+    "Executar uma retrospectiva sistemica com publicationEligibility=true.",
+  ],
+  impactFunctional: "Tickets transversais perdem executabilidade por outra IA.",
+  impactOperational: "A triagem futura depende de releitura manual dos traces.",
+  regressionRisk: "Baixo, desde que a degradacao continue nao bloqueante.",
+  relevantAssumptionsDefaults: [
+    "E preferivel suprimir publication a publicar placeholder generico.",
+  ],
+  closureCriteria: [
+    "Publication elegivel sem ticketDraft valido vira operational-limitation observavel.",
+  ],
+  affectedWorkflowSurfaces: ["prompts", "parser", "runner"],
+  ...overrides,
+});
+
 test("parseWorkflowGapAnalysisOutput aceita systemic-gap elegivel para publication", () => {
   const parsed = parseWorkflowGapAnalysisOutput(
     buildOutput({
@@ -37,13 +61,16 @@ test("parseWorkflowGapAnalysisOutput aceita systemic-gap elegivel para publicati
       workflowArtifactsConsulted: ["AGENTS.md", "prompts/11-retrospectiva-workflow-apos-spec-audit.md"],
       followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
       limitation: null,
+      ticketDraft: buildTicketDraft(),
     }),
   );
 
-  assert.equal(parsed.classification, "systemic-gap");
-  assert.equal(parsed.publicationEligibility, true);
-  assert.equal(parsed.findings.length, 1);
-  assert.equal(parsed.followUpTicketPaths[0], "tickets/open/2026-03-19-gap.md");
+  assert.equal(parsed.analysis.classification, "systemic-gap");
+  assert.equal(parsed.analysis.publicationEligibility, true);
+  assert.equal(parsed.analysis.findings.length, 1);
+  assert.equal(parsed.analysis.followUpTicketPaths[0], "tickets/open/2026-03-19-gap.md");
+  assert.equal(parsed.analysis.ticketDraft?.title, buildTicketDraft().title);
+  assert.equal(parsed.ticketDraftContractError, null);
 });
 
 test("parseWorkflowGapAnalysisOutput aceita systemic-hypothesis com medium confidence", () => {
@@ -70,9 +97,10 @@ test("parseWorkflowGapAnalysisOutput aceita systemic-hypothesis com medium confi
     }),
   );
 
-  assert.equal(parsed.classification, "systemic-hypothesis");
-  assert.equal(parsed.confidence, "medium");
-  assert.equal(parsed.publicationEligibility, false);
+  assert.equal(parsed.analysis.classification, "systemic-hypothesis");
+  assert.equal(parsed.analysis.confidence, "medium");
+  assert.equal(parsed.analysis.publicationEligibility, false);
+  assert.equal(parsed.analysis.ticketDraft, null);
 });
 
 test("parseWorkflowGapAnalysisOutput aceita referencia historica pre-run-all sem nova publication", () => {
@@ -104,9 +132,12 @@ test("parseWorkflowGapAnalysisOutput aceita referencia historica pre-run-all sem
     }),
   );
 
-  assert.equal(parsed.publicationEligibility, false);
-  assert.equal(parsed.historicalReference?.ticketPath, "tickets/open/2026-03-19-workflow-improvement-example.md");
-  assert.deepEqual(parsed.historicalReference?.findingFingerprints, [
+  assert.equal(parsed.analysis.publicationEligibility, false);
+  assert.equal(
+    parsed.analysis.historicalReference?.ticketPath,
+    "tickets/open/2026-03-19-workflow-improvement-example.md",
+  );
+  assert.deepEqual(parsed.analysis.historicalReference?.findingFingerprints, [
     "workflow-finding|abc123def456",
   ]);
 });
@@ -133,7 +164,7 @@ test("parseWorkflowGapAnalysisOutput aceita fallback legado com historicalRefere
     }),
   );
 
-  assert.deepEqual(parsed.historicalReference?.findingFingerprints, [
+  assert.deepEqual(parsed.analysis.historicalReference?.findingFingerprints, [
     "workflow-finding|abc123def456",
   ]);
 });
@@ -155,7 +186,41 @@ test("parseWorkflowGapAnalysisOutput aceita inputMode spec-ticket-validation-his
     }),
   );
 
-  assert.equal(parsed.inputMode, "spec-ticket-validation-history");
+  assert.equal(parsed.analysis.inputMode, "spec-ticket-validation-history");
+});
+
+test("parseWorkflowGapAnalysisOutput registra erro contratual de ticketDraft sem quebrar o parse", () => {
+  const parsed = parseWorkflowGapAnalysisOutput(
+    buildOutput({
+      classification: "systemic-gap",
+      confidence: "high",
+      publicationEligibility: true,
+      inputMode: "follow-up-tickets",
+      summary: "A causa sistemica segue elegivel, mas o ticketDraft veio incompleto.",
+      causalHypothesis: "O prompt retornou um objeto editorial sem os campos minimos.",
+      benefitSummary: "Registrar a falha evita publication insegura.",
+      findings: [
+        {
+          summary: "O draft veio sem closureCriteria observavel.",
+          affectedArtifactPaths: ["src/core/runner.ts"],
+          requirementRefs: ["RF-13", "RF-14"],
+          evidence: ["O objeto ticketDraft nao trouxe todos os campos minimos."],
+        },
+      ],
+      workflowArtifactsConsulted: ["AGENTS.md"],
+      followUpTicketPaths: [],
+      limitation: null,
+      ticketDraft: buildTicketDraft({
+        closureCriteria: [],
+      }),
+    }),
+  );
+
+  assert.equal(parsed.analysis.ticketDraft, null);
+  assert.match(
+    parsed.ticketDraftContractError ?? "",
+    /ticketDraft\.closureCriteria/u,
+  );
 });
 
 test("parseWorkflowGapAnalysisOutput rejeita publicationEligibility fora de systemic-gap/high", () => {

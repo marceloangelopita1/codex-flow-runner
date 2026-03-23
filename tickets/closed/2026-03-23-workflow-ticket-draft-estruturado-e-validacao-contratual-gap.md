@@ -1,7 +1,7 @@
 # [TICKET] Endurecer contrato estruturado e validacao editorial do ticket sistemico automatico
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -33,6 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-03-23-qualidade-editorial-e-contratual-do-ticket-transversal-de-melhoria-de-workflow.md
   - docs/workflows/codex-quality-gates.md
+  - execplans/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
   - prompts/11-retrospectiva-workflow-apos-spec-audit.md
   - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
   - src/core/runner.ts
@@ -107,12 +108,26 @@ Quando `publicationEligibility=true`, ambas as retrospectivas devem retornar um 
 - Requisito/RF/CA coberto: validacao manual herdada
 - Evidencia observavel: existe um cenario cobrindo `publicationEligibility=true` com draft incompleto, verificando ausencia de ticket placeholder generico e presenca de limitacao operacional nao bloqueante.
 
+## Closure validation
+- Criterio 1 (`RF-02`, `RF-03`, `CA-01`, `CA-02`): atendido.
+  Evidencia objetiva: `prompts/11-retrospectiva-workflow-apos-spec-audit.md` e `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` agora exigem `ticketDraft` e todos os campos minimos do contrato quando `publicationEligibility=true`, alem de instruirem `ticketDraft: null` quando `publicationEligibility=false`. Revalidado em 2026-03-23 03:32Z com `rg -n "ticketDraft|title|problemStatement|expectedBehavior|proposedSolution|reproductionSteps|impactFunctional|impactOperational|regressionRisk|relevantAssumptionsDefaults|closureCriteria|affectedWorkflowSurfaces" prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`.
+- Criterio 2 (`RF-10`, `RF-11`, `RF-13`, `RF-14`, `CA-03`, `CA-09`): atendido.
+  Evidencia objetiva: `src/types/workflow-improvement-ticket.ts` define `WorkflowImprovementTicketDraft`; `src/types/workflow-gap-analysis.ts` passa a carregar `ticketDraft` e `ticketDraftContractError`; `src/integrations/workflow-gap-analysis-parser.ts` parseia o draft de forma leniente e registra erro contratual; `src/core/runner.ts` finaliza a retrospectiva promovendo `publicationEligibility=true` sem draft valido para `operational-limitation` com codigo `invalid-analysis-contract`, warning observavel e sem `publicationHandoff`. Revalidado em 2026-03-23 03:32Z com `rg -n "ticketDraft|publicationHandoff|operational-limitation|invalid-analysis-contract|finalizeWorkflowGapAnalysisResult" src/types/workflow-gap-analysis.ts src/types/workflow-improvement-ticket.ts src/integrations/workflow-gap-analysis-parser.ts src/core/runner.ts`.
+- Criterio 3 (`RF-21`): atendido.
+  Evidencia objetiva: `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/core/runner.test.ts` passou verde em 2026-03-23 03:32Z, incluindo os cenarios `requestRunSpecs publica ticket transversal na retrospectiva pre-run-all sem alterar a spec do projeto externo`, `requestRunSpecs suprime publication pos-spec-audit quando a mesma frente causal ja foi ticketada no pre-run-all` e `requestRunSpecs degrada publicationEligibility=true com ticketDraft incompleto para operational-limitation sem publicar placeholder`, preservando taxonomia, `publicationEligibility`, sequencialidade e a regra de no maximo 1 ticket sistemico por retrospectiva.
+- Criterio 4 (validacao manual herdada): atendido.
+  Evidencia objetiva: o cenario herdado foi coberto automaticamente pelo teste `requestRunSpecs degrada publicationEligibility=true com ticketDraft incompleto para operational-limitation sem publicar placeholder`, que prova ausencia de ticket placeholder generico, `publicationEligibility=false` no resultado final degradado e presenca de limitacao operacional observavel em trace/log/resumo. Revalidado em 2026-03-23 03:32Z dentro de `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/core/runner.test.ts`.
+
+## Manual validation pending
+- Nenhuma validacao manual externa pendente para o escopo deste ticket. O cenario herdado de draft incompleto foi coberto por automacao local.
+
 ## Decision log
 - 2026-03-23 - Ticket aberto a partir da triagem da spec - o gap principal esta no contrato/validacao do `ticketDraft`, nao apenas no renderer final do ticket.
+- 2026-03-23 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-23 03:32Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

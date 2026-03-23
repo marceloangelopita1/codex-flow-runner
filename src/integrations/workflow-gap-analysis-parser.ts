@@ -9,8 +9,10 @@ import {
   WorkflowGapAnalysisHistoricalReference,
   WorkflowGapAnalysisInputMode,
   WorkflowGapAnalysisLimitationCode,
+  WorkflowGapAnalysisParseResult,
   WorkflowGapAnalysisResult,
 } from "../types/workflow-gap-analysis.js";
+import type { WorkflowImprovementTicketDraft } from "../types/workflow-improvement-ticket.js";
 
 const WORKFLOW_GAP_ANALYSIS_BLOCK_OPEN = "[[WORKFLOW_GAP_ANALYSIS]]";
 const WORKFLOW_GAP_ANALYSIS_BLOCK_CLOSE = "[[/WORKFLOW_GAP_ANALYSIS]]";
@@ -38,7 +40,9 @@ export class WorkflowGapAnalysisParserError extends Error {
   }
 }
 
-export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnalysisResult => {
+export const parseWorkflowGapAnalysisOutput = (
+  output: string,
+): WorkflowGapAnalysisParseResult => {
   const normalized = normalizeOutput(output);
   const blockBody = extractBlockBody(normalized);
   const payload = parsePayload(blockBody);
@@ -55,6 +59,7 @@ export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnaly
   const findings = parseFindingList(payload.findings);
   const limitation = parseLimitation(payload.limitation);
   const historicalReference = parseHistoricalReference(payload.historicalReference);
+  const ticketDraftResult = parseTicketDraft(payload.ticketDraft);
 
   validatePayloadCombination({
     classification,
@@ -66,21 +71,25 @@ export const parseWorkflowGapAnalysisOutput = (output: string): WorkflowGapAnaly
   });
 
   return {
-    classification,
-    confidence,
-    publicationEligibility,
-    inputMode,
-    summary: readString(payload.summary, "summary"),
-    causalHypothesis: readString(payload.causalHypothesis, "causalHypothesis"),
-    benefitSummary: readString(payload.benefitSummary, "benefitSummary"),
-    findings,
-    workflowArtifactsConsulted: readStringArray(
-      payload.workflowArtifactsConsulted,
-      "workflowArtifactsConsulted",
-    ),
-    followUpTicketPaths: readStringArray(payload.followUpTicketPaths, "followUpTicketPaths"),
-    limitation,
-    historicalReference,
+    analysis: {
+      classification,
+      confidence,
+      publicationEligibility,
+      inputMode,
+      summary: readString(payload.summary, "summary"),
+      causalHypothesis: readString(payload.causalHypothesis, "causalHypothesis"),
+      benefitSummary: readString(payload.benefitSummary, "benefitSummary"),
+      findings,
+      workflowArtifactsConsulted: readStringArray(
+        payload.workflowArtifactsConsulted,
+        "workflowArtifactsConsulted",
+      ),
+      followUpTicketPaths: readStringArray(payload.followUpTicketPaths, "followUpTicketPaths"),
+      limitation,
+      historicalReference,
+      ticketDraft: ticketDraftResult.ticketDraft,
+    },
+    ticketDraftContractError: ticketDraftResult.contractError,
   };
 };
 
@@ -159,6 +168,17 @@ const readStringArray = (value: unknown, fieldName: string): string[] => {
 
     return entry.trim();
   });
+};
+
+const readNonEmptyStringArray = (value: unknown, fieldName: string): string[] => {
+  const entries = readStringArray(value, fieldName);
+  if (entries.length === 0) {
+    throw new WorkflowGapAnalysisParserError(
+      `campo obrigatorio "${fieldName}" deve conter ao menos um item.`,
+    );
+  }
+
+  return entries;
 };
 
 const readBoolean = (value: unknown, fieldName: string): boolean => {
@@ -255,6 +275,80 @@ const parseHistoricalReference = (
         : readString(payload.ticketPath, "historicalReference.ticketPath"),
     findingFingerprints,
   };
+};
+
+const parseTicketDraft = (
+  value: unknown,
+): { ticketDraft: WorkflowImprovementTicketDraft | null; contractError: string | null } => {
+  if (value === undefined || value === null) {
+    return {
+      ticketDraft: null,
+      contractError: null,
+    };
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ticketDraft: null,
+      contractError: 'campo "ticketDraft" deve ser null ou um objeto estruturado.',
+    };
+  }
+
+  const payload = value as Record<string, unknown>;
+  try {
+    return {
+      ticketDraft: {
+        title: readString(payload.title, "ticketDraft.title"),
+        problemStatement: readString(
+          payload.problemStatement,
+          "ticketDraft.problemStatement",
+        ),
+        expectedBehavior: readString(
+          payload.expectedBehavior,
+          "ticketDraft.expectedBehavior",
+        ),
+        proposedSolution: readString(
+          payload.proposedSolution,
+          "ticketDraft.proposedSolution",
+        ),
+        reproductionSteps: readNonEmptyStringArray(
+          payload.reproductionSteps,
+          "ticketDraft.reproductionSteps",
+        ),
+        impactFunctional: readString(
+          payload.impactFunctional,
+          "ticketDraft.impactFunctional",
+        ),
+        impactOperational: readString(
+          payload.impactOperational,
+          "ticketDraft.impactOperational",
+        ),
+        regressionRisk: readString(payload.regressionRisk, "ticketDraft.regressionRisk"),
+        relevantAssumptionsDefaults: readNonEmptyStringArray(
+          payload.relevantAssumptionsDefaults,
+          "ticketDraft.relevantAssumptionsDefaults",
+        ),
+        closureCriteria: readNonEmptyStringArray(
+          payload.closureCriteria,
+          "ticketDraft.closureCriteria",
+        ),
+        affectedWorkflowSurfaces: readNonEmptyStringArray(
+          payload.affectedWorkflowSurfaces,
+          "ticketDraft.affectedWorkflowSurfaces",
+        ),
+      },
+      contractError: null,
+    };
+  } catch (error) {
+    if (error instanceof WorkflowGapAnalysisParserError) {
+      return {
+        ticketDraft: null,
+        contractError: error.message,
+      };
+    }
+
+    throw error;
+  }
 };
 
 const validatePayloadCombination = (value: {
