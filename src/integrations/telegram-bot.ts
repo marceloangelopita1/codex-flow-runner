@@ -6267,6 +6267,9 @@ export class TelegramController {
     if (summary.details) {
       lines.push(`Detalhes: ${summary.details}`);
     }
+    if (summary.specTriage) {
+      this.appendRunSpecsSpecTriageLines(lines, summary.specTriage);
+    }
     if (summary.specTicketValidation) {
       this.appendRunSpecsTicketValidationLines(lines, summary.specTicketValidation);
     }
@@ -6275,6 +6278,12 @@ export class TelegramController {
         lines,
         summary.specTicketDerivationRetrospective,
       );
+    }
+    if (summary.specCloseAndVersion) {
+      this.appendRunSpecsSpecCloseAndVersionLines(lines, summary.specCloseAndVersion);
+    }
+    if (summary.specAudit) {
+      this.appendRunSpecsSpecAuditLines(lines, summary.specAudit);
     }
     if (summary.workflowGapAnalysis) {
       this.appendWorkflowGapAnalysisLines(
@@ -6372,6 +6381,17 @@ export class TelegramController {
 
   }
 
+  private appendRunSpecsSpecTriageLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["specTriage"]>,
+  ): void {
+    lines.push("Resumo spec-triage");
+    lines.push(`Status da spec apos triagem: ${summary.specStatusAfterTriage}`);
+    lines.push(`Spec treatment apos triagem: ${summary.specTreatmentAfterTriage}`);
+    lines.push(`Tickets derivados criados: ${summary.derivedTicketsCreated}`);
+    lines.push(`Resumo: ${summary.summary}`);
+  }
+
   private appendSpecTicketDerivationRetrospectiveLines(
     lines: string[],
     summary: NonNullable<RunSpecsFlowSummary["specTicketDerivationRetrospective"]>,
@@ -6394,6 +6414,28 @@ export class TelegramController {
         "Ticket transversal da derivacao",
       );
     }
+  }
+
+  private appendRunSpecsSpecCloseAndVersionLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["specCloseAndVersion"]>,
+  ): void {
+    lines.push("Resumo spec-close-and-version");
+    lines.push(`Fechamento concluido: ${summary.closureCompleted ? "sim" : "nao"}`);
+    lines.push(`Resultado de versionamento: ${summary.versioningResult}`);
+    lines.push(`Commit hash: ${summary.commitHash ?? "n/a"}`);
+    lines.push(`Resumo: ${summary.summary}`);
+  }
+
+  private appendRunSpecsSpecAuditLines(
+    lines: string[],
+    summary: NonNullable<RunSpecsFlowSummary["specAudit"]>,
+  ): void {
+    lines.push("Resumo spec-audit");
+    lines.push(`Gaps residuais detectados: ${summary.residualGapsDetected ? "sim" : "nao"}`);
+    lines.push(`Follow-up tickets criados: ${summary.followUpTicketsCreated}`);
+    lines.push(`Status da spec apos auditoria: ${summary.specStatusAfterAudit}`);
+    lines.push(`Resumo: ${summary.summary}`);
   }
 
   private appendWorkflowGapAnalysisLines(
@@ -6588,6 +6630,30 @@ export class TelegramController {
 
     if (event.details) {
       lines.push(`Detalhes: ${event.details}`);
+    }
+
+    if (event.specTicketValidation) {
+      lines.push("Snapshot spec-ticket-validation");
+      lines.push(`Veredito: ${event.specTicketValidation.verdict}`);
+      lines.push(`Confianca final: ${event.specTicketValidation.confidence}`);
+      lines.push(`Motivo final: ${event.specTicketValidation.finalReason}`);
+      lines.push(`Ciclos executados: ${event.specTicketValidation.cyclesExecuted}`);
+      lines.push(`Resumo do gate: ${event.specTicketValidation.summary}`);
+    }
+
+    if (event.specTicketDerivationRetrospective) {
+      lines.push("Snapshot retrospectiva da derivacao");
+      lines.push(`Decisao: ${event.specTicketDerivationRetrospective.decision}`);
+      lines.push(
+        `Gaps revisados detectados: ${event.specTicketDerivationRetrospective.reviewedGapHistoryDetected ? "sim" : "nao"}`,
+      );
+      if (event.specTicketDerivationRetrospective.analysis) {
+        lines.push(
+          `Classificacao: ${event.specTicketDerivationRetrospective.analysis.classification}`,
+        );
+        lines.push(`Confianca: ${event.specTicketDerivationRetrospective.analysis.confidence}`);
+      }
+      lines.push(`Resumo: ${event.specTicketDerivationRetrospective.summary}`);
     }
 
     this.appendTimingLines(lines, "Tempos da triagem", event.timing, RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER);

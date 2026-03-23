@@ -1,7 +1,7 @@
 # [TICKET] Contrato de /run_specs nao expoe snapshot de triagem nem summaries estruturados das fases timing-only
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -91,17 +91,23 @@ O runner deve publicar um contrato explicito para o milestone de triagem e para 
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-03, RF-04, RF-05, RF-06, CA-01, CA-02.
 - Evidencia observavel: `RunSpecsTriageLifecycleEvent` ou contrato equivalente passa a carregar snapshots estruturados de `spec-ticket-validation` e `spec-ticket-derivation-retrospective`; os testes do runner verificam, em cenarios de sucesso, `NO_GO` e falha tecnica pre-`/run_all`, que o milestone preserva o melhor snapshot disponivel e expõe em `spec-ticket-validation` ao menos `verdict`, `confidence`, `finalReason`, `cyclesExecuted` e `summary`, e em `spec-ticket-derivation-retrospective` ao menos `decision`, `reviewedGapHistoryDetected`, `summary` e, quando houver analise estruturada, `classification` e `confidence`.
+- Validacao de fechamento: `src/core/runner.ts` passou a expor `specTicketValidation` e `specTicketDerivationRetrospective` em `RunSpecsTriageLifecycleEvent`; `src/integrations/telegram-bot.ts` renderiza ambos os snapshots no milestone; `src/core/runner.test.ts` cobre sucesso, `NO_GO` e falha tecnica pre-`/run_all` com asserts objetivos desses campos; `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` concluiu verde em 2026-03-23 16:53Z.
 - Requisito/RF/CA coberto: RF-08, RF-09, RF-10, RF-11, RF-12, CA-04, CA-10.
 - Evidencia observavel: `RunSpecsFlowSummary` ou contrato equivalente passa a expor summaries proprios para `spec-triage`, `spec-close-and-version` e `spec-audit`, com asserts objetivos nos testes de runner para os campos minimos exigidos.
+- Validacao de fechamento: `src/types/flow-timing.ts` passou a modelar `RunSpecsSpecTriageSummary`, `RunSpecsSpecCloseAndVersionSummary` e `RunSpecsSpecAuditSummary`; `src/core/runner.ts` popula esses summaries no resumo final; `src/integrations/telegram-bot.ts` renderiza os novos blocos; `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` validam os campos minimos esperados; `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check` e `npm run build` passaram em 2026-03-23 16:53Z.
 - Requisito/RF/CA coberto: RF-23, CA-09.
 - Evidencia observavel: o envio continua passando por `TelegramDeliveryService` e pelos policies atuais; testes de entrega/retry/chunking existentes seguem cobrindo o caminho central sem regressao.
+- Validacao de fechamento: o fluxo de envio continua centralizado em `TelegramDeliveryService`; `src/integrations/telegram-bot.test.ts` manteve os cenarios de milestone/resumo com entrega central, retry e chunking verdes; `npm test` concluiu com 429 testes aprovados em 2026-03-23 16:53Z sem regressao observavel nessa superficie.
 
 ## Decision log
 - 2026-03-23 - Ticket derivado da spec para tratar o gap de contrato antes do redesign editorial - o renderer depende destes dados para cumprir a spec sem texto generico.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-23 16:53Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado do quality gate de fechamento: GO
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada criterio de fechamento.
+- Validacao manual pendente registrada neste ticket: nenhuma. As validacoes manuais externas remanescentes pertencem ao ticket editorial/chunking da mesma spec.

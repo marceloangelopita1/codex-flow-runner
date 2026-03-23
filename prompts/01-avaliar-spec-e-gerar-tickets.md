@@ -48,3 +48,14 @@ Saída esperada no chat:
 - Validacoes pendentes/manuais relevantes herdadas da spec e onde elas foram refletidas.
 - Quais tickets foram criados e por quê.
 - Caminhos dos arquivos criados/atualizados.
+
+Incluir obrigatoriamente ao final da resposta o bloco parseável abaixo, sem mudar os nomes dos campos:
+
+```text
+[[SPEC_TRIAGE_RESULT]]
+spec_status_after_triage: <status-da-spec-apos-triagem>
+spec_treatment_after_triage: <spec-treatment-apos-triagem>
+derived_tickets_created: <numero-inteiro>
+summary: <resumo-curto-do-efeito-observavel-da-triagem>
+[[/SPEC_TRIAGE_RESULT]]
+```

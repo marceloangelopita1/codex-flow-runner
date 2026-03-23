@@ -95,6 +95,27 @@ export interface RunSpecsDerivationRetrospectiveSummary {
   workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
 }
 
+export interface RunSpecsSpecTriageSummary {
+  specStatusAfterTriage: string;
+  specTreatmentAfterTriage: string;
+  derivedTicketsCreated: number;
+  summary: string;
+}
+
+export interface RunSpecsSpecCloseAndVersionSummary {
+  closureCompleted: boolean;
+  versioningResult: string;
+  commitHash: string | null;
+  summary: string;
+}
+
+export interface RunSpecsSpecAuditSummary {
+  residualGapsDetected: boolean;
+  followUpTicketsCreated: number;
+  specStatusAfterAudit: string;
+  summary: string;
+}
+
 export type RunSpecsTriageTimingStage =
   | "spec-triage"
   | "spec-ticket-validation"
@@ -133,8 +154,11 @@ export interface RunSpecsFlowSummary {
   codexPreferences?: CodexFlowPreferencesSnapshot;
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   timing: FlowTimingSnapshot<RunSpecsFlowTimingStage>;
+  specTriage?: RunSpecsSpecTriageSummary;
   specTicketValidation?: RunSpecsTicketValidationSummary;
   specTicketDerivationRetrospective?: RunSpecsDerivationRetrospectiveSummary;
+  specCloseAndVersion?: RunSpecsSpecCloseAndVersionSummary;
+  specAudit?: RunSpecsSpecAuditSummary;
   workflowGapAnalysis?: WorkflowGapAnalysisResult;
   workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
   runAllSummary?: RunAllFlowSummary;

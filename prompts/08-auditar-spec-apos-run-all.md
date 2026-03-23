@@ -55,5 +55,7 @@ Tarefa:
 [[SPEC_AUDIT_RESULT]]
 residual_gaps_detected: yes|no
 follow_up_tickets_created: <numero-inteiro>
+spec_status_after_audit: <status-da-spec-apos-auditoria>
+summary: <resumo-curto-do-efeito-funcional-da-auditoria>
 [[/SPEC_AUDIT_RESULT]]
 ```

@@ -201,6 +201,16 @@ const createRunSpecsTicketValidationSummary = (
   ...value,
 });
 
+const createRunSpecsSpecTriageSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["specTriage"]>> = {},
+): NonNullable<RunSpecsFlowSummary["specTriage"]> => ({
+  specStatusAfterTriage: "approved",
+  specTreatmentAfterTriage: "pending",
+  derivedTicketsCreated: 2,
+  summary: "Triagem atualizou a spec e derivou o pacote inicial de tickets.",
+  ...value,
+});
+
 const createWorkflowGapAnalysisSummary = (
   value: Partial<NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]>> = {},
 ): NonNullable<RunSpecsFlowSummary["workflowGapAnalysis"]> => ({
@@ -245,6 +255,26 @@ const createRunSpecsDerivationRetrospectiveSummary = (
     ],
     followUpTicketPaths: ["tickets/open/2026-02-19-flow-a.md"],
   }),
+  ...value,
+});
+
+const createRunSpecsSpecCloseAndVersionSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["specCloseAndVersion"]>> = {},
+): NonNullable<RunSpecsFlowSummary["specCloseAndVersion"]> => ({
+  closureCompleted: true,
+  versioningResult: "committed-and-pushed",
+  commitHash: "abc123def456",
+  summary: "Fechamento/versionamento da triagem concluido com sucesso.",
+  ...value,
+});
+
+const createRunSpecsSpecAuditSummary = (
+  value: Partial<NonNullable<RunSpecsFlowSummary["specAudit"]>> = {},
+): NonNullable<RunSpecsFlowSummary["specAudit"]> => ({
+  residualGapsDetected: false,
+  followUpTicketsCreated: 0,
+  specStatusAfterAudit: "attended",
+  summary: "Auditoria final concluiu sem gaps residuais reais.",
   ...value,
 });
 
@@ -5701,6 +5731,13 @@ test("nao envia milestone de triagem /run_specs quando chat de notificacao nao f
     outcome: "success",
     finalStage: "spec-close-and-version",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+    specTicketValidation: createRunSpecsTicketValidationSummary({
+      summary: "Gate aprovou o pacote derivado antes do /run-all.",
+    }),
+    specTicketDerivationRetrospective: createRunSpecsDerivationRetrospectiveSummary({
+      decision: "executed",
+      summary: "Retrospectiva pre-run-all concluiu com hipótese sistêmica fraca.",
+    }),
     timing: createRunSpecsTriageTimingSnapshot(),
   });
 
@@ -5734,6 +5771,13 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
     outcome: "success",
     finalStage: "spec-close-and-version",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
+    specTicketValidation: createRunSpecsTicketValidationSummary({
+      summary: "Gate aprovou o pacote derivado antes do /run-all.",
+    }),
+    specTicketDerivationRetrospective: createRunSpecsDerivationRetrospectiveSummary({
+      decision: "executed",
+      summary: "Retrospectiva pre-run-all concluiu com hipótese sistêmica fraca.",
+    }),
     timing: createRunSpecsTriageTimingSnapshot(),
   });
 
@@ -5744,6 +5788,10 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Proxima acao:/u);
+  assert.match(sentMessages[0]?.text ?? "", /Snapshot spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Veredito: GO/u);
+  assert.match(sentMessages[0]?.text ?? "", /Snapshot retrospectiva da derivacao/u);
+  assert.match(sentMessages[0]?.text ?? "", /Decisao: executed/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempos da triagem/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 3m 0s \(180000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- spec-triage: 1m 30s \(90000 ms\)/u);
@@ -5851,6 +5899,12 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
     finalStage: "spec-close-and-version",
     nextAction: "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs.",
     details: "falha simulada",
+    specTicketValidation: createRunSpecsTicketValidationSummary(),
+    specTicketDerivationRetrospective: createRunSpecsDerivationRetrospectiveSummary({
+      decision: "skipped-no-reviewed-gaps",
+      summary: "Retrospectiva pre-run-all foi pulada sem gaps revisados.",
+      analysis: undefined,
+    }),
     timing: {
       ...createRunSpecsTriageTimingSnapshot(),
       finishedAtUtc: "2026-02-19T15:01:00.000Z",
@@ -5869,6 +5923,8 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
   assert.match(sentMessages[1]?.text ?? "", /Resultado: falha/u);
   assert.match(sentMessages[1]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[1]?.text ?? "", /Detalhes: falha simulada/u);
+  assert.match(sentMessages[1]?.text ?? "", /Snapshot spec-ticket-validation/u);
+  assert.match(sentMessages[1]?.text ?? "", /Snapshot retrospectiva da derivacao/u);
   assert.match(sentMessages[1]?.text ?? "", /Tempo total: 1m 0s \(60000 ms\)/u);
   assert.match(sentMessages[1]?.text ?? "", /- spec-triage: 40s \(40000 ms\)/u);
   assert.match(sentMessages[1]?.text ?? "", /- spec-close-and-version: 20s \(20000 ms\)/u);
@@ -6210,9 +6266,12 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
 
   await controller.sendRunFlowSummary(
     createRunSpecsFlowSummary({
+      specTriage: createRunSpecsSpecTriageSummary(),
       specTicketValidation: createRunSpecsTicketValidationSummary({
         summary: "Pacote derivado aprovado antes do /run-all.",
       }),
+      specCloseAndVersion: createRunSpecsSpecCloseAndVersionSummary(),
+      specAudit: createRunSpecsSpecAuditSummary(),
     }),
   );
 
@@ -6222,7 +6281,13 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-audit/u);
   assert.match(sentMessages[0]?.text ?? "", /Motivo de encerramento: completed/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tickets derivados criados: 2/u);
   assert.match(sentMessages[0]?.text ?? "", /Gate spec-ticket-validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-close-and-version/u);
+  assert.match(sentMessages[0]?.text ?? "", /Commit hash: abc123def456/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-audit/u);
+  assert.match(sentMessages[0]?.text ?? "", /Status da spec apos auditoria: attended/u);
   assert.match(sentMessages[0]?.text ?? "", /Veredito: GO/u);
   assert.match(sentMessages[0]?.text ?? "", /Gaps finais: nenhum/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 9m 0s \(540000 ms\)/u);
@@ -6463,6 +6528,8 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
       finalStage: "run-all",
       completionReason: "run-all-failure",
       details: "falha simulada no run-all encadeado",
+      specTriage: createRunSpecsSpecTriageSummary(),
+      specCloseAndVersion: createRunSpecsSpecCloseAndVersionSummary(),
       timing: createRunSpecsFlowTimingSnapshot({
         finishedAtUtc: "2026-02-19T15:02:45.000Z",
         totalDurationMs: 165000,
@@ -6499,6 +6566,8 @@ test("envia resumo final de fluxo /run-specs com tempos e snapshot parcial em fa
   );
   assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.match(sentMessages[0]?.text ?? "", /Detalhes: falha simulada no run-all encadeado/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Tempo total: 2m 45s \(165000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /- run-all: 30s \(30000 ms\)/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase interrompida: run-all/u);
@@ -6518,6 +6587,7 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
       finalStage: "spec-ticket-validation",
       completionReason: "spec-ticket-validation-no-go",
       details: "Backlog derivado ainda nao esta seguro para seguir ao /run-all.",
+      specTriage: createRunSpecsSpecTriageSummary(),
       timing: createRunSpecsFlowTimingSnapshot({
         finishedAtUtc: "2026-02-19T15:02:15.000Z",
         totalDurationMs: 135000,
@@ -6568,6 +6638,7 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
     sentMessages[0]?.text ?? "",
     /Motivo de encerramento: spec-ticket-validation-no-go/u,
   );
+  assert.match(sentMessages[0]?.text ?? "", /Resumo spec-triage/u);
   assert.match(sentMessages[0]?.text ?? "", /Veredito: NO_GO/u);
   assert.match(sentMessages[0]?.text ?? "", /Confianca final: medium/u);
   assert.match(sentMessages[0]?.text ?? "", /Gaps finais:/u);

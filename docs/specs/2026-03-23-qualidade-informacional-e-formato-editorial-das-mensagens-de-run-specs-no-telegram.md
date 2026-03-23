@@ -6,13 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 16:09Z
-- Last reviewed at (UTC): 2026-03-23 16:29Z
+- Last reviewed at (UTC): 2026-03-23 16:53Z
 - Source: operational-gap
 - Related tickets:
-  - [tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
+  - [tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
   - [tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md](../../tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md)
 - Related execplans:
-  - n/a
+  - [execplans/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../execplans/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
 - Related commits:
   - n/a
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
@@ -148,7 +148,7 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md [fonte=source-spec]
-  - tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md [fonte=source-spec]
+  - tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: GO (high)
@@ -164,7 +164,7 @@
 
 #### Correcoes aplicadas
 - Refinado o Closure criteria do ticket de contrato para explicitar os campos minimos observaveis do snapshot de `spec-ticket-validation` e `spec-ticket-derivation-retrospective` no milestone pre-`/run_all`, com asserts exigidos nos testes do runner.
-  - Artefatos afetados: tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md
+  - Artefatos afetados: tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 
@@ -209,23 +209,24 @@
 - Estado geral: approved
 - Itens atendidos:
   - O projeto já possui base robusta de entrega no Telegram, evitando que esta spec precise resolver confiabilidade de transporte.
-  - O fluxo `/run_specs` já expõe dados estruturados ricos para `spec-ticket-validation` e para parte da `spec-ticket-derivation-retrospective`.
+  - O fluxo `/run_specs` agora expõe no milestone de triagem snapshots estruturados de `spec-ticket-validation` e `spec-ticket-derivation-retrospective`, inclusive em cenarios de `NO_GO` e falha tecnica pre-`/run_all`.
+  - O resumo final de `/run_specs` agora carrega summaries dedicados de `spec-triage`, `spec-close-and-version` e `spec-audit`, com campos minimos observaveis voltados a efeito funcional.
+  - Os prompts de `spec-triage`, `spec-close-and-version` e `spec-audit` agora publicam blocos parseaveis minimos para sustentar esse contrato sem heuristica sobre texto livre.
   - O diagnóstico já identificou com clareza os principais gaps desta superfície:
     - marco de triagem limitado por contrato e excessivamente centrado em timing;
-    - ausência de resumos estruturados para `spec-triage`, `spec-close-and-version` e `spec-audit`;
     - duplicação de correções na renderização do gate;
     - sobreposição editorial na retrospectiva da derivação;
     - blocos de timing competindo entre si;
     - hierarquia visual fraca no resumo final.
 - Pendências em aberto:
-  - `tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md` permanece aberto para expor snapshot funcional no milestone pre-`/run_all` e summaries estruturados de `spec-triage`, `spec-close-and-version` e `spec-audit`.
   - `tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md` permanece aberto para reorganizar milestone/resumo final em secoes estaveis, remover duplicacao evitavel, tornar timings autoexplicativos e preservar leitura chunkada.
   - A cobertura automatizada ainda nao trava os cenarios editoriais exigidos pela spec para sucesso, bloqueio por `NO_GO`, falha tecnica de triagem, retrospectiva executada/pulada e chunking longo com asserts especificos.
   - A auditoria final continua pendente apos a implementacao para confirmar, com exemplos reais, que o ganho informacional nao degradou escaneabilidade nem proxima acao operacional.
 - Evidências de validação:
-  - Análise direta das mensagens de exemplo do `/run_specs`, com identificação de lacunas em `spec-triage`, `spec-ticket-validation` e `spec-ticket-derivation-retrospective`.
+  - Execucao de `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, cobrindo milestone em sucesso, `NO_GO`, falha tecnica pre-`/run_all` e resumo final com summaries dedicados de `spec-triage`, `spec-close-and-version` e `spec-audit`.
+  - Execucao de `npm test`, `npm run check` e `npm run build`, sustentando o contrato novo nas suites completas, na tipagem compartilhada e na compilacao do fluxo.
   - Releitura de `docs/specs/2026-02-19-telegram-run-status-notification.md`, `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md`, `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` e `docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md`.
-  - Inspeção de `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/core/spec-ticket-validation.ts` e `src/types/flow-timing.ts`, confirmando que parte do problema é editorial e parte depende de enriquecer o contrato interno do summary.
+  - Inspecao e atualizacao de `src/integrations/telegram-bot.ts`, `src/core/runner.ts`, `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/types/flow-timing.ts`, confirmando que a parte contratual do gap ficou entregue sem antecipar o redesign editorial.
 
 ## Auditoria final de entrega
 - Auditoria executada em: n/a
@@ -255,3 +256,5 @@
 - 2026-03-23 16:09Z - Versão inicial da spec.
 - 2026-03-23 16:17Z - Spec revisada contra o estado atual do codigo; tickets derivados para contrato de summaries e renderer editorial/chunking.
 - 2026-03-23 16:29Z - Triagem validada para versionamento; status mantido como approved com pendencias rastreadas nos tickets abertos.
+- 2026-03-23 16:50Z - Contrato interno de milestone e summaries do `/run_specs` enriquecido no codigo, com validacao automatizada local; pendencia principal remanescente ficou concentrada no ticket editorial/chunking e na auditoria final da spec.
+- 2026-03-23 16:53Z - Ticket de contrato fechado como `fixed` em `tickets/closed/`; a spec permanece pendente apenas pelo ticket editorial/chunking e pela auditoria final.

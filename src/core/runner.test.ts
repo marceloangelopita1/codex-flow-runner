@@ -342,10 +342,30 @@ class StubCodexClient implements CodexTicketFlowClient {
       return this.stageOutputs[stage] ?? "";
     }
 
+    if (stage === "spec-triage") {
+      return createSpecTriageOutput({
+        specStatusAfterTriage: "approved",
+        specTreatmentAfterTriage: "pending",
+        derivedTicketsCreated: 1,
+        summary: "Triagem concluiu com pacote derivado rastreavel para a spec.",
+      });
+    }
+
+    if (stage === "spec-close-and-version") {
+      return createSpecCloseAndVersionOutput({
+        closureCompleted: true,
+        versioningResult: "committed-and-pushed",
+        commitHash: "abc123def456",
+        summary: "Fechamento/versionamento da triagem concluido com sucesso.",
+      });
+    }
+
     if (stage === "spec-audit") {
       return createSpecAuditOutput({
         residualGapsDetected: false,
         followUpTicketsCreated: 0,
+        specStatusAfterAudit: "attended",
+        summary: "Auditoria concluiu sem gaps residuais reais.",
       });
     }
 
@@ -363,9 +383,45 @@ class StubCodexClient implements CodexTicketFlowClient {
   }
 }
 
+const createSpecTriageOutput = (value: {
+  specStatusAfterTriage: string;
+  specTreatmentAfterTriage: string;
+  derivedTicketsCreated: number;
+  summary: string;
+}): string =>
+  [
+    "Triagem concluida.",
+    "",
+    "[[SPEC_TRIAGE_RESULT]]",
+    `spec_status_after_triage: ${value.specStatusAfterTriage}`,
+    `spec_treatment_after_triage: ${value.specTreatmentAfterTriage}`,
+    `derived_tickets_created: ${String(value.derivedTicketsCreated)}`,
+    `summary: ${value.summary}`,
+    "[[/SPEC_TRIAGE_RESULT]]",
+  ].join("\n");
+
+const createSpecCloseAndVersionOutput = (value: {
+  closureCompleted: boolean;
+  versioningResult: string;
+  commitHash: string | null;
+  summary: string;
+}): string =>
+  [
+    "Fechamento/versionamento concluido.",
+    "",
+    "[[SPEC_CLOSE_AND_VERSION_RESULT]]",
+    `closure_completed: ${value.closureCompleted ? "yes" : "no"}`,
+    `versioning_result: ${value.versioningResult}`,
+    `commit_hash: ${value.commitHash ?? "none"}`,
+    `summary: ${value.summary}`,
+    "[[/SPEC_CLOSE_AND_VERSION_RESULT]]",
+  ].join("\n");
+
 const createSpecAuditOutput = (value: {
   residualGapsDetected: boolean;
   followUpTicketsCreated: number;
+  specStatusAfterAudit?: string;
+  summary?: string;
 }): string =>
   [
     "Auditoria concluida.",
@@ -373,6 +429,8 @@ const createSpecAuditOutput = (value: {
     "[[SPEC_AUDIT_RESULT]]",
     `residual_gaps_detected: ${value.residualGapsDetected ? "yes" : "no"}`,
     `follow_up_tickets_created: ${String(value.followUpTicketsCreated)}`,
+    `spec_status_after_audit: ${value.specStatusAfterAudit ?? (value.residualGapsDetected ? "approved" : "attended")}`,
+    `summary: ${value.summary ?? (value.residualGapsDetected ? "Auditoria concluiu com gaps residuais reais." : "Auditoria concluiu sem gaps residuais reais.")}`,
     "[[/SPEC_AUDIT_RESULT]]",
   ].join("\n");
 
@@ -3413,6 +3471,11 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
       "number",
     );
     assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
+    assert.equal(milestones[0]?.specTicketValidation?.verdict, "GO");
+    assert.equal(
+      milestones[0]?.specTicketDerivationRetrospective?.decision,
+      "skipped-no-reviewed-gaps",
+    );
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
     assert.ok(runSpecsSummary);
     if (runSpecsSummary?.flow === "run-specs") {
@@ -3436,7 +3499,10 @@ test("requestRunSpecs emite milestone de falha quando spec-close-and-version fal
         "number",
       );
       assert.equal(runSpecsSummary.timing.durationsByStageMs["run-all"], undefined);
+      assert.equal(runSpecsSummary.specTriage?.specStatusAfterTriage, "approved");
+      assert.equal(runSpecsSummary.specTriage?.derivedTicketsCreated, 1);
       assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
+      assert.equal(runSpecsSummary.specCloseAndVersion, undefined);
     } else {
       assert.fail("resumo de fluxo /run_specs deveria existir");
     }
@@ -3517,6 +3583,12 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.equal(milestones[0]?.outcome, "blocked");
     assert.equal(milestones[0]?.finalStage, "spec-ticket-derivation-retrospective");
     assert.match(milestones[0]?.nextAction ?? "", /NO_GO/u);
+    assert.equal(milestones[0]?.specTicketValidation?.verdict, "NO_GO");
+    assert.equal(milestones[0]?.specTicketValidation?.confidence, "medium");
+    assert.equal(
+      milestones[0]?.specTicketDerivationRetrospective?.analysis?.classification,
+      "not-systemic",
+    );
 
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
     assert.ok(runSpecsSummary);
@@ -3532,6 +3604,8 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
         runSpecsSummary.specTicketDerivationRetrospective?.analysis?.inputMode,
         "spec-ticket-validation-history",
       );
+      assert.equal(runSpecsSummary.specTriage?.specTreatmentAfterTriage, "pending");
+      assert.equal(runSpecsSummary.specCloseAndVersion, undefined);
       assert.deepEqual(
         runSpecsSummary.timing.completedStages,
         [
@@ -4380,6 +4454,11 @@ test("requestRunSpecs registra skip explicito da retrospectiva pre-run-all quand
     assert.equal(milestones[0]?.outcome, "failure");
     assert.equal(milestones[0]?.finalStage, "spec-ticket-validation");
     assert.match(milestones[0]?.details ?? "", /insumos estruturados suficientes/u);
+    assert.equal(milestones[0]?.specTicketValidation, undefined);
+    assert.equal(
+      milestones[0]?.specTicketDerivationRetrospective?.decision,
+      "skipped-insufficient-structured-input",
+    );
 
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
     assert.ok(runSpecsSummary);
@@ -4407,6 +4486,7 @@ test("requestRunSpecs registra skip explicito da retrospectiva pre-run-all quand
       runSpecsSummary.specTicketDerivationRetrospective?.functionalVerdict,
       "unavailable",
     );
+    assert.equal(runSpecsSummary.specTriage?.specStatusAfterTriage, "approved");
     assert.deepEqual(runSpecsSummary.timing.completedStages, [
       "spec-triage",
       "spec-ticket-derivation-retrospective",
@@ -6094,6 +6174,11 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
       "number",
     );
     assert.equal(typeof milestones[0]?.timing.durationsByStageMs["spec-close-and-version"], "number");
+    assert.equal(milestones[0]?.specTicketValidation?.verdict, "GO");
+    assert.equal(
+      milestones[0]?.specTicketDerivationRetrospective?.decision,
+      "skipped-no-reviewed-gaps",
+    );
     assert.equal(firstTicketCallSawMilestone, true);
     const runAllSummary = flowSummaries.find((event) => event.flow === "run-all");
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
@@ -6137,6 +6222,11 @@ test("requestRunSpecs emite milestone de sucesso antes de iniciar rodada de tick
       );
       assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["run-all"], "number");
       assert.equal(typeof runSpecsSummary.timing.durationsByStageMs["spec-audit"], "number");
+      assert.equal(runSpecsSummary.specTriage?.specStatusAfterTriage, "approved");
+      assert.equal(runSpecsSummary.specCloseAndVersion?.closureCompleted, true);
+      assert.equal(runSpecsSummary.specCloseAndVersion?.commitHash, "abc123def456");
+      assert.equal(runSpecsSummary.specAudit?.specStatusAfterAudit, "attended");
+      assert.equal(runSpecsSummary.specAudit?.followUpTicketsCreated, 0);
       assert.equal(runSpecsSummary.specTicketValidation?.verdict, "GO");
       assert.equal(runSpecsSummary.runAllSummary?.outcome, "success");
       assert.equal(runSpecsSummary.runAllSummary?.completionReason, "queue-empty");

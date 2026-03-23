@@ -35,7 +35,7 @@
   - INTERNAL_TICKETS.md
   - docs/workflows/codex-quality-gates.md
   - docs/specs/2026-03-23-qualidade-informacional-e-formato-editorial-das-mensagens-de-run-specs-no-telegram.md
-  - tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md
+  - tickets/closed/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao

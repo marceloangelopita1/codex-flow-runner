@@ -34,3 +34,14 @@ Tarefa:
    - hash do commit;
    - status do push;
    - pendências remanescentes (se houver).
+
+Incluir obrigatoriamente ao final da resposta o bloco parseável abaixo, sem mudar os nomes dos campos:
+
+```text
+[[SPEC_CLOSE_AND_VERSION_RESULT]]
+closure_completed: yes|no
+versioning_result: <resultado-observavel-principal-da-etapa>
+commit_hash: <hash-do-commit-ou-none>
+summary: <resumo-curto-do-fechamento-versionamento>
+[[/SPEC_CLOSE_AND_VERSION_RESULT]]
+```

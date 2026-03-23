@@ -38,6 +38,9 @@ import {
   RunSpecsDerivationRetrospectiveSummary,
   RunAllTimingStage,
   RunnerFlowSummary,
+  RunSpecsSpecAuditSummary,
+  RunSpecsSpecCloseAndVersionSummary,
+  RunSpecsSpecTriageSummary,
   RunSpecsFlowCompletionReason,
   RunSpecsFlowFinalStage,
   RunSpecsFlowSummary,
@@ -185,6 +188,8 @@ export interface RunSpecsTriageLifecycleEvent {
   nextAction: string;
   timing: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   details?: string;
+  specTicketValidation?: RunSpecsTicketValidationSummary;
+  specTicketDerivationRetrospective?: RunSpecsDerivationRetrospectiveSummary;
 }
 
 export interface RunSpecsEventHandlers {
@@ -325,11 +330,17 @@ type RunnerSpecStageResult = CodexStageResult & {
   traceRecord: WorkflowStageTraceRecord | null;
 };
 
-interface SpecAuditStageResult {
-  residualGapsDetected: boolean;
-  followUpTicketsCreated: number;
+interface ParsedSpecStageResult<Summary> {
+  summary: Summary;
   outputText: string;
 }
+
+type SpecTriageStageResult = ParsedSpecStageResult<RunSpecsSpecTriageSummary>;
+
+type SpecCloseAndVersionStageResult =
+  ParsedSpecStageResult<RunSpecsSpecCloseAndVersionSummary>;
+
+type SpecAuditStageResult = ParsedSpecStageResult<RunSpecsSpecAuditSummary>;
 
 interface WorkflowRetrospectiveStageResult {
   analysis: WorkflowGapAnalysisResult;
@@ -418,7 +429,11 @@ class RunnerSpecStageContractError extends Error {
   constructor(
     readonly stage: Extract<
       SpecFlowStage,
-      "spec-ticket-derivation-retrospective" | "spec-audit" | "spec-workflow-retrospective"
+      | "spec-triage"
+      | "spec-ticket-derivation-retrospective"
+      | "spec-close-and-version"
+      | "spec-audit"
+      | "spec-workflow-retrospective"
     >,
     message: string,
     cause?: unknown,
@@ -4370,6 +4385,21 @@ export class TicketRunner {
         ...event,
         spec: { ...event.spec },
         timing: this.cloneFlowTimingSnapshot(event.timing),
+        ...(event.specTicketValidation
+          ? {
+              specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
+                event.specTicketValidation,
+              ),
+            }
+          : {}),
+        ...(event.specTicketDerivationRetrospective
+          ? {
+              specTicketDerivationRetrospective:
+                this.cloneRunSpecsDerivationRetrospectiveSummary(
+                  event.specTicketDerivationRetrospective,
+                ),
+            }
+          : {}),
       });
     } catch (error) {
       this.logger.warn("Falha ao encaminhar milestone de triagem de /run_specs para integracao", {
@@ -4593,27 +4623,51 @@ export class TicketRunner {
     const flowTimingCollector = this.createFlowTimingCollector<RunSpecsFlowTimingStage>();
     let runAllSummary: RunAllFlowSummary | undefined;
     let flowSummary: RunSpecsFlowSummary | null = null;
+    let specTriageSummary: RunSpecsSpecTriageSummary | undefined;
     let specTicketValidationSummary: RunSpecsTicketValidationSummary | undefined;
     let specTicketValidationPackageContext: SpecTicketValidationPackageContext | undefined;
     let specTicketDerivationRetrospectiveSummary:
       | RunSpecsDerivationRetrospectiveSummary
       | undefined;
+    let specCloseAndVersionSummary: RunSpecsSpecCloseAndVersionSummary | undefined;
+    let specAuditSummary: RunSpecsSpecAuditSummary | undefined;
     let workflowGapAnalysisSummary: WorkflowGapAnalysisResult | undefined;
     let workflowImprovementTicketSummary: WorkflowImprovementTicketPublicationResult | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
     this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
 
-    const runTimedTriageStage = async (
-      stage: Extract<RunSpecsTriageTimingStage, "spec-triage" | "spec-close-and-version">,
-      message: string,
-    ): Promise<void> => {
+    const runTimedStructuredTriageStage = async <Summary>(params: {
+      stage: Extract<RunSpecsTriageTimingStage, "spec-triage" | "spec-close-and-version">;
+      message: string;
+      parseResult: (outputText: string) => ParsedSpecStageResult<Summary>;
+      buildTraceMetadata: (summary: Summary) => Record<string, unknown>;
+      buildTraceSummary: (summary: Summary) => string;
+    }): Promise<Summary> => {
+      const { stage, message, parseResult, buildTraceMetadata, buildTraceSummary } = params;
+      let parsedStageResult: ParsedSpecStageResult<Summary> | null = null;
       const stageStartedAt = Date.now();
       try {
-        await this.runSpecStage(slot, stage, spec, message);
+        await this.runSpecStage(slot, stage, spec, message, {
+          validateResult: (result) => {
+            parsedStageResult = parseResult(result.output);
+            return {
+              summary: buildTraceSummary(parsedStageResult.summary),
+              metadata: buildTraceMetadata(parsedStageResult.summary),
+            };
+          },
+        });
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageCompletion(triageTimingCollector, stage, durationMs);
         this.recordFlowStageCompletion(flowTimingCollector, stage, durationMs);
+        const finalizedParsedStageResult = parsedStageResult as ParsedSpecStageResult<Summary> | null;
+        if (!finalizedParsedStageResult) {
+          throw new RunnerSpecStageContractError(
+            stage,
+            `${stage} terminou sem expor o resultado parseavel obrigatorio.`,
+          );
+        }
+        return finalizedParsedStageResult.summary;
       } catch (error) {
         const durationMs = Date.now() - stageStartedAt;
         this.recordFlowStageFailure(triageTimingCollector, stage, durationMs);
@@ -4621,6 +4675,36 @@ export class TicketRunner {
         throw error;
       }
     };
+
+    const runTimedSpecTriageStage = async (
+      message: string,
+    ): Promise<RunSpecsSpecTriageSummary> =>
+      runTimedStructuredTriageStage({
+        stage: "spec-triage",
+        message,
+        parseResult: (outputText) => this.parseSpecTriageStageResult(outputText),
+        buildTraceSummary: (summary) => summary.summary,
+        buildTraceMetadata: (summary) => ({
+          specStatusAfterTriage: summary.specStatusAfterTriage,
+          specTreatmentAfterTriage: summary.specTreatmentAfterTriage,
+          derivedTicketsCreated: summary.derivedTicketsCreated,
+        }),
+      });
+
+    const runTimedSpecCloseAndVersionStage = async (
+      message: string,
+    ): Promise<RunSpecsSpecCloseAndVersionSummary> =>
+      runTimedStructuredTriageStage({
+        stage: "spec-close-and-version",
+        message,
+        parseResult: (outputText) => this.parseSpecCloseAndVersionStageResult(outputText),
+        buildTraceSummary: (summary) => summary.summary,
+        buildTraceMetadata: (summary) => ({
+          closureCompleted: summary.closureCompleted,
+          versioningResult: summary.versioningResult,
+          commitHash: summary.commitHash,
+        }),
+      });
 
     const runTimedSpecTicketValidationStage = async (
       message: string,
@@ -4928,12 +5012,13 @@ export class TicketRunner {
           validateResult: (result) => {
             auditStageResult = this.parseSpecAuditStageResult(result.output);
             return {
-              summary: auditStageResult.residualGapsDetected
+              summary: auditStageResult.summary.residualGapsDetected
                 ? "Etapa spec-audit concluiu com gaps residuais reais."
                 : "Etapa spec-audit concluiu sem gaps residuais reais.",
               metadata: {
-                residualGapsDetected: auditStageResult.residualGapsDetected,
-                followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+                residualGapsDetected: auditStageResult.summary.residualGapsDetected,
+                followUpTicketsCreated: auditStageResult.summary.followUpTicketsCreated,
+                specStatusAfterAudit: auditStageResult.summary.specStatusAfterAudit,
               },
             };
           },
@@ -5076,7 +5161,7 @@ export class TicketRunner {
             spec,
             activeProject: slot.project,
             inputMode:
-              auditStageResult.followUpTicketsCreated > 0
+              auditStageResult.summary.followUpTicketsCreated > 0
                 ? "follow-up-tickets"
                 : "spec-and-audit-fallback",
             workflowArtifactsConsulted:
@@ -5109,7 +5194,7 @@ export class TicketRunner {
       preAuditOpenTickets: SpecTicketValidationTicketSnapshot[],
       preRunRetrospectiveSummary: RunSpecsDerivationRetrospectiveSummary | undefined,
     ): Promise<void> => {
-      if (!auditStageResult.residualGapsDetected) {
+      if (!auditStageResult.summary.residualGapsDetected) {
         return;
       }
 
@@ -5122,7 +5207,7 @@ export class TicketRunner {
         activeProjectPath: slot.project.path,
         featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
         featureFlagEnabled: false,
-        followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+        followUpTicketsCreated: auditStageResult.summary.followUpTicketsCreated,
       });
       await this.recordWorkflowTraceSuccess(slot, {
         kind: "spec",
@@ -5138,8 +5223,8 @@ export class TicketRunner {
           suppressedByFeatureFlag: true,
           featureFlag: "RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED",
           featureFlagEnabled: false,
-          residualGapsDetected: auditStageResult.residualGapsDetected,
-          followUpTicketsCreated: auditStageResult.followUpTicketsCreated,
+          residualGapsDetected: auditStageResult.summary.residualGapsDetected,
+          followUpTicketsCreated: auditStageResult.summary.followUpTicketsCreated,
           preAuditOpenTicketCount: preAuditOpenTickets.length,
           preAuditOpenTicketPaths: preAuditOpenTickets.map((ticket) => ticket.relativePath),
           preRunRetrospectiveDecision: preRunRetrospectiveSummary?.decision ?? null,
@@ -5148,8 +5233,7 @@ export class TicketRunner {
     };
 
     try {
-      await runTimedTriageStage(
-        "spec-triage",
+      specTriageSummary = await runTimedSpecTriageStage(
         `Executando etapa spec-triage para ${spec.fileName}`,
       );
       let validationExecution:
@@ -5219,6 +5303,8 @@ export class TicketRunner {
             "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs.",
           details,
           timing: triageTiming,
+          specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
         });
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
@@ -5229,8 +5315,11 @@ export class TicketRunner {
           details,
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5279,6 +5368,8 @@ export class TicketRunner {
             .filter(Boolean)
             .join(" "),
           timing: triageTiming,
+          specTicketValidation: validationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
         });
         slot.currentSpec = null;
         this.touchSlot(
@@ -5297,14 +5388,16 @@ export class TicketRunner {
             .join(" "),
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: validationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           runAllSummary,
         });
         return;
       }
-      await runTimedTriageStage(
-        "spec-close-and-version",
+      specCloseAndVersionSummary = await runTimedSpecCloseAndVersionStage(
         `Executando etapa spec-close-and-version para ${spec.fileName}`,
       );
       const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
@@ -5322,6 +5415,8 @@ export class TicketRunner {
         nextAction:
           "Triagem e gate concluidos; iniciando rodada /run-all para processar tickets abertos.",
         timing: triageTiming,
+        specTicketValidation: validationSummary,
+        specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
       });
       triageCompleted = true;
       slot.currentSpec = null;
@@ -5341,8 +5436,9 @@ export class TicketRunner {
         const specAuditResult = await runTimedSpecAuditStage(
           `Executando etapa spec-audit para ${spec.fileName}`,
         );
+        specAuditSummary = specAuditResult.summary;
         let finalStage: RunSpecsFlowFinalStage = "spec-audit";
-        if (specAuditResult.residualGapsDetected) {
+        if (specAuditResult.summary.residualGapsDetected) {
           if (this.env.RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED) {
             const retrospectiveResult = await runTimedSpecWorkflowRetrospectiveStage(
               `Executando etapa spec-workflow-retrospective para ${spec.fileName}`,
@@ -5371,8 +5467,11 @@ export class TicketRunner {
           completionReason: "completed",
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5394,8 +5493,11 @@ export class TicketRunner {
             "Fluxo /run-all interrompido durante a execucao encadeada de /run_specs.",
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5462,6 +5564,8 @@ export class TicketRunner {
           nextAction,
           details: errorMessage,
           timing: this.buildFlowTimingSnapshot(triageTimingCollector),
+          specTicketValidation: specTicketValidationSummary,
+          specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
         });
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
@@ -5474,8 +5578,11 @@ export class TicketRunner {
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5514,8 +5621,11 @@ export class TicketRunner {
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5541,8 +5651,11 @@ export class TicketRunner {
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -5560,8 +5673,11 @@ export class TicketRunner {
           details: "Fluxo /run_specs interrompido antes da emissao do resumo final.",
           triageTimingCollector,
           flowTimingCollector,
+          specTriage: specTriageSummary,
           specTicketValidation: specTicketValidationSummary,
           specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
+          specCloseAndVersion: specCloseAndVersionSummary,
+          specAudit: specAuditSummary,
           workflowGapAnalysis: workflowGapAnalysisSummary,
           workflowImprovementTicket: workflowImprovementTicketSummary,
           runAllSummary,
@@ -6133,8 +6249,8 @@ export class TicketRunner {
     const workflowContext = await this.describeWorkflowRepoContext(activeProject);
     const fallbackReason =
       inputMode === "spec-and-audit-fallback"
-        ? auditStageResult.followUpTicketsCreated > 0
-          ? `spec-audit declarou ${String(auditStageResult.followUpTicketsCreated)} follow-up(s), mas nenhum novo ticket ligado a spec foi resolvido por delta observavel.`
+        ? auditStageResult.summary.followUpTicketsCreated > 0
+          ? `spec-audit declarou ${String(auditStageResult.summary.followUpTicketsCreated)} follow-up(s), mas nenhum novo ticket ligado a spec foi resolvido por delta observavel.`
           : "spec-audit nao abriu follow-up funcional; usar spec + resultado do audit e obrigatorio."
         : null;
     const workflowArtifactsConsulted = workflowContext.artifactHints;
@@ -6173,7 +6289,7 @@ export class TicketRunner {
       `- Spec alvo: ${spec.path}`,
       `- Natureza desta etapa: retrospectiva pos-auditoria em contexto novo, sem herdar implicitamente o contexto de spec-audit.`,
       `- Input mode esperado: ${inputMode}`,
-      `- Follow-up tickets declarados por spec-audit: ${String(auditStageResult.followUpTicketsCreated)}`,
+      `- Follow-up tickets declarados por spec-audit: ${String(auditStageResult.summary.followUpTicketsCreated)}`,
       `- Follow-up tickets resolvidos por delta observavel: ${String(followUpTickets.length)}`,
       `- Contexto do codex-flow-runner a consultar: ${workflowContext.displayPath}`,
       `- Estado do contexto do codex-flow-runner: ${workflowContext.status}`,
@@ -9515,8 +9631,11 @@ export class TicketRunner {
     details?: string;
     triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
+    specTriage?: RunSpecsSpecTriageSummary;
     specTicketValidation?: RunSpecsTicketValidationSummary;
     specTicketDerivationRetrospective?: RunSpecsDerivationRetrospectiveSummary;
+    specCloseAndVersion?: RunSpecsSpecCloseAndVersionSummary;
+    specAudit?: RunSpecsSpecAuditSummary;
     workflowGapAnalysis?: WorkflowGapAnalysisResult;
     workflowImprovementTicket?: WorkflowImprovementTicketPublicationResult;
     runAllSummary?: RunAllFlowSummary;
@@ -9543,6 +9662,11 @@ export class TicketRunner {
         : {}),
       triageTiming: this.buildFlowTimingSnapshot(params.triageTimingCollector),
       timing: this.buildFlowTimingSnapshot(params.flowTimingCollector),
+      ...(params.specTriage
+        ? {
+            specTriage: this.cloneRunSpecsSpecTriageSummary(params.specTriage),
+          }
+        : {}),
       ...(params.specTicketValidation
         ? {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
@@ -9556,6 +9680,18 @@ export class TicketRunner {
               this.cloneRunSpecsDerivationRetrospectiveSummary(
                 params.specTicketDerivationRetrospective,
               ),
+          }
+        : {}),
+      ...(params.specCloseAndVersion
+        ? {
+            specCloseAndVersion: this.cloneRunSpecsSpecCloseAndVersionSummary(
+              params.specCloseAndVersion,
+            ),
+          }
+        : {}),
+      ...(params.specAudit
+        ? {
+            specAudit: this.cloneRunSpecsSpecAuditSummary(params.specAudit),
           }
         : {}),
       ...(params.workflowGapAnalysis
@@ -9652,6 +9788,17 @@ export class TicketRunner {
     };
   }
 
+  private cloneRunSpecsSpecTriageSummary(
+    summary: RunSpecsSpecTriageSummary,
+  ): RunSpecsSpecTriageSummary {
+    return {
+      specStatusAfterTriage: summary.specStatusAfterTriage,
+      specTreatmentAfterTriage: summary.specTreatmentAfterTriage,
+      derivedTicketsCreated: summary.derivedTicketsCreated,
+      summary: summary.summary,
+    };
+  }
+
   private cloneRunSpecsDerivationRetrospectiveSummary(
     summary: RunSpecsDerivationRetrospectiveSummary,
   ): RunSpecsDerivationRetrospectiveSummary {
@@ -9673,6 +9820,28 @@ export class TicketRunner {
             ),
           }
         : {}),
+    };
+  }
+
+  private cloneRunSpecsSpecCloseAndVersionSummary(
+    summary: RunSpecsSpecCloseAndVersionSummary,
+  ): RunSpecsSpecCloseAndVersionSummary {
+    return {
+      closureCompleted: summary.closureCompleted,
+      versioningResult: summary.versioningResult,
+      commitHash: summary.commitHash,
+      summary: summary.summary,
+    };
+  }
+
+  private cloneRunSpecsSpecAuditSummary(
+    summary: RunSpecsSpecAuditSummary,
+  ): RunSpecsSpecAuditSummary {
+    return {
+      residualGapsDetected: summary.residualGapsDetected,
+      followUpTicketsCreated: summary.followUpTicketsCreated,
+      specStatusAfterAudit: summary.specStatusAfterAudit,
+      summary: summary.summary,
     };
   }
 
@@ -9822,6 +9991,11 @@ export class TicketRunner {
         : {}),
       triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
       timing: this.cloneFlowTimingSnapshot(summary.timing),
+      ...(summary.specTriage
+        ? {
+            specTriage: this.cloneRunSpecsSpecTriageSummary(summary.specTriage),
+          }
+        : {}),
       ...(summary.specTicketValidation
         ? {
             specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
@@ -9835,6 +10009,18 @@ export class TicketRunner {
               this.cloneRunSpecsDerivationRetrospectiveSummary(
                 summary.specTicketDerivationRetrospective,
               ),
+          }
+        : {}),
+      ...(summary.specCloseAndVersion
+        ? {
+            specCloseAndVersion: this.cloneRunSpecsSpecCloseAndVersionSummary(
+              summary.specCloseAndVersion,
+            ),
+          }
+        : {}),
+      ...(summary.specAudit
+        ? {
+            specAudit: this.cloneRunSpecsSpecAuditSummary(summary.specAudit),
           }
         : {}),
       ...(summary.workflowGapAnalysis
@@ -9859,60 +10045,175 @@ export class TicketRunner {
     };
   }
 
-  private parseSpecAuditStageResult(outputText: string): SpecAuditStageResult {
-    const blockMatch = outputText.match(
-      /\[\[SPEC_AUDIT_RESULT\]\]([\s\S]*?)\[\[\/SPEC_AUDIT_RESULT\]\]/u,
+  private parseSpecTriageStageResult(outputText: string): SpecTriageStageResult {
+    const blockContent = this.extractRequiredSpecStageBlock(
+      "spec-triage",
+      outputText,
+      "SPEC_TRIAGE_RESULT",
     );
-    if (!blockMatch) {
-      throw new RunnerSpecStageContractError(
-        "spec-audit",
-        "spec-audit nao expôs o bloco [[SPEC_AUDIT_RESULT]] obrigatorio.",
-      );
-    }
-
-    const blockContent = blockMatch[1] ?? "";
-    const residualGapsDetected = this.readRequiredSpecAuditField(
-      blockContent,
-      "residual_gaps_detected",
-    );
-    const followUpTicketsCreatedRaw = this.readRequiredSpecAuditField(
-      blockContent,
-      "follow_up_tickets_created",
-    );
-
-    if (residualGapsDetected !== "yes" && residualGapsDetected !== "no") {
-      throw new RunnerSpecStageContractError(
-        "spec-audit",
-        "spec-audit retornou residual_gaps_detected invalido; use yes ou no.",
-      );
-    }
-
-    const followUpTicketsCreated = Number.parseInt(followUpTicketsCreatedRaw, 10);
-    if (!Number.isInteger(followUpTicketsCreated) || followUpTicketsCreated < 0) {
-      throw new RunnerSpecStageContractError(
-        "spec-audit",
-        "spec-audit retornou follow_up_tickets_created invalido; use inteiro >= 0.",
-      );
-    }
-
     return {
-      residualGapsDetected: residualGapsDetected === "yes",
-      followUpTicketsCreated,
+      summary: {
+        specStatusAfterTriage: this.readRequiredSpecStageField(
+          "spec-triage",
+          blockContent,
+          "spec_status_after_triage",
+        ),
+        specTreatmentAfterTriage: this.readRequiredSpecStageField(
+          "spec-triage",
+          blockContent,
+          "spec_treatment_after_triage",
+        ),
+        derivedTicketsCreated: this.readRequiredSpecStageIntegerField(
+          "spec-triage",
+          blockContent,
+          "derived_tickets_created",
+        ),
+        summary: this.readRequiredSpecStageField("spec-triage", blockContent, "summary"),
+      },
       outputText,
     };
   }
 
-  private readRequiredSpecAuditField(blockContent: string, fieldName: string): string {
+  private parseSpecCloseAndVersionStageResult(
+    outputText: string,
+  ): SpecCloseAndVersionStageResult {
+    const blockContent = this.extractRequiredSpecStageBlock(
+      "spec-close-and-version",
+      outputText,
+      "SPEC_CLOSE_AND_VERSION_RESULT",
+    );
+    const commitHash = this.readRequiredSpecStageField(
+      "spec-close-and-version",
+      blockContent,
+      "commit_hash",
+    );
+    return {
+      summary: {
+        closureCompleted: this.readRequiredSpecStageBooleanField(
+          "spec-close-and-version",
+          blockContent,
+          "closure_completed",
+        ),
+        versioningResult: this.readRequiredSpecStageField(
+          "spec-close-and-version",
+          blockContent,
+          "versioning_result",
+        ),
+        commitHash: this.normalizeOptionalSpecStageText(commitHash),
+        summary: this.readRequiredSpecStageField(
+          "spec-close-and-version",
+          blockContent,
+          "summary",
+        ),
+      },
+      outputText,
+    };
+  }
+
+  private parseSpecAuditStageResult(outputText: string): SpecAuditStageResult {
+    const blockContent = this.extractRequiredSpecStageBlock(
+      "spec-audit",
+      outputText,
+      "SPEC_AUDIT_RESULT",
+    );
+    return {
+      summary: {
+        residualGapsDetected: this.readRequiredSpecStageBooleanField(
+          "spec-audit",
+          blockContent,
+          "residual_gaps_detected",
+        ),
+        followUpTicketsCreated: this.readRequiredSpecStageIntegerField(
+          "spec-audit",
+          blockContent,
+          "follow_up_tickets_created",
+        ),
+        specStatusAfterAudit: this.readRequiredSpecStageField(
+          "spec-audit",
+          blockContent,
+          "spec_status_after_audit",
+        ),
+        summary: this.readRequiredSpecStageField("spec-audit", blockContent, "summary"),
+      },
+      outputText,
+    };
+  }
+
+  private extractRequiredSpecStageBlock(
+    stage: RunnerSpecStageContractError["stage"],
+    outputText: string,
+    blockName: string,
+  ): string {
+    const blockMatch = outputText.match(
+      new RegExp(`\\[\\[${blockName}\\]\\]([\\s\\S]*?)\\[\\[\\/${blockName}\\]\\]`, "u"),
+    );
+    if (!blockMatch) {
+      throw new RunnerSpecStageContractError(
+        stage,
+        `${stage} nao expôs o bloco [[${blockName}]] obrigatorio.`,
+      );
+    }
+
+    return blockMatch[1] ?? "";
+  }
+
+  private readRequiredSpecStageField(
+    stage: RunnerSpecStageContractError["stage"],
+    blockContent: string,
+    fieldName: string,
+  ): string {
     const match = blockContent.match(new RegExp(`^${fieldName}:\\s*(.+)$`, "imu"));
     const value = match?.[1]?.trim();
     if (!value) {
       throw new RunnerSpecStageContractError(
-        "spec-audit",
-        `spec-audit nao informou o campo obrigatorio ${fieldName}.`,
+        stage,
+        `${stage} nao informou o campo obrigatorio ${fieldName}.`,
       );
     }
 
-    return value.toLowerCase();
+    return value;
+  }
+
+  private readRequiredSpecStageBooleanField(
+    stage: RunnerSpecStageContractError["stage"],
+    blockContent: string,
+    fieldName: string,
+  ): boolean {
+    const value = this.readRequiredSpecStageField(stage, blockContent, fieldName).toLowerCase();
+    if (value !== "yes" && value !== "no") {
+      throw new RunnerSpecStageContractError(
+        stage,
+        `${stage} retornou ${fieldName} invalido; use yes ou no.`,
+      );
+    }
+
+    return value === "yes";
+  }
+
+  private readRequiredSpecStageIntegerField(
+    stage: RunnerSpecStageContractError["stage"],
+    blockContent: string,
+    fieldName: string,
+  ): number {
+    const rawValue = this.readRequiredSpecStageField(stage, blockContent, fieldName);
+    const parsedValue = Number.parseInt(rawValue, 10);
+    if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+      throw new RunnerSpecStageContractError(
+        stage,
+        `${stage} retornou ${fieldName} invalido; use inteiro >= 0.`,
+      );
+    }
+
+    return parsedValue;
+  }
+
+  private normalizeOptionalSpecStageText(value: string): string | null {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "none" || normalized === "n/a" || normalized === "null" || normalized === "-") {
+      return null;
+    }
+
+    return value;
   }
 
   private reserveSlot(
