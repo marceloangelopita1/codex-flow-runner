@@ -6,10 +6,11 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 16:09Z
-- Last reviewed at (UTC): 2026-03-23 16:09Z
+- Last reviewed at (UTC): 2026-03-23 16:29Z
 - Source: operational-gap
 - Related tickets:
-  - n/a
+  - [tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md](../../tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md)
+  - [tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md](../../tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md)
 - Related execplans:
   - n/a
 - Related commits:
@@ -135,26 +136,66 @@
 - Nota de uso: esta seção ainda não passou por `/run_specs`; quando isso ocorrer, ela deve registrar apenas o histórico funcional do gate formal dos tickets derivados desta spec.
 - Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-23T16:26:13.421Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado cobre o escopo da spec em dois tickets complementares, com particionamento coerente entre contrato de summaries e renderer editorial/chunking; a unica lacuna residual de observabilidade nos Closure criteria do ticket P0 foi corrigida nesta rodada.
+- Ciclos executados: 0
+- Thread da validacao: 019d1b82-281f-7f00-a87c-b5cc64cc18d2
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md [fonte=source-spec]
+  - tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: GO (high)
+  - Resumo: O pacote derivado cobre o escopo da spec em dois tickets complementares, com particionamento coerente entre contrato de summaries e renderer editorial/chunking; a unica lacuna residual de observabilidade nos Closure criteria do ticket P0 foi corrigida nesta rodada.
+  - Thread: 019d1b82-281f-7f00-a87c-b5cc64cc18d2
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 1
+    - Refinado o Closure criteria do ticket de contrato para explicitar os campos minimos observaveis do snapshot de `spec-ticket-validation` e `spec-ticket-derivation-retrospective` no milestone pre-`/run_all`, com asserts exigidos nos testes do runner. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Refinado o Closure criteria do ticket de contrato para explicitar os campos minimos observaveis do snapshot de `spec-ticket-validation` e `spec-ticket-derivation-retrospective` no milestone pre-`/run_all`, com asserts exigidos nos testes do runner.
+  - Artefatos afetados: tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativação ou skip:
-  - n/a
-- Classificação final:
-  - n/a
-- Confiança:
-  - n/a
-- Frente causal analisada:
-  - n/a
-- Achados sistêmicos:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: A menor causa plausivel e uma falha local de redacao na derivacao inicial do ticket, nao uma insuficiencia material de prompts, contratos, validacoes ou ordem do workflow.
+- Achados sistemicos:
+  - nenhum
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicação:
-  - n/a
-- Resultado do ticket transversal ou limitação operacional:
-  - n/a
-- Nota de uso: quando esta spec vier de `/run_specs`, esta seção deve registrar a retrospectiva pre-`/run_all` como superfície distinta do gate funcional e continua canônica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`. Com a flag desligada, a seção pode permanecer `n/a` e não recebe write-back automático. Se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execução ocorrer no próprio `codex-flow-runner`, write-back nesta seção é permitido. Em projeto externo, a fonte observável desta fase é trace/log/resumo, e não a spec do projeto alvo.
-- Política anti-duplicação: a retrospectiva sistêmica pós-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto histórico, mas não deve reavaliar nem reticketar a mesma frente causal.
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - src/core/runner.ts
+  - src/core/runner.test.ts
+  - src/integrations/codex-client.ts
+  - src/integrations/workflow-gap-analysis-parser.test.ts
+- Elegibilidade de publicacao: nao
+- Resultado do ticket transversal ou limitacao operacional:
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
@@ -177,10 +218,10 @@
     - blocos de timing competindo entre si;
     - hierarquia visual fraca no resumo final.
 - Pendências em aberto:
-  - Derivar tickets para o enriquecimento contratual das fases hoje timing-only.
-  - Derivar tickets para o redesign editorial do marco de triagem e do resumo final de `/run_specs`.
-  - Ajustar testes automatizados para travar anti-duplicação, cobertura por fase e legibilidade mínima.
-  - Executar auditoria final após implementação para confirmar se o ganho de densidade informacional não degradou escaneabilidade.
+  - `tickets/open/2026-03-23-run-specs-telegram-triage-and-phase-summary-contract.md` permanece aberto para expor snapshot funcional no milestone pre-`/run_all` e summaries estruturados de `spec-triage`, `spec-close-and-version` e `spec-audit`.
+  - `tickets/open/2026-03-23-run-specs-telegram-editorial-rendering-and-chunking.md` permanece aberto para reorganizar milestone/resumo final em secoes estaveis, remover duplicacao evitavel, tornar timings autoexplicativos e preservar leitura chunkada.
+  - A cobertura automatizada ainda nao trava os cenarios editoriais exigidos pela spec para sucesso, bloqueio por `NO_GO`, falha tecnica de triagem, retrospectiva executada/pulada e chunking longo com asserts especificos.
+  - A auditoria final continua pendente apos a implementacao para confirmar, com exemplos reais, que o ganho informacional nao degradou escaneabilidade nem proxima acao operacional.
 - Evidências de validação:
   - Análise direta das mensagens de exemplo do `/run_specs`, com identificação de lacunas em `spec-triage`, `spec-ticket-validation` e `spec-ticket-derivation-retrospective`.
   - Releitura de `docs/specs/2026-02-19-telegram-run-status-notification.md`, `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md`, `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md` e `docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md`.
@@ -212,3 +253,5 @@
 
 ## Historico de atualizacao
 - 2026-03-23 16:09Z - Versão inicial da spec.
+- 2026-03-23 16:17Z - Spec revisada contra o estado atual do codigo; tickets derivados para contrato de summaries e renderer editorial/chunking.
+- 2026-03-23 16:29Z - Triagem validada para versionamento; status mantido como approved com pendencias rastreadas nos tickets abertos.
