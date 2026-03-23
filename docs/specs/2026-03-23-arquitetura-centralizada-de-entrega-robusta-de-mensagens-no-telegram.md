@@ -2,18 +2,20 @@
 
 ## Metadata
 - Spec ID: 2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram
-- Status: approved
+- Status: attended
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 13:36Z
-- Last reviewed at (UTC): 2026-03-23 13:36Z
+- Last reviewed at (UTC): 2026-03-23 14:00Z
 - Source: technical-evolution
 - Related tickets:
-  - Nenhum por enquanto.
+  - tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md
+  - tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
+  - tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md
 - Related execplans:
   - Nenhum por enquanto.
 - Related commits:
-  - Nenhum por enquanto.
+  - chore(specs): triage 2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -114,25 +116,76 @@
 - Nota de uso: esta spec ainda não passou por `/run_specs`; quando isso ocorrer, esta seção deve registrar apenas o histórico funcional do gate formal de tickets derivados.
 - Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-23T13:55:12.949Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado agora cobre o backlog inteiro da spec sem gaps objetivos de cobertura, heranca ou fechamento observavel; os Closure criteria passaram a explicitar o logging padronizado exigido pela camada central e a ambiguidade de ownership do guardrail de `sendMessage(...)` bruto foi removida.
+- Ciclos executados: 1
+- Thread da validacao: 019d1af6-b9db-78a2-a2c1-c2d303d4806a
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md [fonte=source-spec]
+  - tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md [fonte=source-spec]
+  - tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: O pacote cobre o escopo macro da spec, mas ainda tem ambiguidade objetiva de ownership no guardrail de CA-08 e nao torna observavel nos Closure criteria o logging padronizado herdado da camada central para os tickets que implementam e expandem essa arquitetura.
+  - Thread: 019d1af6-b9db-78a2-a2c1-c2d303d4806a
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md&tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-09&rf-15, duplication-gap|tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md&tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-08&rf-19
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+- Ciclo 1 [revalidation]: GO (high)
+  - Resumo: O pacote derivado agora cobre o backlog inteiro da spec sem gaps objetivos de cobertura, heranca ou fechamento observavel; os Closure criteria passaram a explicitar o logging padronizado exigido pela camada central e a ambiguidade de ownership do guardrail de `sendMessage(...)` bruto foi removida.
+  - Thread: 019d1af6-b9db-78a2-a2c1-c2d303d4806a
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 2
+    - Explicitei nos tickets de implementacao a evidencia observavel de logging padronizado por envio, com os campos minimos exigidos pela spec, nos Closure criteria dos fluxos criticos e conversacionais/auxiliares. [applied]
+    - Removi do ticket de migracao a ownership de CA-08/guardrail automatizado contra sendMessage bruto e deixei explicito que essa frente permanece no ticket documental dedicado, eliminando a ambiguidade de escopo. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Explicitei nos tickets de implementacao a evidencia observavel de logging padronizado por envio, com os campos minimos exigidos pela spec, nos Closure criteria dos fluxos criticos e conversacionais/auxiliares.
+  - Artefatos afetados: tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md, tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+- Removi do ticket de migracao a ownership de CA-08/guardrail automatizado contra sendMessage bruto e deixei explicito que essa frente permanece no ticket documental dedicado, eliminando a ambiguidade de escopo.
+  - Artefatos afetados: tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
+  - Gaps relacionados: duplication-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip:
-  - n/a
-- Classificacao final:
-  - n/a
-- Confianca:
-  - n/a
-- Frente causal analisada:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: A menor causa plausivel e lapidacao normal da primeira derivacao de tickets em spec-triage; os prompts, contratos e o gate ja cobriam heranca relevante, closure criteria observaveis e deteccao de duplicacao no pacote.
 - Achados sistemicos:
-  - n/a
+  - nenhum
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicacao:
-  - n/a
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - src/core/runner.ts
+  - src/core/spec-ticket-validation.ts
+  - tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
+- Elegibilidade de publicacao: nao
 - Resultado do ticket transversal ou limitacao operacional:
-  - n/a
-- Nota de uso: esta spec ainda não passou por `/run_specs`; quando isso ocorrer, esta seção deve registrar a retrospectiva pre-`/run_all` como superfície distinta do gate funcional.
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
@@ -144,7 +197,8 @@
   - Exercitar ao menos um fluxo conversacional (`/plan_spec`, `/discover_spec` ou `/codex_chat`) para confirmar que botões e mensagens continuam coerentes após a centralização.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
+- Resultado da triagem final: a derivacao foi revalidada em 2026-03-23T13:55:12.949Z com veredito `GO`, sem gaps pendentes no pacote documental; por isso a spec foi promovida para `Status: attended`, mantendo `Spec treatment: pending` ate o fechamento dos tickets derivados.
 - Itens atendidos:
   - A necessidade arquitetural foi consolidada como evolução explícita do projeto, com foco em eliminar a duplicação de regras de transporte do Telegram.
   - A spec já identifica o que existe hoje e está descentralizado:
@@ -157,11 +211,24 @@
     - preservar observabilidade crítica em `/status`;
     - não introduzir outbox persistente nesta iteração.
   - O limite de escopo inicial também ficou explícito: priorizar `sendMessage(...)`, sem obrigar a mesma abstração para `answerCbQuery(...)` e `editMessageText(...)` logo na primeira entrega.
+  - A triagem documental foi concluída sem gaps pendentes:
+    - os três tickets derivados cobrem de forma complementar a fundação crítica da camada central, a migração dos envios conversacionais/auxiliares e a documentação com guardrail contra `sendMessage(...)` bruto;
+    - a revalidação registrou `GO` com confiança alta e sem fingerprints abertos.
+- Itens parcialmente atendidos:
+  - A robustez de retry bounded, classificação de erro, backoff, chunking e falha estruturada já existe para `sendTicketFinalSummary(...)` e `sendRunFlowSummary(...)`, provando a base técnica a ser generalizada.
+  - Os fluxos interativos já preservam `reply_markup` e capturam `message_id` quando necessário, mas esse suporte permanece acoplado a métodos ad hoc em `TelegramController`.
 - Pendencias em aberto:
-  - Derivar ticket(s) de implementação a partir desta spec.
-  - Definir o shape canônico das políticas de entrega e do retorno estruturado da nova camada.
-  - Executar a migração gradual dos pontos atuais de envio para o componente central.
+  - Nao ha gaps pendentes de triagem desta spec; permanecem apenas pendencias de implementacao rastreadas nos tickets abaixo:
+  - Não existe ainda um componente central nomeado e reutilizável para entrega Telegram orientada por políticas; a robustez continua espalhada em `sendTicketFinalSummary(...)` e `sendRunFlowSummary(...)`.
+  - O milestone de triagem de `/run_specs` continua fora da política robusta, usando envio ad hoc via `sendMessage(...)` direto.
+  - Os envios de `/plan_spec`, `/discover_spec`, `/codex_chat`, callbacks auxiliares e leitura de ticket aberto ainda usam transporte bruto em vez de uma camada central.
+  - A documentação do projeto ainda não orienta explicitamente novas mensagens Telegram a usar a camada central nem há guardrail objetivo contra reintrodução de `sendMessage(...)` bruto.
+  - Tickets derivados abertos para materializar a evolução:
+    - `tickets/open/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md`
+    - `tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md`
+    - `tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md`
 - Evidencias de validacao:
+  - Validacao final da triagem registrada em 2026-03-23T13:55:12.949Z com veredito `GO`, confianca `high` e nenhum gap pendente.
   - Auditoria manual em 2026-03-23 dos pontos de integração em `src/integrations/telegram-bot.ts`, `src/main.ts` e `src/core/runner.ts`.
   - Releitura da spec `docs/specs/2026-02-19-telegram-run-status-notification.md`, que já consolidou robustez forte para resumos finais e milestone de `/run_specs`.
   - Releitura dos contratos estruturados em `src/types/ticket-final-summary.ts` e `src/types/flow-timing.ts`.
@@ -196,3 +263,5 @@
 
 ## Historico de atualizacao
 - 2026-03-23 13:36Z - Versão inicial da spec criada com `Status: approved` e `Spec treatment: pending`, consolidando a necessidade de uma arquitetura centralizada e orientada por políticas para entrega robusta de mensagens no Telegram, sem criação de ticket nesta etapa.
+- 2026-03-23 13:43Z - Triagem da spec concluída com derivação de três tickets em `tickets/open/`, atualização de `Related tickets`, `Last reviewed at (UTC)` e pendências objetivas do `Status de atendimento`, mantendo `Status: approved`.
+- 2026-03-23 14:00Z - Validacao final da triagem consolidada com veredito `GO` e nenhum gap pendente no pacote derivado; a spec foi promovida para `Status: attended`, manteve `Spec treatment: pending` por causa dos tickets abertos e teve as evidencias/documentacao de fechamento revisadas para o commit de triagem.
