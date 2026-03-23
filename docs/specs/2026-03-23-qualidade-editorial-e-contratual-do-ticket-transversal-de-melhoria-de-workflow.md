@@ -6,16 +6,17 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 02:32Z
-- Last reviewed at (UTC): 2026-03-23 03:32Z
+- Last reviewed at (UTC): 2026-03-23 03:50Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
-  - tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
+  - tickets/closed/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
   - tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md
   - tickets/closed/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md
   - tickets/closed/2026-03-21-ticket-transversal-de-workflow-contrato-contexto-e-rastreabilidade-gap.md
 - Related execplans:
   - execplans/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
+  - execplans/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
 - Related commits:
   - Nenhum ainda.
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
@@ -113,17 +114,17 @@
 - Paralelizar fases do workflow ou abrir mais de 1 ticket sistemico por retrospectiva.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Quando `publicationEligibility=true` em `spec-ticket-derivation-retrospective`, o prompt retorna analise causal estruturada e um bloco parseavel de autoria do ticket com os campos minimos definidos nesta spec.
-- [ ] CA-02 - Quando `publicationEligibility=true` em `spec-workflow-retrospective`, o prompt retorna analise causal estruturada e um bloco parseavel de autoria do ticket com os campos minimos definidos nesta spec.
-- [ ] CA-03 - O runner rejeita `publicationEligibility=true` sem bloco estruturado valido de autoria do ticket e registra a situacao como limitacao operacional nao bloqueante.
-- [ ] CA-04 - O ticket publicado deixa de depender de titulo generico baseado no nome da spec e passa a usar titulo orientado ao problema sistemico.
-- [ ] CA-05 - `Inherited assumptions/defaults` do ticket publicado inclui apenas o subconjunto relevante para remediacao do workflow, sem replicar automaticamente a lista completa de assumptions/defaults da spec de origem.
-- [ ] CA-06 - `Proposed solution` do ticket publicado nomeia explicitamente as superficies do workflow a serem alteradas.
-- [ ] CA-07 - `Closure criteria` do ticket publicado referencia evidencias observaveis em prompts, contratos, publisher, documentacao ou testes, e nao se resume a uma frase generica de nao recorrencia.
-- [ ] CA-08 - Em same-repo e cross-repo, o ticket continua preservando request/response/decision, fingerprints, stage-awareness e paths qualificados por projeto.
-- [ ] CA-09 - Em caso de contrato editorial invalido ou insuficiente, o workflow registra limitacao operacional nao bloqueante e nao publica ticket placeholder generico.
+- [x] CA-01 - Quando `publicationEligibility=true` em `spec-ticket-derivation-retrospective`, o prompt retorna analise causal estruturada e um bloco parseavel de autoria do ticket com os campos minimos definidos nesta spec.
+- [x] CA-02 - Quando `publicationEligibility=true` em `spec-workflow-retrospective`, o prompt retorna analise causal estruturada e um bloco parseavel de autoria do ticket com os campos minimos definidos nesta spec.
+- [x] CA-03 - O runner rejeita `publicationEligibility=true` sem bloco estruturado valido de autoria do ticket e registra a situacao como limitacao operacional nao bloqueante.
+- [x] CA-04 - O ticket publicado deixa de depender de titulo generico baseado no nome da spec e passa a usar titulo orientado ao problema sistemico.
+- [x] CA-05 - `Inherited assumptions/defaults` do ticket publicado inclui apenas o subconjunto relevante para remediacao do workflow, sem replicar automaticamente a lista completa de assumptions/defaults da spec de origem.
+- [x] CA-06 - `Proposed solution` do ticket publicado nomeia explicitamente as superficies do workflow a serem alteradas.
+- [x] CA-07 - `Closure criteria` do ticket publicado referencia evidencias observaveis em prompts, contratos, publisher, documentacao ou testes, e nao se resume a uma frase generica de nao recorrencia.
+- [x] CA-08 - Em same-repo e cross-repo, o ticket continua preservando request/response/decision, fingerprints, stage-awareness e paths qualificados por projeto.
+- [x] CA-09 - Em caso de contrato editorial invalido ou insuficiente, o workflow registra limitacao operacional nao bloqueante e nao publica ticket placeholder generico.
 - [ ] CA-10 - `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e a documentacao relevante do workflow passam a explicitar a barra minima de qualidade para tickets automaticos de retrospectiva sistemica.
-- [ ] CA-11 - `src/integrations/workflow-improvement-ticket-publisher.test.ts` e testes correlatos cobrem os cenarios pre-run-all e pos-`spec-audit`, validando qualidade editorial minima do ticket gerado.
+- [x] CA-11 - `src/integrations/workflow-improvement-ticket-publisher.test.ts` e testes correlatos cobrem os cenarios pre-run-all e pos-`spec-audit`, validando qualidade editorial minima do ticket gerado.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -150,8 +151,8 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: GO (high)
@@ -184,6 +185,8 @@
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
+- Cobertura local desta execucao:
+  - Em 2026-03-23 03:44Z, `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` validou localmente cenarios same-repo e cross-repo em fixtures, incluindo titulo editorial, `Proposed solution` concreta, `Closure criteria` observaveis, assumptions filtradas e degradacao nao bloqueante para `ticketDraft` invalido.
 - Validacoes obrigatorias ainda nao automatizadas:
   - Executar ao menos uma rodada automatizada no proprio `codex-flow-runner` com `systemic-gap` elegivel e confirmar que o ticket publicado usa titulo orientado ao problema, `Proposed solution` concreta e `Closure criteria` observaveis.
   - Executar ao menos uma rodada automatizada em projeto externo com publicacao cross-repo e confirmar que a qualidade editorial do ticket permanece alta sem perder qualificacao de paths e trilha request/response/decision.
@@ -194,7 +197,7 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: approved
-- Resultado da validacao final da triagem: a releitura desta spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md`, do ExecPlan desta frente e do diff atual confirmou que o subgap contratual do `ticketDraft` foi implementado, mas a spec ainda permanece em `Status: approved` com `Spec treatment: pending` por depender dos 2 tickets irmaos ainda abertos.
+- Resultado da validacao final da triagem: a releitura desta spec, dos tickets derivados, de `SPECS.md`, `DOCUMENTATION.md`, do ExecPlan desta frente e do diff atual confirmou que o subgap contratual do `ticketDraft` e a frente de renderizacao editorial/filtro de contexto ja foram implementados; a spec permanece em `Status: approved` com `Spec treatment: pending` apenas por depender do ticket documental ainda aberto.
 - Itens atendidos:
   - O repositório ja possui `spec-ticket-derivation-retrospective` e `spec-workflow-retrospective` como pontos canonicos de descoberta do backlog sistemico.
   - O workflow ja possui `workflow-gap-analysis` parseavel, publication cross-repo, deduplicacao por fingerprints e trilha request/response/decision.
@@ -203,12 +206,15 @@
   - `prompts/11-retrospectiva-workflow-apos-spec-audit.md` e `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` agora exigem `ticketDraft` estruturado quando `publicationEligibility=true`, com `title`, `problemStatement`, `expectedBehavior`, `proposedSolution`, `reproductionSteps`, `impactFunctional`, `impactOperational`, `regressionRisk`, `relevantAssumptionsDefaults`, `closureCriteria` e `affectedWorkflowSurfaces`.
   - `src/types/workflow-gap-analysis.ts`, `src/types/workflow-improvement-ticket.ts`, `src/integrations/workflow-gap-analysis-parser.ts` e `src/core/runner.ts` agora carregam `ticketDraft` separadamente da analise causal, montam `publicationHandoff` a partir desse draft e degradam contrato editorial invalido para `operational-limitation` nao bloqueante.
   - A validacao automatizada local cobre explicitamente `publicationEligibility=true` com `ticketDraft` incompleto, confirmando ausencia de ticket placeholder e presenca de limitacao operacional observavel em trace/log/resumo.
+  - `src/integrations/workflow-improvement-ticket-publisher.ts` agora usa `ticketDraft` como fonte primaria para `title`, `Problem statement`, `Expected behavior`, `Impact assessment`, `Proposed solution` e `Closure criteria`, e explicita `affectedWorkflowSurfaces` no ticket final sem perder trace, fingerprints ou same/cross-repo.
+  - `Source requirements` passou a ser renderizado sem o rotulo simplificado de `RFs/CAs`, aceitando RFs, CAs, RNFs e restricoes tecnicas/documentais no ticket publicado.
+  - `src/integrations/workflow-improvement-ticket-publisher.test.ts` e `src/core/runner.test.ts` agora travam cenarios pre-run-all e pos-`spec-audit`, current-project e workflow-sibling, com asserts editoriais para titulo orientado ao problema, assumptions filtradas, `Proposed solution` concreta e `Closure criteria` especificos.
 - Pendencias em aberto:
-  - `src/types/workflow-improvement-ticket.ts`, `src/core/runner.ts` e `src/integrations/workflow-improvement-ticket-publisher.ts` ainda nao carregam/renderizam titulo orientado ao problema, `problemStatement`, `expectedBehavior`, `proposedSolution`, `closureCriteria` por superficie e `relevantAssumptionsDefaults` filtradas como fonte primaria; `Source requirements` segue simplificado como `RFs/CAs`. Ticket derivado: `tickets/open/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md`.
   - `INTERNAL_TICKETS.md`, `tickets/templates/internal-ticket-template.md` e a documentacao compartilhada ainda nao explicitam a barra minima editorial do ticket automatico de retrospectiva sistemica. Ticket derivado: `tickets/open/2026-03-23-barra-minima-documental-para-ticket-sistemico-automatico-gap.md`.
 - Evidencias de validacao:
   - Validacao final da triagem concluida em 2026-03-23 03:08Z, confirmando consistencia entre `Status: approved`, `Spec treatment: pending`, as 3 pendencias abertas e a rastreabilidade derivada na propria spec.
   - Execucao do subgap contratual concluida em 2026-03-23 03:27Z com `rg` sobre prompts/tipos/parser/runner, `npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/core/runner.test.ts` e `npm run check`, todos verdes.
+  - Execucao da frente editorial/filtro de contexto concluida em 2026-03-23 03:44Z com `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts`, `npm run check`, `rg` de propagacao do contrato editorial e diff restrito ao renderer/testes; tudo verde e sem reabrir prompts, parser ou tipos compartilhados.
   - `prompts/11-retrospectiva-workflow-apos-spec-audit.md`
   - `prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`
   - `src/core/runner.ts`
@@ -251,3 +257,5 @@
 - 2026-03-23 03:08Z - Validacao final da triagem concluida com releitura da spec, dos tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` e `Spec treatment: pending` por ainda depender dos 3 tickets abertos.
 - 2026-03-23 03:27Z - Ticket `workflow-ticket-draft-estruturado-e-validacao-contratual-gap` implementou o contrato `ticketDraft` nos prompts, tipos, parser e runner, com degradacao nao bloqueante para draft invalido; a spec permaneceu `pending` por ainda depender dos tickets irmaos de renderizacao e documentacao.
 - 2026-03-23 03:32Z - Ticket `workflow-ticket-draft-estruturado-e-validacao-contratual-gap` foi fechado apos revalidacao de diff, ExecPlan, quality gates, testes (`npm test -- src/integrations/workflow-gap-analysis-parser.test.ts src/core/runner.test.ts`) e tipagem (`npm run check`); a spec continuou `pending` porque os tickets irmaos de renderizacao e documentacao seguem abertos.
+- 2026-03-23 03:44Z - Ticket `workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap` implementou o renderer editorial a partir de `ticketDraft`, corrigiu o wording de `Source requirements`, manteve assumptions filtradas e ampliou os testes do publisher/runner para cenarios pre-run-all e pos-`spec-audit`; a spec continuou `pending` apenas por depender do ticket documental irmao ainda aberto.
+- 2026-03-23 03:50Z - Ticket `workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap` foi fechado com resultado `GO` apos releitura de diff, ticket, ExecPlan, spec de origem e quality gates, com `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `npm run check` verdes; a spec segue `pending` apenas pelo ticket documental ainda aberto.

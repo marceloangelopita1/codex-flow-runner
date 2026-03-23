@@ -56,7 +56,12 @@ const createCandidate = (
   sourceSpecPath: "docs/specs/2026-03-19-spec-ticket-validation.md",
   sourceSpecFileName: "2026-03-19-spec-ticket-validation.md",
   sourceSpecTitle: "Spec ticket validation",
-  sourceRequirements: ["RF-18", "CA-13"],
+  sourceRequirements: [
+    "RF-18",
+    "RNF-02",
+    "Restricao tecnica: revisar README.md quando o contrato editorial mudar.",
+    "CA-13",
+  ],
   inheritedAssumptionsDefaults: ["Nao bloquear a rodada principal em GO."],
   inputMode: "follow-up-tickets",
   analysisSummary: "Gap sistemico identificado com alta confianca.",
@@ -172,6 +177,40 @@ test("publica ticket transversal no repositorio atual com commit/push observavel
       ticketContent,
       /Source spec canonical path \(when applicable\): docs\/specs\/2026-03-19-spec-ticket-validation\.md/u,
     );
+    assert.match(
+      ticketContent,
+      /^# \[TICKET\] Publication automatica sem contrato editorial suficiente$/mu,
+    );
+    assert.doesNotMatch(ticketContent, /Melhoria transversal de workflow derivada de/u);
+    assert.match(
+      ticketContent,
+      /Source requirements \(when applicable\): RF-18, RNF-02, Restricao tecnica: revisar README\.md quando o contrato editorial mudar\., CA-13/u,
+    );
+    assert.doesNotMatch(ticketContent, /Source requirements \(RFs\/CAs, when applicable\)/u);
+    assert.match(
+      ticketContent,
+      /Affected workflow surfaces: prompts, parser, runner/u,
+    );
+    assert.match(
+      ticketContent,
+      /## Problem statement\nO workflow ainda pode publicar backlog sistemico sem um ticketDraft completo\./u,
+    );
+    assert.match(
+      ticketContent,
+      /## Expected behavior\nPublication elegivel deve transportar um ticketDraft parseavel e suficiente\./u,
+    );
+    assert.match(
+      ticketContent,
+      /## Proposed solution \(optional\)\nExigir e propagar ticketDraft estruturado antes da publication do ticket\./u,
+    );
+    assert.doesNotMatch(
+      ticketContent,
+      /## Proposed solution \(optional\)\nMover a publication para o pos-auditoria reduz recorrencia futura\./u,
+    );
+    assert.match(
+      ticketContent,
+      /## Closure criteria\n- Refs de origem relacionadas: RF-18, RNF-02, Restricao tecnica: revisar README\.md quando o contrato editorial mudar\., CA-13\n- Publication elegivel sem ticketDraft valido vira operational-limitation observavel\./u,
+    );
     assert.match(ticketContent, /Systemic gap fingerprints/u);
     assert.match(
       ticketContent,
@@ -231,6 +270,14 @@ test("publica ticket transversal no repositorio irmao quando o projeto ativo e e
     );
     assert.match(
       ticketContent,
+      /^# \[TICKET\] Publication automatica sem contrato editorial suficiente$/mu,
+    );
+    assert.match(
+      ticketContent,
+      /Source requirements \(when applicable\): RF-18, RNF-02, Restricao tecnica: revisar README\.md quando o contrato editorial mudar\., CA-13/u,
+    );
+    assert.match(
+      ticketContent,
       /Decision file: alpha-project\/\.codex-flow-runner\/flow-traces\/decisions\/trace-123-decision\.json/u,
     );
     assert.match(
@@ -277,6 +324,10 @@ test("publica ticket transversal pre-run-all com wording stage-aware e paths qua
     assert.match(
       ticketContent,
       /Analysis stage \(when applicable\): spec-ticket-derivation-retrospective/u,
+    );
+    assert.match(
+      ticketContent,
+      /^# \[TICKET\] Publication automatica sem contrato editorial suficiente$/mu,
     );
     assert.match(
       ticketContent,

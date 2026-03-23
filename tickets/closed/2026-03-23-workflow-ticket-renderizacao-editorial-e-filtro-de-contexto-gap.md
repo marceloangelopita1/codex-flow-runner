@@ -1,7 +1,7 @@
 # [TICKET] Usar o draft estruturado como fonte primaria do ticket sistemico automatico
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S1
@@ -9,7 +9,7 @@
 - Reporter: Codex
 - Owner:
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
+- Parent ticket (optional): tickets/closed/2026-03-23-workflow-ticket-draft-estruturado-e-validacao-contratual-gap.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Analysis stage (when applicable):
@@ -33,6 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-03-23-qualidade-editorial-e-contratual-do-ticket-transversal-de-melhoria-de-workflow.md
   - docs/workflows/codex-quality-gates.md
+  - execplans/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md
   - prompts/11-retrospectiva-workflow-apos-spec-audit.md
   - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
   - src/core/runner.ts
@@ -113,12 +114,35 @@ Com o contrato estruturado disponivel, o publisher deve usar o draft como fonte 
 - Requisito/RF/CA coberto: validacoes manuais herdadas
 - Evidencia observavel: o ticket/fechamento registra quais validacoes runtime/manuais desta spec foram executadas, quais permaneceram externas e por que isso nao invalida o aceite tecnico local.
 
+## Closure validation
+- Criterio 1 (`RF-04`, `RF-05`, `RF-06`, `RF-07`, `RF-15`, `CA-04`, `CA-06`): atendido.
+  Evidencia objetiva: `src/integrations/workflow-improvement-ticket-publisher.ts` passou a renderizar `# [TICKET] ${ticketDraft.title}`, `Problem statement`, `Expected behavior`, `Affected workflow surfaces` e `Proposed solution` diretamente do draft estruturado; `src/integrations/workflow-improvement-ticket-publisher.test.ts` e `src/core/runner.test.ts` validam os textos editoriais em cenarios same-repo, pre-run-all e pos-`spec-audit`. Revalidado em 2026-03-23 03:50Z com `rg -n "ticketDraft\\.title|Problem statement|Expected behavior|Affected workflow surfaces|Proposed solution" src/integrations/workflow-improvement-ticket-publisher.ts src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts`.
+- Criterio 2 (`RF-08`, `RF-09`, `RF-17`, `CA-05`, `CA-07`): atendido.
+  Evidencia objetiva: `src/integrations/workflow-improvement-ticket-publisher.ts` normaliza `candidate.inheritedAssumptionsDefaults` e `ticketDraft.closureCriteria` sem reconstruir assumptions completas da spec; `src/core/runner.test.ts` cobre a propagacao de `relevantAssumptionsDefaults` do draft e o markdown final publicado preserva somente o subconjunto filtrado. Revalidado em 2026-03-23 03:50Z com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts`, incluindo os cenarios `requestRunSpecs propaga relevantAssumptionsDefaults do ticketDraft na retrospectiva pre-run-all` e os asserts de `Closure criteria` especificos do publisher.
+- Criterio 3 (`RF-12`, `RF-16`, `RF-21`, `CA-08`): atendido.
+  Evidencia objetiva: o publisher passou a renderizar `Source requirements (when applicable)` sem restringir a refs de `RFs/CAs`; os testes do publisher e do runner validam refs com RF, RNF e restricao tecnica, preservando stage-awareness, `request/response/decision`, fingerprints, dedupe e paths qualificados em current-project e workflow-sibling. Revalidado em 2026-03-23 03:50Z com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts`.
+- Criterio 4 (`RF-19`, `RF-20`, `CA-11`): atendido.
+  Evidencia objetiva: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` passou verde em 2026-03-23 03:50Z com 424 testes, incluindo cenarios pre-run-all e pos-`spec-audit` que afirmam titulo orientado ao problema, `Proposed solution` concreta, `Closure criteria` observaveis, assumptions filtradas e preservacao de rastreabilidade operacional.
+- Criterio 5 (validacoes manuais herdadas): atendido.
+  Evidencia objetiva: este fechamento registra a cobertura automatizada local executada, as validacoes externas ainda pendentes, o procedimento esperado e o responsavel operacional, satisfazendo o criterio de rastreabilidade do aceite tecnico local sem confundir validacao manual externa com defeito funcional da implementacao.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O aceite tecnico local desta etapa ficou coberto por `npm test -- src/integrations/workflow-improvement-ticket-publisher.test.ts src/core/runner.test.ts` e `npm run check`, ambos verdes em 2026-03-23 03:50Z.
+- Validacoes manuais externas ainda necessarias:
+  - Executar ao menos uma rodada automatizada real no proprio `codex-flow-runner` com `systemic-gap` elegivel e confirmar no ticket publicado titulo orientado ao problema, `Proposed solution` concreta e `Closure criteria` observaveis.
+  - Executar ao menos uma rodada automatizada real em projeto externo com publicacao cross-repo e confirmar preservacao de paths qualificados e trilha `request/response/decision`.
+  - Revisar manualmente um ticket publicado a partir de cada retrospectiva e confirmar que outra IA consegue planejar a implementacao sem reler os traces completos.
+- Como executar: rodar o fluxo operacional `run_specs -> spec-ticket-derivation-retrospective/spec-workflow-retrospective` em ambiente real, inspecionar o markdown publicado em `tickets/open/` do repo do workflow e registrar o resultado observavel na trilha operacional da rodada.
+- Responsavel operacional: operador do runner / mantenedor do workflow.
+- Motivo para nao bloquear o aceite: a implementacao local ja demonstrou o comportamento exigido por codigo, diff e suites automatizadas; o remanescente depende de exercicios operacionais externos ao agente.
+
 ## Decision log
 - 2026-03-23 - Ticket aberto a partir da triagem da spec - a renderizacao editorial e o filtro de contexto formam um pacote distinto do endurecimento contratual porque dependem do draft estruturado, mas nao devem bloquear a abertura desse contrato.
+- 2026-03-23 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-23 03:50Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-23-workflow-ticket-renderizacao-editorial-e-filtro-de-contexto-gap.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

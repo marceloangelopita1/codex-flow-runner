@@ -4578,6 +4578,20 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
         },
       ],
       followUpTicketPaths: [`tickets/open/${ticketA.name}`],
+      ticketDraft: createWorkflowTicketDraftPayload({
+        title: "Publication transversal pre-run-all sem roteamento editorial explicito",
+        problemStatement:
+          "A retrospectiva pre-run-all ainda pode publicar o backlog sistemico sem deixar claro que o handoff editorial deve nascer no repo do workflow.",
+        expectedBehavior:
+          "A publication pre-run-all deve usar ticketDraft orientado ao problema e explicitar o repositorio correto do workflow.",
+        proposedSolution:
+          "Atualizar runner, publisher e prompts para materializar o handoff editorial no repo do workflow antes do /run-all.",
+        closureCriteria: [
+          "O ticket publicado no repo do workflow explicita o roteamento cross-repo e o stage pre-run-all.",
+          "O handoff publicado nomeia runner, publisher e prompts como superficies afetadas.",
+        ],
+        affectedWorkflowSurfaces: ["runner", "publisher", "prompts"],
+      }),
       workflowArtifactsConsulted: [
         "../codex-flow-runner/AGENTS.md",
         "../codex-flow-runner/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
@@ -4657,6 +4671,30 @@ test("requestRunSpecs publica ticket transversal na retrospectiva pre-run-all se
     assert.match(
       publishedTicketContent,
       /Source spec \(when applicable\): alpha-project\/docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /^# \[TICKET\] Publication transversal pre-run-all sem roteamento editorial explicito$/mu,
+    );
+    assert.match(
+      publishedTicketContent,
+      /Source requirements \(when applicable\): CA-08, CA-11, RF-20, RF-22, RF-24/u,
+    );
+    assert.doesNotMatch(
+      publishedTicketContent,
+      /Source requirements \(RFs\/CAs, when applicable\)/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /Affected workflow surfaces: prompts, publisher, runner/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /## Proposed solution \(optional\)\nAtualizar runner, publisher e prompts para materializar o handoff editorial no repo do workflow antes do \/run-all\./u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /## Closure criteria\n- Refs de origem relacionadas: CA-08, CA-11, RF-20, RF-22, RF-24\n- O handoff publicado nomeia runner, publisher e prompts como superficies afetadas\.\n- O ticket publicado no repo do workflow explicita o roteamento cross-repo e o stage pre-run-all\./u,
     );
     assert.equal(
       publishedTicketContent.includes(`Decision file: alpha-project/${derivationTrace?.decisionPath}`),
@@ -4772,11 +4810,26 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
         {
           summary: "A retrospectiva pos-auditoria precisa nascer de um contrato parseavel proprio.",
           affectedArtifactPaths: ["src/core/runner.ts", `tickets/open/${followUpTicketName}`],
-          requirementRefs: ["RF-05", "RF-16"],
+          requirementRefs: [
+            "RF-05",
+            "RF-16",
+            "RNF-02",
+            "Restricao tecnica: revisar README.md quando o contrato mudar.",
+          ],
           evidence: ["O follow-up funcional aberto pelo audit aponta lacuna sistemica observavel."],
         },
       ],
       followUpTicketPaths: [`tickets/open/${followUpTicketName}`],
+      ticketDraft: createWorkflowTicketDraftPayload({
+        title: "Retrospectiva pos-auditoria sem handoff editorial acionavel",
+        proposedSolution:
+          "Fazer o publisher usar ticketDraft como fonte primaria e carregar refs de RF, RNF e restricoes tecnicas no ticket final.",
+        closureCriteria: [
+          "O ticket publicado preserva o trace e usa o titulo editorial do ticketDraft.",
+          "Source requirements passa a aceitar RFs, RNFs e restricoes tecnicas sem wording simplificado.",
+        ],
+        affectedWorkflowSurfaces: ["publisher", "runner", "documentacao canonica"],
+      }),
     });
     const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
     const { workflowTraceStoreFactory, records } = createWorkflowTraceCollector();
@@ -4866,6 +4919,26 @@ test("requestRunSpecs usa follow-up tickets do spec-audit como insumo principal 
     assert.match(
       publishedTicketContent,
       /Analysis stage \(when applicable\): spec-workflow-retrospective/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /^# \[TICKET\] Retrospectiva pos-auditoria sem handoff editorial acionavel$/mu,
+    );
+    assert.match(
+      publishedTicketContent,
+      /Source requirements \(when applicable\): Restricao tecnica: revisar README\.md quando o contrato mudar\., RF-05, RF-16, RNF-02/u,
+    );
+    assert.doesNotMatch(
+      publishedTicketContent,
+      /Source requirements \(RFs\/CAs, when applicable\)/u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /## Proposed solution \(optional\)\nFazer o publisher usar ticketDraft como fonte primaria e carregar refs de RF, RNF e restricoes tecnicas no ticket final\./u,
+    );
+    assert.match(
+      publishedTicketContent,
+      /## Closure criteria\n- Refs de origem relacionadas: Restricao tecnica: revisar README\.md quando o contrato mudar\., RF-05, RF-16, RNF-02\n- O ticket publicado preserva o trace e usa o titulo editorial do ticketDraft\.\n- Source requirements passa a aceitar RFs, RNFs e restricoes tecnicas sem wording simplificado\./u,
     );
     assert.equal(
       publishedTicketContent.includes(`Decision file: codex-flow-runner/${workflowTrace?.decisionPath}`),

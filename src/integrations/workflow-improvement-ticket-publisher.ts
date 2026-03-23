@@ -316,6 +316,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
     targetRepo: ResolvedTargetRepo,
   ): string {
     const createdAtUtc = formatTicketTimestamp(this.dependencies.now());
+    const ticketDraft = candidate.ticketDraft;
     const analysisStageLabel = describeAnalysisStage(candidate.analysisStage);
     const workflowArea = `${candidate.analysisStage} -> workflow-ticket-publication`;
     const isPreRunAllRetrospective =
@@ -323,12 +324,21 @@ export class FileSystemWorkflowImprovementTicketPublisher
     const activeProjectWorkspacePath = normalizeWorkspaceRelativePath(
       path.relative(targetRepo.path, candidate.activeProjectPath),
     );
+    const sourceRequirementRefs = normalizeOrderedStrings(candidate.sourceRequirements);
     const sourceRequirements =
-      candidate.sourceRequirements.length > 0 ? candidate.sourceRequirements.join(", ") : "";
+      sourceRequirementRefs.length > 0 ? sourceRequirementRefs.join(", ") : "";
+    const inheritedAssumptionItems = normalizeOrderedStrings(
+      candidate.inheritedAssumptionsDefaults,
+    );
     const inheritedAssumptions =
-      candidate.inheritedAssumptionsDefaults.length > 0
-        ? candidate.inheritedAssumptionsDefaults.join("; ")
+      inheritedAssumptionItems.length > 0
+        ? inheritedAssumptionItems.join("; ")
         : "";
+    const reproductionSteps = normalizeOrderedStrings(ticketDraft.reproductionSteps);
+    const closureCriteria = normalizeOrderedStrings(ticketDraft.closureCriteria);
+    const affectedWorkflowSurfaces = normalizeOrderedStrings(
+      ticketDraft.affectedWorkflowSurfaces,
+    );
     const sourceSpecDisplayPath = buildProjectQualifiedPath(
       candidate.activeProjectName,
       candidate.sourceSpecPath,
@@ -395,37 +405,18 @@ export class FileSystemWorkflowImprovementTicketPublisher
     const scenario = isPreRunAllRetrospective
       ? `a retrospectiva sistemica pre-run-all da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`
       : `a retrospectiva sistemica pos-spec-audit da spec ${candidate.sourceSpecFileName} concluiu elegibilidade automatica com input mode ${candidate.inputMode}.`;
-    const problemStatement = isPreRunAllRetrospective
-      ? `A retrospectiva pre-run-all da spec ${candidate.sourceSpecFileName} encontrou evidencia de que a derivacao ainda introduz backlog sistemico reaproveitavel antes do /run-all. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`
-      : `A retrospectiva pos-spec-audit da spec ${candidate.sourceSpecFileName} encontrou evidencia de que o workflow atual contribuiu materialmente para gaps residuais reaproveitaveis. O follow-up precisa capturar a menor correcao plausivel no proprio workflow para reduzir recorrencia em specs futuras.`;
     const detectionSummary = isPreRunAllRetrospective
       ? "derivation-gap-analysis com high confidence antes do /run-all"
       : "workflow-gap-analysis com high confidence apos spec-audit";
-    const expectedBehavior = isPreRunAllRetrospective
-      ? `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada durante a retrospectiva pre-run-all, reduzindo recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes antes do consumo da fila real.`
-      : `O workflow deve prevenir ou absorver automaticamente a causa sistemica registrada, reduzindo a recorrencia observada em ${candidate.sourceSpecFileName} e em specs futuras equivalentes.`;
-    const reproductionSteps = isPreRunAllRetrospective
-      ? [
-          `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
-          "2. Revisar o historico completo de spec-ticket-validation e o pacote final de tickets derivados antes do /run-all.",
-          "3. Observar derivation-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
-        ]
-      : [
-          `1. Executar /run_specs para ${candidate.sourceSpecFileName}.`,
-          "2. Revisar o resultado de spec-audit e os follow-ups funcionais abertos para a spec auditada.",
-          "3. Observar workflow-gap-analysis e confirmar o diagnostico causal com evidencia suficiente para backlog sistemico reaproveitavel.",
-        ];
     const decisionLogSummary = isPreRunAllRetrospective
       ? "Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence."
       : "Ticket aberto automaticamente a partir da retrospectiva sistemica pos-spec-audit - follow-up sistemico reaproveitavel identificado com high confidence.";
-
-    const closureRequirementLabel =
-      candidate.sourceRequirements.length > 0
-        ? candidate.sourceRequirements.join(", ")
-        : "workflow-improvement-follow-up";
+    const scopeEstimate = sortUniqueStrings(
+      candidate.findings.flatMap((finding) => finding.affectedArtifactPaths),
+    ).join(", ");
 
     return [
-      `# [TICKET] Melhoria transversal de workflow derivada de ${candidate.sourceSpecTitle}`,
+      `# [TICKET] ${ticketDraft.title}`,
       "",
       "## Metadata",
       "- Status: open",
@@ -444,7 +435,7 @@ export class FileSystemWorkflowImprovementTicketPublisher
       `- Request ID: ${traceId}`,
       `- Source spec (when applicable): ${sourceSpecDisplayPath}`,
       `- Source spec canonical path (when applicable): ${candidate.sourceSpecPath}`,
-      `- Source requirements (RFs/CAs, when applicable): ${sourceRequirements}`,
+      `- Source requirements (when applicable): ${sourceRequirements}`,
       `- Inherited assumptions/defaults (when applicable): ${inheritedAssumptions}`,
       "- Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): systemic-instruction",
       `- Smallest plausible explanation (audit/review only): ${candidate.causalHypothesis}`,
@@ -472,11 +463,12 @@ export class FileSystemWorkflowImprovementTicketPublisher
       `- Scenario: ${scenario}`,
       `- Active project: ${candidate.activeProjectName}`,
       `- Target repository: ${targetRepo.displayPath}`,
+      `- Affected workflow surfaces: ${affectedWorkflowSurfaces.join(", ") || "nao explicitadas no handoff"}`,
       "- Path conventions: caminhos no formato `<projeto>/<path>` sao exibicoes humanas qualificadas por projeto; a chave canonica de dedupe continua em `Source spec canonical path`.",
       "- Input constraints: a publicacao deste ticket nao deve bloquear a rodada auditada; em projeto externo, o publish deve ocorrer apenas no repositorio do workflow.",
       "",
       "## Problem statement",
-      problemStatement,
+      ticketDraft.problemStatement,
       "",
       "## Observed behavior",
       "- O que foi observado:",
@@ -485,10 +477,12 @@ export class FileSystemWorkflowImprovementTicketPublisher
       `- Como foi detectado (warning/log/test/assert): ${detectionSummary}`,
       "",
       "## Expected behavior",
-      expectedBehavior,
+      ticketDraft.expectedBehavior,
       "",
       "## Reproduction steps",
-      ...reproductionSteps,
+      ...(reproductionSteps.length > 0
+        ? reproductionSteps
+        : ["1. Revisar o ticketDraft desta retrospectiva, porque os passos de reproducao vieram vazios."]),
       "",
       "## Evidence",
       `- Logs relevantes (trechos curtos e redigidos): resumo da retrospectiva = ${candidate.analysisSummary}`,
@@ -501,20 +495,26 @@ export class FileSystemWorkflowImprovementTicketPublisher
       `- Comparativo antes/depois (se houver): fingerprints sistemicos = ${candidate.gapFingerprints.join(", ")}`,
       "",
       "## Impact assessment",
-      "- Impacto funcional: novos pacotes derivados podem repetir a mesma lacuna sistemica.",
-      "- Impacto operacional: o runner depende de follow-up manual para melhorar o proprio workflow.",
-      "- Risco de regressao: medio, porque a correcao tende a tocar instrucoes canonicas, prompts, validacoes ou ordem das etapas compartilhadas.",
-      `- Scope estimado (quais fluxos podem ser afetados): ${candidate.findings.flatMap((finding) => finding.affectedArtifactPaths).join(", ") || "artefatos canonicos do workflow"}.`,
+      `- Impacto funcional: ${ticketDraft.impactFunctional}`,
+      `- Impacto operacional: ${ticketDraft.impactOperational}`,
+      `- Risco de regressao: ${ticketDraft.regressionRisk}`,
+      `- Scope estimado (quais fluxos podem ser afetados): ${scopeEstimate || "artefatos canonicos do workflow"}.`,
       "",
       "## Initial hypotheses (optional)",
       `- ${candidate.causalHypothesis}`,
       "",
       "## Proposed solution (optional)",
-      `- ${candidate.benefitSummary}`,
+      ticketDraft.proposedSolution,
       "",
       "## Closure criteria",
-      `- Requisito/RF/CA coberto: ${closureRequirementLabel}`,
-      "- Evidencia observavel: a causa sistemica registrada neste ticket deixa de reaparecer em uma rodada equivalente de workflow-gap-analysis/workflow-ticket-publication, com rastreabilidade objetiva nos artefatos afetados.",
+      ...(sourceRequirements
+        ? [`- Refs de origem relacionadas: ${sourceRequirements}`]
+        : []),
+      ...(closureCriteria.length > 0
+        ? closureCriteria.map((criterion) => `- ${criterion}`)
+        : [
+            "- Revisar ticketDraft.closureCriteria: o handoff publicado veio sem evidencias observaveis suficientes.",
+          ]),
       "",
       "## Decision log",
       `- ${this.dependencies.now().toISOString().slice(0, 10)} - ${decisionLogSummary}`,
@@ -640,6 +640,9 @@ const sortUniqueStrings = (values: string[]): string[] =>
   [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((left, right) =>
     left.localeCompare(right, "pt-BR"),
   );
+
+const normalizeOrderedStrings = (values: string[]): string[] =>
+  [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
 const normalizePathForDisplay = (value: string): string =>
   value.trim().replace(/\\/gu, "/");
