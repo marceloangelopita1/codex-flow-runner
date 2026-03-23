@@ -1195,6 +1195,23 @@ As listas de `/models` e `/reasoning` são lidas dinamicamente do catalogo local
 - o estado do runner preserva `lastNotifiedEvent` apenas para entrega confirmada e registra falha definitiva separadamente em `lastNotificationFailure`;
 - o `/status` exibe ambos os blocos: ultimo evento entregue e ultima falha definitiva de notificacao.
 
+### Camada central para novas mensagens Telegram
+
+Novas mensagens enviadas ao chat via `sendMessage(...)` devem passar por `TelegramDeliveryService`, em [`src/integrations/telegram-delivery.ts`](src/integrations/telegram-delivery.ts). O chamador continua dono do conteúdo da mensagem, mas precisa escolher explicitamente uma política de entrega canônica antes de enviar.
+
+Em termos práticos:
+
+- novos fluxos não devem chamar `bot.telegram.sendMessage(...)` diretamente;
+- o ponto de integração canônico fica em `TelegramController`, que injeta o adaptador de transporte no `TelegramDeliveryService`;
+- a política de entrega deve ser escolhida de acordo com o tipo de mensagem, como `TICKET_FINAL_SUMMARY_DELIVERY_POLICY`, `RUN_FLOW_SUMMARY_DELIVERY_POLICY`, `RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY`, `INTERACTIVE_TELEGRAM_DELIVERY_POLICY`, `CALLBACK_CHAT_DELIVERY_POLICY` ou `TICKET_OPEN_CONTENT_DELIVERY_POLICY`;
+- se uma exceção legítima ao uso da camada central surgir, ela deve ser documentada no mesmo changeset e adicionada ao allowlist do guardrail automatizado;
+- esta regra canônica fica no `README.md`, não deve ser duplicada no `AGENTS.md`.
+
+Escopo inicial desta arquitetura:
+
+- a obrigatoriedade atual cobre superfícies baseadas em `sendMessage(...)`;
+- `answerCbQuery(...)` e `editMessageText(...)` continuam fora do núcleo nesta primeira evolução, desde que esse limite permaneça explícito e não seja confundido com permissão para novos `sendMessage(...)` brutos.
+
 ### Modos de acesso (`TELEGRAM_ALLOWED_CHAT_ID`)
 
 - `TELEGRAM_ALLOWED_CHAT_ID` e obrigatorio no bootstrap;

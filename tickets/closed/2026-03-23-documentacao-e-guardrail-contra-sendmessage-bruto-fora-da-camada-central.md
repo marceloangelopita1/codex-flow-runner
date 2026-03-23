@@ -1,7 +1,7 @@
 # [TICKET] Projeto ainda nao documenta nem protege o uso canônico da camada central de mensagens Telegram
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P2
 - Severity: S3
@@ -9,7 +9,7 @@
 - Reporter: Codex
 - Owner:
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
+- Parent ticket (optional): tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Analysis stage (when applicable): spec-triage
@@ -101,10 +101,23 @@ O projeto deve ter uma fonte de verdade documental dizendo onde a camada central
 
 ## Decision log
 - 2026-03-23 - Ticket aberto para transformar a exigência documental da spec em regra canônica de projeto com guardrail observável.
+- 2026-03-23 15:05Z - Releitura final do diff, do ExecPlan, da spec, de `DOCUMENTATION.md` e do checklist de `docs/workflows/codex-quality-gates.md` concluída com veredito técnico `GO`: a documentação canônica e o guardrail automatizado atendem aos closure criteria sem gap funcional remanescente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Final decision: GO
+- Closed at (UTC): 2026-03-23 15:05Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
+  - ExecPlan: `execplans/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner
+- Closure criteria validation:
+  - RF-19, CA-10: validado pela nova seção canônica em `README.md`, auditada por `rg -n "TelegramDeliveryService|política de entrega|sendMessage\\(|answerCbQuery|editMessageText" README.md`, com orientação explícita para usar `TelegramDeliveryService`, escolher política de entrega e manter o limite de escopo inicial de `answerCbQuery(...)`/`editMessageText(...)`.
+  - CA-08: validado por `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-sendmessage-guardrail.test.ts`, verde (`1/1`), e pela regressão complementar `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-sendmessage-guardrail.test.ts src/integrations/telegram-delivery.test.ts src/integrations/telegram-bot.test.ts`, verde (`153/153`), confirmando o allowlist explícito do único uso bruto permitido.
+  - Restrição documental relevante: validada por `rg -n "TelegramDeliveryService|politica de entrega|política de entrega|answerCbQuery|editMessageText|sendMessage\\(" README.md docs/specs/2026-03-23-arquitetura-centralizada-de-entrega-robusta-de-mensagens-no-telegram.md AGENTS.md`, que retornou hits apenas em `README.md` e na spec viva, sem duplicação da regra no `AGENTS.md`, além de `rg -n "bot\\.telegram\\.sendMessage\\(" src/integrations/telegram-bot.ts src/integrations/telegram-delivery.ts`, que mostrou somente o adaptador interno permitido em `src/integrations/telegram-bot.ts:751`.
+- Validation summary:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-sendmessage-guardrail.test.ts` -> verde (`1/1`)
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-sendmessage-guardrail.test.ts src/integrations/telegram-delivery.test.ts src/integrations/telegram-bot.test.ts` -> verde (`153/153`)
+- Pending manual validation:
+  - Nenhuma para este ticket. Os smokes externos ainda pendentes pertencem ao fechamento operacional mais amplo da spec, não aos closure criteria desta entrega documental/guardrail.
 - Follow-up ticket (required when `Closure reason: split-follow-up`):
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.

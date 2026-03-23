@@ -6,12 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-23 13:36Z
-- Last reviewed at (UTC): 2026-03-23 14:48Z
+- Last reviewed at (UTC): 2026-03-23 15:05Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md
   - tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
-  - tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md
+  - tickets/closed/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md
 - Related execplans:
   - execplans/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md
   - execplans/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md
@@ -129,14 +129,14 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md [fonte=source-spec]
-  - tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md [fonte=source-spec]
+  - tickets/closed/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md [fonte=source-spec]
   - tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
   - Resumo: O pacote cobre o escopo macro da spec, mas ainda tem ambiguidade objetiva de ownership no guardrail de CA-08 e nao torna observavel nos Closure criteria o logging padronizado herdado da camada central para os tickets que implementam e expandem essa arquitetura.
   - Thread: 019d1af6-b9db-78a2-a2c1-c2d303d4806a
-  - Fingerprints abertos: closure-criteria-gap|tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md&tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-09&rf-15, duplication-gap|tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md&tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-08&rf-19
+  - Fingerprints abertos: closure-criteria-gap|tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md&tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-09&rf-15, duplication-gap|tickets/closed/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md&tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md|ca-08&rf-19
   - Reducao real de gaps vs. ciclo anterior: n/a
   - Correcoes deste ciclo: 0
 - Ciclo 1 [revalidation]: GO (high)
@@ -216,14 +216,12 @@
     - a revalidação registrou `GO` com confiança alta e sem fingerprints abertos.
 - Itens parcialmente atendidos:
   - A fundação crítica da camada central já existe em `src/integrations/telegram-delivery.ts` e passou a atender `sendTicketFinalSummary(...)`, `sendRunFlowSummary(...)` e `sendRunSpecsTriageMilestone(...)` com política declarativa, retry bounded, classificação de erro, backoff, chunking configurável e logging padronizado por envio; o ticket `tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md` foi fechado com `GO`, restando apenas validação manual externa do milestone em ambiente real.
-  - Os fluxos `/plan_spec`, `/discover_spec`, `/codex_chat`, leitura de ticket aberto, CTA de implementação e callbacks auxiliares agora delegam ao `TelegramDeliveryService`, com políticas leves explícitas, preservação de `reply_markup`, retorno estruturado de `message_id` e cobertura automatizada dedicada; a spec permanece com `Spec treatment: pending` porque ainda restam validações manuais e o ticket documental/guardrail.
+  - Os fluxos `/plan_spec`, `/discover_spec`, `/codex_chat`, leitura de ticket aberto, CTA de implementação e callbacks auxiliares agora delegam ao `TelegramDeliveryService`, com políticas leves explícitas, preservação de `reply_markup`, retorno estruturado de `message_id` e cobertura automatizada dedicada; a spec permanece com `Spec treatment: pending` porque ainda restam validações manuais externas antes da auditoria final.
+  - O projeto agora registra no `README.md` a regra canônica de que novas mensagens Telegram baseadas em `sendMessage(...)` devem usar `TelegramDeliveryService`, escolher política explícita e manter `answerCbQuery(...)`/`editMessageText(...)` fora do núcleo inicial desta evolução; o ticket documental/guardrail foi fechado com `GO`, e a spec segue pendente apenas pelos smokes manuais externos e pela auditoria final do fluxo.
 - Pendencias em aberto:
-  - Nao ha gaps pendentes de triagem desta spec; permanecem apenas pendencias de implementacao rastreadas nos tickets abaixo:
-  - A documentação do projeto ainda não orienta explicitamente novas mensagens Telegram a usar a camada central nem há guardrail objetivo contra reintrodução de `sendMessage(...)` bruto.
+  - Nao ha gaps pendentes de triagem nem tickets derivados abertos desta spec; permanecem apenas pendencias operacionais externas antes da auditoria final:
   - A validacao manual em ambiente real do milestone de `/run_specs` com falha transitoria simulada ainda permanece pendente para fechamento operacional do ticket critico.
   - A validacao manual em ambiente real de ao menos um fluxo entre `/plan_spec`, `/discover_spec` ou `/codex_chat` ainda permanece pendente como smoke operacional externo da migracao conversacional/auxiliar, apesar do ticket tecnico correspondente ter sido fechado com `GO`.
-  - Tickets derivados abertos para materializar a evolução:
-    - `tickets/open/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md`
 - Evidencias de validacao:
   - Validacao final da triagem registrada em 2026-03-23T13:55:12.949Z com veredito `GO`, confianca `high` e nenhum gap pendente.
   - Auditoria manual em 2026-03-23 dos pontos de integração em `src/integrations/telegram-bot.ts`, `src/main.ts` e `src/core/runner.ts`.
@@ -234,6 +232,8 @@
   - Implementação da segunda etapa em 2026-03-23 com extensão de `src/integrations/telegram-delivery.ts` para `primaryMessageId/messages`, políticas leves e formatação centralizada de chunk, além da migração dos fluxos conversacionais/auxiliares em `src/integrations/telegram-bot.ts`.
   - Validação automatizada em 2026-03-23 por `npx tsx --test src/integrations/telegram-delivery.test.ts src/integrations/telegram-bot.test.ts` cobrindo `reply_markup`, `message_id`, logging padronizado, políticas leves, callbacks auxiliares e chunking de `tickets_open`.
   - Auditoria automatizada em 2026-03-23 por `rg -n "bot\\.telegram\\.sendMessage\\(" src/integrations/telegram-bot.ts src/integrations/telegram-delivery.ts`, restando apenas o adaptador interno da camada central.
+  - Implementação em 2026-03-23 da documentação canônica no `README.md` para novas mensagens Telegram, com referência explícita a `TelegramDeliveryService`, escolha de política de entrega e limite inicial de escopo para `answerCbQuery(...)`/`editMessageText(...)`.
+  - Validação automatizada em 2026-03-23 por `npx tsx --test src/integrations/telegram-sendmessage-guardrail.test.ts`, codificando o allowlist explícito do único uso bruto permitido de `bot.telegram.sendMessage(...)`.
   - Validação automatizada em 2026-03-23 por `npx tsx --test src/integrations/telegram-bot.test.ts` cobrindo sucesso, retry, falha definitiva, chunking, logging padronizado e milestone robusto de `/run_specs`.
   - Validação automatizada em 2026-03-23 por `npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` confirmando preservação de `/status` e dos contratos de notificação do runner.
   - Regressão completa validada em 2026-03-23 por `npm test`, `npm run check` e `npm run build`.
@@ -272,3 +272,5 @@
 - 2026-03-23 14:25Z - Ticket critico da fundacao da camada central fechado em `tickets/closed/2026-03-23-camada-central-de-entrega-telegram-para-notificacoes-criticas.md` com veredito `GO`; a spec permaneceu com `Spec treatment: pending` porque ainda restam os tickets de migracao conversacional/auxiliar, documentacao/guardrail e a validacao manual externa do milestone.
 - 2026-03-23 14:43Z - Ticket de migracao conversacional/auxiliar implementado em codigo com extensao de `TelegramDeliveryService`, migracao dos call sites de `src/integrations/telegram-bot.ts`, novo `src/integrations/telegram-delivery.test.ts` e revalidacao automatizada; a spec permaneceu com `Spec treatment: pending` por causa do smoke manual real e do ticket documental/guardrail ainda aberto.
 - 2026-03-23 14:48Z - Ticket `tickets/closed/2026-03-23-migracao-de-envios-conversacionais-e-auxiliares-para-camada-central-telegram.md` fechado com `GO` apos releitura final, auditoria de codigo, recorte automatizado (`152/152`) e regressao complementar (`npm test`, `npm run check`, `npm run build`); a spec permaneceu com `Spec treatment: pending` porque ainda restam o smoke manual externo e o ticket documental/guardrail.
+- 2026-03-23 14:58Z - A etapa de execução do ticket documental/guardrail adicionou a regra canônica no `README.md`, versionou o teste `src/integrations/telegram-sendmessage-guardrail.test.ts` e atualizou as evidências vivas da spec; `Spec treatment` permaneceu `pending` porque esta etapa não fecha ticket e ainda restam validações manuais externas.
+- 2026-03-23 15:05Z - Ticket `tickets/closed/2026-03-23-documentacao-e-guardrail-contra-sendmessage-bruto-fora-da-camada-central.md` fechado com `GO` após releitura final do diff, do ExecPlan, da spec, de `DOCUMENTATION.md`, dos quality gates e das validações automatizadas (`1/1` no guardrail isolado; `153/153` na regressão complementar); `Spec treatment` permaneceu `pending` porque os smokes manuais externos e a auditoria final da spec ainda não ocorreram.
