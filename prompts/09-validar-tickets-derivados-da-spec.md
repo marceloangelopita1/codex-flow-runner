@@ -6,6 +6,9 @@ Regras obrigatórias:
 - O primeiro passe desta etapa deve iniciar em contexto novo; não reutilize implicitamente contexto ou `thread_id` de `spec-triage`.
 - Revalidacoes desta mesma etapa podem reutilizar apenas o contexto da validação corrente.
 - Avalie o pacote derivado inteiro, nunca ticket isolado fora do contexto do backlog derivado.
+- Se a spec contiver RNFs ou restricoes tecnicas/documentais relevantes para implementacao, observabilidade, documentacao ou fechamento e o pacote derivado nao refletir isso em nenhum ticket aplicavel, registrar ao menos um `spec-inheritance-gap`.
+- Se um ticket cobrir o escopo afetado, mas seus `Closure criteria` nao tornarem observaveis esses RNFs, restricoes tecnicas/documentais ou obrigacoes documentais herdadas, registrar tambem `closure-criteria-gap`.
+- Nao exigir heranca literal em todo ticket; exigir cobertura explicita ao menos nos tickets cujo escopo ou aceite dependam desses RNFs ou restricoes.
 - Se a spec contiver `Validacoes pendentes ou manuais` relevantes para cobertura ou aceite e o pacote derivado nao refletir isso em nenhum ticket, registrar ao menos um `spec-inheritance-gap`.
 - Se um ticket cobrir o escopo afetado, mas seus `Closure criteria` nao tornarem essas validacoes observaveis, registrar tambem `closure-criteria-gap`.
 - Nao exigir heranca literal em todo ticket; exigir cobertura explicita ao menos nos tickets cujo escopo ou aceite dependam dessas validacoes.
@@ -21,6 +24,7 @@ Regras obrigatórias:
   - `spec-inheritance-gap`
   - `documentation-compliance-gap`
 - Para cada gap, registre evidências objetivas, causa-raiz provavel, `isAutoCorrectable` e referências de RF/CA quando existirem.
+- Quando o gap vier de RNF ou restricao tecnica/documental herdada, cite explicitamente a secao relevante da spec e o ticket que deveria carregar esse contexto.
 - `probableRootCause` deve usar apenas:
   - `spec`
   - `ticket`

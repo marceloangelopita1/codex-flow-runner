@@ -138,6 +138,64 @@ test("retorna GO no primeiro passe quando o gate conclui com alta confianca", as
   assert.equal(session.cancelCalls, 1);
 });
 
+test("retorna GO sem autocorrecao quando o pacote inicial ja herda RNF e obrigacao documental", async () => {
+  const session = new StubSpecTicketValidationSession([
+    buildTurn(
+      buildPass({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Pacote ja cobre RNF e obrigacao documental herdados.",
+        gaps: [],
+      }),
+    ),
+  ]);
+  let autoCorrectCalls = 0;
+  const initialPackageContext = [
+    "# Pacote derivado da spec",
+    "",
+    "## Spec",
+    "- Restricoes tecnicas relevantes: propagar requestId e propertyId; mudancas materiais de calculo devem revisar README.md.",
+    "",
+    "## Tickets derivados",
+    "### 1. tickets/open/example.md",
+    "- Source requirements (RFs/CAs, when applicable): RF-01; RNF-02; Restricao tecnica: revisar README.md quando o calculo mudar.",
+    "- Inherited assumptions/defaults (when applicable): Propagar requestId e propertyId em logs e payloads.",
+    "",
+    "## Closure criteria",
+    "- Requisito/RF/CA coberto: RNF-02",
+    "- Evidencia observavel: requestId e propertyId permanecem visiveis de ponta a ponta.",
+    "- Requisito/RF/CA coberto: Restricao tecnica - revisao documental",
+    "- Evidencia observavel: README.md revisado quando houver mudanca material no calculo.",
+    "",
+  ].join("\n");
+
+  const result = await runSpecTicketValidation(
+    {
+      startSession: async () => session,
+      autoCorrect: async () => {
+        autoCorrectCalls += 1;
+        return {
+          packageContext: "nao deveria ser chamado",
+          appliedCorrections: [],
+          materialChangesApplied: false,
+        };
+      },
+    },
+    {
+      spec,
+      initialPackageContext,
+    },
+  );
+
+  assert.equal(result.verdict, "GO");
+  assert.equal(result.finalReason, "go-with-high-confidence");
+  assert.equal(autoCorrectCalls, 0);
+  assert.equal(session.turnRequests.length, 1);
+  assert.match(session.turnRequests[0]?.packageContext ?? "", /RNF-02/u);
+  assert.match(session.turnRequests[0]?.packageContext ?? "", /requestId e propertyId/u);
+  assert.match(session.turnRequests[0]?.packageContext ?? "", /README\.md/u);
+});
+
 test("executa autocorrecao e revalidacao quando o primeiro passe encontra gaps corrigiveis", async () => {
   const session = new StubSpecTicketValidationSession([
     buildTurn(buildPass()),

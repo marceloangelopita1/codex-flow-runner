@@ -1217,6 +1217,9 @@ const writeTicketMetadataFile = async (
     closureReason?: string;
     priority?: "P0" | "P1" | "P2";
     sourceSpec?: string;
+    sourceRequirements?: string;
+    inheritedAssumptionsDefaults?: string;
+    closureCriteria?: string[];
   },
 ): Promise<string> => {
   const ticketPath = path.join(projectRoot, "tickets", options.directory, options.ticketName);
@@ -1229,7 +1232,16 @@ const writeTicketMetadataFile = async (
     `- Parent ticket (optional): ${options.parentTicketPath ?? ""}`,
     `- Closure reason: ${options.closureReason ?? ""}`,
     `- Source spec (when applicable): ${options.sourceSpec ?? ""}`,
+    `- Source requirements (RFs/CAs, when applicable): ${options.sourceRequirements ?? ""}`,
+    `- Inherited assumptions/defaults (when applicable): ${options.inheritedAssumptionsDefaults ?? ""}`,
     "",
+    ...(options.closureCriteria && options.closureCriteria.length > 0
+      ? [
+          "## Closure criteria",
+          ...options.closureCriteria.map((item) => `- ${item}`),
+          "",
+        ]
+      : []),
   ];
   await fs.mkdir(path.dirname(ticketPath), { recursive: true });
   await fs.writeFile(ticketPath, `${lines.join("\n")}\n`, "utf8");
@@ -3570,6 +3582,93 @@ test("buildSpecTicketValidationPackageContext aceita metadata em portugues e lin
     assert.equal(packageContext.tickets[0]?.relativePath, `tickets/open/${ticketA.name}`);
     assert.match(packageContext.packageContext, /Linhagem resolvida por: hybrid/u);
     assert.match(packageContext.packageContext, new RegExp(`tickets/open/${ticketA.name}`.replace(/\./gu, "\\."), "u"));
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
+});
+
+test("buildSpecTicketValidationPackageContext preserva RNF e obrigacao documental herdados", async () => {
+  const projectRoot = await createTempProjectRoot();
+  try {
+    const outline = createPlanSpecOutline();
+    outline.technicalConstraints = [
+      "Propagar requestId e propertyId em todo o fluxo.",
+      "Mudancas materiais de calculo devem revisar README.md.",
+    ];
+    outline.mandatoryValidations = [
+      "Confirmar que requestId e propertyId seguem visiveis no fluxo derivado.",
+    ];
+    outline.pendingManualValidations = [
+      "Revisar README.md quando houver mudanca material no calculo.",
+    ];
+
+    const specPath = path.join(projectRoot, "docs", "specs", specFileName);
+    await fs.mkdir(path.dirname(specPath), { recursive: true });
+    await fs.writeFile(
+      specPath,
+      createSpecFileContent(
+        "Spec com RNF e obrigacao documental herdados",
+        "Garantir que a triagem carregue requisitos nao funcionais relevantes.",
+        outline,
+        {
+          relatedTickets: [`tickets/open/${ticketA.name}`],
+          assumptionsAndDefaults: [
+            "RNF-02 - Manter rastreabilidade fim a fim com requestId e propertyId.",
+          ],
+        },
+      ),
+      "utf8",
+    );
+
+    await writeTicketMetadataFile(projectRoot, {
+      directory: "open",
+      ticketName: ticketA.name,
+      status: "open",
+      sourceSpec: `docs/specs/${specFileName}`,
+      sourceRequirements:
+        "RF-01; RNF-02; Restricao tecnica: revisar README.md quando o calculo mudar.",
+      inheritedAssumptionsDefaults:
+        "Propagar requestId e propertyId em logs, payloads e artefatos derivados.",
+      closureCriteria: [
+        "Requisito/RF/CA coberto: RNF-02",
+        "Evidencia observavel: requestId e propertyId permanecem visiveis de ponta a ponta.",
+        "Requisito/RF/CA coberto: Restricao tecnica - revisao documental",
+        "Evidencia observavel: README.md revisado quando houver mudanca material no calculo.",
+      ],
+    });
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: {
+        name: "external-project",
+        path: projectRoot,
+      },
+      queue: {
+        ensureStructure: async () => undefined,
+        nextOpenTicket: async () => null,
+        closeTicket: async () => undefined,
+      },
+      codexClient: new StubCodexClient(),
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(new SpyLogger(), roundDependencies);
+
+    const packageContext = await callBuildSpecTicketValidationPackageContext(runner, projectRoot, {
+      fileName: specFileName,
+      path: `docs/specs/${specFileName}`,
+    });
+
+    assert.equal(packageContext.tickets.length, 1);
+    assert.match(packageContext.packageContext, /RNF-02/u);
+    assert.match(packageContext.packageContext, /requestId e propertyId/u);
+    assert.match(packageContext.packageContext, /README\.md/u);
+    assert.match(
+      packageContext.packageContext,
+      /Source requirements \(RFs\/CAs, when applicable\): RF-01; RNF-02; Restricao tecnica: revisar README\.md quando o calculo mudar\./u,
+    );
+    assert.match(
+      packageContext.packageContext,
+      /Evidencia observavel: README\.md revisado quando houver mudanca material no calculo\./u,
+    );
   } finally {
     await cleanupTempProjectRoot(projectRoot);
   }

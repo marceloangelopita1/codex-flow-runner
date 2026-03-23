@@ -21,31 +21,35 @@ Este documento é referência compartilhada para:
 - Alinhamentos canônicos não exigem migração retroativa em massa; material histórico só precisa ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
 ## Checklist de triagem de spec
-- Extrair RFs, CAs, assumptions/defaults, validacoes pendentes/manuais e não-escopo da spec.
+- Extrair RFs, CAs, RNFs, restricoes tecnicas/documentais relevantes, assumptions/defaults, validacoes pendentes/manuais e não-escopo da spec.
 - Comparar cada RF/CA com evidências objetivas do código atual.
 - Para cada gap, apontar evidência concreta e classificar `atendido | parcial | nao atendido`.
 - Criar tickets independentes o bastante para outra IA executar sem depender de ticket irmão.
 - A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo parecer claro.
+- Quando a spec trouxer RNFs ou restricoes tecnicas/documentais que impactem implementacao, observabilidade, documentacao ou fechamento, decidir explicitamente quais tickets precisam herdar esses itens e como o aceite deles ficara observavel.
 - Quando a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente se cada item e relevante para cobertura ou aceite do pacote derivado; quando for, carregar esse contexto para o ticket e/ou para seus criterios de fechamento.
 - Em todo ticket derivado, registrar:
   - spec de origem;
-  - RFs/CAs cobertos;
+  - RFs/CAs e RNFs/restricoes tecnicas/documentais relevantes cobertos;
   - assumptions/defaults relevantes herdados da spec;
+  - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
   - validacoes pendentes ou manuais relevantes herdadas da spec, quando influenciarem cobertura ou aceite;
   - critérios de fechamento observáveis.
 
 ## Checklist de ExecPlan
 - Ler ticket inteiro e todas as referências obrigatórias antes de planejar.
-- Declarar explicitamente a spec de origem e o subconjunto de RFs/CAs coberto pelo ticket.
+- Declarar explicitamente a spec de origem e o subconjunto de RFs/CAs/RNFs/restricoes tecnicas coberto pelo ticket.
 - Registrar assumptions/defaults escolhidos para eliminar ambiguidade remanescente.
+- Registrar RNFs e restricoes tecnicas/documentais herdados que precisem ser implementados, observados ou validados neste ticket.
 - Traduzir critérios de fechamento em matriz `requisito -> validacao observavel`.
 - Explicitar riscos residuais e o que não será resolvido neste ticket.
 
 ## Checklist de execução
 - Reabrir ticket, spec referenciada e ExecPlan antes de alterar código.
 - Atualizar `Progress`, `Decision Log` e `Surprises & Discoveries` quando novos fatos surgirem.
-- Implementar apenas contra o subconjunto de RFs/CAs declarado no plano.
+- Implementar apenas contra o subconjunto de RFs/CAs/RNFs/restricoes tecnicas declarado no plano.
 - Rodar a matriz de validação completa antes de considerar o ticket pronto.
+- Confirmar que RNFs, restricoes tecnicas/documentais e obrigacoes de documentacao herdadas ficaram observaveis quando fizerem parte do escopo do ticket.
 - Atualizar spec/documentação impactadas no mesmo changeset quando o comportamento descrito mudar.
 - Se o plano não for suficiente para uma execução segura, parar com blocker explícito em vez de completar no improviso.
 

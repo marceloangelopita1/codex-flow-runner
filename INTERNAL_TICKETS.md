@@ -112,11 +112,14 @@ Todo ticket deve incluir:
   - caminho humano qualificado por projeto para a spec de origem quando o display diferir da chave canonica;
   - caminho canonico usado para dedupe/reuse quando isso for relevante para automacao;
   - IDs de RF/CA de origem;
+  - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
   - assumptions/defaults herdados que importam para a implementação.
 - Passos de reprodução (quando possível).
 - Links de evidência (`requestId`, `Request file`, `Response file`, `Decision file` e/ou saída de teste).
 - Avaliação de impacto (escopo + risco).
 - Critérios de fechamento observáveis.
+
+Nao force heranca literal de todo RNF ou restricao em todo ticket derivado. A barra minima e explicitar os itens da spec que realmente condicionam implementacao, aceite, documentacao ou fechamento do ticket em questao.
 
 Quando um ticket for criado a partir de retrospectiva de workflow (`spec-ticket-derivation-retrospective` ou `spec-workflow-retrospective`) ou de audit/review pós-implementação, inclua também:
 - causa-raiz provável do workflow (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);

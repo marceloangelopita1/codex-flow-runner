@@ -1,7 +1,7 @@
 # [TICKET] Endurecer a herança de RNFs e restrições técnicas na derivação de tickets de spec
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-23 00:07Z
@@ -111,9 +111,23 @@ Antes do `/run-all`, o workflow deve exigir e validar explicitamente a herança 
 
 ## Decision log
 - 2026-03-23 - Ticket aberto automaticamente a partir da retrospectiva sistêmica pre-`/run-all` da derivação - o histórico real da validação mostrou que a omissão de `RNF-02` e de revisão documental observável não foi só um erro local do pacote, mas um ponto cego reaproveitável do contrato compartilhado do workflow.
+- 2026-03-23 - Diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md` revalidados antes do fechamento; resultado final `GO` sem gap técnico remanescente.
+
+## Closure validation
+- Criterio 1 (contrato de triagem `spec -> tickets`): atendido.
+  Evidencia objetiva: `docs/workflows/codex-quality-gates.md` agora exige extracao de `RFs, CAs, RNFs, restricoes tecnicas/documentais relevantes` e determina heranca explicita desses itens quando impactarem implementacao, documentacao ou fechamento; `prompts/01-avaliar-spec-e-gerar-tickets.md` passou a exigir os mesmos itens na triagem, em `Source requirements` e nos `closure criteria`. Revalidado com `rg -n "RNF|restric|tecnic|documenta" docs/workflows/codex-quality-gates.md prompts/01-avaliar-spec-e-gerar-tickets.md` em 2026-03-23 02:54Z.
+- Criterio 2 (contrato minimo do ticket derivado): atendido.
+  Evidencia objetiva: `INTERNAL_TICKETS.md` agora inclui `RNFs e restricoes tecnicas/documentais relevantes herdados da spec` na barra minima de rastreabilidade e explicita que a heranca so precisa cobrir os itens que condicionam implementacao, aceite, documentacao ou fechamento do ticket. Revalidado com `rg -n "RNF|restric|tecnic|documenta|rastreabilidade" INTERNAL_TICKETS.md` em 2026-03-23 02:54Z.
+- Criterio 3 (gate funcional e autocorrecao do pacote derivado): atendido.
+  Evidencia objetiva: `prompts/09-validar-tickets-derivados-da-spec.md` passou a exigir `spec-inheritance-gap` e `closure-criteria-gap` quando RNFs ou restricoes tecnicas/documentais herdadas nao estiverem refletidos/observaveis no pacote; `prompts/10-autocorrigir-tickets-derivados-da-spec.md` agora autoriza corrigir essa heranca, inclusive obrigacoes documentais observaveis, sem forcar duplicacao literal em todo ticket. Revalidado com `rg -n "RNF|restric|tecnic|documenta|spec-inheritance-gap|closure-criteria-gap" prompts/09-validar-tickets-derivados-da-spec.md prompts/10-autocorrigir-tickets-derivados-da-spec.md` em 2026-03-23 02:54Z.
+- Criterio 4 (prova de nao regressao do contrato): atendido.
+  Evidencia objetiva: `src/core/runner.test.ts` ganhou o teste `buildSpecTicketValidationPackageContext preserva RNF e obrigacao documental herdados`; `src/core/spec-ticket-validation.test.ts` ganhou o teste `retorna GO sem autocorrecao quando o pacote inicial ja herda RNF e obrigacao documental`. Ambos passaram em `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/core/spec-ticket-validation.test.ts`, junto com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`, em 2026-03-23 02:54Z.
+
+## Manual validation pending
+- Nenhuma validacao manual externa pendente. O aceite tecnico e funcional desta entrega ficou coberto por diff, contrato documental e prova automatizada local.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-23 02:54Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-23-workflow-improvement-2026-03-22-score-de-oportunidade-com-gates-v1-3723af3a.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
