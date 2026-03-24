@@ -37,7 +37,9 @@ import {
   RunAllFlowSummary,
   RunSpecsDerivationRetrospectiveSummary,
   RunAllTimingStage,
+  RunSpecsEntryPoint,
   RunnerFlowSummary,
+  RunSpecsSourceCommand,
   RunSpecsSpecAuditSummary,
   RunSpecsSpecCloseAndVersionSummary,
   RunSpecsSpecTriageSummary,
@@ -185,6 +187,8 @@ export interface RunSpecsTriageLifecycleEvent {
   spec: SpecRef;
   outcome: RunSpecsTriageOutcome;
   finalStage: RunSpecsTriageFinalStage;
+  sourceCommand: RunSpecsSourceCommand;
+  entryPoint: RunSpecsEntryPoint;
   nextAction: string;
   timing: FlowTimingSnapshot<RunSpecsTriageTimingStage>;
   details?: string;
@@ -283,6 +287,8 @@ interface ActiveRunnerSlot {
   isPaused: boolean;
   currentTicket: string | null;
   currentSpec: string | null;
+  runSpecsSourceCommand: RunSpecsSourceCommand | null;
+  runSpecsEntryPoint: RunSpecsEntryPoint | null;
   phase: RunnerState["phase"];
   startedAt: Date;
   loopPromise: Promise<void> | null;
@@ -628,8 +634,6 @@ export type RunSelectedTicketRequestResult =
     };
 
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
-
-type RunSpecsEntryPoint = "spec-triage" | "spec-ticket-validation";
 
 type RunSlotStartPreflightResult =
   | {
@@ -4742,6 +4746,8 @@ export class TicketRunner {
     let workflowImprovementTicketSummary: WorkflowImprovementTicketPublicationResult | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
+    slot.runSpecsEntryPoint = options.entryPoint;
+    slot.runSpecsSourceCommand = options.sourceCommand;
     this.touchSlot(slot, "select-spec", flowStartMessage);
 
     const runTimedStructuredTriageStage = async <Summary>(params: {
@@ -5414,6 +5420,8 @@ export class TicketRunner {
           spec: { ...spec },
           outcome: "failure",
           finalStage,
+          sourceCommand,
+          entryPoint: options.entryPoint,
           nextAction:
             `Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute ${sourceCommand}.`,
           details,
@@ -5427,6 +5435,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage,
           completionReason: "spec-ticket-validation-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details,
           triageTimingCollector,
           flowTimingCollector,
@@ -5478,6 +5488,8 @@ export class TicketRunner {
           spec: { ...spec },
           outcome: "blocked",
           finalStage,
+          sourceCommand,
+          entryPoint: options.entryPoint,
           nextAction:
             `Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute ${sourceCommand}.`,
           details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary?.summary]
@@ -5499,6 +5511,8 @@ export class TicketRunner {
           outcome: "blocked",
           finalStage,
           completionReason: "spec-ticket-validation-no-go",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary?.summary]
             .filter(Boolean)
             .join(" "),
@@ -5530,6 +5544,8 @@ export class TicketRunner {
         spec: { ...spec },
         outcome: "success",
         finalStage: "spec-close-and-version",
+        sourceCommand,
+        entryPoint: options.entryPoint,
         nextAction: runAllStartMessage,
         timing: triageTiming,
         specTicketValidation: validationSummary,
@@ -5584,6 +5600,8 @@ export class TicketRunner {
           outcome: "success",
           finalStage,
           completionReason: "completed",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           triageTimingCollector,
           flowTimingCollector,
           specTriage: specTriageSummary,
@@ -5607,6 +5625,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "run-all",
           completionReason: "run-all-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details:
             runAllSummary.details ??
             `Fluxo /run-all interrompido durante a execucao encadeada de ${sourceCommand}.`,
@@ -5687,6 +5707,8 @@ export class TicketRunner {
           spec: { ...spec },
           outcome: "failure",
           finalStage,
+          sourceCommand,
+          entryPoint: options.entryPoint,
           nextAction,
           details: errorMessage,
           timing: this.buildFlowTimingSnapshot(triageTimingCollector),
@@ -5701,6 +5723,8 @@ export class TicketRunner {
           completionReason: failedAtTicketValidation
             ? "spec-ticket-validation-failure"
             : "triage-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
@@ -5745,6 +5769,8 @@ export class TicketRunner {
           completionReason: failedAtRetrospective
             ? "spec-workflow-retrospective-failure"
             : "spec-audit-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
@@ -5780,6 +5806,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "run-all",
           completionReason: "run-all-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details: errorMessage,
           triageTimingCollector,
           flowTimingCollector,
@@ -5802,6 +5830,8 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "unknown",
           completionReason: "triage-failure",
+          sourceCommand,
+          entryPoint: options.entryPoint,
           details: `Fluxo ${sourceCommand} interrompido antes da emissao do resumo final.`,
           triageTimingCollector,
           flowTimingCollector,
@@ -5816,6 +5846,8 @@ export class TicketRunner {
         });
       await this.emitRunFlowCompleted(summary);
       slot.currentSpec = null;
+      slot.runSpecsSourceCommand = null;
+      slot.runSpecsEntryPoint = null;
       this.syncStateFromSlots();
     }
   }
@@ -7369,6 +7401,21 @@ export class TicketRunner {
     };
   }
 
+  private buildRunSpecsTraceMetadata(
+    slot: ActiveRunnerSlot,
+    metadata?: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    if (slot.kind !== "run-specs" || !slot.runSpecsSourceCommand || !slot.runSpecsEntryPoint) {
+      return metadata;
+    }
+
+    return {
+      sourceCommand: slot.runSpecsSourceCommand,
+      entryPoint: slot.runSpecsEntryPoint,
+      ...(metadata ?? {}),
+    };
+  }
+
   private buildSpecTicketDerivationRetrospectiveTraceMetadata(
     summary: RunSpecsDerivationRetrospectiveSummary,
   ): Record<string, unknown> {
@@ -8789,6 +8836,8 @@ export class TicketRunner {
       isPaused: false,
       currentTicket: null,
       currentSpec: null,
+      runSpecsSourceCommand: null,
+      runSpecsEntryPoint: null,
       phase: this.state.phase,
       startedAt: this.now(),
       loopPromise: null,
@@ -9549,6 +9598,8 @@ export class TicketRunner {
       return null;
     }
 
+    const decisionMetadata = this.buildRunSpecsTraceMetadata(slot, request.metadata);
+
     try {
       const traceStore = this.workflowTraceStoreFactory(slot.project.path);
       return await traceStore.recordStageTrace({
@@ -9567,7 +9618,7 @@ export class TicketRunner {
           ...(request.decisionErrorMessage
             ? { errorMessage: request.decisionErrorMessage }
             : {}),
-          ...(request.metadata ? { metadata: request.metadata } : {}),
+          ...(decisionMetadata ? { metadata: decisionMetadata } : {}),
         },
         recordedAt: this.now(),
       });
@@ -9805,6 +9856,8 @@ export class TicketRunner {
     outcome: RunSpecsFlowSummary["outcome"];
     finalStage: RunSpecsFlowFinalStage;
     completionReason: RunSpecsFlowCompletionReason;
+    sourceCommand: RunSpecsSourceCommand;
+    entryPoint: RunSpecsEntryPoint;
     details?: string;
     triageTimingCollector: FlowTimingCollector<RunSpecsTriageTimingStage>;
     flowTimingCollector: FlowTimingCollector<RunSpecsFlowTimingStage>;
@@ -9829,6 +9882,8 @@ export class TicketRunner {
         fileName: params.spec.fileName,
         path: params.spec.path,
       },
+      sourceCommand: params.sourceCommand,
+      entryPoint: params.entryPoint,
       ...(params.details ? { details: params.details } : {}),
       ...(params.slot.codexPreferencesSnapshot
         ? {
@@ -10434,6 +10489,8 @@ export class TicketRunner {
       isPaused: false,
       currentTicket: null,
       currentSpec: null,
+      runSpecsSourceCommand: null,
+      runSpecsEntryPoint: null,
       phase: "idle",
       startedAt: this.now(),
       loopPromise: null,
@@ -10650,6 +10707,10 @@ export class TicketRunner {
       phase: slot.phase,
       currentTicket: slot.currentTicket,
       currentSpec: slot.currentSpec,
+      ...(slot.runSpecsSourceCommand
+        ? { runSpecsSourceCommand: slot.runSpecsSourceCommand }
+        : {}),
+      ...(slot.runSpecsEntryPoint ? { runSpecsEntryPoint: slot.runSpecsEntryPoint } : {}),
       isPaused: slot.isPaused,
       startedAt: new Date(slot.startedAt),
     }));

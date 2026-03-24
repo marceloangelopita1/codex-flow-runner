@@ -2,19 +2,21 @@
 
 ## Metadata
 - Spec ID: 2026-03-24-retomada-do-run-specs-a-partir-da-validacao
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner:
 - Created at (UTC): 2026-03-24 17:51Z
-- Last reviewed at (UTC): 2026-03-24 18:38Z
+- Last reviewed at (UTC): 2026-03-24 19:25Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
-  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
+  - tickets/closed/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
 - Related execplans:
   - execplans/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
+  - execplans/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
 - Related commits:
-  - A registrar no commit de encerramento da triagem desta etapa.
+  - b7f0c6f0cc2419683ed3d05e32ff4cf637027cdd
+  - 8869d8815ff065ee4d2187dc5828032f6deef93f
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
@@ -99,17 +101,17 @@
 - Alterar a taxonomia funcional de `spec-ticket-validation` ou da retrospectiva sistêmica já existentes.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `/run_specs_from_validation <arquivo-da-spec.md>` com spec elegível e backlog aberto derivado inicia o runner e entra diretamente em `spec-ticket-validation`, sem executar `spec-triage`.
-- [ ] CA-02 - `/run_specs_from_validation` sem argumento retorna mensagem de uso e não inicia execução.
-- [ ] CA-03 - `/run_specs_from_validation <arquivo>` com spec inexistente, caminho inválido ou spec não elegível retorna bloqueio explícito e não inicia execução.
-- [ ] CA-04 - `/run_specs_from_validation <arquivo>` para spec elegível, mas sem tickets abertos derivados, retorna bloqueio explícito orientando o operador a usar `/run_specs <arquivo-da-spec.md>`.
-- [ ] CA-05 - Quando a validação continuar em `NO_GO`, o fluxo encerra antes de `spec-close-and-version` e antes de `/run_all`, com resumo final apontando próxima ação em `/run_specs_from_validation`.
-- [ ] CA-06 - Quando a validação chegar a `GO`, o fluxo continua para `spec-close-and-version`, encadeia `/run_all` e termina com `spec-audit`, preservando o comportamento posterior já existente de `/run_specs`.
-- [ ] CA-07 - Quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver histórico revisado suficiente de gaps, a etapa `spec-ticket-derivation-retrospective` continua sendo executada mesmo quando a rodada entrou por `/run_specs_from_validation`.
-- [ ] CA-08 - O resumo final, o milestone de triagem, o trace e o `/status` distinguem explicitamente que a rodada `run-specs` entrou por `spec-ticket-validation` via `/run_specs_from_validation`.
-- [ ] CA-09 - `/run_specs <arquivo-da-spec.md>` permanece funcional e continua iniciando obrigatoriamente em `spec-triage`.
-- [ ] CA-10 - `/specs` permanece sem novo botão ou CTA de continuação na primeira versão.
-- [ ] CA-11 - A suíte automatizada cobre, no mínimo, os cenários de início direto na validação, bloqueio por ausência de backlog derivado, parada em `NO_GO`, continuação em `GO` e preservação semântica de `/run_specs`.
+- [x] CA-01 - `/run_specs_from_validation <arquivo-da-spec.md>` com spec elegível e backlog aberto derivado inicia o runner e entra diretamente em `spec-ticket-validation`, sem executar `spec-triage`.
+- [x] CA-02 - `/run_specs_from_validation` sem argumento retorna mensagem de uso e não inicia execução.
+- [x] CA-03 - `/run_specs_from_validation <arquivo>` com spec inexistente, caminho inválido ou spec não elegível retorna bloqueio explícito e não inicia execução.
+- [x] CA-04 - `/run_specs_from_validation <arquivo>` para spec elegível, mas sem tickets abertos derivados, retorna bloqueio explícito orientando o operador a usar `/run_specs <arquivo-da-spec.md>`.
+- [x] CA-05 - Quando a validação continuar em `NO_GO`, o fluxo encerra antes de `spec-close-and-version` e antes de `/run_all`, com resumo final apontando próxima ação em `/run_specs_from_validation`.
+- [x] CA-06 - Quando a validação chegar a `GO`, o fluxo continua para `spec-close-and-version`, encadeia `/run_all` e termina com `spec-audit`, preservando o comportamento posterior já existente de `/run_specs`.
+- [x] CA-07 - Quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver histórico revisado suficiente de gaps, a etapa `spec-ticket-derivation-retrospective` continua sendo executada mesmo quando a rodada entrou por `/run_specs_from_validation`.
+- [x] CA-08 - O resumo final, o milestone de triagem, o trace e o `/status` distinguem explicitamente que a rodada `run-specs` entrou por `spec-ticket-validation` via `/run_specs_from_validation`.
+- [x] CA-09 - `/run_specs <arquivo-da-spec.md>` permanece funcional e continua iniciando obrigatoriamente em `spec-triage`.
+- [x] CA-10 - `/specs` permanece sem novo botão ou CTA de continuação na primeira versão.
+- [x] CA-11 - A suíte automatizada cobre, no mínimo, os cenários de início direto na validação, bloqueio por ausência de backlog derivado, parada em `NO_GO`, continuação em `GO` e preservação semântica de `/run_specs`.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -136,7 +138,7 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/closed/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
@@ -183,7 +185,7 @@
   - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
   - docs/specs/2026-03-24-retomada-do-run-specs-a-partir-da-validacao.md
   - tickets/closed/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
-  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
+  - tickets/closed/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
   - src/core/spec-ticket-validation.ts
   - src/core/spec-ticket-validation.test.ts
   - src/core/runner.ts
@@ -195,15 +197,16 @@
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
-- Validacoes automatizadas obrigatorias:
-  - `npm test`
-  - `npm run check`
-  - cobertura direcionada para `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts`, incluindo cenarios de bloqueio, `NO_GO`, `GO` e preservacao do caminho legado de `/run_specs`
-- Status desta etapa:
-  - `npm test` executado com sucesso em 2026-03-24T18:30:02Z.
-  - `npm run check` executado com sucesso em 2026-03-24T18:30:02Z.
+- Validacoes obrigatorias ainda nao automatizadas:
+  - Nenhuma bloqueante para o atendimento final desta spec; o recorte tecnico ja foi comprovado pelas suites automatizadas e pela auditoria da linhagem fechada.
+- Evidencias automatizadas desta etapa:
+  - `npm test` executado com sucesso em 2026-03-24T18:57:00Z.
+  - `npm run check` executado com sucesso em 2026-03-24T18:57:00Z.
   - a cobertura direcionada em `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` agora inclui `/run_specs_from_validation` para sucesso, falta de argumento, caminho invalido, spec inexistente, spec inelegivel, ausencia de backlog derivado, `NO_GO`, falha tecnica e `GO`, preservando o caminho legado `/run_specs`.
+  - o contrato observavel agora cobre `sourceCommand` e `entryPoint` em `RunSpecsFlowSummary`, milestone de triagem, `/status`, traces e documentacao textual do fluxo.
 - Validacoes manuais pendentes:
+  - Nenhuma como bloqueio residual desta spec apos a auditoria final.
+- Smokes operacionais externos recomendados (nao bloqueantes para `Status: attended` e `Spec treatment: done`):
   - Executar `/run_specs_from_validation <arquivo-da-spec.md>` em uma spec com tickets abertos derivados e confirmar, no Telegram, que o fluxo inicia diretamente em `spec-ticket-validation`.
   - Executar o mesmo comando em um caso com `NO_GO` e confirmar que `spec-close-and-version` e `/run_all` nao sao iniciados.
   - Executar o mesmo comando em um caso com `GO` e confirmar que o fluxo segue ate `spec-audit`.
@@ -211,7 +214,8 @@
   - Confirmar no `/status` e no resumo final que a rodada foi identificada como entrada por `/run_specs_from_validation`.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
+- Resultado da auditoria final: em 2026-03-24T19:25:25Z a releitura desta spec, dos 2 tickets fechados relacionados, dos 2 execplans relacionados, de `docs/workflows/codex-quality-gates.md`, do estado atual de codigo/documentacao e das validacoes observaveis do repositorio confirmou atendimento de RF-01..RF-25 e CA-01..CA-11, sem gap funcional residual local; por isso a spec passa a `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
   - O runner já possui o fluxo `run-specs` completo, com `spec-ticket-validation` separado de `spec-triage`.
   - O runner já reconstrói o pacote derivado da spec a partir da spec e dos tickets abertos atuais para alimentar `spec-ticket-validation`.
@@ -219,11 +223,14 @@
   - O bot Telegram já possui infraestrutura de comando textual, validação de elegibilidade da spec, resumo final de fluxo e milestone de triagem para `run-specs`.
   - O bot Telegram agora expõe `/run_specs_from_validation <arquivo-da-spec.md>` com o mesmo parsing, controle de acesso e elegibilidade-base de `/run_specs`, além de bloqueio acionável quando não há backlog derivado aberto reaproveitável.
   - O runner agora aceita iniciar `run-specs` diretamente em `spec-ticket-validation`, sem passar por `spec-triage`, preservando `NO_GO`, falha técnica, `GO`, retrospectiva pre-`/run_all`, `spec-close-and-version`, `/run_all` e `spec-audit`.
+  - O contrato observavel de `run-specs` agora registra `sourceCommand` (`/run_specs` ou `/run_specs_from_validation`) e `entryPoint` (`spec-triage` ou `spec-ticket-validation`) no summary final, milestone, traces e `/status`, mantendo `run-specs` como familia unica.
+  - O help textual do bot, o `README.md` e a jornada operacional de `docs/specs/2026-02-19-approved-spec-triage-run-specs.md` agora documentam a diferenca entre retriagem completa e continuidade da validacao.
 - Pendencias em aberto:
-  - Ticket `tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md`: registrar `sourceCommand`/`entryPoint` na observabilidade de `run-specs`, ajustar milestone/resumo final/`/status`/timings/traces e documentar a diferenca entre retriagem completa e continuidade da validacao.
-  - Validacoes manuais no Telegram para o ticket `tickets/closed/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md` continuam pendentes operacionalmente, sem bloquear o aceite tecnico do recorte funcional ja entregue.
-  - Nao-escopo confirmado nesta triagem: adicionar botao ou CTA novo em `/specs` continua explicitamente fora da primeira versao e nao gera ticket neste pacote derivado.
+  - Nenhuma pendencia tecnica residual nem ticket derivado aberto para esta spec.
+  - Permanecem apenas smokes operacionais externos registrados em `Validacoes pendentes ou manuais`, sem bloquear `Status: attended` nem `Spec treatment: done`.
+  - Nao-escopo confirmado: adicionar botao ou CTA novo em `/specs` continua explicitamente fora da primeira versao e nao gera follow-up local nesta linhagem.
 - Evidencias de validacao:
+  - `src/types/flow-timing.ts`
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
   - `src/core/runner.test.ts`
@@ -235,17 +242,23 @@
   - `docs/specs/2026-02-19-approved-spec-triage-run-specs.md`
   - `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md`
   - `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md`
+  - Revalidacao final executada em 2026-03-24 19:25Z:
+    - releitura desta spec, dos tickets fechados relacionados, dos execplans relacionados e do checklist `docs/workflows/codex-quality-gates.md`;
+    - releitura dos artefatos `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/types/state.ts`, `src/integrations/telegram-bot.ts`, `README.md` e `docs/specs/2026-02-19-approved-spec-triage-run-specs.md`;
+    - verificacao documental do ticket fechado `tickets/closed/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md` para confirmar `Status: closed` e coerencia com a secao `Closure`.
 
 ## Auditoria final de entrega
-- Auditoria executada em: 2026-03-24T18:07:32Z
-- Resultado: triagem encerrada com pacote derivado validado (`GO` no gate funcional), mas com lacunas de implementacao ainda abertas; a spec permanece `approved` com `Spec treatment: pending` ate a entrega dos tickets derivados.
+- Auditoria executada em: 2026-03-24T19:25:25Z
+- Resultado: a releitura integral desta spec, dos 2 tickets fechados relacionados, dos 2 execplans relacionados, do checklist `docs/workflows/codex-quality-gates.md`, do estado atual do codigo/documentacao e das evidencias automatizadas desta linhagem confirmou atendimento de RF-01..RF-25 e CA-01..CA-11. Nao foram encontrados gaps tecnicos residuais; a inconsistência documental do ticket fechado de observabilidade foi corrigida, a rastreabilidade da spec foi completada e o documento foi promovido para `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
+  - nenhum
+- Tickets/follow-ups concluidos na linhagem auditada:
   - tickets/closed/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
-  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
+  - tickets/closed/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
 - Causas-raiz sistemicas identificadas:
-  - Nenhuma nova causa-raiz sistemica na auditoria final; a pendencia remanescente e a implementacao do backlog derivado ja rastreado nos tickets abertos.
+  - nenhuma
 - Ajustes genericos promovidos ao workflow:
-  - Nenhum nesta etapa; a triagem encerra apenas com rastreabilidade e versionamento da documentacao.
+  - nenhum
 
 ## Riscos e impacto
 - Risco funcional: o operador pode usar `/run_specs_from_validation` quando a própria spec mudou materialmente e, nesse caso, pular `spec-triage` seria inadequado para o backlog atual.
@@ -266,3 +279,4 @@
 ## Historico de atualizacao
 - 2026-03-24 17:51Z - Versao inicial da spec criada para formalizar a retomada de `run-specs` a partir de `spec-ticket-validation` por meio do novo comando `/run_specs_from_validation`.
 - 2026-03-24 18:07Z - Triagem encerrada com dois tickets abertos para os gaps remanescentes, auditoria final preenchida e status mantido como `approved` com `Spec treatment: pending`.
+- 2026-03-24 19:25Z - Auditoria final revalidou a linhagem completa, corrigiu a metadata `Status: closed` do ticket fechado de observabilidade, completou a rastreabilidade de execplans/commits e promoveu a spec para `Status: attended` com `Spec treatment: done`; permanecem apenas smokes operacionais externos nao bloqueantes.

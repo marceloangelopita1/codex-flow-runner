@@ -718,6 +718,7 @@ const START_REPLY_LINES = [
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
   "/run_specs <arquivo> - executa triagem da spec e, em sucesso, encadeia rodada de tickets",
+  "/run_specs_from_validation <arquivo> - retoma o fluxo da spec em spec-ticket-validation usando o backlog aberto atual",
   "/codex_chat - inicia conversa livre com Codex (alias legado: /codex-chat)",
   "/discover_spec - inicia sessão stateful de descoberta profunda de spec",
   "/discover_spec_status - mostra status detalhado da sessão /discover_spec",
@@ -1189,6 +1190,8 @@ export class TelegramController {
       context: {
         specFileName: event.spec.fileName,
         specPath: event.spec.path,
+        sourceCommand: event.sourceCommand,
+        entryPoint: event.entryPoint,
         outcome: event.outcome,
         finalStage: event.finalStage,
         nextAction: this.limit(event.nextAction),
@@ -1223,6 +1226,8 @@ export class TelegramController {
           }
         : {
             specFileName: summary.spec.fileName,
+            sourceCommand: summary.sourceCommand,
+            entryPoint: summary.entryPoint,
           }),
       ...(summary.codexPreferences
         ? {
@@ -6527,12 +6532,16 @@ export class TelegramController {
   }
 
   private buildRunSpecsOverviewLines(summary: RunSpecsFlowSummary): string[] {
+    const sourceCommand = this.resolveRunSpecsSourceCommand(summary.sourceCommand);
+    const entryPoint = this.resolveRunSpecsEntryPoint(summary.entryPoint);
     const lines = [
       `Fluxo: ${summary.flow}`,
       `Projeto ativo: ${summary.activeProjectName}`,
       `Caminho do projeto: ${summary.activeProjectPath}`,
       `Spec: ${summary.spec.fileName}`,
       `Caminho da spec: ${summary.spec.path}`,
+      `Comando de origem: ${sourceCommand}`,
+      `Ponto de entrada: ${entryPoint}`,
       `Resultado: ${this.renderOutcome(summary.outcome)}`,
       `Fase final: ${summary.finalStage}`,
       `Motivo de encerramento: ${summary.completionReason}`,
@@ -6918,12 +6927,16 @@ export class TelegramController {
   }
 
   private buildRunSpecsTriageMilestoneMessage(event: RunSpecsTriageLifecycleEvent): string {
+    const sourceCommand = this.resolveRunSpecsSourceCommand(event.sourceCommand);
+    const entryPoint = this.resolveRunSpecsEntryPoint(event.entryPoint);
     const sections: EditorialSection[] = [
       {
         title: "Visao geral da triagem",
         lines: [
           `Spec: ${event.spec.fileName}`,
           `Caminho da spec: ${event.spec.path}`,
+          `Comando de origem: ${sourceCommand}`,
+          `Ponto de entrada: ${entryPoint}`,
           `Resultado: ${this.renderOutcome(event.outcome)}`,
           `Fase final: ${event.finalStage}`,
           `Proxima acao: ${event.nextAction}`,
@@ -7041,6 +7054,12 @@ export class TelegramController {
           `pausado: ${slot.isPaused ? "sim" : "nao"}`,
           `ticket: ${slot.currentTicket ?? "nenhum"}`,
           `spec: ${slot.currentSpec ?? "nenhuma"}`,
+          ...(slot.kind === "run-specs" && slot.runSpecsSourceCommand
+            ? [`origem: ${this.resolveRunSpecsSourceCommand(slot.runSpecsSourceCommand)}`]
+            : []),
+          ...(slot.kind === "run-specs" && slot.runSpecsEntryPoint
+            ? [`entrada: ${this.resolveRunSpecsEntryPoint(slot.runSpecsEntryPoint)}`]
+            : []),
         ];
         lines.push(details.join(" | "));
       }
@@ -7054,7 +7073,11 @@ export class TelegramController {
         `Último fluxo encerrado em: ${state.lastRunFlowSummary.timestampUtc}`,
       );
       if (state.lastRunFlowSummary.flow === "run-specs") {
-        lines.push(`Última spec de fluxo: ${state.lastRunFlowSummary.spec.fileName}`);
+        lines.push(
+          `Última spec de fluxo: ${state.lastRunFlowSummary.spec.fileName}`,
+          `Último comando de origem do fluxo: ${this.resolveRunSpecsSourceCommand(state.lastRunFlowSummary.sourceCommand)}`,
+          `Último ponto de entrada do fluxo: ${this.resolveRunSpecsEntryPoint(state.lastRunFlowSummary.entryPoint)}`,
+        );
       } else {
         if (state.lastRunFlowSummary.lastProcessedTicket) {
           lines.push(`Último ticket processado no fluxo: ${state.lastRunFlowSummary.lastProcessedTicket}`);
@@ -7302,6 +7325,18 @@ export class TelegramController {
     }
 
     return lines.join("\n");
+  }
+
+  private resolveRunSpecsSourceCommand(
+    sourceCommand: RunSpecsFlowSummary["sourceCommand"] | string | null | undefined,
+  ): string {
+    return sourceCommand && sourceCommand.trim() ? sourceCommand : "/run_specs";
+  }
+
+  private resolveRunSpecsEntryPoint(
+    entryPoint: RunSpecsFlowSummary["entryPoint"] | string | null | undefined,
+  ): string {
+    return entryPoint && entryPoint.trim() ? entryPoint : "spec-triage";
   }
 
   private appendStatusCodexPreferences(

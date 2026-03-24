@@ -3582,6 +3582,8 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
     assert.equal(milestones.length, 1);
     assert.equal(milestones[0]?.outcome, "blocked");
     assert.equal(milestones[0]?.finalStage, "spec-ticket-derivation-retrospective");
+    assert.equal(milestones[0]?.sourceCommand, "/run_specs");
+    assert.equal(milestones[0]?.entryPoint, "spec-triage");
     assert.match(milestones[0]?.nextAction ?? "", /NO_GO/u);
     assert.equal(milestones[0]?.specTicketValidation?.verdict, "NO_GO");
     assert.equal(milestones[0]?.specTicketValidation?.confidence, "medium");
@@ -3596,6 +3598,8 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
       assert.equal(runSpecsSummary.outcome, "blocked");
       assert.equal(runSpecsSummary.finalStage, "spec-ticket-derivation-retrospective");
       assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
+      assert.equal(runSpecsSummary.sourceCommand, "/run_specs");
+      assert.equal(runSpecsSummary.entryPoint, "spec-triage");
       assert.equal(runSpecsSummary.runAllSummary, undefined);
       assert.equal(runSpecsSummary.specTicketValidation?.verdict, "NO_GO");
       assert.equal(runSpecsSummary.specTicketValidation?.finalReason, "no-auto-correctable-gaps");
@@ -3630,8 +3634,14 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
         "run-specs:spec:spec-ticket-derivation-retrospective:success",
       ],
     );
+    assert.equal(records[0]?.request.decision.metadata?.sourceCommand, "/run_specs");
+    assert.equal(records[0]?.request.decision.metadata?.entryPoint, "spec-triage");
     assert.equal(records[1]?.request.decision.metadata?.verdict, "NO_GO");
+    assert.equal(records[1]?.request.decision.metadata?.sourceCommand, "/run_specs");
+    assert.equal(records[1]?.request.decision.metadata?.entryPoint, "spec-triage");
     assert.equal(records[2]?.request.decision.metadata?.inputMode, "spec-ticket-validation-history");
+    assert.equal(records[2]?.request.decision.metadata?.sourceCommand, "/run_specs");
+    assert.equal(records[2]?.request.decision.metadata?.entryPoint, "spec-triage");
 
     const specContent = await fs.readFile(
       path.join(fixture.projectRoot, "docs", "specs", specFileName),
@@ -3735,6 +3745,8 @@ test("requestRunSpecsFromValidation encerra com NO_GO sem executar spec-triage n
     assert.equal(codex.specTicketValidationSessionStartCalls, 1);
     assert.equal(nextTicketCalls, 0);
     assert.equal(milestones[0]?.outcome, "blocked");
+    assert.equal(milestones[0]?.sourceCommand, "/run_specs_from_validation");
+    assert.equal(milestones[0]?.entryPoint, "spec-ticket-validation");
     assert.match(milestones[0]?.nextAction ?? "", /\/run_specs_from_validation/u);
 
     const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
@@ -3745,6 +3757,8 @@ test("requestRunSpecsFromValidation encerra com NO_GO sem executar spec-triage n
 
     assert.equal(runSpecsSummary.outcome, "blocked");
     assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
+    assert.equal(runSpecsSummary.sourceCommand, "/run_specs_from_validation");
+    assert.equal(runSpecsSummary.entryPoint, "spec-ticket-validation");
     assert.equal(runSpecsSummary.specTriage, undefined);
     assert.equal(runSpecsSummary.runAllSummary, undefined);
     assert.equal(runSpecsSummary.specTicketValidation?.verdict, "NO_GO");
@@ -3798,6 +3812,8 @@ test("requestRunSpecsFromValidation marca falha tecnica em spec-ticket-validatio
 
     assert.equal(runSpecsSummary.outcome, "failure");
     assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-failure");
+    assert.equal(runSpecsSummary.sourceCommand, "/run_specs_from_validation");
+    assert.equal(runSpecsSummary.entryPoint, "spec-ticket-validation");
     assert.equal(runSpecsSummary.specTriage, undefined);
     assert.equal(runSpecsSummary.runAllSummary, undefined);
     assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
@@ -3871,6 +3887,8 @@ test("requestRunSpecsFromValidation com GO continua para fechamento, /run-all e 
     }
 
     assert.equal(lastRunFlowSummary.outcome, "success");
+    assert.equal(lastRunFlowSummary.sourceCommand, "/run_specs_from_validation");
+    assert.equal(lastRunFlowSummary.entryPoint, "spec-ticket-validation");
     assert.equal(lastRunFlowSummary.specTriage, undefined);
     assert.equal(lastRunFlowSummary.specTicketValidation?.verdict, "GO");
     assert.equal(lastRunFlowSummary.runAllSummary?.outcome, "success");

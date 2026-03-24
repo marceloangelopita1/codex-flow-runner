@@ -54,6 +54,10 @@ export interface RunSpecsTargetRef {
   path: string;
 }
 
+export type RunSpecsSourceCommand = "/run_specs" | "/run_specs_from_validation";
+
+export type RunSpecsEntryPoint = "spec-triage" | "spec-ticket-validation";
+
 export interface RunSpecsTicketValidationSummary {
   verdict: SpecTicketValidationVerdict;
   confidence: SpecTicketValidationConfidenceLevel;
@@ -150,6 +154,8 @@ export interface RunSpecsFlowSummary {
   activeProjectName: string;
   activeProjectPath: string;
   spec: RunSpecsTargetRef;
+  sourceCommand: RunSpecsSourceCommand;
+  entryPoint: RunSpecsEntryPoint;
   details?: string;
   codexPreferences?: CodexFlowPreferencesSnapshot;
   triageTiming: FlowTimingSnapshot<RunSpecsTriageTimingStage>;

@@ -2368,6 +2368,8 @@ const createRunSpecsFlowSummary = (
       fileName: "2026-02-19-approved-spec-triage-run-specs.md",
       path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
     },
+    sourceCommand: "/run_specs",
+    entryPoint: "spec-triage",
     triageTiming: baseTriageTiming,
     timing: baseTiming,
     runAllSummary: createRunAllFlowSummary({
@@ -2796,6 +2798,7 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/specs/u);
   assert.match(reply, /\/tickets_open/u);
   assert.match(reply, /\/run_specs/u);
+  assert.match(reply, /\/run_specs_from_validation/u);
   assert.match(reply, /\/codex_chat/u);
   assert.match(reply, /\/codex-chat/u);
   assert.match(reply, /\/discover_spec/u);
@@ -6025,6 +6028,8 @@ test("nao envia milestone de triagem /run_specs quando chat de notificacao nao f
     },
     outcome: "success",
     finalStage: "spec-close-and-version",
+    sourceCommand: "/run_specs",
+    entryPoint: "spec-triage",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
     specTicketValidation: createRunSpecsTicketValidationSummary({
       summary: "Gate aprovou o pacote derivado antes do /run-all.",
@@ -6065,6 +6070,8 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
     },
     outcome: "success",
     finalStage: "spec-close-and-version",
+    sourceCommand: "/run_specs",
+    entryPoint: "spec-triage",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
     specTicketValidation: createRunSpecsTicketValidationSummary({
       summary: "Gate aprovou o pacote derivado antes do /run-all.",
@@ -6080,6 +6087,8 @@ test("envia milestone de triagem /run_specs para chat capturado pelo comando /ru
   assert.equal(sentMessages[0]?.chatId, "42");
   assert.match(sentMessages[0]?.text ?? "", /Marco da triagem \/run_specs/u);
   assert.match(sentMessages[0]?.text ?? "", /Spec: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(sentMessages[0]?.text ?? "", /Comando de origem: \/run_specs/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ponto de entrada: spec-triage/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-close-and-version/u);
   assert.match(sentMessages[0]?.text ?? "", /Proxima acao:/u);
@@ -6132,6 +6141,8 @@ test("reenvia milestone de triagem /run_specs em falha transitoria com logging p
     },
     outcome: "success",
     finalStage: "spec-close-and-version",
+    sourceCommand: "/run_specs",
+    entryPoint: "spec-triage",
     nextAction: "Triagem concluida; iniciando rodada /run-all para processar tickets abertos.",
     timing: createRunSpecsTriageTimingSnapshot(),
   });
@@ -6195,6 +6206,8 @@ test("envia milestone de triagem /run_specs para chat capturado por callback de 
     },
     outcome: "failure",
     finalStage: "spec-close-and-version",
+    sourceCommand: "/run_specs_from_validation",
+    entryPoint: "spec-ticket-validation",
     nextAction: "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs.",
     details: "falha simulada",
     specTicketValidation: createRunSpecsTicketValidationSummary(),
@@ -6577,6 +6590,8 @@ test("envia resumo final de fluxo /run-specs com spec-audit no snapshot de suces
   assert.equal(sentMessages[0]?.chatId, "99");
   const successSummaryText = sentMessages[0]?.text ?? "";
   assert.match(successSummaryText, /Fluxo: run-specs/u);
+  assert.match(successSummaryText, /Comando de origem: \/run_specs/u);
+  assert.match(successSummaryText, /Ponto de entrada: spec-triage/u);
   assert.match(successSummaryText, /Resultado: sucesso/u);
   assert.match(successSummaryText, /Fase final: spec-audit/u);
   assert.match(successSummaryText, /Motivo de encerramento: completed/u);
@@ -6897,16 +6912,16 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
       outcome: "blocked",
       finalStage: "spec-ticket-validation",
       completionReason: "spec-ticket-validation-no-go",
+      sourceCommand: "/run_specs_from_validation",
+      entryPoint: "spec-ticket-validation",
       details: "Backlog derivado ainda nao esta seguro para seguir ao /run-all.",
-      specTriage: createRunSpecsSpecTriageSummary(),
       timing: createRunSpecsFlowTimingSnapshot({
         finishedAtUtc: "2026-02-19T15:02:15.000Z",
         totalDurationMs: 135000,
         durationsByStageMs: {
-          "spec-triage": 60000,
           "spec-ticket-validation": 75000,
         },
-        completedStages: ["spec-triage", "spec-ticket-validation"],
+        completedStages: ["spec-ticket-validation"],
         interruptedStage: null,
       }),
       triageTiming: {
@@ -6914,10 +6929,9 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
         finishedAtUtc: "2026-02-19T15:02:15.000Z",
         totalDurationMs: 135000,
         durationsByStageMs: {
-          "spec-triage": 60000,
           "spec-ticket-validation": 75000,
         },
-        completedStages: ["spec-triage", "spec-ticket-validation"],
+        completedStages: ["spec-ticket-validation"],
         interruptedStage: null,
       },
       runAllSummary: undefined,
@@ -6943,19 +6957,22 @@ test("envia resumo final de fluxo /run-specs com NO_GO antes do /run-all", async
   );
 
   assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Comando de origem: \/run_specs_from_validation/u);
+  assert.match(sentMessages[0]?.text ?? "", /Ponto de entrada: spec-ticket-validation/u);
   assert.match(sentMessages[0]?.text ?? "", /Resultado: bloqueado/u);
   assert.match(sentMessages[0]?.text ?? "", /Fase final: spec-ticket-validation/u);
   assert.match(
     sentMessages[0]?.text ?? "",
     /Motivo de encerramento: spec-ticket-validation-no-go/u,
   );
-  assert.match(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-triage/u);
   assert.match(sentMessages[0]?.text ?? "", /Veredito: NO_GO/u);
   assert.match(sentMessages[0]?.text ?? "", /Confianca final: medium/u);
   assert.match(sentMessages[0]?.text ?? "", /Contagem final de gaps: 1/u);
   assert.match(sentMessages[0]?.text ?? "", /Gaps finais detalhados:/u);
   assert.match(sentMessages[0]?.text ?? "", /coverage-gap: RF-01 ainda sem ticket dedicado\./u);
   assert.doesNotMatch(sentMessages[0]?.text ?? "", /Resultado do \/run_all encadeado/u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /Pre-\/run_all: spec-triage/u);
+  assert.doesNotMatch(sentMessages[0]?.text ?? "", /- spec-triage:/u);
 });
 
 test("envia historico por ciclo no resumo de /run-specs quando houve revalidacao", async () => {
@@ -7172,6 +7189,8 @@ test("status inclui ultimo fluxo concluido com fase final e motivo de encerramen
       outcome: "failure",
       finalStage: "spec-ticket-validation",
       completionReason: "spec-ticket-validation-failure",
+      sourceCommand: "/run_specs_from_validation",
+      entryPoint: "spec-ticket-validation",
       details:
         "Nao foi possivel derivar com seguranca o pacote de tickets da spec; nenhum ticket aberto da linhagem foi encontrado.",
     }),
@@ -7183,6 +7202,8 @@ test("status inclui ultimo fluxo concluido com fase final e motivo de encerramen
   assert.match(reply, /Última fase final de fluxo: spec-ticket-validation/u);
   assert.match(reply, /Último motivo de encerramento: spec-ticket-validation-failure/u);
   assert.match(reply, /Última spec de fluxo: 2026-02-19-approved-spec-triage-run-specs\.md/u);
+  assert.match(reply, /Último comando de origem do fluxo: \/run_specs_from_validation/u);
+  assert.match(reply, /Último ponto de entrada do fluxo: spec-ticket-validation/u);
   assert.match(reply, /Detalhes do último fluxo: Nao foi possivel derivar com seguranca o pacote de tickets da spec/u);
 });
 
@@ -7286,6 +7307,8 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
         phase: "paused",
         currentTicket: null,
         currentSpec: "2026-02-20-beta.md",
+        runSpecsSourceCommand: "/run_specs_from_validation",
+        runSpecsEntryPoint: "spec-ticket-validation",
         isPaused: true,
         startedAt: new Date("2026-02-20T16:01:00.000Z"),
       },
@@ -7309,6 +7332,8 @@ test("status inclui ultimo evento notificado em sucesso com rastreabilidade", ()
   assert.match(reply, /Slots ativos:/u);
   assert.match(reply, /1\. alpha-project \(\/run_all\)/u);
   assert.match(reply, /2\. beta-project \(\/run_specs\)/u);
+  assert.match(reply, /origem: \/run_specs_from_validation/u);
+  assert.match(reply, /entrada: spec-ticket-validation/u);
   assert.match(reply, /Spec atual: nenhuma/u);
   assert.match(reply, /Último evento notificado: 2026-02-19-flow-a\.md \(success\)/u);
   assert.match(reply, /Projeto notificado: codex-flow-runner/u);

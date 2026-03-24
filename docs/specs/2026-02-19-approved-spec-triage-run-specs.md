@@ -34,6 +34,8 @@
 7. Depois do commit/push da triagem, runner inicia automaticamente o mesmo ciclo de `/run_all`.
 8. O ciclo processa todos os tickets de `tickets/open/` em ordem de prioridade, incluindo tickets ja existentes e os criados pela triagem da spec.
 
+Nota operacional posterior: quando uma spec ja passou por `/run_specs`, o gate `spec-ticket-validation` terminou em `NO_GO` e o backlog aberto derivado foi ajustado manualmente, a continuidade canonica passa a ser `/run_specs_from_validation <arquivo-da-spec.md>`. Esse comando nao substitui `/run_specs`: ele apenas retoma a mesma familia `run-specs` diretamente em `spec-ticket-validation`, enquanto `/run_specs` continua sendo o caminho de retriagem completa em `spec-triage`.
+
 ## Requisitos funcionais
 - RF-01: toda spec em `docs/specs/` deve conter metadata explicita `Spec treatment: pending | done`.
 - RF-02: spec elegivel para triagem automatica deve atender simultaneamente: `Status: approved` e `Spec treatment: pending`.

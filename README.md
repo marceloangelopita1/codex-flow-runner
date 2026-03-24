@@ -139,6 +139,12 @@ Depois que a spec existe no projeto, o caminho real fica assim:
 7. ao terminar o backlog, o fluxo executa `spec-audit` para comparar o estado final do repositório com a spec original;
 8. se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e `spec-audit` apontar gap residual real, o runner ainda executa `spec-workflow-retrospective`, que olha para o processo e pode gerar melhoria no proprio workflow.
 
+Se o gate `spec-ticket-validation` terminar em `NO_GO` e voce ajustar manualmente os tickets abertos derivados, existe um caminho de continuidade explicito:
+
+- `/run_specs <arquivo>` faz retriagem completa e volta para `spec-triage`;
+- `/run_specs_from_validation <arquivo>` retoma a mesma familia `run-specs` diretamente em `spec-ticket-validation`, reutilizando a spec atual e o backlog aberto atual;
+- o resumo final, os traces, o milestone e o `/status` passam a explicitar qual dos dois comandos iniciou a rodada e qual foi o ponto de entrada observavel (`spec-triage` ou `spec-ticket-validation`).
+
 Em outras palavras:
 
 - `/plan_spec` ajuda a transformar uma ideia em spec;
@@ -168,6 +174,14 @@ Isso significa que, em muitos casos, uma pessoa pode sair de um pedido em lingua
 5. encadear `/run_all` para processar os tickets abertos;
 6. executar `spec-audit` ao final do backlog;
 7. se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e houver gap residual real, executar `spec-workflow-retrospective` para aprender com a rodada e eventualmente gerar melhoria no workflow.
+
+### Quando você usa `/run_specs_from_validation`
+
+1. validar que a spec continua elegivel e que existe backlog aberto derivado reaproveitavel;
+2. entrar diretamente em `spec-ticket-validation`, sem executar `spec-triage`;
+3. se o veredito continuar `NO_GO`, encerrar antes de `spec-close-and-version` e antes do `/run_all`, orientando nova correção do backlog e reexecução do mesmo comando;
+4. se o veredito for `GO`, seguir a mesma familia `run-specs` com `spec-ticket-derivation-retrospective` quando aplicável, `spec-close-and-version`, `/run_all`, `spec-audit` e `spec-workflow-retrospective` quando aplicável;
+5. expor em resumo final, milestone, traces e `/status` que a rodada veio de `/run_specs_from_validation` com ponto de entrada `spec-ticket-validation`.
 
 ## O papel da pasta `prompts/`
 

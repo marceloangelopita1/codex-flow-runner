@@ -1,7 +1,7 @@
 # [TICKET] Observabilidade e documentacao ainda nao distinguem entrada por validacao em `run-specs`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -93,17 +93,36 @@ Nao obrigatorio. Direcao concreta: adicionar metadata de comando de origem e pon
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-15, RF-16, RF-17, RF-18; CA-08, CA-11.
 - Evidencia observavel: `RunSpecsFlowSummary` e contratos correlatos passam a registrar, no minimo, `sourceCommand` (`/run_specs` ou `/run_specs_from_validation`) e `entryPoint` (`spec-triage` ou `spec-ticket-validation`); milestone, resumo final, traces e `/status` exibem essa distincao explicitamente; a variante iniciada pela validacao nao marca `spec-triage` como etapa concluida nos timings.
+- Validacao de fechamento: `src/types/flow-timing.ts`, `src/core/runner.ts`, `src/types/state.ts`, `src/integrations/telegram-bot.ts`, `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` agora propagam e exibem `sourceCommand`/`entryPoint` no summary final, milestone, traces e `/status`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts src/integrations/telegram-bot.test.ts` passou em 2026-03-24 18:57Z com asserts para `NO_GO`, falha tecnica e `GO` iniciados por validacao, preservando `flow: "run-specs"`.
 - Requisito/RF/CA coberto: RF-19.
 - Evidencia observavel: help textual do bot, `README.md` e documentacao operacional do fluxo passam a documentar `/run_specs_from_validation` e a diferenca semantica entre retriagem completa e continuidade da validacao.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts`, `README.md` e `docs/specs/2026-02-19-approved-spec-triage-run-specs.md` documentam explicitamente `/run_specs_from_validation`; `rg -n "/run_specs_from_validation|retria|retriag|continuar da validacao|spec-ticket-validation" src/integrations/telegram-bot.ts README.md docs/specs/2026-02-19-approved-spec-triage-run-specs.md` confirmou cobertura textual em 2026-03-24 18:57Z.
 - Requisito/RF/CA coberto: validacoes herdadas da spec.
 - Evidencia observavel: `npm test` e `npm run check` concluem sem regressao; `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` passam a ter asserts objetivos para summary/status/timing/documentacao da nova entrada; a validacao manual de `/status` e resumo final fica explicitamente coberta por este ticket.
+- Validacao de fechamento: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` passou em 2026-03-24 18:57Z com 442 testes aprovados; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou em 2026-03-24 18:57Z; a parte remanescente e apenas validacao manual externa no Telegram, registrada abaixo sem bloquear o aceite tecnico.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O recorte funcional e documental do ticket esta implementado, testado localmente e revalidado contra o ExecPlan.
+- Validacoes manuais externas ainda necessarias:
+  - Executar `/run_specs_from_validation <arquivo-da-spec.md>` em uma spec com tickets abertos derivados e confirmar no Telegram que o fluxo inicia diretamente em `spec-ticket-validation`.
+  - Executar o mesmo comando em um caso com `NO_GO` e confirmar no `/status` e no resumo final a identificacao explicita da rodada por `/run_specs_from_validation`, sem `spec-triage` concluido e sem inicio de `spec-close-and-version` ou `/run_all`.
+  - Executar o mesmo comando em um caso com `GO` e confirmar continuidade ate `spec-audit`, mantendo a identificacao de `sourceCommand` e `entryPoint`.
+- Como executar a validacao manual:
+  - Selecionar uma spec elegivel no projeto ativo com backlog derivado coerente.
+  - Acionar `/run_specs_from_validation <arquivo-da-spec.md>` no chat Telegram autorizado.
+  - Registrar no historico operacional as evidencias do `/status`, do milestone e do resumo final.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado e a uma spec elegivel para rodada real.
+- Motivo para nao bloquear o aceite: a implementacao tecnica ja foi comprovada por diff, codigo e validacoes automatizadas; o restante depende apenas de exercicio operacional externo ao agente.
 
 ## Decision log
 - 2026-03-24 - Ticket aberto separado do gap funcional principal para isolar risco de contrato observavel/documental - a nova porta de entrada so fica operacionalmente aceitavel quando status, resumo, traces e docs distinguem a origem da rodada.
+- 2026-03-24 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-24 18:57Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.

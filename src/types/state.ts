@@ -6,6 +6,8 @@ import {
 import {
   FlowNotificationDelivery,
   FlowNotificationFailure,
+  RunSpecsEntryPoint,
+  RunSpecsSourceCommand,
   RunnerFlowSummary,
 } from "./flow-timing.js";
 import { ProjectRef } from "./project.js";
@@ -168,6 +170,8 @@ export interface RunnerActiveSlotState {
   phase: RunnerPhase;
   currentTicket: string | null;
   currentSpec: string | null;
+  runSpecsSourceCommand?: RunSpecsSourceCommand;
+  runSpecsEntryPoint?: RunSpecsEntryPoint;
   isPaused: boolean;
   startedAt: Date;
 }
