@@ -12,6 +12,7 @@ import {
   PlanSpecCallbackIgnoredReason,
   RunSelectedTicketRequestResult,
   TargetCheckupRequestResult,
+  TargetDeriveRequestResult,
   TargetPrepareRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
@@ -483,6 +484,7 @@ interface ControllerOptions {
   allowedChatId?: string;
   targetPrepareResult?: TargetPrepareRequestResult;
   targetCheckupResult?: TargetCheckupRequestResult;
+  targetDeriveResult?: TargetDeriveRequestResult;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
@@ -708,6 +710,8 @@ const createController = (options: ControllerOptions = {}) => {
     targetPrepareArgs: [] as string[],
     targetCheckupCalls: 0,
     targetCheckupArgs: [] as Array<string | null | undefined>,
+    targetDeriveCalls: 0,
+    targetDeriveArgs: [] as Array<{ projectName: string; reportPath: string }>,
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
@@ -840,6 +844,54 @@ const createController = (options: ControllerOptions = {}) => {
             reportCommitHash: "report123",
             upstream: "origin/main",
             commitPushId: "meta456@origin/main",
+          },
+        },
+      };
+    },
+    targetDerive: (projectName: string, reportPath: string) => {
+      controlState.targetDeriveCalls += 1;
+      controlState.targetDeriveArgs.push({ projectName, reportPath });
+      if (options.targetDeriveResult) {
+        return options.targetDeriveResult;
+      }
+
+      return {
+        status: "completed" as const,
+        summary: {
+          targetProject: {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          },
+          analyzedHeadSha: "abc123",
+          reportJsonPath: "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json",
+          reportMarkdownPath:
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.md",
+          reportCommitSha: "report123",
+          completionMode: "applied" as const,
+          derivationStatus: "materialized" as const,
+          changedPaths: [
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json",
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.md",
+            "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+          ],
+          touchedTicketPaths: [
+            "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+          ],
+          gapResults: [
+            {
+              gapId: "readiness-gap-id|abc123def456",
+              gapFingerprint: "readiness-gap|abc123def456",
+              result: "materialized_as_ticket" as const,
+              ticketPaths: ["tickets/open/2026-03-24-readiness-gap-example-abc123.md"],
+            },
+          ],
+          nextAction:
+            "Revise os tickets readiness derivados no projeto alvo e siga o fluxo sequencial normal de execucao.",
+          versioning: {
+            status: "committed-and-pushed" as const,
+            commitHash: "derive123",
+            upstream: "origin/main",
+            commitPushId: "derive123@origin/main",
           },
         },
       };
@@ -1572,6 +1624,27 @@ const callHandleTargetCheckupCommand = async (
   };
 
   await internalController.handleTargetCheckupCommand(context);
+};
+
+const callHandleTargetDeriveCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetDeriveCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetDeriveCommand(context);
 };
 
 const callBuildRunSpecsReply = async (
@@ -2884,6 +2957,84 @@ test("handleTargetCheckupCommand propaga bloqueio objetivo do executor", async (
   assert.equal(controlState.targetCheckupCalls, 1);
   assert.deepEqual(controlState.targetCheckupArgs, ["alpha-project"]);
   assert.deepEqual(replies, ["❌ O target_checkup exige working tree limpo antes de iniciar."]);
+});
+
+test("handleTargetDeriveCommand exige projeto e report-path explicitos", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetDeriveCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_derive_gaps alpha-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetDeriveCalls, 0);
+  assert.deepEqual(replies, ["ℹ️ Uso: /target_derive_gaps <nome-do-projeto> <report-path>."]);
+});
+
+test("handleTargetDeriveCommand aceita args explicitos e responde com resumo rastreavel", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetDeriveCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_derive_gaps alpha-project docs/checkups/history/report.json",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetDeriveCalls, 1);
+  assert.deepEqual(controlState.targetDeriveArgs, [
+    {
+      projectName: "alpha-project",
+      reportPath: "docs/checkups/history/report.json",
+    },
+  ]);
+  assert.match(replies[0] ?? "", /\/target_derive_gaps concluido para alpha-project/u);
+  assert.match(replies[0] ?? "", /Status da derivacao: materialized/u);
+  assert.match(replies[0] ?? "", /Versionamento: derive123@origin\/main/u);
+});
+
+test("handleTargetDeriveCommand propaga bloqueio objetivo do executor", async () => {
+  const { controller, controlState } = createController({
+    targetDeriveResult: {
+      status: "blocked",
+      reason: "report-drifted",
+      message:
+        "O repositorio recebeu commit novo depois do ultimo write-back do report; gere um novo /target_checkup antes de derivar novamente.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetDeriveCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_derive_gaps alpha-project docs/checkups/history/report.json",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetDeriveCalls, 1);
+  assert.deepEqual(controlState.targetDeriveArgs, [
+    {
+      projectName: "alpha-project",
+      reportPath: "docs/checkups/history/report.json",
+    },
+  ]);
+  assert.deepEqual(replies, [
+    "❌ O repositorio recebeu commit novo depois do ultimo write-back do report; gere um novo /target_checkup antes de derivar novamente.",
+  ]);
 });
 
 test("gera resposta de inicio ao executar /run_specs", async () => {

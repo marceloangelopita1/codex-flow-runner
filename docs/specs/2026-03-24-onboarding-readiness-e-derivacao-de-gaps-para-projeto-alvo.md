@@ -6,12 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-24 20:21Z
-- Last reviewed at (UTC): 2026-03-24 22:23Z
+- Last reviewed at (UTC): 2026-03-24 23:17Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md
   - tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md
-  - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
+  - tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md
 - Related execplans:
   - execplans/2026-03-24-target-prepare-controlled-onboarding-gap.md
@@ -108,11 +108,11 @@
 - [ ] CA-04 - `/target_checkup` com working tree sujo falha cedo, nao produz artefato canonico valido e orienta limpeza/commit antes da rodada.
 - [ ] CA-05 - `checkup` bem-sucedido gera `docs/checkups/history/<timestamp>-project-readiness-checkup.md` e `.json`, contendo `analyzed_head_sha`, branch, timestamps, vereditos por dimensao e veredito geral, e versiona ambos por padrao mesmo quando o resultado for `invalid_for_gap_ticket_derivation`.
 - [ ] CA-06 - Falha interna do `checkup` nao versiona artefato canonico da rodada; o operador recebe falha operacional explicita distinguindo "artefato local nao publicado" de "rodada publicada".
-- [ ] CA-07 - `/target_derive_gaps <project-name> <report-path>` recusa relatorio invalido, stale, pertencente a outro projeto, driftado por commit novo ou sem elegibilidade explicita para derivacao, sem criar/alterar tickets.
-- [ ] CA-08 - Reexecutar `derive` sobre o mesmo relatorio valido resulta em `no-op com mapeamento existente`, sem tickets duplicados e sem commit vazio.
-- [ ] CA-09 - Reexecutar `derive` sobre relatorio novo com gap equivalente reutiliza/atualiza ticket aberto existente; se o equivalente ja estiver fechado, cria novo ticket com vinculo de recorrencia.
-- [ ] CA-10 - Ticket derivado do checkup nasce autocontido, com caminho do relatorio `.md`, caminho do `.json`, `Gap fingerprint`, dimensao, evidencias objetivas, matriz de prioridade, superficies locais de remediacao e closure criteria observaveis suficientes para outra IA executar sem reler o relatorio inteiro.
-- [ ] CA-11 - Gap cuja remediacao mora no runner aparece no write-back da derivacao como `not_materialized_runner_limitation`, sem abrir ticket automatico no projeto alvo.
+- [x] CA-07 - `/target_derive_gaps <project-name> <report-path>` recusa relatorio invalido, stale, pertencente a outro projeto, driftado por commit novo ou sem elegibilidade explicita para derivacao, sem criar/alterar tickets.
+- [x] CA-08 - Reexecutar `derive` sobre o mesmo relatorio valido resulta em `no-op com mapeamento existente`, sem tickets duplicados e sem commit vazio.
+- [x] CA-09 - Reexecutar `derive` sobre relatorio novo com gap equivalente reutiliza/atualiza ticket aberto existente; se o equivalente ja estiver fechado, cria novo ticket com vinculo de recorrencia.
+- [x] CA-10 - Ticket derivado do checkup nasce autocontido, com caminho do relatorio `.md`, caminho do `.json`, `Gap fingerprint`, dimensao, evidencias objetivas, matriz de prioridade, superficies locais de remediacao e closure criteria observaveis suficientes para outra IA executar sem reler o relatorio inteiro.
+- [x] CA-11 - Gap cuja remediacao mora no runner aparece no write-back da derivacao como `not_materialized_runner_limitation`, sem abrir ticket automatico no projeto alvo.
 - [ ] CA-12 - Durante execucao ativa de qualquer um dos tres comandos, `/status` e `/projects` seguem disponiveis, enquanto `/select_project`, `/discover_spec`, `/plan_spec`, `/run_specs`, `/run_all` e `/codex_chat` ficam bloqueados com mensagem explicita.
 - [ ] CA-13 - Cada fluxo expoe `/_status` e `/_cancel`; cancelar antes da fronteira de versionamento encerra sem commit/push; apos a fronteira, o bot responde com tratamento explicito de cancelamento tardio.
 - [ ] CA-14 - Os tres fluxos geram traces locais em `.codex-flow-runner/flow-traces/` com comando, projeto, milestone, resultado, artefatos e eventos de sucesso/falha/cancelamento.
@@ -141,7 +141,7 @@
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
   - tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md [fonte=source-spec]
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md [fonte=source-spec]
   - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md [fonte=source-spec]
 
@@ -175,7 +175,7 @@
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 - Explicitei no ticket de `target_derive_gaps` os campos autocontidos exigidos por RF-27 e o write-back completo exigido por RF-28, incluindo `Gap ID`, SHAs, caminhos do relatorio, `derivation_status`, `derived_at_utc` e a taxonomia completa de resultados por gap, alem de refletir isso nos `Closure criteria`.
-  - Artefatos afetados: tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
+  - Artefatos afetados: tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 
@@ -225,12 +225,15 @@
   - Existem fundacoes parciais reutilizaveis no runner atual para a entrega: descoberta de diretorios irmaos elegiveis por primeiro nivel, fila `P0 -> P1 -> P2` com suporte a `Status: blocked`, helper de commit/push, slot/capacidade para fluxos atuais e traces locais base em `.codex-flow-runner/flow-traces/`.
   - A jornada `target_prepare` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_prepare <project-name>`, resolve repo Git irmao ainda inelegivel em `/projects`, rejeita pseudo-caminhos como `.`, aplica prompt dedicado com allowlist forte, valida merge gerenciado de `AGENTS.md`/`README.md`, gera manifesto + relatorio canonicos no repo alvo e cruza a fronteira de commit/push apenas apos pos-check deterministico.
   - A jornada `target_checkup` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_checkup [<project-name>]`, bloqueia working tree sujo e `HEAD`/branch invalidos, coleta evidencias deterministicas nas dimensoes obrigatorias, sintetiza apenas a leitura editorial via Codex, gera `docs/checkups/history/<timestamp>-project-readiness-checkup.{json,md}` e versiona o par canônico mesmo quando o veredito geral e `invalid_for_gap_ticket_derivation`.
+  - A jornada `target_derive_gaps` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_derive_gaps <project-name> <report-path>`, valida working tree/projeto/SHA/idade/drift do report, usa analise estruturada para materializacao conservadora, calcula `Gap ID`/`Gap fingerprint`/prioridade em codigo, materializa tickets autocontidos no repo alvo, faz reuso por fingerprint, cria recorrencia explicita para ticket equivalente fechado e grava write-back idempotente no report `.json` + `.md` no mesmo changeset.
 - Pendencias em aberto:
   - As validacoes manuais externas da jornada `target_checkup` permanecem pendentes: smoke real via Telegram em repo preparado, confirmacao observavel do caso `invalid_for_gap_ticket_derivation` publicado e verificacao de permissao real de `git push` nos repositorios alvo de teste (`tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md`).
-  - Nenhum RF/CA da jornada `target_derive_gaps` esta atendido integralmente; faltam validacao do relatorio, materializacao idempotente por `Gap fingerprint`, tickets readiness autocontidos e write-back do resultado por gap no proprio checkup (`tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`).
+  - As validacoes manuais externas da jornada `target_derive_gaps` permanecem pendentes: smoke real via Telegram em repo alvo preparado, confirmacao observavel de rerun idempotente sem novo commit, confirmacao de recorrencia apos fechamento do ticket equivalente e verificacao de permissao real de `git push` nos repositorios alvo de teste (`tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`).
   - Nenhum RF/CA de controle operacional compartilhado dos fluxos target esta atendido integralmente; faltam slot/bloqueios, `/_status`, `/_cancel`, milestones, CTAs e traces canonicos para `prepare`, `checkup` e `derive` (`tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`).
 - Evidencias de validacao:
   - entrevista profunda concluida com decisoes explicitas sobre contrato, preparo, checkup, derivacao, deduplicacao, prioridade, versionamento, UX e observabilidade.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-derive.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/git-client.test.ts src/integrations/target-derive-gap-analysis-parser.test.ts` cobriu bloqueios de report, rerun idempotente, reuso de ticket aberto, recorrencia de ticket fechado, ticket autocontido, runner limitation sem ticket e wiring Telegram/runner/Codex do `target_derive_gaps`.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` fechou a validacao tipada do changeset.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -268,3 +271,5 @@
 - 2026-03-24 21:36Z - Fechamento tecnico do ticket `target_prepare` concluido em `GO` com validacao manual externa pendente; o resolvedor foi endurecido para rejeitar `.` como pseudo-diretorio irmao e o ticket passou a viver em `tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md`.
 - 2026-03-24 22:19Z - Execucao do ticket `target_checkup` adicionou o comando `/target_checkup [<project-name>]`, preflight Git deterministico, coleta por dimensao, schema canonico `md + json`, validacao por SHA/idade/drift e versionamento em duas fases para registrar `report_commit_sha`; permaneceram pendentes apenas os smokes manuais externos e os tickets irmaos de `derive` e controle operacional compartilhado.
 - 2026-03-24 22:23Z - Fechamento tecnico do ticket `target_checkup` concluido em `GO` com validacao manual externa pendente; o ticket passou a viver em `tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md`.
+- 2026-03-24 23:09Z - Execucao do ticket `target_derive_gaps` adicionou o comando `/target_derive_gaps <project-name> <report-path>`, o prompt/parser estruturados de gap analysis, a validacao forte do report por projeto/SHA/idade/drift, a materializacao idempotente com `Gap ID`/`Gap fingerprint`/prioridade deterministica, o reuso por fingerprint, a recorrencia com `Parent ticket`, o write-back em `docs/checkups/history/*.json` + `.md` e o resumo rastreavel no Telegram; permaneceram pendentes apenas os smokes manuais externos e o ticket irmao de controle operacional compartilhado.
+- 2026-03-24 23:17Z - Fechamento tecnico do ticket `target_derive_gaps` concluido em `GO` com validacao manual externa pendente; a suite automatizada foi expandida para cobrir bloqueios de report e a taxonomia restante de materializacao, e o ticket passou a viver em `tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`.

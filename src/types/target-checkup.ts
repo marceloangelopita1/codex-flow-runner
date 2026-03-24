@@ -1,4 +1,9 @@
 import { ProjectRef } from "./project.js";
+import type {
+  TargetDeriveGapType,
+  TargetDerivePriorityMatrix,
+  TargetDeriveResultStatus,
+} from "./target-derive.js";
 
 export const TARGET_CHECKUP_CONTRACT_VERSION = "1.0";
 export const TARGET_CHECKUP_SCHEMA_VERSION = "1.0";
@@ -111,6 +116,26 @@ export interface TargetCheckupDerivationReadinessSnapshot {
   reasons: string[];
 }
 
+export interface TargetCheckupDerivedGapResult {
+  gap_id: string;
+  gap_fingerprint: string;
+  title: string;
+  gap_type: TargetDeriveGapType;
+  checkup_dimension: TargetCheckupDimensionKey;
+  priority: TargetDerivePriorityMatrix;
+  remediation_surface: string[];
+  result: TargetDeriveResultStatus;
+  rationale: string;
+  ticket_paths: string[];
+}
+
+export interface TargetCheckupGapDerivationSnapshot {
+  derivation_status: "materialized" | "not_materialized";
+  derived_at_utc: string;
+  touched_ticket_paths: string[];
+  gap_results: TargetCheckupDerivedGapResult[];
+}
+
 export interface TargetCheckupReport {
   contract_version: string;
   schema_version: string;
@@ -130,6 +155,7 @@ export interface TargetCheckupReport {
   dimensions: TargetCheckupDimensionResult[];
   editorial_summary_markdown: string | null;
   derivation_readiness: TargetCheckupDerivationReadinessSnapshot;
+  gap_derivation?: TargetCheckupGapDerivationSnapshot | null;
 }
 
 export interface TargetCheckupSummary {

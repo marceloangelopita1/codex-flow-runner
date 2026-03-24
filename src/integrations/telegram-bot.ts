@@ -18,6 +18,7 @@ import type {
   PlanSpecSessionInputResult,
   PlanSpecSessionStartResult,
   TargetCheckupRequestResult,
+  TargetDeriveRequestResult,
   TargetPrepareRequestResult,
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
@@ -79,6 +80,10 @@ interface BotControls {
   targetCheckup: (
     projectName?: string | null,
   ) => Promise<TargetCheckupRequestResult> | TargetCheckupRequestResult;
+  targetDerive: (
+    projectName: string,
+    reportPath: string,
+  ) => Promise<TargetDeriveRequestResult> | TargetDeriveRequestResult;
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   runSpecsFromValidation: (
@@ -521,6 +526,10 @@ const TARGET_PREPARE_FAILED_REPLY =
   "❌ Falha ao executar /target_prepare. Verifique logs do runner e tente novamente.";
 const TARGET_CHECKUP_FAILED_REPLY =
   "❌ Falha ao executar /target_checkup. Verifique logs do runner e tente novamente.";
+const TARGET_DERIVE_USAGE_REPLY =
+  "ℹ️ Uso: /target_derive_gaps <nome-do-projeto> <report-path>.";
+const TARGET_DERIVE_FAILED_REPLY =
+  "❌ Falha ao executar /target_derive_gaps. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
 const RUN_SPECS_FROM_VALIDATION_USAGE_REPLY =
   "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.";
@@ -729,6 +738,7 @@ const START_REPLY_LINES = [
   "/start - mostra esta ajuda",
   "/target_prepare <projeto> - prepara um diretorio irmao Git para o workflow completo sem trocar o projeto ativo",
   "/target_checkup [projeto] - audita readiness do projeto ativo ou de um diretorio irmao explicito sem trocar o projeto ativo",
+  "/target_derive_gaps <projeto> <report-path> - materializa gaps readiness elegiveis a partir de um report canonico explicito",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
@@ -1419,6 +1429,10 @@ export class TelegramController {
       await this.handleTargetCheckupCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("target_derive_gaps", async (ctx) => {
+      await this.handleTargetDeriveCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("run_all", async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run_all");
     });
@@ -1929,6 +1943,44 @@ export class TelegramController {
         error: error instanceof Error ? error.message : String(error),
       });
       await ctx.reply(TARGET_CHECKUP_FAILED_REPLY);
+    }
+  }
+
+  private async handleTargetDeriveCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_derive_gaps recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_derive_gaps",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const parsed = this.parseTargetDeriveCommandArgs(ctx.message?.text);
+    if (!parsed) {
+      await ctx.reply(TARGET_DERIVE_USAGE_REPLY);
+      return;
+    }
+
+    try {
+      const result = await this.controls.targetDerive(parsed.projectName, parsed.reportPath);
+      await ctx.reply(this.buildTargetDeriveReply(result));
+    } catch (error) {
+      this.logger.error("Falha ao executar /target_derive_gaps", {
+        chatId,
+        projectName: parsed.projectName,
+        reportPath: parsed.reportPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(TARGET_DERIVE_FAILED_REPLY);
     }
   }
 
@@ -3660,6 +3712,37 @@ export class TelegramController {
     }
 
     return value;
+  }
+
+  private parseTargetDeriveCommandArgs(commandText?: string): {
+    projectName: string;
+    reportPath: string;
+  } | null {
+    if (!commandText) {
+      return null;
+    }
+
+    const match = commandText.match(/^\/target_derive_gaps(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const value = match?.[1]?.trim();
+    if (!value) {
+      return null;
+    }
+
+    const firstWhitespace = value.search(/\s/u);
+    if (firstWhitespace < 0) {
+      return null;
+    }
+
+    const projectName = value.slice(0, firstWhitespace).trim();
+    const reportPath = value.slice(firstWhitespace + 1).trim();
+    if (!projectName || !reportPath) {
+      return null;
+    }
+
+    return {
+      projectName,
+      reportPath,
+    };
   }
 
   private parseRunSpecsCommandFileName(commandText?: string): string | null {
@@ -6181,6 +6264,32 @@ export class TelegramController {
         `Relatorio Markdown: ${result.summary.reportMarkdownPath}`,
         `report_commit_sha: ${result.summary.reportCommitSha}`,
         `Versionamento final: ${result.summary.versioning.metadataCommitHash}@${result.summary.versioning.upstream}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
+    return `❌ ${result.message}`;
+  }
+
+  private buildTargetDeriveReply(result: TargetDeriveRequestResult): string {
+    if (result.status === "completed") {
+      const header =
+        result.summary.completionMode === "no-op-existing-mapping"
+          ? `ℹ️ /target_derive_gaps sem novas alteracoes para ${result.summary.targetProject.name}.`
+          : `✅ /target_derive_gaps concluido para ${result.summary.targetProject.name}.`;
+      const versioningLine =
+        result.summary.versioning.status === "committed-and-pushed"
+          ? `${result.summary.versioning.commitHash}@${result.summary.versioning.upstream}`
+          : "no-op (mapeamento existente)";
+
+      return [
+        header,
+        `Status da derivacao: ${result.summary.derivationStatus}`,
+        `Snapshot analisado: ${result.summary.analyzedHeadSha}`,
+        `Relatorio JSON: ${result.summary.reportJsonPath}`,
+        `Relatorio Markdown: ${result.summary.reportMarkdownPath}`,
+        `Tickets afetados: ${result.summary.touchedTicketPaths.join(", ") || "(nenhum)"}`,
+        `Versionamento: ${versioningLine}`,
         `Proxima acao: ${result.summary.nextAction}`,
       ].join("\n");
     }

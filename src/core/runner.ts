@@ -147,6 +147,10 @@ import {
   TargetCheckupExecutor,
 } from "./target-checkup.js";
 import { TargetCheckupExecutionResult } from "../types/target-checkup.js";
+import {
+  TargetDeriveExecutor,
+} from "./target-derive.js";
+import { TargetDeriveExecutionResult } from "../types/target-derive.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -233,6 +237,7 @@ export interface TicketRunnerOptions {
   workflowImprovementTicketPublisher?: WorkflowImprovementTicketPublisher;
   targetPrepareExecutor?: TargetPrepareExecutor;
   targetCheckupExecutor?: TargetCheckupExecutor;
+  targetDeriveExecutor?: TargetDeriveExecutor;
 }
 
 interface ActiveDiscoverSpecSession {
@@ -651,6 +656,10 @@ export type TargetCheckupRequestResult =
   | TargetCheckupExecutionResult
   | RunnerRequestBlockedResult;
 
+export type TargetDeriveRequestResult =
+  | TargetDeriveExecutionResult
+  | RunnerRequestBlockedResult;
+
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
 
 type RunSlotStartPreflightResult =
@@ -823,6 +832,7 @@ export class TicketRunner {
   private readonly workflowImprovementTicketPublisher: WorkflowImprovementTicketPublisher | null;
   private readonly targetPrepareExecutor: TargetPrepareExecutor | null;
   private readonly targetCheckupExecutor: TargetCheckupExecutor | null;
+  private readonly targetDeriveExecutor: TargetDeriveExecutor | null;
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
@@ -832,6 +842,7 @@ export class TicketRunner {
   private isShuttingDown = false;
   private targetPrepareInFlight = false;
   private targetCheckupInFlight = false;
+  private targetDeriveInFlight = false;
   private shutdownPromise: Promise<RunnerShutdownReport> | null = null;
   private completedShutdownReport: RunnerShutdownReport | null = null;
 
@@ -876,6 +887,7 @@ export class TicketRunner {
     this.workflowImprovementTicketPublisher = options.workflowImprovementTicketPublisher ?? null;
     this.targetPrepareExecutor = options.targetPrepareExecutor ?? null;
     this.targetCheckupExecutor = options.targetCheckupExecutor ?? null;
+    this.targetDeriveExecutor = options.targetDeriveExecutor ?? null;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -2872,6 +2884,90 @@ export class TicketRunner {
       return result;
     } finally {
       this.targetCheckupInFlight = false;
+      this.state.activeProject = previousActiveProject;
+      this.syncStateFromSlots();
+    }
+  };
+
+  requestTargetDerive = async (
+    projectName: string,
+    reportPath: string,
+  ): Promise<TargetDeriveRequestResult> => {
+    this.logger.info("Solicitacao de /target_derive_gaps recebida", {
+      projectName,
+      reportPath,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+      targetDeriveInFlight: this.targetDeriveInFlight,
+    });
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/target_derive_gaps");
+    }
+
+    if (!this.targetDeriveExecutor) {
+      return {
+        status: "failed",
+        message: "Executor de /target_derive_gaps nao configurado nesta instancia do runner.",
+      };
+    }
+
+    if (this.targetDeriveInFlight) {
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message: "Ja existe uma execucao /target_derive_gaps em andamento nesta instancia.",
+      };
+    }
+
+    if (this.activeSlots.size > 0) {
+      const activeProjects = this.getActiveProjects();
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message:
+          "Nao e possivel iniciar /target_derive_gaps enquanto houver fluxo pesado ativo nesta instancia.",
+        activeProjects,
+      };
+    }
+
+    if (
+      this.isDiscoverSpecSessionActive() ||
+      this.isPlanSpecSessionActive() ||
+      this.isCodexChatSessionActive()
+    ) {
+      return {
+        status: "blocked",
+        reason: "global-free-text-busy",
+        message:
+          "Nao e possivel iniciar /target_derive_gaps enquanto houver sessao interativa global ativa.",
+      };
+    }
+
+    this.targetDeriveInFlight = true;
+    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+    this.state.lastMessage = `Executando /target_derive_gaps para ${projectName}`;
+    this.state.updatedAt = this.now();
+
+    try {
+      const result = await this.targetDeriveExecutor.execute({
+        projectName,
+        reportPath,
+      });
+      this.state.lastMessage =
+        result.status === "completed"
+          ? `target_derive_gaps concluido para ${result.summary.targetProject.name}`
+          : result.message;
+      this.state.updatedAt = this.now();
+      return result;
+    } finally {
+      this.targetDeriveInFlight = false;
       this.state.activeProject = previousActiveProject;
       this.syncStateFromSlots();
     }

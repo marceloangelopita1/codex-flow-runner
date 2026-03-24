@@ -8729,3 +8729,78 @@ test("requestTargetCheckup delega ao executor dedicado sem trocar o projeto ativ
   assert.deepEqual(runner.getState().activeProject, previousActiveProject);
   assert.equal(runner.getState().phase, "idle");
 });
+
+test("requestTargetDerive delega ao executor dedicado sem trocar o projeto ativo global", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const receivedRequests: Array<{ projectName: string; reportPath: string }> = [];
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetDeriveExecutor: {
+        execute: async (request) => {
+          receivedRequests.push({ ...request });
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject: {
+                name: request.projectName,
+                path: `/home/mapita/projetos/${request.projectName}`,
+              },
+              analyzedHeadSha: "abc123",
+              reportJsonPath: request.reportPath.replace(/\.md$/u, ".json"),
+              reportMarkdownPath: request.reportPath.replace(/\.json$/u, ".md"),
+              reportCommitSha: "report123",
+              completionMode: "applied" as const,
+              derivationStatus: "materialized" as const,
+              changedPaths: [
+                "docs/checkups/history/report.json",
+                "docs/checkups/history/report.md",
+                "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+              ],
+              touchedTicketPaths: [
+                "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+              ],
+              gapResults: [
+                {
+                  gapId: "readiness-gap-id|abc123def456",
+                  gapFingerprint: "readiness-gap|abc123def456",
+                  result: "materialized_as_ticket" as const,
+                  ticketPaths: ["tickets/open/2026-03-24-readiness-gap-example-abc123.md"],
+                },
+              ],
+              nextAction:
+                "Revise os tickets readiness derivados no projeto alvo e siga o fluxo sequencial normal de execucao.",
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "derive123",
+                upstream: "origin/main",
+                commitPushId: "derive123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const previousActiveProject = runner.getState().activeProject;
+  const result = await runner.requestTargetDerive(
+    "beta-target",
+    "docs/checkups/history/report.json",
+  );
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(receivedRequests, [
+    {
+      projectName: "beta-target",
+      reportPath: "docs/checkups/history/report.json",
+    },
+  ]);
+  assert.deepEqual(runner.getState().activeProject, previousActiveProject);
+  assert.equal(runner.getState().phase, "idle");
+});

@@ -47,6 +47,7 @@ Isso é importante porque abre um caminho mais acessivel para pessoas sem famili
 Depois de configurar o bot, o Telegram vira um painel de controle simples:
 
 - você pode preparar um repositório Git irmão ainda inelegível em `/projects` por `/target_prepare <project-name>`;
+- você pode derivar gaps readiness de um report canônico por `/target_derive_gaps <project-name> <report-path>`;
 - você pode ver o status do runner;
 - pode escolher em qual projeto ele vai trabalhar;
 - pode escolher o modelo e o nível de reasoning por projeto;
@@ -150,6 +151,19 @@ Depois do preparo, o runner também consegue auditar readiness de forma determin
 - o relatório canônico é gerado em `docs/checkups/history/<timestamp>-project-readiness-checkup.json` e `.md`;
 - rodadas concluídas operacionalmente versionam o par `.json` + `.md` mesmo quando o veredito geral é `invalid_for_gap_ticket_derivation`;
 - falhas internas antes da fronteira de versionamento não publicam artefato canônico e retornam diagnóstico explícito.
+
+## Derivação idempotente de gaps readiness
+
+Quando um report de `target_checkup` fica elegível para derivação, o runner também consegue transformá-lo em backlog local auditável:
+
+- `/target_derive_gaps <project-name> <report-path>` exige projeto explícito, working tree limpo e `report-path` explícito relativo ao repositório alvo;
+- o fluxo aceita `report-path` apontando para o `.json` ou para o `.md`, mas sempre valida o par canônico do mesmo stem;
+- relatórios inválidos, stale, driftados, sem elegibilidade explícita ou pertencentes a outro projeto são recusados sem criar ou alterar tickets;
+- a análise estruturada calcula `Gap ID`, `Gap fingerprint`, score e `Priority` deterministicamente em código;
+- gaps materializáveis viram tickets readiness autocontidos no próprio projeto alvo; gap equivalente aberto é reutilizado, e gap equivalente já fechado gera novo ticket com vínculo explícito de recorrência;
+- gaps bloqueados por dependência externa nascem com `Status: blocked`, enquanto limitações do próprio runner ficam apenas no write-back do report como `not_materialized_runner_limitation`;
+- o write-back atualiza o `.json` e o `.md` do report com `derivation_status`, `derived_at_utc`, resultado por gap e caminhos dos tickets afetados no mesmo changeset das mutações reais;
+- rerodar o mesmo `report-path` com o mesmo mapeamento retorna `no-op`, sem ticket duplicado e sem commit vazio.
 
 ## Como uma spec vira implementação
 
@@ -1197,6 +1211,7 @@ npm run dev
 - `/start` -> mostra descrição do bot e comandos disponíveis
 - `/target_prepare <projeto>` -> prepara um diretório irmão Git para o workflow completo sem trocar o projeto ativo
 - `/target_checkup [projeto]` -> audita readiness do projeto ativo ou de um diretório irmão explícito sem trocar o projeto ativo
+- `/target_derive_gaps <projeto> <report-path>` -> deriva gaps readiness de um report canônico elegível sem trocar o projeto ativo
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
 - `/run-all` -> alias legado compatível para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo

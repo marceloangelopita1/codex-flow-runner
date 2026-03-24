@@ -332,7 +332,7 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
           reportMarkdownPath,
           reportCommitSha: publicationEvidence.reportCommitHash,
           changedPaths: [reportJsonPath, reportMarkdownPath],
-          nextAction: buildNextAction(report),
+          nextAction: buildTargetCheckupNextAction(report),
           versioning: {
             status: "committed-and-pushed",
             metadataCommitHash: publicationEvidence.metadataCommitHash,
@@ -948,6 +948,7 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
         expires_at_utc: null,
         reasons: [],
       },
+      gap_derivation: null,
     };
 
     report.derivation_readiness = evaluateTargetCheckupDerivationReadiness(report, {
@@ -1005,7 +1006,7 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
     await fs.mkdir(path.dirname(jsonAbsolutePath), { recursive: true });
     await fs.mkdir(path.dirname(markdownAbsolutePath), { recursive: true });
     await fs.writeFile(jsonAbsolutePath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-    await fs.writeFile(markdownAbsolutePath, renderMarkdownReport(report), "utf8");
+    await fs.writeFile(markdownAbsolutePath, renderTargetCheckupMarkdownReport(report), "utf8");
   }
 }
 
@@ -1144,18 +1145,18 @@ const determineOverallVerdict = (
     ? "valid_for_gap_ticket_derivation"
     : "invalid_for_gap_ticket_derivation";
 
-const buildNextAction = (report: TargetCheckupReport): string => {
+export const buildTargetCheckupNextAction = (report: TargetCheckupReport): string => {
   if (report.overall_verdict === "valid_for_gap_ticket_derivation") {
     return [
       "Relatorio canonico publicado.",
-      "A derivacao futura deve consumir este artefato quando /target_derive_gaps estiver disponivel.",
+      `Execute /target_derive_gaps ${report.target_project.name} ${report.artifacts.json_path} para materializar os gaps readiness elegiveis.`,
     ].join(" ");
   }
 
   return "Corrija os gaps registrados, garanta novo snapshot limpo e rerode /target_checkup.";
 };
 
-const renderMarkdownReport = (report: TargetCheckupReport): string => {
+export const renderTargetCheckupMarkdownReport = (report: TargetCheckupReport): string => {
   const lines: string[] = [
     `# Readiness checkup - ${report.target_project.name}`,
     "",
@@ -1186,6 +1187,37 @@ const renderMarkdownReport = (report: TargetCheckupReport): string => {
       lines.push(`- ${reason}`);
     }
     lines.push("");
+  }
+
+  lines.push("## Gap derivation");
+  lines.push("");
+  if (!report.gap_derivation) {
+    lines.push("- Status: not_requested");
+    lines.push("- Derived at (UTC): (nao executado)");
+    lines.push("- Touched ticket paths: (nenhum)");
+    lines.push("");
+  } else {
+    lines.push(`- Status: ${report.gap_derivation.derivation_status}`);
+    lines.push(`- Derived at (UTC): ${report.gap_derivation.derived_at_utc}`);
+    lines.push(
+      `- Touched ticket paths: ${report.gap_derivation.touched_ticket_paths.join(", ") || "(nenhum)"}`,
+    );
+    lines.push("");
+    if (report.gap_derivation.gap_results.length > 0) {
+      lines.push("Gap results:");
+      for (const gap of report.gap_derivation.gap_results) {
+        lines.push(
+          `- ${gap.title} | ${gap.gap_id} | ${gap.gap_fingerprint} | result=${gap.result}`,
+        );
+        lines.push(`  Dimension: ${gap.checkup_dimension}`);
+        lines.push(`  Gap type: ${gap.gap_type}`);
+        lines.push(`  Priority: ${gap.priority.priority} (score=${gap.priority.score})`);
+        lines.push(`  Surface: ${gap.remediation_surface.join(", ") || "(nenhuma)"}`);
+        lines.push(`  Rationale: ${gap.rationale}`);
+        lines.push(`  Ticket paths: ${gap.ticket_paths.join(", ") || "(nenhum)"}`);
+      }
+      lines.push("");
+    }
   }
 
   lines.push("## Editorial summary");
@@ -1252,7 +1284,7 @@ const buildDeterministicEditorialFallback = (report: TargetCheckupReport): strin
     ),
     "",
     "### Next action",
-    buildNextAction(report),
+    buildTargetCheckupNextAction(report),
   ].join("\n");
 
 const sanitizeEditorialSummary = (value: string): string => {

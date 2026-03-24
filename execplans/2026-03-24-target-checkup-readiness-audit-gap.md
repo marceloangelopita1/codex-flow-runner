@@ -18,7 +18,7 @@
   - `/_status`, `/_cancel`, slot kinds canonicos, milestones, flow summaries e traces locais de fluxos target, que pertencem ao ticket `tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`;
   - analise ampla de arquitetura/manutenibilidade do produto alem das dimensoes obrigatorias do v1;
   - heuristicas frouxas para "adivinhar" comandos do projeto a partir de texto livre arbitrario;
-  - abertura automatica de tickets readiness ou publicacao de limitacoes do runner, que pertencem ao ticket `tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`.
+  - abertura automatica de tickets readiness ou publicacao de limitacoes do runner, que pertencem ao ticket `tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`.
 
 ## Progress
 - [x] 2026-03-24 21:44Z - Planejamento inicial concluido com leitura integral do ticket, da spec de origem, de `PLANS.md`, de `docs/workflows/codex-quality-gates.md`, das referencias documentais do ticket, do ticket irmao de controle operacional e das superficies de codigo citadas no diagnostico.
@@ -195,7 +195,7 @@
   - `docs/workflows/codex-quality-gates.md`
   - `docs/workflows/target-project-compatibility-contract.md`
 - Tickets irmaos usados para delimitar fronteira de escopo:
-  - `tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`
+  - `tickets/closed/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`
   - `tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`
 - Artefatos planejados para o repo alvo:
   - `docs/checkups/history/<timestamp>-project-readiness-checkup.json`

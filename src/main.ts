@@ -5,6 +5,7 @@ import { DefaultCodexPreferencesService } from "./core/codex-preferences.js";
 import { Logger } from "./core/logger.js";
 import { ActiveProjectSelectionService } from "./core/project-selection.js";
 import { ControlledTargetCheckupExecutor } from "./core/target-checkup.js";
+import { ControlledTargetDeriveExecutor } from "./core/target-derive.js";
 import { ControlledTargetPrepareExecutor } from "./core/target-prepare.js";
 import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
@@ -17,6 +18,7 @@ import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js"
 import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { GitCliTargetCheckupGuard } from "./integrations/target-checkup-git-guard.js";
+import { GitCliTargetDeriveGuard } from "./integrations/target-derive-git-guard.js";
 import { GitCliTargetPrepareGuard } from "./integrations/target-prepare-git-guard.js";
 import { FileSystemTargetProjectResolver } from "./integrations/target-project-resolver.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
@@ -141,6 +143,29 @@ const bootstrap = async () => {
       ),
     createGitVersioning: (project) => new GitCliVersioning(project.path),
     createGitGuard: (project) => new GitCliTargetCheckupGuard(project.path),
+    runnerRepoPath,
+  });
+  const targetDeriveExecutor = new ControlledTargetDeriveExecutor({
+    logger,
+    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
+    createCodexClient: (project) =>
+      new CodexCliTicketFlowClient(
+        project.path,
+        logger,
+        {},
+        {
+          resolveInvocationPreferences: async () => {
+            const resolved = await codexPreferencesService.resolveProjectPreferences(project);
+            return {
+              model: resolved.model,
+              reasoningEffort: resolved.reasoningEffort,
+              speed: resolved.speed,
+            };
+          },
+        },
+      ),
+    createGitVersioning: (project) => new GitCliVersioning(project.path),
+    createGitGuard: (project) => new GitCliTargetDeriveGuard(project.path),
     runnerRepoPath,
   });
   let telegram: TelegramController | null = null;
@@ -338,6 +363,7 @@ const bootstrap = async () => {
       codexPreferencesService,
       targetPrepareExecutor,
       targetCheckupExecutor,
+      targetDeriveExecutor,
     },
   );
 
@@ -357,6 +383,7 @@ const bootstrap = async () => {
     {
       targetPrepare: runner.requestTargetPrepare,
       targetCheckup: runner.requestTargetCheckup,
+      targetDerive: runner.requestTargetDerive,
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
       runSpecsFromValidation: runner.requestRunSpecsFromValidation,

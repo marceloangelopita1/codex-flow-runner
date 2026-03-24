@@ -1,7 +1,7 @@
 # [TICKET] Falta derivacao idempotente de gaps readiness para `/target_derive_gaps`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S1
@@ -97,12 +97,24 @@ Nao obrigatorio. Direcao concreta: introduzir executor de `target_derive_gaps` q
 - Requisito/RF/CA coberto: RF-26, RF-27, RF-28; CA-10.
 - Evidencia observavel: tickets derivados nascem no proprio projeto alvo com `Source: readiness-checkup`, caminhos do relatorio `.md/.json`, `Analyzed head SHA`, `Report commit SHA` quando existir, `Gap ID`, `Gap fingerprint`, `Gap type`, `Checkup dimension`, matriz de prioridade completa, evidencias, superficie local de remediacao, assumptions/defaults, validation notes e closure criteria; o relatorio de checkup recebe write-back de derivacao com `derivation_status`, `derived_at_utc`, status por gap cobrindo `materialized_as_ticket`, `reused_existing_ticket`, `blocked_ticket_created`, `not_materialized_informational`, `not_materialized_insufficient_specificity` e `not_materialized_runner_limitation`, alem dos caminhos dos tickets afetados, tudo no mesmo changeset; a validacao manual herdada cobre rerun idempotente, recorrencia e permissao real de `git push`.
 
+## Closure validation evidence
+- RF-01 / RF-19 / RF-20 / CA-07: `src/core/target-derive.ts` resolve projeto explicito e `report-path` canonico, valida working tree, projeto do report, idade, drift e elegibilidade antes de qualquer mutacao; `src/core/target-derive.test.ts` cobre `working-tree-dirty`, `report-path-invalid`, `report-invalid`, `report-project-mismatch`, `report-ineligible` (`report-expired`) e `report-drifted`, sempre sem tickets novos e sem versionamento.
+- RF-21 / RF-22 / RF-23 / RF-24 / RF-25 / CA-08 / CA-09 / CA-11: `src/core/target-derive.ts` calcula `Gap ID`/`Gap fingerprint`/prioridade em codigo, preserva `no-op-existing-mapping`, reutiliza ticket aberto, cria recorrencia a partir de `tickets/closed/`, materializa `Status: blocked` e deixa limitacoes do runner apenas no write-back; `src/core/target-derive.test.ts` cobre `no-op`, reuso de ticket aberto, recorrencia, `blocked_ticket_created`, `not_materialized_runner_limitation`, `not_materialized_informational` e `not_materialized_insufficient_specificity`.
+- RF-26 / RF-27 / RF-28 / CA-10: `renderReadinessTicket` em `src/core/target-derive.ts`, `TargetCheckupGapDerivationSnapshot` em `src/types/target-checkup.ts` e `renderTargetCheckupMarkdownReport` em `src/core/target-checkup.ts` carregam os campos obrigatorios do ticket e do write-back; `src/core/target-derive.test.ts` afirma `Source: readiness-checkup`, caminhos `.json/.md`, `Gap fingerprint`, `Parent ticket`, secao `Gap derivation` no Markdown e o mesmo changeset para report + tickets.
+- Validacao automatizada executada: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-derive.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/target-derive-gap-analysis-parser.test.ts` passou com a suite verde em 2026-03-24; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou com `tsc --noEmit`.
+
 ## Decision log
 - 2026-03-24 - Ticket aberto na triagem da spec para isolar a materializacao de backlog readiness; sem derivacao automatica o checkup permaneceria apenas como auditoria sem conversao controlada em trabalho executavel.
+- 2026-03-24 23:17Z - Revalidacao final contra diff, ExecPlan, spec e quality gates concluiu `GO`; a cobertura automatizada foi expandida para os bloqueios de report e para a taxonomia restante de materializacao antes do fechamento tecnico.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-24 23:17Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
+- Validacao manual pendente registrada: sim
+- Entrega tecnica concluida: sim; a implementacao funcional e a cobertura automatizada do ticket estao concluidas.
+- Validacao manual ainda necessaria: smoke real via Telegram em repo alvo preparado para confirmar rerun idempotente sem novo commit, recorrencia apos fechamento do ticket equivalente e permissao real de `git push`.
+- Como executar a validacao manual: iniciar o runner com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run dev`, executar `/target_checkup <project-name>` e depois `/target_derive_gaps <project-name> <report-path>` em repo alvo com remoto funcional, e inspecionar `git status --porcelain`, `git log -1 --stat`, `tickets/open/`, `tickets/closed/` e `docs/checkups/history/<timestamp>-project-readiness-checkup.{json,md}`.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao Telegram e permissao real de push no repo alvo de smoke.
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
