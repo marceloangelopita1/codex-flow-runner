@@ -6,15 +6,15 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-24 20:21Z
-- Last reviewed at (UTC): 2026-03-24 20:34Z
+- Last reviewed at (UTC): 2026-03-24 21:36Z
 - Source: product-need
 - Related tickets:
-  - tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md
+  - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md
   - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md
   - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md
 - Related execplans:
-  - 
+  - execplans/2026-03-24-target-prepare-controlled-onboarding-gap.md
 - Related commits:
   - 
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
@@ -142,7 +142,7 @@
   - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md [fonte=source-spec]
   - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md [fonte=source-spec]
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md [fonte=source-spec]
-  - tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
@@ -166,7 +166,7 @@
 
 #### Correcoes aplicadas
 - Explicitei no ticket de `target_prepare` os campos obrigatorios herdados de RF-08 para o manifesto/relatorio em `docs/workflows/` e ajustei os `Closure criteria` para exigir o resumo final rastreavel de CA-03 e a observabilidade desses campos.
-  - Artefatos afetados: tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md
+  - Artefatos afetados: tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 - Explicitei no ticket de `target_checkup` os campos obrigatorios de RF-12 (`working_tree_clean_at_start=true`, `report_commit_sha` quando houver versionamento e demais metadados do snapshot) e ajustei os `Closure criteria` para tornar esses itens observaveis no aceite.
@@ -222,8 +222,8 @@
 - Itens atendidos:
   - Escopo funcional, contrato operacional, restricoes, guardrails, UX e rastreabilidade do v1 foram definidos.
   - Existem fundacoes parciais reutilizaveis no runner atual para a entrega: descoberta de diretorios irmaos elegiveis por primeiro nivel, fila `P0 -> P1 -> P2` com suporte a `Status: blocked`, helper de commit/push, slot/capacidade para fluxos atuais e traces locais base em `.codex-flow-runner/flow-traces/`.
+  - A jornada `target_prepare` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_prepare <project-name>`, resolve repo Git irmao ainda inelegivel em `/projects`, rejeita pseudo-caminhos como `.`, aplica prompt dedicado com allowlist forte, valida merge gerenciado de `AGENTS.md`/`README.md`, gera manifesto + relatorio canonicos no repo alvo e cruza a fronteira de commit/push apenas apos pos-check deterministico.
 - Pendencias em aberto:
-  - Nenhum RF/CA da jornada `target_prepare` esta atendido integralmente; faltam resolvedor explicito de projeto alvo nao elegivel, allowlist de mutacao, manifesto/relatorio de preparo, pos-check e fronteira de versionamento (`tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md`).
   - Nenhum RF/CA da jornada `target_checkup` esta atendido integralmente; faltam preflight Git limpo, coleta deterministica por dimensao, schema canonico `md + json`, regras de validade por SHA/idade/drift e versionamento mesmo para resultado invalido (`tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md`).
   - Nenhum RF/CA da jornada `target_derive_gaps` esta atendido integralmente; faltam validacao do relatorio, materializacao idempotente por `Gap fingerprint`, tickets readiness autocontidos e write-back do resultado por gap no proprio checkup (`tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`).
   - Nenhum RF/CA de controle operacional compartilhado dos fluxos target esta atendido integralmente; faltam slot/bloqueios, `/_status`, `/_cancel`, milestones, CTAs e traces canonicos para `prepare`, `checkup` e `derive` (`tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`).
@@ -261,3 +261,5 @@
 ## Historico de atualizacao
 - 2026-03-24 20:21Z - Versao inicial da spec consolidada apos entrevista profunda cobrindo contrato de compatibilidade, onboarding via `prepare`, readiness audit via `checkup`, derivacao conservadora de gaps, UX de Telegram, status/cancel e rastreabilidade local/canonica.
 - 2026-03-24 20:34Z - Triagem inicial concluida contra o estado atual do codigo; 4 tickets abertos para cobrir `target_prepare`, `target_checkup`, `target_derive_gaps` e a camada compartilhada de Telegram/status/cancel/traces.
+- 2026-03-24 21:30Z - Execucao do ticket de `target_prepare` implementou o comando `/target_prepare <project-name>`, o resolvedor explicito de repo irmao, o prompt dedicado com allowlist forte, o pos-check deterministico e a geracao/versionamento de manifesto + relatorio canonicos no repo alvo; permaneceram pendentes apenas as validacoes manuais externas e os tickets irmaos de `checkup`, `derive` e controle operacional compartilhado.
+- 2026-03-24 21:36Z - Fechamento tecnico do ticket `target_prepare` concluido em `GO` com validacao manual externa pendente; o resolvedor foi endurecido para rejeitar `.` como pseudo-diretorio irmao e o ticket passou a viver em `tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md`.

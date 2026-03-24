@@ -8590,3 +8590,57 @@ test("sessao /plan_spec expira por timeout de inatividade e notifica operador (C
   assert.equal(lifecycleMessages[0]?.chatId, "42");
   assert.match(lifecycleMessages[0]?.message ?? "", /inatividade de 30 minutos/u);
 });
+
+test("requestTargetPrepare delega ao executor dedicado e preserva o projeto ativo global", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const requestedProjects: string[] = [];
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async (projectName: string) => {
+          requestedProjects.push(projectName);
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject: {
+                name: projectName,
+                path: `/home/mapita/projetos/${projectName}`,
+              },
+              eligibleForProjects: true,
+              compatibleWithWorkflowComplete: true,
+              nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+              manifestPath: "docs/workflows/target-prepare-manifest.json",
+              reportPath: "docs/workflows/target-prepare-report.md",
+              changedPaths: [
+                "AGENTS.md",
+                "README.md",
+                "docs/workflows/target-prepare-manifest.json",
+                "docs/workflows/target-prepare-report.md",
+              ],
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "prepare123",
+                upstream: "origin/main",
+                commitPushId: "prepare123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const previousActiveProject = runner.getState().activeProject;
+  const result = await runner.requestTargetPrepare("beta-target");
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(requestedProjects, ["beta-target"]);
+  assert.deepEqual(runner.getState().activeProject, previousActiveProject);
+  assert.equal(runner.getState().phase, "idle");
+});

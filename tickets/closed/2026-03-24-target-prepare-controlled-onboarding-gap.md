@@ -1,7 +1,7 @@
 # [TICKET] Falta fluxo controlado de onboarding para `/target_prepare` em projeto irmao ainda nao elegivel
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -96,17 +96,36 @@ Nao obrigatorio. Direcao concreta: introduzir fluxo dedicado de `target_prepare`
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-01 (comando `/target_prepare`), RF-02, RF-03; CA-03.
 - Evidencia observavel: existe entrada publica para `/target_prepare <project-name>` que resolve apenas diretorio irmao explicito em `PROJECTS_ROOT_PATH`, aceita repositorio Git ainda nao elegivel em `/projects`, nao usa caminho arbitrario, nao cria projeto novo e nao altera automaticamente o projeto ativo; o resumo final informa explicitamente se o alvo ficou elegivel para `/projects`, se ficou compativel com o workflow completo e qual e a proxima acao recomendada; testes automatizados cobrem sucesso, diretorio ausente, repo sem `.git`, alvo inelegivel para `/projects` mas elegivel para `prepare`, preservacao do projeto ativo e o resumo final rastreavel exigido por `CA-03`.
+- Validacao de fechamento: `src/integrations/target-project-resolver.ts`, `src/core/runner.ts`, `src/integrations/telegram-bot.ts` e `src/main.ts` agora expoem o fluxo e restringem a resolucao ao nome literal do diretorio irmao; o guardrail adicional contra `.` foi consolidado em `src/integrations/target-project-resolver.ts` e `src/integrations/target-project-resolver.test.ts`; `src/core/runner.test.ts` valida preservacao do projeto ativo global; `src/integrations/telegram-bot.test.ts` valida o resumo final rastreavel; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/target-project-resolver.test.ts src/core/target-prepare.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/git-client.test.ts` passou em 2026-03-24 21:36Z com 455 testes aprovados.
 - Requisito/RF/CA coberto: RF-04, RF-05, RF-06, RF-07, RF-08; CA-01, CA-02.
 - Evidencia observavel: o prepare limita mutacoes a allowlist explicita, bloqueia mudanca fora dela, faz merge/atualizacao in-place de `AGENTS.md` e `README.md`, cria/atualiza as demais docs canonicas permitidas, gera manifesto tecnico + relatorio humano em `docs/workflows/`, e registra de forma observavel versao logica do contrato, versao/schema do prepare, referencia do runner, timestamp, superficies gerenciadas, estrategia de validacao por superficie, fingerprints/hashes quando aplicavel e allowlist de caminhos autorizados; testes cobrem caminho feliz, tentativa de mutacao fora da allowlist e preservacao de conteudo relevante preexistente.
+- Validacao de fechamento: `src/types/target-prepare.ts` define a allowlist, o schema e as estrategias de validacao; `src/core/target-prepare.ts` valida superfices gerenciadas, escreve `docs/workflows/target-prepare-manifest.json` e `docs/workflows/target-prepare-report.md` e exige convergencia exata/managed-block; `prompts/13-target-prepare-controlled-onboarding.md` limita a mutacao assistida; `src/integrations/codex-client.test.ts` confirma injecao de allowlist/fontes gerenciadas no prompt; `src/core/target-prepare.test.ts` cobre caminho feliz, mutacao fora da allowlist e preservacao de contexto preexistente em `AGENTS.md`/`README.md`; `README.md` e `docs/specs/2026-03-24-onboarding-readiness-e-derivacao-de-gaps-para-projeto-alvo.md` foram atualizados no mesmo changeset para refletir a nova superficie publica e o status vivo da jornada.
 - Requisito/RF/CA coberto: RF-09; CA-01, CA-02.
 - Evidencia observavel: commit/push so acontecem apos pos-check deterministico aprovado; falhas deixam diff local e diagnostico explicito, sem marcar preparo como concluido; testes cobrem sucesso, falha de pos-check e falha de push; a validacao manual herdada exercita repositorio quase vazio, repositorio com `AGENTS.md`/`README.md` relevantes e permissao real de `git push`.
+- Validacao de fechamento: `src/core/target-prepare.ts` so chama `commitAndPushPaths` depois do preflight, da validacao estrutural e da rechecagem de allowlist; `src/core/target-prepare.test.ts` cobre falha por drift fora da allowlist e falha de push apos o pos-check com diagnostico explicito; `src/integrations/git-client.test.ts` valida que `commitAndPushPaths` versiona apenas caminhos explicitamente permitidos e confirma a evidencia de push; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou em 2026-03-24 21:36Z sem erros de TypeScript.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O recorte funcional e documental deste ticket esta implementado, revalidado contra o ExecPlan e coberto por testes automatizados locais.
+- Validacoes manuais externas ainda necessarias:
+  - Exercitar `/target_prepare` em repositorio Git real quase vazio ja existente e confirmar criacao das superfices canonicas no alvo.
+  - Exercitar `/target_prepare` em repositorio com `AGENTS.md` e `README.md` preexistentes relevantes e confirmar preservacao do contexto local fora do bloco gerenciado.
+  - Confirmar permissao real de `git push` no remoto do repositorio alvo de teste e a fronteira de diagnostico quando houver falha de push.
+- Como executar a validacao manual:
+  - Preparar os repositorios de smoke descritos no ExecPlan em `/home/mapita/projetos`.
+  - Iniciar o runner com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run dev`.
+  - Acionar `/target_prepare <project-name>` no chat Telegram autorizado e inspecionar `git status --porcelain`, `git log -1 --stat` e os artefatos `docs/workflows/target-prepare-manifest.json` e `docs/workflows/target-prepare-report.md` no repo alvo.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado, aos repositorios Git de teste e a um remoto com permissao real de `git push`.
+- Motivo para nao bloquear o aceite: a implementacao tecnica ja foi comprovada por diff, codigo, suite automatizada e validacao tipada; o restante depende apenas de exercicio operacional externo ao agente.
 
 ## Decision log
 - 2026-03-24 - Ticket aberto na triagem da spec para isolar o primeiro degrau funcional do onboarding readiness; sem `prepare` o runner nao consegue promover um alvo nao elegivel ao estado compativel com workflow completo.
+- 2026-03-24 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-24 21:36Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-target-prepare-controlled-onboarding-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.

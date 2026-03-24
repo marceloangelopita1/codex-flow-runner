@@ -17,6 +17,7 @@ import type {
   PlanSpecSessionCancelResult,
   PlanSpecSessionInputResult,
   PlanSpecSessionStartResult,
+  TargetPrepareRequestResult,
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
   RunAllRequestResult,
@@ -71,6 +72,9 @@ import {
 import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 
 interface BotControls {
+  targetPrepare: (
+    projectName: string,
+  ) => Promise<TargetPrepareRequestResult> | TargetPrepareRequestResult;
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   runSpecsFromValidation: (
@@ -508,6 +512,9 @@ interface CallbackAuditContext {
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
+const TARGET_PREPARE_USAGE_REPLY = "ℹ️ Uso: /target_prepare <nome-do-projeto>.";
+const TARGET_PREPARE_FAILED_REPLY =
+  "❌ Falha ao executar /target_prepare. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
 const RUN_SPECS_FROM_VALIDATION_USAGE_REPLY =
   "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.";
@@ -714,6 +721,7 @@ const START_REPLY_LINES = [
   "",
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
+  "/target_prepare <projeto> - prepara um diretorio irmao Git para o workflow completo sem trocar o projeto ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
@@ -1396,6 +1404,10 @@ export class TelegramController {
       await ctx.reply(this.buildStartReply());
     });
 
+    this.bot.command("target_prepare", async (ctx) => {
+      await this.handleTargetPrepareCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("run_all", async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run_all");
     });
@@ -1837,6 +1849,43 @@ export class TelegramController {
     }
 
     await ctx.reply(outcome.reply);
+  }
+
+  private async handleTargetPrepareCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_prepare recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_prepare",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const projectName = this.parseTargetPrepareCommandProjectName(ctx.message?.text);
+    if (!projectName) {
+      await ctx.reply(TARGET_PREPARE_USAGE_REPLY);
+      return;
+    }
+
+    try {
+      const result = await this.controls.targetPrepare(projectName);
+      await ctx.reply(this.buildTargetPrepareReply(result));
+    } catch (error) {
+      this.logger.error("Falha ao executar /target_prepare", {
+        chatId,
+        projectName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(TARGET_PREPARE_FAILED_REPLY);
+    }
   }
 
   private async handleRunSpecsCommand(ctx: CommandContext): Promise<void> {
@@ -3533,6 +3582,20 @@ export class TelegramController {
     }
 
     const match = commandText.match(/^\/(?:select-project|select_project)(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const value = match?.[1]?.trim();
+    if (!value) {
+      return null;
+    }
+
+    return value;
+  }
+
+  private parseTargetPrepareCommandProjectName(commandText?: string): string | null {
+    if (!commandText) {
+      return null;
+    }
+
+    const match = commandText.match(/^\/target_prepare(?:@[^\s]+)?(?:\s+(.+))?$/u);
     const value = match?.[1]?.trim();
     if (!value) {
       return null;
@@ -6024,6 +6087,27 @@ export class TelegramController {
   ): string {
     if (result.status === "started") {
       return `▶️ Execução iniciada para o ticket ${ticketFileName}.`;
+    }
+
+    return `❌ ${result.message}`;
+  }
+
+  private buildTargetPrepareReply(result: TargetPrepareRequestResult): string {
+    if (result.status === "completed") {
+      const versioningLine =
+        result.summary.versioning.status === "committed-and-pushed"
+          ? `${result.summary.versioning.commitHash}@${result.summary.versioning.upstream}`
+          : result.summary.versioning.errorMessage;
+
+      return [
+        `✅ /target_prepare concluido para ${result.summary.targetProject.name}.`,
+        `Elegivel para /projects: ${result.summary.eligibleForProjects ? "sim" : "nao"}`,
+        `Compativel com workflow completo: ${result.summary.compatibleWithWorkflowComplete ? "sim" : "nao"}`,
+        `Manifesto: ${result.summary.manifestPath}`,
+        `Relatorio: ${result.summary.reportPath}`,
+        `Versionamento: ${versioningLine}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
     }
 
     return `❌ ${result.message}`;

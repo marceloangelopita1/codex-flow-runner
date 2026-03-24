@@ -46,6 +46,7 @@ Isso é importante porque abre um caminho mais acessivel para pessoas sem famili
 
 Depois de configurar o bot, o Telegram vira um painel de controle simples:
 
+- você pode preparar um repositório Git irmão ainda inelegível em `/projects` por `/target_prepare <project-name>`;
 - você pode ver o status do runner;
 - pode escolher em qual projeto ele vai trabalhar;
 - pode escolher o modelo e o nível de reasoning por projeto;
@@ -125,6 +126,18 @@ Na implementação atual, a spec criada pelo fluxo sai com:
 Por isso ela fica pronta para entrar no fluxo de triagem automatica.
 
 Compatibilidade do projeto alvo com o workflow completo continua sendo pre-requisito operacional do onboarding humano, e não validação semantica de runtime. O resumo canônico desse contrato esta em `docs/workflows/target-project-compatibility-contract.md`.
+
+## Onboarding controlado de projeto alvo
+
+Quando um repositório Git irmão ainda não aparece em `/projects`, agora existe uma etapa operacional explícita:
+
+- `/target_prepare <project-name>` resolve apenas o nome literal do diretório irmão em `PROJECTS_ROOT_PATH`;
+- o fluxo exige `.git`, working tree limpo e bloqueia mutações fora da allowlist documental do workflow;
+- `AGENTS.md` e `README.md` são mesclados in-place com bloco gerenciado, enquanto os contratos canônicos restantes são sincronizados para a versão atual do runner;
+- em sucesso, o próprio repositório alvo recebe `docs/workflows/target-prepare-manifest.json` e `docs/workflows/target-prepare-report.md`;
+- commit/push só acontecem depois do pos-check determinístico; em falha, o fluxo não marca o preparo como concluído.
+
+O `target_prepare` não troca implicitamente o projeto ativo do runner. Quando o preparo termina com sucesso e o repositório passa a atender `.git` + `tickets/open/`, ele pode aparecer em `/projects`.
 
 ## Como uma spec vira implementação
 
@@ -1170,6 +1183,7 @@ npm run dev
 ## Controle por Telegram
 
 - `/start` -> mostra descrição do bot e comandos disponíveis
+- `/target_prepare <projeto>` -> prepara um diretório irmão Git para o workflow completo sem trocar o projeto ativo
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
 - `/run-all` -> alias legado compatível para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo

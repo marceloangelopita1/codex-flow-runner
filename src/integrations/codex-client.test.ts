@@ -132,6 +132,67 @@ test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", as
   }
 });
 
+test("runTargetPrepare injeta allowlist, fontes gerenciadas e contexto do runner", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Allowlist:",
+        "<TARGET_PREPARE_ALLOWLIST>",
+        "Copies:",
+        "<TARGET_PREPARE_COPY_SOURCES>",
+        "Merges:",
+        "<TARGET_PREPARE_MERGE_SOURCES>",
+        "Runner path: <RUNNER_REPO_PATH>",
+        "Runner ref: <RUNNER_REFERENCE>",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetPrepare({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    allowlistedPaths: ["AGENTS.md", "docs/workflows/"],
+    copySources: [
+      {
+        targetPath: "PLANS.md",
+        sourcePath: "/home/mapita/projetos/codex-flow-runner/PLANS.md",
+      },
+    ],
+    mergeSources: [
+      {
+        targetPath: "README.md",
+        sourcePath:
+          "/home/mapita/projetos/codex-flow-runner/docs/workflows/target-prepare-managed-readme-section.md",
+        markerId: "codex-flow-runner:target-prepare-managed-readme",
+      },
+    ],
+  });
+
+  assert.match(result.promptTemplatePath, /13-target-prepare-controlled-onboarding\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(capturedPrompt, /- `AGENTS\.md`/u);
+  assert.match(capturedPrompt, /copy-exact `PLANS\.md` <= `\/home\/mapita\/projetos\/codex-flow-runner\/PLANS\.md`/u);
+  assert.match(
+    capturedPrompt,
+    /merge-managed-block `README\.md` <= `\/home\/mapita\/projetos\/codex-flow-runner\/docs\/workflows\/target-prepare-managed-readme-section\.md` \| marker: `codex-flow-runner:target-prepare-managed-readme`/u,
+  );
+  assert.match(capturedPrompt, /Runner ref: codex-flow-runner@\/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(capturedPrompt, /Target name: alpha-project/u);
+  assert.match(capturedPrompt, /Target path: \/home\/mapita\/projetos\/alpha-project/u);
+});
+
 test("runStage injeta guia operacional de shell no prompt", async () => {
   let capturedPrompt = "";
 

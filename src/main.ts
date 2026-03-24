@@ -1,8 +1,10 @@
+import path from "node:path";
 import { loadEnv } from "./config/env.js";
 import { resolveActiveProject } from "./core/active-project-resolver.js";
 import { DefaultCodexPreferencesService } from "./core/codex-preferences.js";
 import { Logger } from "./core/logger.js";
 import { ActiveProjectSelectionService } from "./core/project-selection.js";
+import { ControlledTargetPrepareExecutor } from "./core/target-prepare.js";
 import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
 import { FileSystemCodexLocalConfigReader } from "./integrations/codex-config.js";
@@ -13,6 +15,8 @@ import { GitCliVersioning } from "./integrations/git-client.js";
 import { FileSystemProjectDiscovery } from "./integrations/project-discovery.js";
 import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
+import { GitCliTargetPrepareGuard } from "./integrations/target-prepare-git-guard.js";
+import { FileSystemTargetProjectResolver } from "./integrations/target-project-resolver.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
 import { FileSystemWorkflowImprovementTicketPublisher } from "./integrations/workflow-improvement-ticket-publisher.js";
 import {
@@ -36,6 +40,7 @@ const bootstrap = async () => {
     discovery: projectDiscovery,
     store: activeProjectStore,
   });
+  const runnerRepoPath = path.resolve(process.cwd());
   const codexPreferencesService = new DefaultCodexPreferencesService(
     {
       catalogReader: new FileSystemCodexModelCatalogReader(),
@@ -90,6 +95,29 @@ const bootstrap = async () => {
   };
 
   const initialRoundDependencies = await resolveRunnerRoundDependencies("bootstrap");
+  const targetPrepareExecutor = new ControlledTargetPrepareExecutor({
+    logger,
+    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
+    createCodexClient: (project) =>
+      new CodexCliTicketFlowClient(
+        project.path,
+        logger,
+        {},
+        {
+          resolveInvocationPreferences: async () => {
+            const resolved = await codexPreferencesService.resolveProjectPreferences(project);
+            return {
+              model: resolved.model,
+              reasoningEffort: resolved.reasoningEffort,
+              speed: resolved.speed,
+            };
+          },
+        },
+      ),
+    createGitVersioning: (project) => new GitCliVersioning(project.path),
+    createGitGuard: (project) => new GitCliTargetPrepareGuard(project.path),
+    runnerRepoPath,
+  });
   let telegram: TelegramController | null = null;
 
   const notifyTicketFinalSummary = async (
@@ -283,6 +311,7 @@ const bootstrap = async () => {
         },
       },
       codexPreferencesService,
+      targetPrepareExecutor,
     },
   );
 
@@ -300,6 +329,7 @@ const bootstrap = async () => {
     logger,
     runner.getState,
     {
+      targetPrepare: runner.requestTargetPrepare,
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
       runSpecsFromValidation: runner.requestRunSpecsFromValidation,

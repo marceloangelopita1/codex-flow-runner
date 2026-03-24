@@ -139,6 +139,10 @@ import {
   WorkflowGapAnalysisParserError,
   parseWorkflowGapAnalysisOutput,
 } from "../integrations/workflow-gap-analysis-parser.js";
+import {
+  TargetPrepareExecutor,
+} from "./target-prepare.js";
+import { TargetPrepareExecutionResult } from "../types/target-prepare.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -223,6 +227,7 @@ export interface TicketRunnerOptions {
   runFlowEventHandlers?: RunFlowEventHandlers;
   codexPreferencesService?: CodexPreferencesService;
   workflowImprovementTicketPublisher?: WorkflowImprovementTicketPublisher;
+  targetPrepareExecutor?: TargetPrepareExecutor;
 }
 
 interface ActiveDiscoverSpecSession {
@@ -633,6 +638,10 @@ export type RunSelectedTicketRequestResult =
       message: string;
     };
 
+export type TargetPrepareRequestResult =
+  | TargetPrepareExecutionResult
+  | RunnerRequestBlockedResult;
+
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
 
 type RunSlotStartPreflightResult =
@@ -803,6 +812,7 @@ export class TicketRunner {
   private readonly runFlowEventHandlers?: RunFlowEventHandlers;
   private readonly codexPreferencesService?: CodexPreferencesService;
   private readonly workflowImprovementTicketPublisher: WorkflowImprovementTicketPublisher | null;
+  private readonly targetPrepareExecutor: TargetPrepareExecutor | null;
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
@@ -810,6 +820,7 @@ export class TicketRunner {
   private nextPlanSpecSessionId = 1;
   private nextCodexChatSessionId = 1;
   private isShuttingDown = false;
+  private targetPrepareInFlight = false;
   private shutdownPromise: Promise<RunnerShutdownReport> | null = null;
   private completedShutdownReport: RunnerShutdownReport | null = null;
 
@@ -852,6 +863,7 @@ export class TicketRunner {
     this.runFlowEventHandlers = options.runFlowEventHandlers;
     this.codexPreferencesService = options.codexPreferencesService;
     this.workflowImprovementTicketPublisher = options.workflowImprovementTicketPublisher ?? null;
+    this.targetPrepareExecutor = options.targetPrepareExecutor ?? null;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -2688,6 +2700,84 @@ export class TicketRunner {
       return { status: "started" };
     } finally {
       this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
+    }
+  };
+
+  requestTargetPrepare = async (projectName: string): Promise<TargetPrepareRequestResult> => {
+    this.logger.info("Solicitacao de /target_prepare recebida", {
+      projectName,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+      targetPrepareInFlight: this.targetPrepareInFlight,
+    });
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/target_prepare");
+    }
+
+    if (!this.targetPrepareExecutor) {
+      return {
+        status: "failed",
+        message: "Executor de /target_prepare nao configurado nesta instancia do runner.",
+      };
+    }
+
+    if (this.targetPrepareInFlight) {
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message: "Ja existe uma execucao /target_prepare em andamento nesta instancia.",
+      };
+    }
+
+    if (this.activeSlots.size > 0) {
+      const activeProjects = this.getActiveProjects();
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message:
+          "Nao e possivel iniciar /target_prepare enquanto houver fluxo pesado ativo nesta instancia.",
+        activeProjects,
+      };
+    }
+
+    if (
+      this.isDiscoverSpecSessionActive() ||
+      this.isPlanSpecSessionActive() ||
+      this.isCodexChatSessionActive()
+    ) {
+      return {
+        status: "blocked",
+        reason: "global-free-text-busy",
+        message:
+          "Nao e possivel iniciar /target_prepare enquanto houver sessao interativa global ativa.",
+      };
+    }
+
+    this.targetPrepareInFlight = true;
+    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+
+    this.state.lastMessage = `Executando /target_prepare para ${projectName}`;
+    this.state.updatedAt = this.now();
+
+    try {
+      const result = await this.targetPrepareExecutor.execute(projectName);
+      this.state.lastMessage =
+        result.status === "completed"
+          ? `target_prepare concluido para ${result.summary.targetProject.name}`
+          : result.message;
+      this.state.updatedAt = this.now();
+      return result;
+    } finally {
+      this.targetPrepareInFlight = false;
+      this.state.activeProject = previousActiveProject;
+      this.syncStateFromSlots();
     }
   };
 

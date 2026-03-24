@@ -40,6 +40,7 @@ import {
   SpecTicketValidationAppliedCorrection,
   SpecTicketValidationPassResult,
 } from "../types/spec-ticket-validation.js";
+import { ProjectRef } from "../types/project.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -282,6 +283,40 @@ export interface SpecTicketValidationAutoCorrectResult {
   promptText: string;
 }
 
+export interface TargetPrepareCopySource {
+  targetPath: string;
+  sourcePath: string;
+}
+
+export interface TargetPrepareMergeSource extends TargetPrepareCopySource {
+  markerId: string;
+}
+
+export interface TargetPrepareCodexRequest {
+  targetProject: ProjectRef;
+  runnerRepoPath: string;
+  runnerReference: string;
+  allowlistedPaths: string[];
+  copySources: TargetPrepareCopySource[];
+  mergeSources: TargetPrepareMergeSource[];
+}
+
+export interface TargetPrepareCodexResult {
+  output: string;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface TargetPrepareCodexClient {
+  ensureAuthenticated(): Promise<void>;
+  snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): TargetPrepareCodexClient;
+  runTargetPrepare(request: TargetPrepareCodexRequest): Promise<TargetPrepareCodexResult>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
@@ -366,6 +401,7 @@ const SPEC_TICKET_VALIDATION_RETRY_HINT =
 const SPEC_TICKET_VALIDATION_PROMPT_FILE = "09-validar-tickets-derivados-da-spec.md";
 const SPEC_TICKET_VALIDATION_AUTOCORRECT_PROMPT_FILE =
   "10-autocorrigir-tickets-derivados-da-spec.md";
+const TARGET_PREPARE_PROMPT_FILE = "13-target-prepare-controlled-onboarding.md";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -800,7 +836,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
   forkWithFixedInvocationPreferences(
     preferences: CodexInvocationPreferences | null,
-  ): CodexTicketFlowClient {
+  ): CodexCliTicketFlowClient {
     return new CodexCliTicketFlowClient(this.repoPath, this.logger, this.dependencies, {
       resolveInvocationPreferences: async () => preferences,
     });
@@ -931,6 +967,68 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       throw new CodexStageExecutionError(
         spec.fileName,
         stage,
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
+    }
+  }
+
+  async runTargetPrepare(request: TargetPrepareCodexRequest): Promise<TargetPrepareCodexResult> {
+    const promptTemplatePath = path.join(PROMPTS_DIR, TARGET_PREPARE_PROMPT_FILE);
+    let prompt = "";
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTargetPreparePrompt(promptTemplate, request);
+
+      this.logger.info("Executando target_prepare via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        promptTemplatePath,
+      });
+
+      const preferences = await this.snapshotInvocationPreferences();
+      const result = await this.dependencies.runCodexCommand({
+        cwd: this.repoPath,
+        prompt,
+        env: {
+          ...process.env,
+        },
+        preferences,
+      });
+
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
+        this.logger.warn("Codex CLI retornou diagnostico em stderr no target_prepare", {
+          targetProjectName: request.targetProject.name,
+          codexCliTranscriptPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview
+            ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+            : {}),
+        });
+      }
+
+      this.logger.info("target_prepare concluido via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+      });
+
+      return {
+        output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
+      };
+    } catch (error) {
+      const details = errorMessage(error);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        request.targetProject.name,
+        "implement",
         details,
         promptTemplatePath,
         prompt,
@@ -1307,6 +1405,52 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "## Pacote derivado atual",
       request.packageContext.trim(),
       "",
+      "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
+    ].join("\n");
+  }
+
+  private buildTargetPreparePrompt(
+    promptTemplate: string,
+    request: TargetPrepareCodexRequest,
+  ): string {
+    const stageTemplate = promptTemplate
+      .replace(
+        /<TARGET_PREPARE_ALLOWLIST>/gu,
+        request.allowlistedPaths.map((entry) => `- \`${entry}\``).join("\n"),
+      )
+      .replace(
+        /<TARGET_PREPARE_COPY_SOURCES>/gu,
+        request.copySources
+          .map(
+            (entry) =>
+              `- copy-exact \`${entry.targetPath}\` <= \`${entry.sourcePath}\``,
+          )
+          .join("\n"),
+      )
+      .replace(
+        /<TARGET_PREPARE_MERGE_SOURCES>/gu,
+        request.mergeSources
+          .map(
+            (entry) =>
+              `- merge-managed-block \`${entry.targetPath}\` <= \`${entry.sourcePath}\` | marker: \`${entry.markerId}\``,
+          )
+          .join("\n"),
+      )
+      .replace(/<RUNNER_REPO_PATH>/gu, request.runnerRepoPath)
+      .replace(/<RUNNER_REFERENCE>/gu, request.runnerReference)
+      .replace(/<TARGET_PROJECT_NAME>/gu, request.targetProject.name)
+      .replace(/<TARGET_PROJECT_PATH>/gu, request.targetProject.path);
+
+    return [
+      stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional do target_prepare:",
+      `- Projeto alvo: \`${request.targetProject.name}\``,
+      `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
+      `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
+      `- Referencia textual do runner: \`${request.runnerReference}\``,
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
   }

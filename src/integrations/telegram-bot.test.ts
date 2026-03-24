@@ -11,6 +11,7 @@ import {
   DiscoverSpecSessionStartResult,
   PlanSpecCallbackIgnoredReason,
   RunSelectedTicketRequestResult,
+  TargetPrepareRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
@@ -423,6 +424,7 @@ const createPlanSpecFinalBlock = (
 
 type ControlCommand =
   | "start"
+  | "target_prepare"
   | "run_all"
   | "run-all"
   | "codex_chat"
@@ -477,6 +479,7 @@ type OpenTicketReadResult =
 
 interface ControllerOptions {
   allowedChatId?: string;
+  targetPrepareResult?: TargetPrepareRequestResult;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
@@ -698,6 +701,8 @@ const createDefaultOpenTickets = (): OpenTicketRef[] => [
 const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
   const controlState = {
+    targetPrepareCalls: 0,
+    targetPrepareArgs: [] as string[],
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
@@ -761,6 +766,40 @@ const createController = (options: ControllerOptions = {}) => {
     .map(cloneOpenTicket);
 
   const controls = {
+    targetPrepare: (projectName: string) => {
+      controlState.targetPrepareCalls += 1;
+      controlState.targetPrepareArgs.push(projectName);
+      if (options.targetPrepareResult) {
+        return options.targetPrepareResult;
+      }
+
+      return {
+        status: "completed" as const,
+        summary: {
+          targetProject: {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          },
+          eligibleForProjects: true,
+          compatibleWithWorkflowComplete: true,
+          nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+          manifestPath: "docs/workflows/target-prepare-manifest.json",
+          reportPath: "docs/workflows/target-prepare-report.md",
+          changedPaths: [
+            "AGENTS.md",
+            "README.md",
+            "docs/workflows/target-prepare-manifest.json",
+            "docs/workflows/target-prepare-report.md",
+          ],
+          versioning: {
+            status: "committed-and-pushed" as const,
+            commitHash: "prepare123",
+            upstream: "origin/main",
+            commitPushId: "prepare123@origin/main",
+          },
+        },
+      };
+    },
     runAll: () => {
       controlState.runAllCalls += 1;
       if (options.runAllStatus === "already-running") {
@@ -1447,6 +1486,27 @@ const callHandleRunAllCommand = async (
   };
 
   await internalController.handleRunAllCommand(context, command);
+};
+
+const callHandleTargetPrepareCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetPrepareCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetPrepareCommand(context);
 };
 
 const callBuildRunSpecsReply = async (
@@ -2632,6 +2692,69 @@ test("gera resposta acionavel quando /run-all e bloqueado por autenticacao", asy
   );
   assert.equal(reply.started, false);
   assert.equal(controlState.runAllCalls, 1);
+});
+
+test("handleTargetPrepareCommand exige argumento explicito", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_prepare" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.deepEqual(replies, ["ℹ️ Uso: /target_prepare <nome-do-projeto>."]);
+  assert.equal(controlState.targetPrepareCalls, 0);
+});
+
+test("handleTargetPrepareCommand responde com resumo final rastreavel no caminho feliz", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_prepare alpha-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCalls, 1);
+  assert.deepEqual(controlState.targetPrepareArgs, ["alpha-project"]);
+  assert.match(replies[0] ?? "", /\/target_prepare concluido para alpha-project/u);
+  assert.match(replies[0] ?? "", /Elegivel para \/projects: sim/u);
+  assert.match(replies[0] ?? "", /Compativel com workflow completo: sim/u);
+  assert.match(replies[0] ?? "", /Manifesto: docs\/workflows\/target-prepare-manifest\.json/u);
+  assert.match(replies[0] ?? "", /Proxima acao: Selecionar o projeto/u);
+});
+
+test("handleTargetPrepareCommand propaga bloqueio objetivo do executor", async () => {
+  const { controller, controlState } = createController({
+    targetPrepareResult: {
+      status: "blocked",
+      reason: "project-not-found",
+      message: "Projeto alvo nao encontrado para /target_prepare: missing-project.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_prepare missing-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCalls, 1);
+  assert.deepEqual(controlState.targetPrepareArgs, ["missing-project"]);
+  assert.deepEqual(replies, ["❌ Projeto alvo nao encontrado para /target_prepare: missing-project."]);
 });
 
 test("gera resposta de inicio ao executar /run_specs", async () => {
