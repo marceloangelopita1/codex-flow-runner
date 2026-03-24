@@ -6,14 +6,15 @@
 - Spec treatment: pending
 - Owner:
 - Created at (UTC): 2026-03-24 17:51Z
-- Last reviewed at (UTC): 2026-03-24 17:51Z
+- Last reviewed at (UTC): 2026-03-24 18:07Z
 - Source: technical-evolution
 - Related tickets:
-  - Nenhum neste ciclo.
+  - tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
+  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
 - Related execplans:
   - Nenhum neste ciclo.
 - Related commits:
-  - Não registrado neste workspace.
+  - A registrar no commit de encerramento da triagem desta etapa.
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
 
 ## Objetivo e contexto
@@ -123,25 +124,74 @@
 - Nota de uso: quando esta spec vier de `/run_specs`, preencher esta secao apenas com o veredito, os gaps, as correcoes e o historico funcional do gate formal; fora desse fluxo, registrar `n/a` quando nao se aplicar.
 - Politica historica: alinhamentos desta secao nao exigem migracao retroativa em massa; material historico so deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-24T18:04:21.768Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado agora cobre o recorte completo da spec em dois tickets, com heranca explicita de RNFs/restricoes/validacoes relevantes e `Closure criteria` observaveis para o ticket funcional e para o ticket de observabilidade/documentacao.
+- Ciclos executados: 1
+- Thread da validacao: 019d2102-60c6-75f3-83dc-a9a2f8d90628
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: O pacote derivado cobre o recorte funcional e o recorte de observabilidade/documentacao da spec, mas o ticket funcional principal nao torna observavel em `Closure criteria` toda a heranca de RF-10 sobre o contrato atual de `spec-ticket-validation`; o aceite do pacote ainda fica incompleto.
+  - Thread: 019d2102-60c6-75f3-83dc-a9a2f8d90628
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md|rf-10
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+- Ciclo 1 [revalidation]: GO (high)
+  - Resumo: O pacote derivado agora cobre o recorte completo da spec em dois tickets, com heranca explicita de RNFs/restricoes/validacoes relevantes e `Closure criteria` observaveis para o ticket funcional e para o ticket de observabilidade/documentacao.
+  - Thread: 019d2102-60c6-75f3-83dc-a9a2f8d90628
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 1
+    - Atualizei os `Closure criteria` do ticket funcional principal para explicitar a preservacao observavel do contrato herdado de `spec-ticket-validation`, incluindo primeiro passe em contexto novo, autocorrecao controlada, limite de ciclos, taxonomia de gaps, veredito `GO | NO_GO`, write-back funcional quando aplicavel e validacoes manuais relevantes no Telegram. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Atualizei os `Closure criteria` do ticket funcional principal para explicitar a preservacao observavel do contrato herdado de `spec-ticket-validation`, incluindo primeiro passe em contexto novo, autocorrecao controlada, limite de ciclos, taxonomia de gaps, veredito `GO | NO_GO`, write-back funcional quando aplicavel e validacoes manuais relevantes no Telegram.
+  - Artefatos afetados: tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip:
-  - n/a
-- Classificacao final:
-  - n/a
-- Confianca:
-  - n/a
-- Frente causal analisada:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: A menor causa plausivel foi uma falha editorial pontual na derivacao inicial do ticket principal, nao uma lacuna material nas instrucoes ou na ordem do workflow.
 - Achados sistemicos:
-  - n/a
+  - nenhum
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicacao:
-  - n/a
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - docs/specs/2026-03-24-retomada-do-run-specs-a-partir-da-validacao.md
+  - tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
+  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
+  - src/core/spec-ticket-validation.ts
+  - src/core/spec-ticket-validation.test.ts
+  - src/core/runner.ts
+  - src/types/workflow-gap-analysis.ts
+- Elegibilidade de publicacao: nao
 - Resultado do ticket transversal ou limitacao operacional:
-  - n/a
-- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional e continua canonica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`. Com a flag desligada, a secao pode permanecer `n/a` e nao recebe write-back automatico. Se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
 - Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
@@ -164,9 +214,9 @@
   - O fluxo atual já bloqueia `/run_all` quando `spec-ticket-validation` termina em `NO_GO`.
   - O bot Telegram já possui infraestrutura de comando textual, validação de elegibilidade da spec, resumo final de fluxo e milestone de triagem para `run-specs`.
 - Pendencias em aberto:
-  - Ainda não existe comando público no Telegram para iniciar `run-specs` diretamente em `spec-ticket-validation`.
-  - O help, o README, os traces, o resumo final e o `/status` ainda não distinguem um ponto de entrada por validação dentro da família `run-specs`.
-  - `/specs` ainda não oferece uma ação explícita de “continuar da validação”, o que permanece intencionalmente fora do escopo da primeira versão desta spec.
+  - Ticket `tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md`: criar o comando textual `/run_specs_from_validation`, aplicar o gate adicional de backlog derivado aberto e permitir entrada direta em `spec-ticket-validation` sem retriagem nem mutacao de tickets antes da validacao.
+  - Ticket `tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md`: registrar `sourceCommand`/`entryPoint` na observabilidade de `run-specs`, ajustar milestone/resumo final/`/status`/timings/traces e documentar a diferenca entre retriagem completa e continuidade da validacao.
+  - Nao-escopo confirmado nesta triagem: adicionar botao ou CTA novo em `/specs` continua explicitamente fora da primeira versao e nao gera ticket neste pacote derivado.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
@@ -181,14 +231,15 @@
   - `docs/specs/2026-03-20-separacao-validacao-funcional-e-retrospectiva-sistemica-da-derivacao-no-pre-run-all.md`
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-- Resultado:
+- Auditoria executada em: 2026-03-24T18:07:32Z
+- Resultado: triagem encerrada com pacote derivado validado (`GO` no gate funcional), mas com lacunas de implementacao ainda abertas; a spec permanece `approved` com `Spec treatment: pending` ate a entrega dos tickets derivados.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - 
+  - tickets/open/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
+  - tickets/open/2026-03-24-run-specs-from-validation-observability-and-docs-gap.md
 - Causas-raiz sistemicas identificadas:
-  - 
+  - Nenhuma nova causa-raiz sistemica na auditoria final; a pendencia remanescente e a implementacao do backlog derivado ja rastreado nos tickets abertos.
 - Ajustes genericos promovidos ao workflow:
-  - 
+  - Nenhum nesta etapa; a triagem encerra apenas com rastreabilidade e versionamento da documentacao.
 
 ## Riscos e impacto
 - Risco funcional: o operador pode usar `/run_specs_from_validation` quando a própria spec mudou materialmente e, nesse caso, pular `spec-triage` seria inadequado para o backlog atual.
@@ -208,3 +259,4 @@
 
 ## Historico de atualizacao
 - 2026-03-24 17:51Z - Versao inicial da spec criada para formalizar a retomada de `run-specs` a partir de `spec-ticket-validation` por meio do novo comando `/run_specs_from_validation`.
+- 2026-03-24 18:07Z - Triagem encerrada com dois tickets abertos para os gaps remanescentes, auditoria final preenchida e status mantido como `approved` com `Spec treatment: pending`.
