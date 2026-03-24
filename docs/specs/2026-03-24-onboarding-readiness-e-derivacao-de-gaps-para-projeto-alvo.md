@@ -6,10 +6,13 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-24 20:21Z
-- Last reviewed at (UTC): 2026-03-24 20:21Z
+- Last reviewed at (UTC): 2026-03-24 20:34Z
 - Source: product-need
 - Related tickets:
-  - 
+  - tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md
+  - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md
+  - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
+  - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md
 - Related execplans:
   - 
 - Related commits:
@@ -125,24 +128,84 @@
   - n/a
 - Nota de uso: `n/a` ate esta spec participar de `/run_specs`.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-24T20:51:37.204Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado agora cobre o backlog inteiro da spec com particao coerente entre `prepare`, `checkup`, `derive` e controle operacional compartilhado; as herancas documentais relevantes ficaram explicitas nos tickets aplicaveis e os `Closure criteria` tornaram esse contrato observavel na revalidacao atual.
+- Ciclos executados: 1
+- Thread da validacao: 019d2196-3788-7d92-a38d-fefbcaa03c78
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md [fonte=source-spec]
+  - tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: O pacote cobre os quatro blocos macro da spec, mas ainda deixa contratos documentais centrais de `prepare`, `checkup` e `derive` implícitos demais nos tickets aplicáveis; com isso, o aceite do backlog derivado ainda não fica objetivamente observável.
+  - Thread: 019d2196-3788-7d92-a38d-fefbcaa03c78
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md&tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md&tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md|ca-03&rf-08&rf-12&rf-27&rf-28, spec-inheritance-gap|tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md&tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md&tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md|rf-08&rf-12&rf-27&rf-28
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+- Ciclo 1 [revalidation]: GO (high)
+  - Resumo: O pacote derivado agora cobre o backlog inteiro da spec com particao coerente entre `prepare`, `checkup`, `derive` e controle operacional compartilhado; as herancas documentais relevantes ficaram explicitas nos tickets aplicaveis e os `Closure criteria` tornaram esse contrato observavel na revalidacao atual.
+  - Thread: 019d2196-3788-7d92-a38d-fefbcaa03c78
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 3
+    - Explicitei no ticket de `target_prepare` os campos obrigatorios herdados de RF-08 para o manifesto/relatorio em `docs/workflows/` e ajustei os `Closure criteria` para exigir o resumo final rastreavel de CA-03 e a observabilidade desses campos. [applied]
+    - Explicitei no ticket de `target_checkup` os campos obrigatorios de RF-12 (`working_tree_clean_at_start=true`, `report_commit_sha` quando houver versionamento e demais metadados do snapshot) e ajustei os `Closure criteria` para tornar esses itens observaveis no aceite. [applied]
+    - Explicitei no ticket de `target_derive_gaps` os campos autocontidos exigidos por RF-27 e o write-back completo exigido por RF-28, incluindo `Gap ID`, SHAs, caminhos do relatorio, `derivation_status`, `derived_at_utc` e a taxonomia completa de resultados por gap, alem de refletir isso nos `Closure criteria`. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Explicitei no ticket de `target_prepare` os campos obrigatorios herdados de RF-08 para o manifesto/relatorio em `docs/workflows/` e ajustei os `Closure criteria` para exigir o resumo final rastreavel de CA-03 e a observabilidade desses campos.
+  - Artefatos afetados: tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md
+  - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
+  - Resultado: applied
+- Explicitei no ticket de `target_checkup` os campos obrigatorios de RF-12 (`working_tree_clean_at_start=true`, `report_commit_sha` quando houver versionamento e demais metadados do snapshot) e ajustei os `Closure criteria` para tornar esses itens observaveis no aceite.
+  - Artefatos afetados: tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md
+  - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
+  - Resultado: applied
+- Explicitei no ticket de `target_derive_gaps` os campos autocontidos exigidos por RF-27 e o write-back completo exigido por RF-28, incluindo `Gap ID`, SHAs, caminhos do relatorio, `derivation_status`, `derived_at_utc` e a taxonomia completa de resultados por gap, alem de refletir isso nos `Closure criteria`.
+  - Artefatos afetados: tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
+  - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip:
-  - n/a
-- Classificacao final:
-  - n/a
-- Confianca:
-  - n/a
-- Frente causal analisada:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: A menor causa plausivel e uma omissao local na redacao inicial de tres tickets; nao houve falta material de prompt, contrato, validacao ou ordem no codex-flow-runner.
 - Achados sistemicos:
-  - n/a
+  - nenhum
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicacao:
-  - n/a
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/11-retrospectiva-workflow-apos-spec-audit.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - src/core/spec-ticket-validation.ts
+  - src/core/runner.ts
+  - src/integrations/workflow-gap-analysis-parser.ts
+- Elegibilidade de publicacao: nao
 - Resultado do ticket transversal ou limitacao operacional:
-  - n/a
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
@@ -158,11 +221,12 @@
 - Estado geral: approved
 - Itens atendidos:
   - Escopo funcional, contrato operacional, restricoes, guardrails, UX e rastreabilidade do v1 foram definidos.
+  - Existem fundacoes parciais reutilizaveis no runner atual para a entrega: descoberta de diretorios irmaos elegiveis por primeiro nivel, fila `P0 -> P1 -> P2` com suporte a `Status: blocked`, helper de commit/push, slot/capacidade para fluxos atuais e traces locais base em `.codex-flow-runner/flow-traces/`.
 - Pendencias em aberto:
-  - implementacao dos tres comandos;
-  - materializacao dos artefatos canonicos de preparo/checkup;
-  - integracao Telegram/status/cancel;
-  - testes automatizados e validacoes manuais da jornada ponta a ponta.
+  - Nenhum RF/CA da jornada `target_prepare` esta atendido integralmente; faltam resolvedor explicito de projeto alvo nao elegivel, allowlist de mutacao, manifesto/relatorio de preparo, pos-check e fronteira de versionamento (`tickets/open/2026-03-24-target-prepare-controlled-onboarding-gap.md`).
+  - Nenhum RF/CA da jornada `target_checkup` esta atendido integralmente; faltam preflight Git limpo, coleta deterministica por dimensao, schema canonico `md + json`, regras de validade por SHA/idade/drift e versionamento mesmo para resultado invalido (`tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md`).
+  - Nenhum RF/CA da jornada `target_derive_gaps` esta atendido integralmente; faltam validacao do relatorio, materializacao idempotente por `Gap fingerprint`, tickets readiness autocontidos e write-back do resultado por gap no proprio checkup (`tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`).
+  - Nenhum RF/CA de controle operacional compartilhado dos fluxos target esta atendido integralmente; faltam slot/bloqueios, `/_status`, `/_cancel`, milestones, CTAs e traces canonicos para `prepare`, `checkup` e `derive` (`tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`).
 - Evidencias de validacao:
   - entrevista profunda concluida com decisoes explicitas sobre contrato, preparo, checkup, derivacao, deduplicacao, prioridade, versionamento, UX e observabilidade.
 
@@ -196,3 +260,4 @@
 
 ## Historico de atualizacao
 - 2026-03-24 20:21Z - Versao inicial da spec consolidada apos entrevista profunda cobrindo contrato de compatibilidade, onboarding via `prepare`, readiness audit via `checkup`, derivacao conservadora de gaps, UX de Telegram, status/cancel e rastreabilidade local/canonica.
+- 2026-03-24 20:34Z - Triagem inicial concluida contra o estado atual do codigo; 4 tickets abertos para cobrir `target_prepare`, `target_checkup`, `target_derive_gaps` e a camada compartilhada de Telegram/status/cancel/traces.
