@@ -1,7 +1,7 @@
 # [TICKET] Falta porta de entrada publica para retomar `run-specs` a partir de `spec-ticket-validation`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -36,6 +36,7 @@
   - docs/workflows/codex-quality-gates.md
   - tickets/templates/internal-ticket-template.md
   - docs/specs/2026-03-24-retomada-do-run-specs-a-partir-da-validacao.md
+  - execplans/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao
@@ -94,19 +95,40 @@ Nao obrigatorio. Direcao concreta: adicionar comando Telegram dedicado, gate exp
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-23, RF-24, RF-25; CA-01, CA-02, CA-03, CA-04.
 - Evidencia observavel: o bot expone `/run_specs_from_validation <arquivo-da-spec.md>` com mensagens de uso, parsing, controle de acesso, validacao de elegibilidade e bloqueio acionavel quando nao houver backlog derivado aberto; `src/integrations/telegram-bot.test.ts` cobre sucesso, falta de argumento, caminho invalido/spec inexistente/spec inelegivel e ausencia de backlog derivado.
+- Validacao de fechamento: `src/integrations/telegram-bot.ts` ganhou `handleRunSpecsFromValidationCommand(...)`, parser dedicado, replies acionaveis e delegacao para `runSpecsFromValidation`; `src/main.ts` injeta `runner.requestRunSpecsFromValidation`; `src/integrations/telegram-bot.test.ts` cobre os cenarios `gera resposta de inicio ao executar /run_specs_from_validation`, `/run_specs_from_validation sem argumento`, `...com argumento`, `...bloqueia spec inexistente`, `...spec nao elegivel`, `...argumento invalido` e `...ausencia de backlog derivado aberto`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts` passou em 2026-03-24 18:38Z.
 - Requisito/RF/CA coberto: RF-07, RF-08, RF-09, RF-10, RF-11, RF-12, RF-13, RF-14, RF-20, RF-21, RF-22; CA-05, CA-06, CA-07, CA-09, CA-10, CA-11.
 - Evidencia observavel: o runner passa a ter um caminho de `run-specs` cujo ponto de entrada e `spec-ticket-validation`, sem executar `spec-triage`, sem criar/apagar/regenerar tickets antes da validacao, preservando a mesma logica de backlog derivado atual e a continuidade para retrospectiva/quebra em `NO_GO`/continuidade em `GO`; `src/core/runner.test.ts` cobre `NO_GO`, falha tecnica, `GO` e preservacao semantica de `/run_specs`.
+- Validacao de fechamento: `src/core/runner.ts` ganhou `requestRunSpecsFromValidation(...)`, preflight reutilizado, gate `validateRunSpecsFromValidationBacklog(...)` e executor compartilhado `runSpecsFlow(...)` com `entryPoint: "spec-ticket-validation"`; o caminho legado `/run_specs` continua apontando para `entryPoint: "spec-triage"`; `src/core/runner.test.ts` cobre `requestRunSpecsFromValidation bloqueia execucao quando nao ha backlog derivado aberto`, `...encerra com NO_GO sem executar spec-triage nem /run-all`, `...marca falha tecnica...` e `...com GO continua para fechamento, /run-all e spec-audit sem executar spec-triage`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts` passou em 2026-03-24 18:38Z.
 - Requisito/RF/CA coberto: RF-10.
 - Evidencia observavel: a rodada iniciada por `/run_specs_from_validation` comprova explicitamente que o primeiro passe de `spec-ticket-validation` roda em contexto novo em relacao a execucoes anteriores e preserva, sem regressao, autocorrecao controlada, o mesmo limite de ciclos, a mesma taxonomia de gaps, o mesmo veredito `GO | NO_GO` e o mesmo write-back funcional na spec quando aplicavel; `src/core/runner.test.ts` cobre esses asserts de contrato no caminho novo alem do legado.
+- Validacao de fechamento: o caminho novo continua chamando `runTimedSpecTicketValidationStage(...)` sem alterar o contrato interno do gate; `src/core/runner.test.ts` manteve verde o caso legado `requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a spec` e adicionou asserts para `specTriage === undefined`, `specTicketValidation?.verdict`, `completedStages` e `specTicketValidationSessionStartCalls === 1` no caminho novo; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` passou em 2026-03-24 18:38Z com 442 testes aprovados.
 - Requisito/RF/CA coberto: validacoes herdadas da spec.
 - Evidencia observavel: `npm test` e `npm run check` concluem sem regressao; a cobertura direcionada de `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` inclui os cenarios exigidos; as validacoes manuais no Telegram registradas na spec ficam executaveis para este recorte, incluindo confirmar no Telegram o inicio direto em `spec-ticket-validation`, a parada antes de `spec-close-and-version` e `/run_all` em `NO_GO`, e a continuidade ate `spec-audit` em `GO`.
+- Validacao de fechamento: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/telegram-bot.test.ts`, `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/runner.test.ts`, `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passaram em 2026-03-24 18:38Z; a parte remanescente e apenas validacao manual externa no Telegram, registrada abaixo sem bloquear o aceite tecnico.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O comportamento pedido pelo ticket esta implementado, testado localmente e coberto pela matriz objetiva do ExecPlan.
+- Validacoes manuais externas ainda necessarias:
+  - Executar `/run_specs_from_validation <arquivo-da-spec.md>` em uma spec com backlog derivado aberto e confirmar, no Telegram, que a primeira etapa observavel e `spec-ticket-validation`.
+  - Executar o mesmo comando em um caso com `NO_GO` e confirmar que `spec-close-and-version` e `/run_all` nao sao iniciados.
+  - Executar o mesmo comando em um caso com `GO` e confirmar continuidade ate `spec-audit`.
+  - Executar o mesmo comando em uma spec elegivel sem backlog derivado aberto e confirmar bloqueio acionavel orientando `/run_specs`.
+- Como executar a validacao manual:
+  - Selecionar uma spec elegivel no projeto ativo com backlog derivado coerente.
+  - Acionar `/run_specs_from_validation <arquivo-da-spec.md>` no chat Telegram autorizado.
+  - Registrar no historico operacional a evidencia do ponto de entrada, do bloqueio em `NO_GO` e da continuidade em `GO`.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado e a uma spec elegivel para rodada real.
+- Motivo para nao bloquear o aceite: a implementacao tecnica ja foi comprovada por diff, codigo e validacoes automatizadas; o restante depende apenas de exercicio operacional externo ao agente.
 
 ## Decision log
 - 2026-03-24 - Ticket aberto na triagem da spec para cobrir o gap funcional principal da retomada pela validacao - sem esta porta de entrada publica, os demais ajustes de observabilidade/documentacao nao entregam valor operacional.
+- 2026-03-24 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-24 18:38Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-run-specs-from-validation-command-and-entrypoint-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.

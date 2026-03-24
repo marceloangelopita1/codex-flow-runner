@@ -602,6 +602,19 @@ export type RunSpecsRequestResult =
   | { status: "already-running" }
   | RunnerRequestBlockedResult;
 
+export type RunSpecsFromValidationRequestResult =
+  | { status: "started" }
+  | { status: "already-running" }
+  | RunnerRequestBlockedResult
+  | {
+      status: "validation-blocked";
+      message: string;
+    }
+  | {
+      status: "validation-failed";
+      message: string;
+    };
+
 export type RunSelectedTicketRequestResult =
   | { status: "started" }
   | RunnerRequestBlockedResult
@@ -615,6 +628,8 @@ export type RunSelectedTicketRequestResult =
     };
 
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
+
+type RunSpecsEntryPoint = "spec-triage" | "spec-ticket-validation";
 
 type RunSlotStartPreflightResult =
   | {
@@ -2490,9 +2505,83 @@ export class TicketRunner {
       }
 
       const { slot } = preflightOutcome;
-      this.startRunSlotLoop(slot, () => this.runSpecsAndRunAll(slot, spec));
+      this.startRunSlotLoop(slot, () =>
+        this.runSpecsFlow(slot, spec, {
+          entryPoint: "spec-triage",
+          sourceCommand: "/run_specs",
+        }),
+      );
 
       this.logger.info("Fluxo /run_specs agendado no loop principal", {
+        specFileName: spec.fileName,
+        specPath: spec.path,
+        activeProjectName: slot.project.name,
+        activeProjectPath: slot.project.path,
+      });
+
+      return { status: "started" };
+    } finally {
+      this.startRequestsInFlight = Math.max(0, this.startRequestsInFlight - 1);
+    }
+  };
+
+  requestRunSpecsFromValidation = async (
+    specFileName: string,
+  ): Promise<RunSpecsFromValidationRequestResult> => {
+    const normalizedSpecFileName = this.normalizeSpecFileName(specFileName);
+    const spec: SpecRef = {
+      fileName: normalizedSpecFileName,
+      path: this.resolveSpecPath(normalizedSpecFileName),
+    };
+
+    this.logger.info("Solicitacao de retomada de spec pela validacao recebida", {
+      command: "run-specs-from-validation",
+      specFileName: spec.fileName,
+      specPath: spec.path,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      isPaused: this.state.isPaused,
+      currentTicket: this.state.currentTicket,
+      currentSpec: this.state.currentSpec,
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+    });
+
+    this.startRequestsInFlight += 1;
+    try {
+      const preflightOutcome = await this.prepareRunSlotStart("run-specs");
+      if ("status" in preflightOutcome) {
+        return preflightOutcome;
+      }
+
+      const { slot } = preflightOutcome;
+      const eligibility = await this.validateRunSpecsFromValidationBacklog(slot.project.path, spec);
+      if (eligibility.status !== "eligible") {
+        this.releaseSlot(slot.key);
+        this.logger.warn(
+          eligibility.status === "validation-blocked"
+            ? "Comando /run_specs_from_validation bloqueado antes da execucao"
+            : "Falha ao validar backlog para /run_specs_from_validation",
+          {
+            specFileName: spec.fileName,
+            specPath: spec.path,
+            activeProjectName: slot.project.name,
+            activeProjectPath: slot.project.path,
+            message: eligibility.message,
+          },
+        );
+        return eligibility;
+      }
+
+      this.startRunSlotLoop(slot, () =>
+        this.runSpecsFlow(slot, spec, {
+          entryPoint: "spec-ticket-validation",
+          sourceCommand: "/run_specs_from_validation",
+        }),
+      );
+
+      this.logger.info("Fluxo /run_specs_from_validation agendado no loop principal", {
         specFileName: spec.fileName,
         specPath: spec.path,
         activeProjectName: slot.project.name,
@@ -4618,9 +4707,27 @@ export class TicketRunner {
       });
   }
 
-  private async runSpecsAndRunAll(slot: ActiveRunnerSlot, spec: SpecRef): Promise<void> {
+  private async runSpecsFlow(
+    slot: ActiveRunnerSlot,
+    spec: SpecRef,
+    options: {
+      entryPoint: RunSpecsEntryPoint;
+      sourceCommand: "/run_specs" | "/run_specs_from_validation";
+    },
+  ): Promise<void> {
     const triageTimingCollector = this.createFlowTimingCollector<RunSpecsTriageTimingStage>();
     const flowTimingCollector = this.createFlowTimingCollector<RunSpecsFlowTimingStage>();
+    const startedFromValidation = options.entryPoint === "spec-ticket-validation";
+    const sourceCommand = options.sourceCommand;
+    const flowDescription = startedFromValidation
+      ? "retomada pela validacao da spec"
+      : "triagem da spec";
+    const flowStartMessage = startedFromValidation
+      ? `Retomada da spec ${spec.fileName} em spec-ticket-validation iniciada`
+      : `Triagem da spec ${spec.fileName} iniciada`;
+    const runAllStartMessage = startedFromValidation
+      ? "Validacao retomada e gate concluidos; iniciando rodada /run-all para processar tickets abertos."
+      : "Triagem e gate concluidos; iniciando rodada /run-all para processar tickets abertos.";
     let runAllSummary: RunAllFlowSummary | undefined;
     let flowSummary: RunSpecsFlowSummary | null = null;
     let specTriageSummary: RunSpecsSpecTriageSummary | undefined;
@@ -4635,7 +4742,7 @@ export class TicketRunner {
     let workflowImprovementTicketSummary: WorkflowImprovementTicketPublicationResult | undefined;
     let triageCompleted = false;
     slot.currentSpec = spec.fileName;
-    this.touchSlot(slot, "select-spec", `Triagem da spec ${spec.fileName} iniciada`);
+    this.touchSlot(slot, "select-spec", flowStartMessage);
 
     const runTimedStructuredTriageStage = async <Summary>(params: {
       stage: Extract<RunSpecsTriageTimingStage, "spec-triage" | "spec-close-and-version">;
@@ -5233,9 +5340,11 @@ export class TicketRunner {
     };
 
     try {
-      specTriageSummary = await runTimedSpecTriageStage(
-        `Executando etapa spec-triage para ${spec.fileName}`,
-      );
+      if (!startedFromValidation) {
+        specTriageSummary = await runTimedSpecTriageStage(
+          `Executando etapa spec-triage para ${spec.fileName}`,
+        );
+      }
       let validationExecution:
         | {
             summary: RunSpecsTicketValidationSummary;
@@ -5283,9 +5392,13 @@ export class TicketRunner {
         this.touchSlot(
           slot,
           "error",
-          `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada`,
+          `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada para ${sourceCommand}`,
         );
-        this.logger.error("Erro no ciclo de triagem de spec", {
+        this.logger.error(
+          startedFromValidation
+            ? "Erro no ciclo funcional de run-specs"
+            : "Erro no ciclo de triagem de spec",
+          {
           spec: spec.fileName,
           specPath: spec.path,
           stage: "spec-ticket-validation",
@@ -5293,14 +5406,16 @@ export class TicketRunner {
           durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
+          sourceCommand,
           derivationRetrospectiveDecision: specTicketDerivationRetrospectiveSummary?.decision,
-        });
+          },
+        );
         await this.emitRunSpecsTriageMilestone({
           spec: { ...spec },
           outcome: "failure",
           finalStage,
           nextAction:
-            "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs.",
+            `Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute ${sourceCommand}.`,
           details,
           timing: triageTiming,
           specTicketValidation: specTicketValidationSummary,
@@ -5347,7 +5462,7 @@ export class TicketRunner {
             ? "spec-ticket-derivation-retrospective"
             : "spec-ticket-validation";
         const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
-        this.logger.info("Gate spec-ticket-validation bloqueou continuidade do /run_specs", {
+        this.logger.info("Gate spec-ticket-validation bloqueou continuidade do fluxo run-specs", {
           spec: spec.fileName,
           specPath: spec.path,
           verdict: validationSummary.verdict,
@@ -5357,13 +5472,14 @@ export class TicketRunner {
           durationMs: triageTiming.totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
+          sourceCommand,
         });
         await this.emitRunSpecsTriageMilestone({
           spec: { ...spec },
           outcome: "blocked",
           finalStage,
           nextAction:
-            "Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute /run_specs.",
+            `Rodada /run-all bloqueada pelo veredito NO_GO em spec-ticket-validation. Corrija os gaps e reexecute ${sourceCommand}.`,
           details: [validationSummary.summary, specTicketDerivationRetrospectiveSummary?.summary]
             .filter(Boolean)
             .join(" "),
@@ -5375,7 +5491,7 @@ export class TicketRunner {
         this.touchSlot(
           slot,
           "idle",
-          `Fluxo /run_specs bloqueado pelo gate spec-ticket-validation para ${spec.fileName}`,
+          `Fluxo ${sourceCommand} bloqueado pelo gate spec-ticket-validation para ${spec.fileName}`,
         );
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
@@ -5401,19 +5517,20 @@ export class TicketRunner {
         `Executando etapa spec-close-and-version para ${spec.fileName}`,
       );
       const triageTiming = this.buildFlowTimingSnapshot(triageTimingCollector);
-      this.logger.info("Triagem de spec concluida com sucesso", {
+      this.logger.info("Ciclo inicial de run-specs concluido com sucesso", {
         spec: spec.fileName,
         specPath: spec.path,
         durationMs: triageTiming.totalDurationMs,
         activeProjectName: slot.project.name,
         activeProjectPath: slot.project.path,
+        sourceCommand,
+        entryPoint: options.entryPoint,
       });
       await this.emitRunSpecsTriageMilestone({
         spec: { ...spec },
         outcome: "success",
         finalStage: "spec-close-and-version",
-        nextAction:
-          "Triagem e gate concluidos; iniciando rodada /run-all para processar tickets abertos.",
+        nextAction: runAllStartMessage,
         timing: triageTiming,
         specTicketValidation: validationSummary,
         specTicketDerivationRetrospective: specTicketDerivationRetrospectiveSummary,
@@ -5423,7 +5540,9 @@ export class TicketRunner {
       this.touchSlot(
         slot,
         "idle",
-        `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`,
+        startedFromValidation
+          ? `Retomada pela validacao da spec ${spec.fileName} concluida; iniciando rodada /run-all`
+          : `Triagem da spec ${spec.fileName} concluida; iniciando rodada /run-all`,
       );
       runAllSummary = await this.runForever(slot);
       if (runAllSummary.outcome === "success") {
@@ -5458,7 +5577,7 @@ export class TicketRunner {
           }
         }
         slot.currentSpec = null;
-        this.touchSlot(slot, "idle", `Fluxo /run_specs finalizado para ${spec.fileName}`);
+        this.touchSlot(slot, "idle", `Fluxo ${sourceCommand} finalizado para ${spec.fileName}`);
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
           spec,
@@ -5490,7 +5609,7 @@ export class TicketRunner {
           completionReason: "run-all-failure",
           details:
             runAllSummary.details ??
-            "Fluxo /run-all interrompido durante a execucao encadeada de /run_specs.",
+            `Fluxo /run-all interrompido durante a execucao encadeada de ${sourceCommand}.`,
           triageTimingCollector,
           flowTimingCollector,
           specTriage: specTriageSummary,
@@ -5531,24 +5650,28 @@ export class TicketRunner {
         const failedAtTicketValidation = stage === "spec-ticket-validation";
         const failedAtDerivationRetrospective = stage === "spec-ticket-derivation-retrospective";
         const nextAction = failedAtCloseAndVersion
-          ? "Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute /run_specs."
+          ? `Rodada /run-all bloqueada. Corrija a falha de fechamento e reexecute ${sourceCommand}.`
           : failedAtTicketValidation
-            ? "Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute /run_specs."
+            ? `Gate spec-ticket-validation interrompido por falha tecnica. Corrija a falha e reexecute ${sourceCommand}.`
           : failedAtDerivationRetrospective
-            ? "Retrospectiva sistemica da derivacao falhou antes do fechamento. Corrija a falha e reexecute /run_specs."
-          : "Triagem interrompida antes do fechamento. Corrija a falha e reexecute /run_specs.";
+            ? `Retrospectiva sistemica da derivacao falhou antes do fechamento. Corrija a falha e reexecute ${sourceCommand}.`
+          : `Fluxo interrompido antes do fechamento. Corrija a falha e reexecute ${sourceCommand}.`;
         this.touchSlot(
           slot,
           "error",
           failedAtCloseAndVersion
-            ? `Falha ao encerrar triagem da spec ${spec.fileName}; rodada /run-all bloqueada`
+            ? `Falha ao concluir ${flowDescription} ${spec.fileName}; rodada /run-all bloqueada`
             : failedAtTicketValidation
-              ? `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada`
+              ? `Falha ao executar spec-ticket-validation da spec ${spec.fileName}; rodada /run-all bloqueada para ${sourceCommand}`
             : failedAtDerivationRetrospective
               ? `Falha na retrospectiva sistemica da derivacao da spec ${spec.fileName}`
-            : `Falha ao executar triagem da spec ${spec.fileName}`,
+            : `Falha ao executar ${flowDescription} ${spec.fileName}`,
         );
-        this.logger.error("Erro no ciclo de triagem de spec", {
+        this.logger.error(
+          startedFromValidation
+            ? "Erro no ciclo funcional de run-specs"
+            : "Erro no ciclo de triagem de spec",
+          {
           spec: spec.fileName,
           specPath: spec.path,
           stage,
@@ -5556,7 +5679,10 @@ export class TicketRunner {
           durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
-        });
+          sourceCommand,
+          entryPoint: options.entryPoint,
+          },
+        );
         await this.emitRunSpecsTriageMilestone({
           spec: { ...spec },
           outcome: "failure",
@@ -5598,16 +5724,17 @@ export class TicketRunner {
         );
         this.logger.error(
           failedAtRetrospective
-            ? "Erro no fluxo /run_specs durante spec-workflow-retrospective"
-            : "Erro no fluxo /run_specs durante spec-audit",
+            ? `Erro no fluxo ${sourceCommand} durante spec-workflow-retrospective`
+            : `Erro no fluxo ${sourceCommand} durante spec-audit`,
           {
-          spec: spec.fileName,
-          specPath: spec.path,
-          stage,
-          error: errorMessage,
-          durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
-          activeProjectName: slot.project.name,
-          activeProjectPath: slot.project.path,
+            spec: spec.fileName,
+            specPath: spec.path,
+            stage,
+            error: errorMessage,
+            durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
+            activeProjectName: slot.project.name,
+            activeProjectPath: slot.project.path,
+            sourceCommand,
           },
         );
         flowSummary = this.buildRunSpecsFlowSummary({
@@ -5632,8 +5759,12 @@ export class TicketRunner {
         });
       } else {
         this.recordFlowStageFailure(flowTimingCollector, "run-all", 0);
-        this.touchSlot(slot, "error", `Falha no /run-all encadeado apos triagem da spec ${spec.fileName}`);
-        this.logger.error("Erro no fluxo /run_specs durante /run-all encadeado", {
+        this.touchSlot(
+          slot,
+          "error",
+          `Falha no /run-all encadeado apos ${flowDescription} ${spec.fileName}`,
+        );
+        this.logger.error(`Erro no fluxo ${sourceCommand} durante /run-all encadeado`, {
           spec: spec.fileName,
           specPath: spec.path,
           stage: "run-all",
@@ -5641,6 +5772,7 @@ export class TicketRunner {
           durationMs: this.buildFlowTimingSnapshot(flowTimingCollector).totalDurationMs,
           activeProjectName: slot.project.name,
           activeProjectPath: slot.project.path,
+          sourceCommand,
         });
         flowSummary = this.buildRunSpecsFlowSummary({
           slot,
@@ -5670,7 +5802,7 @@ export class TicketRunner {
           outcome: "failure",
           finalStage: "unknown",
           completionReason: "triage-failure",
-          details: "Fluxo /run_specs interrompido antes da emissao do resumo final.",
+          details: `Fluxo ${sourceCommand} interrompido antes da emissao do resumo final.`,
           triageTimingCollector,
           flowTimingCollector,
           specTriage: specTriageSummary,
@@ -5876,6 +6008,51 @@ export class TicketRunner {
             partialSummary,
             packageContext ?? undefined,
           );
+    }
+  }
+
+  private async validateRunSpecsFromValidationBacklog(
+    projectPath: string,
+    spec: SpecRef,
+  ): Promise<
+    | { status: "eligible" }
+    | {
+        status: "validation-blocked";
+        message: string;
+      }
+    | {
+        status: "validation-failed";
+        message: string;
+      }
+  > {
+    try {
+      await this.buildSpecTicketValidationPackageContext(projectPath, spec);
+      return { status: "eligible" };
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      if (
+        details.includes("nenhum ticket aberto da linhagem foi encontrado") ||
+        details.startsWith(
+          "A spec referencia tickets abertos inexistentes para spec-ticket-validation:",
+        )
+      ) {
+        return {
+          status: "validation-blocked",
+          message: [
+            `Nao existe backlog derivado aberto reaproveitavel para ${spec.fileName}.`,
+            "Revise a linhagem entre a spec e os tickets abertos atuais ou use /run_specs <arquivo-da-spec.md> para uma retriagem completa.",
+          ].join(" "),
+        };
+      }
+
+      return {
+        status: "validation-failed",
+        message: [
+          `Falha ao validar o backlog derivado aberto para ${spec.fileName}.`,
+          "Verifique logs/permissoes do projeto ativo e tente novamente.",
+          `Detalhes: ${details}`,
+        ].join(" "),
+      };
     }
   }
 

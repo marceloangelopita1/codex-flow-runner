@@ -302,6 +302,7 @@ const bootstrap = async () => {
     {
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
+      runSpecsFromValidation: runner.requestRunSpecsFromValidation,
       runSelectedTicket: runner.requestRunSelectedTicket,
       startDiscoverSpecSession: runner.startDiscoverSpecSession,
       submitDiscoverSpecInput: runner.submitDiscoverSpecInput,

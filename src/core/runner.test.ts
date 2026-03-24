@@ -3647,6 +3647,249 @@ test("requestRunSpecs encerra com NO_GO em spec-ticket-validation e atualiza a s
   }
 });
 
+test("requestRunSpecsFromValidation bloqueia execucao quando nao ha backlog derivado aberto", async () => {
+  const fixture = await setupRunSpecsFixture([]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies);
+
+    const request = await runner.requestRunSpecsFromValidation(specFileName);
+    assert.equal(request.status, "validation-blocked");
+    if (request.status === "validation-blocked") {
+      assert.match(request.message, /backlog derivado aberto reaproveitavel/u);
+      assert.match(request.message, /\/run_specs/u);
+    }
+    assert.equal(codex.specTicketValidationSessionStartCalls, 0);
+    assert.equal(runner.getState().isRunning, false);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecsFromValidation encerra com NO_GO sem executar spec-triage nem /run-all", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    codex.specTicketValidationTurns = [
+      createSpecTicketValidationPassResult({
+        verdict: "NO_GO",
+        confidence: "medium",
+        summary: "Persistem gaps no backlog derivado atual.",
+        gaps: [
+          {
+            gapType: "coverage-gap",
+            summary: "RF-01 ainda sem ticket dedicado.",
+            affectedArtifactPaths: [`tickets/open/${ticketA.name}`],
+            requirementRefs: ["RF-01", "CA-01"],
+            evidence: ["O backlog aberto continua sem o ticket necessario."],
+            probableRootCause: "ticket",
+            isAutoCorrectable: false,
+          },
+        ],
+      }),
+    ];
+    const milestones: RunSpecsTriageLifecycleEvent[] = [];
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        return fixture.tickets[0] ?? null;
+      },
+      closeTicket: async () => undefined,
+    };
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runSpecsEventHandlers: {
+          onTriageMilestone: async (event) => {
+            milestones.push(event);
+          },
+        } satisfies RunSpecsEventHandlers,
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecsFromValidation(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [`spec:${specFileName}:spec-ticket-derivation-retrospective`],
+    );
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(nextTicketCalls, 0);
+    assert.equal(milestones[0]?.outcome, "blocked");
+    assert.match(milestones[0]?.nextAction ?? "", /\/run_specs_from_validation/u);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo run-specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "blocked");
+    assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-no-go");
+    assert.equal(runSpecsSummary.specTriage, undefined);
+    assert.equal(runSpecsSummary.runAllSummary, undefined);
+    assert.equal(runSpecsSummary.specTicketValidation?.verdict, "NO_GO");
+    assert.deepEqual(runSpecsSummary.timing.completedStages, [
+      "spec-ticket-validation",
+      "spec-ticket-derivation-retrospective",
+    ]);
+    assert.equal(
+      runner.getState().lastMessage,
+      `Fluxo /run_specs_from_validation bloqueado pelo gate spec-ticket-validation para ${specFileName}`,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecsFromValidation marca falha tecnica em spec-ticket-validation sem executar spec-triage", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+    codex.specTicketValidationSessionFactory = () => ({
+      runTurn: async () => {
+        throw new Error("falha simulada antes do primeiro passe estruturado");
+      },
+      getThreadId: () => null,
+      cancel: async () => undefined,
+    });
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue: defaultQueue,
+      codexClient: codex,
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(logger, roundDependencies, {
+      runnerOptions: {
+        runFlowEventHandlers,
+      },
+    });
+
+    const request = await runner.requestRunSpecsFromValidation(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    const runSpecsSummary = flowSummaries.find((event) => event.flow === "run-specs");
+    assert.ok(runSpecsSummary);
+    if (runSpecsSummary?.flow !== "run-specs") {
+      assert.fail("resumo run-specs deveria existir");
+    }
+
+    assert.equal(runSpecsSummary.outcome, "failure");
+    assert.equal(runSpecsSummary.completionReason, "spec-ticket-validation-failure");
+    assert.equal(runSpecsSummary.specTriage, undefined);
+    assert.equal(runSpecsSummary.runAllSummary, undefined);
+    assert.equal(runSpecsSummary.finalStage, "spec-ticket-validation");
+    assert.match(runSpecsSummary.details ?? "", /Falha tecnica antes do primeiro passe estruturado/u);
+    assert.match(runSpecsSummary.details ?? "", /insumos estruturados suficientes/u);
+    assert.deepEqual(runSpecsSummary.timing.completedStages, [
+      "spec-ticket-derivation-retrospective",
+    ]);
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
+test("requestRunSpecsFromValidation com GO continua para fechamento, /run-all e spec-audit sem executar spec-triage", async () => {
+  const fixture = await setupRunSpecsFixture([ticketA.name, ticketB.name]);
+  try {
+    const logger = new SpyLogger();
+    const codex = new StubCodexClient();
+    const gitVersioning = new StubGitVersioning();
+    const { summaries, onTicketFinalized } = createSummaryCollector();
+    let nextTicketCalls = 0;
+    const queue: TicketQueue = {
+      ensureStructure: async () => undefined,
+      nextOpenTicket: async () => {
+        nextTicketCalls += 1;
+        if (nextTicketCalls === 1) {
+          return fixture.tickets[0] ?? null;
+        }
+
+        if (nextTicketCalls === 2) {
+          return fixture.tickets[1] ?? null;
+        }
+
+        return null;
+      },
+      closeTicket: async () => undefined,
+    };
+    const roundDependencies = createRoundDependencies({
+      activeProject: fixture.activeProject,
+      queue,
+      codexClient: codex,
+      gitVersioning,
+    });
+    const runner = createRunner(logger, roundDependencies, { onTicketFinalized });
+
+    const request = await runner.requestRunSpecsFromValidation(specFileName);
+    assert.deepEqual(request, { status: "started" });
+    await waitForRunnerToStop(runner);
+
+    assert.deepEqual(
+      codex.calls.map((value) => `${value.target}:${value.ticketName}:${value.stage}`),
+      [
+        `spec:${specFileName}:spec-close-and-version`,
+        `ticket:${fixture.tickets[0]?.name}:plan`,
+        `ticket:${fixture.tickets[0]?.name}:implement`,
+        `ticket:${fixture.tickets[0]?.name}:close-and-version`,
+        `ticket:${fixture.tickets[1]?.name}:plan`,
+        `ticket:${fixture.tickets[1]?.name}:implement`,
+        `ticket:${fixture.tickets[1]?.name}:close-and-version`,
+        `spec:${specFileName}:spec-audit`,
+      ],
+    );
+    assert.equal(codex.specTicketValidationSessionStartCalls, 1);
+    assert.equal(nextTicketCalls, 3);
+    assert.equal(summaries.length, 2);
+
+    const lastRunFlowSummary = runner.getState().lastRunFlowSummary;
+    assert.ok(lastRunFlowSummary);
+    if (lastRunFlowSummary?.flow !== "run-specs") {
+      assert.fail("resumo final run-specs deveria existir");
+    }
+
+    assert.equal(lastRunFlowSummary.outcome, "success");
+    assert.equal(lastRunFlowSummary.specTriage, undefined);
+    assert.equal(lastRunFlowSummary.specTicketValidation?.verdict, "GO");
+    assert.equal(lastRunFlowSummary.runAllSummary?.outcome, "success");
+    assert.deepEqual(lastRunFlowSummary.timing.completedStages, [
+      "spec-ticket-validation",
+      "spec-ticket-derivation-retrospective",
+      "spec-close-and-version",
+      "run-all",
+      "spec-audit",
+    ]);
+    assert.equal(
+      runner.getState().lastMessage,
+      `Fluxo /run_specs_from_validation finalizado para ${specFileName}`,
+    );
+  } finally {
+    await cleanupTempProjectRoot(fixture.projectRoot);
+  }
+});
+
 test("buildSpecTicketValidationPackageContext aceita metadata em portugues e links markdown relativos", async () => {
   const projectRoot = await createTempProjectRoot();
   try {

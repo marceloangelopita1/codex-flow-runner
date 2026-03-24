@@ -433,6 +433,7 @@ type ControlCommand =
   | "specs"
   | "tickets_open"
   | "run_specs"
+  | "run_specs_from_validation"
   | "plan_spec"
   | "plan_spec_status"
   | "plan_spec_cancel"
@@ -480,6 +481,13 @@ interface ControllerOptions {
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
   runSpecsMessage?: string;
+  runSpecsFromValidationStatus?:
+    | "started"
+    | "already-running"
+    | "blocked"
+    | "validation-blocked"
+    | "validation-failed";
+  runSpecsFromValidationMessage?: string;
   runSelectedTicketResult?: RunSelectedTicketRequestResult;
   codexChatStartResult?: CodexChatSessionStartResult;
   codexChatInputResult?: CodexChatSessionInputResult;
@@ -693,6 +701,8 @@ const createController = (options: ControllerOptions = {}) => {
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
+    runSpecsFromValidationCalls: 0,
+    runSpecsFromValidationArgs: [] as string[],
     listOpenTicketsCalls: 0,
     readOpenTicketCalls: 0,
     readOpenTicketArgs: [] as string[],
@@ -909,6 +919,43 @@ const createController = (options: ControllerOptions = {}) => {
           reason: "codex-auth-missing" as const,
           message:
             options.runSpecsMessage ??
+            "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
+        };
+      }
+
+      return { status: "started" as const };
+    },
+    runSpecsFromValidation: (specFileName: string) => {
+      controlState.runSpecsFromValidationCalls += 1;
+      controlState.runSpecsFromValidationArgs.push(specFileName);
+      if (options.runSpecsFromValidationStatus === "already-running") {
+        return { status: "already-running" as const };
+      }
+
+      if (options.runSpecsFromValidationStatus === "validation-blocked") {
+        return {
+          status: "validation-blocked" as const,
+          message:
+            options.runSpecsFromValidationMessage ??
+            "Nao existe backlog derivado aberto reaproveitavel para a spec informada.",
+        };
+      }
+
+      if (options.runSpecsFromValidationStatus === "validation-failed") {
+        return {
+          status: "validation-failed" as const,
+          message:
+            options.runSpecsFromValidationMessage ??
+            "Falha ao validar o backlog derivado aberto para a spec informada.",
+        };
+      }
+
+      if (options.runSpecsFromValidationStatus === "blocked") {
+        return {
+          status: "blocked" as const,
+          reason: "codex-auth-missing" as const,
+          message:
+            options.runSpecsFromValidationMessage ??
             "Codex CLI nao autenticado. Execute `codex login` no mesmo usuario que roda o runner.",
         };
       }
@@ -1419,6 +1466,23 @@ const callBuildRunSpecsReply = async (
   });
 };
 
+const callBuildRunSpecsFromValidationReply = async (
+  controller: TelegramController,
+  specFileName: string,
+): Promise<{ reply: string; started: boolean }> => {
+  const internalController = controller as unknown as {
+    buildRunSpecsFromValidationReply: (context: {
+      chatId: string;
+      specFileName: string;
+    }) => Promise<{ reply: string; started: boolean }>;
+  };
+
+  return internalController.buildRunSpecsFromValidationReply({
+    chatId: "42",
+    specFileName,
+  });
+};
+
 const callBuildStartReply = (controller: TelegramController): string => {
   const internalController = controller as unknown as {
     buildStartReply: () => string;
@@ -1571,6 +1635,25 @@ const callHandleRunSpecsCommand = async (
   };
 
   await internalController.handleRunSpecsCommand(context);
+};
+
+const callHandleRunSpecsFromValidationCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleRunSpecsFromValidationCommand: (value: {
+      chat: { id: number };
+      message?: { text?: string };
+      reply: (text: string, extra?: unknown) => Promise<unknown>;
+    }) => Promise<void>;
+  };
+
+  await internalController.handleRunSpecsFromValidationCommand(context);
 };
 
 const callHandleDiscoverSpecCommand = async (
@@ -2598,6 +2681,47 @@ test("gera resposta acionavel quando /run_specs e bloqueado", async () => {
   assert.equal(controlState.runSpecsCalls, 1);
 });
 
+test("gera resposta de inicio ao executar /run_specs_from_validation", async () => {
+  const { controller, controlState } = createController({
+    runSpecsFromValidationStatus: "started",
+  });
+
+  const reply = await callBuildRunSpecsFromValidationReply(
+    controller,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+
+  assert.equal(
+    reply.reply,
+    "▶️ Runner iniciado via /run_specs_from_validation para 2026-02-19-approved-spec-triage-run-specs.md.",
+  );
+  assert.equal(reply.started, true);
+  assert.equal(controlState.runSpecsFromValidationCalls, 1);
+  assert.deepEqual(controlState.runSpecsFromValidationArgs, [
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  ]);
+});
+
+test("gera resposta acionavel quando /run_specs_from_validation e bloqueado por backlog", async () => {
+  const { controller, controlState } = createController({
+    runSpecsFromValidationStatus: "validation-blocked",
+    runSpecsFromValidationMessage:
+      "Nao existe backlog derivado aberto reaproveitavel para 2026-02-19-approved-spec-triage-run-specs.md. Use /run_specs <arquivo-da-spec.md> para retriagem completa.",
+  });
+
+  const reply = await callBuildRunSpecsFromValidationReply(
+    controller,
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+
+  assert.equal(
+    reply.reply,
+    "❌ Nao existe backlog derivado aberto reaproveitavel para 2026-02-19-approved-spec-triage-run-specs.md. Use /run_specs <arquivo-da-spec.md> para retriagem completa.",
+  );
+  assert.equal(reply.started, false);
+  assert.equal(controlState.runSpecsFromValidationCalls, 1);
+});
+
 test("/pause atua no runner do projeto ativo", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
@@ -2730,6 +2854,55 @@ test("/run_specs com argumento inicia fluxo de triagem", async () => {
   assert.equal(
     replies[0],
     "▶️ Runner iniciado via /run_specs para 2026-02-19-approved-spec-triage-run-specs.md.",
+  );
+});
+
+test("/run_specs_from_validation sem argumento retorna mensagem de uso e nao inicia execucao", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.runSpecsFromValidationCalls, 0);
+  assert.equal(controlState.validateRunSpecsTargetCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0], "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.");
+});
+
+test("/run_specs_from_validation com argumento inicia fluxo direto em validacao", async () => {
+  const { controller, controlState } = createController({
+    runSpecsFromValidationStatus: "started",
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.deepEqual(controlState.validatedSpecsArgs, [
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  ]);
+  assert.equal(controlState.runSpecsFromValidationCalls, 1);
+  assert.deepEqual(controlState.runSpecsFromValidationArgs, [
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  ]);
+  assert.equal(replies.length, 1);
+  assert.equal(
+    replies[0],
+    "▶️ Runner iniciado via /run_specs_from_validation para 2026-02-19-approved-spec-triage-run-specs.md.",
   );
 });
 
@@ -4483,6 +4656,115 @@ test("/run_specs bloqueia argumento invalido sem iniciar runner", async () => {
   assert.equal(controlState.runSpecsCalls, 0);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Argumento inválido/u);
+});
+
+test("/run_specs_from_validation bloqueia spec inexistente sem iniciar runner", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "not-found",
+      spec: {
+        fileName: "spec-inexistente.md",
+        specPath: "docs/specs/spec-inexistente.md",
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation spec-inexistente.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsFromValidationCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Spec não encontrada para \/run_specs_from_validation/u);
+});
+
+test("/run_specs_from_validation bloqueia spec nao elegivel sem iniciar runner", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "not-eligible",
+      spec: {
+        fileName: "2026-02-19-telegram-access-and-control-plane.md",
+        specPath: "docs/specs/2026-02-19-telegram-access-and-control-plane.md",
+      },
+      metadata: {
+        status: "approved",
+        specTreatment: null,
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation 2026-02-19-telegram-access-and-control-plane.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsFromValidationCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Spec não elegível para \/run_specs_from_validation/u);
+  assert.match(replies[0] ?? "", /Spec treatment: \(ausente\)/u);
+});
+
+test("/run_specs_from_validation bloqueia argumento invalido sem iniciar runner", async () => {
+  const { controller, controlState } = createController({
+    runSpecsValidationResult: {
+      status: "invalid-path",
+      input: "../../etc/passwd",
+      message:
+        "Formato invalido para spec. Use apenas <arquivo-da-spec.md> ou docs/specs/<arquivo-da-spec.md>.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation ../../etc/passwd" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsFromValidationCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Argumento inválido para \/run_specs_from_validation/u);
+});
+
+test("/run_specs_from_validation bloqueia ausencia de backlog derivado aberto", async () => {
+  const { controller, controlState } = createController({
+    runSpecsFromValidationStatus: "validation-blocked",
+    runSpecsFromValidationMessage:
+      "Nao existe backlog derivado aberto reaproveitavel para 2026-02-19-approved-spec-triage-run-specs.md. Use /run_specs <arquivo-da-spec.md> para uma retriagem completa.",
+  });
+  const replies: string[] = [];
+
+  await callHandleRunSpecsFromValidationCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/run_specs_from_validation 2026-02-19-approved-spec-triage-run-specs.md" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.validateRunSpecsTargetCalls, 1);
+  assert.equal(controlState.runSpecsFromValidationCalls, 1);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Nao existe backlog derivado aberto reaproveitavel/u);
+  assert.match(replies[0] ?? "", /\/run_specs/u);
 });
 
 test("com TELEGRAM_ALLOWED_CHAT_ID, chat nao autorizado nao executa /specs (CA-11)", async () => {

@@ -20,6 +20,7 @@ import type {
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
   RunAllRequestResult,
+  RunSpecsFromValidationRequestResult,
   RunSelectedTicketRequestResult,
   RunSpecsRequestResult,
 } from "../core/runner.js";
@@ -72,6 +73,9 @@ import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 interface BotControls {
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
+  runSpecsFromValidation: (
+    specFileName: string,
+  ) => Promise<RunSpecsFromValidationRequestResult> | RunSpecsFromValidationRequestResult;
   runSelectedTicket: (
     ticketFileName: string,
   ) => Promise<RunSelectedTicketRequestResult> | RunSelectedTicketRequestResult;
@@ -505,6 +509,8 @@ const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
+const RUN_SPECS_FROM_VALIDATION_USAGE_REPLY =
+  "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.";
 const RUN_SPECS_INVALID_SPEC_REPLY_PREFIX = "❌ Argumento inválido para /run_specs:";
 const RUN_SPECS_NOT_FOUND_REPLY_PREFIX = "❌ Spec não encontrada para /run_specs:";
 const RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX = "❌ Spec não elegível para /run_specs:";
@@ -513,6 +519,15 @@ const RUN_SPECS_VALIDATION_CRITERIA_REPLY =
 const RUN_SPECS_VALIDATION_FAILED_REPLY =
   "❌ Falha ao validar spec para /run_specs. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
+const RUN_SPECS_FROM_VALIDATION_INVALID_SPEC_REPLY_PREFIX =
+  "❌ Argumento inválido para /run_specs_from_validation:";
+const RUN_SPECS_FROM_VALIDATION_NOT_FOUND_REPLY_PREFIX =
+  "❌ Spec não encontrada para /run_specs_from_validation:";
+const RUN_SPECS_FROM_VALIDATION_NOT_ELIGIBLE_REPLY_PREFIX =
+  "❌ Spec não elegível para /run_specs_from_validation:";
+const RUN_SPECS_FROM_VALIDATION_VALIDATION_FAILED_REPLY =
+  "❌ Falha ao validar spec para /run_specs_from_validation. Verifique logs do runner e tente novamente.";
+const RUN_SPECS_FROM_VALIDATION_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const UNKNOWN_COMMAND_REPLY = "ℹ️ Comando não reconhecido. Use /start para ver os comandos válidos.";
 const SPECS_EMPTY_REPLY =
   "ℹ️ Nenhuma spec elegível encontrada no projeto ativo. " +
@@ -1396,6 +1411,10 @@ export class TelegramController {
       await this.handleRunSpecsCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("run_specs_from_validation", async (ctx) => {
+      await this.handleRunSpecsFromValidationCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("codex_chat", async (ctx) => {
       await this.handleCodexChatCommand(ctx as unknown as CommandContext, "codex_chat");
     });
@@ -1858,6 +1877,61 @@ export class TelegramController {
     }
 
     const outcome = await this.buildRunSpecsReply({
+      chatId,
+      specFileName: validation.spec.fileName,
+    });
+    if (outcome.started) {
+      this.captureNotificationChat(chatId);
+    }
+
+    await ctx.reply(outcome.reply);
+  }
+
+  private async handleRunSpecsFromValidationCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /run_specs_from_validation recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "run_specs_from_validation",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const specFileName = this.parseRunSpecsFromValidationCommandFileName(ctx.message?.text);
+    if (!specFileName) {
+      await ctx.reply(RUN_SPECS_FROM_VALIDATION_USAGE_REPLY);
+      return;
+    }
+
+    let validation: SpecEligibilityResult;
+    try {
+      validation = await this.controls.validateRunSpecsTarget(specFileName);
+    } catch (error) {
+      this.logger.error("Falha ao validar spec para comando /run_specs_from_validation", {
+        chatId,
+        specInput: specFileName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(RUN_SPECS_FROM_VALIDATION_VALIDATION_FAILED_REPLY);
+      return;
+    }
+
+    if (validation.status !== "eligible") {
+      await ctx.reply(
+        this.buildRunSpecsValidationReply(validation, "/run_specs_from_validation"),
+      );
+      return;
+    }
+
+    const outcome = await this.buildRunSpecsFromValidationReply({
       chatId,
       specFileName: validation.spec.fileName,
     });
@@ -3468,6 +3542,20 @@ export class TelegramController {
     }
 
     const match = commandText.match(/^\/run_specs(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const value = match?.[1]?.trim();
+    if (!value) {
+      return null;
+    }
+
+    return value;
+  }
+
+  private parseRunSpecsFromValidationCommandFileName(commandText?: string): string | null {
+    if (!commandText) {
+      return null;
+    }
+
+    const match = commandText.match(/^\/run_specs_from_validation(?:@[^\s]+)?(?:\s+(.+))?$/u);
     const value = match?.[1]?.trim();
     if (!value) {
       return null;
@@ -5864,6 +5952,67 @@ export class TelegramController {
     };
   }
 
+  private async buildRunSpecsFromValidationReply(context: {
+    chatId: string;
+    specFileName: string;
+  }): Promise<{
+    reply: string;
+    started: boolean;
+    status:
+      | "started"
+      | "already-running"
+      | "blocked"
+      | "validation-blocked"
+      | "validation-failed";
+  }> {
+    const result = await this.controls.runSpecsFromValidation(context.specFileName);
+    const logContext = {
+      commandStatus: result.status,
+      chatId: context.chatId,
+      specFileName: context.specFileName,
+      ...(result.status === "blocked" ? { reason: result.reason } : {}),
+    };
+
+    if (result.status === "started") {
+      this.logger.info("Comando /run_specs_from_validation aceito e fluxo iniciado", logContext);
+      return {
+        reply: `▶️ Runner iniciado via /run_specs_from_validation para ${context.specFileName}.`,
+        started: true,
+        status: "started",
+      };
+    }
+
+    if (result.status === "already-running") {
+      this.logger.warn(
+        "Comando /run_specs_from_validation ignorado: rodada ja em execucao",
+        logContext,
+      );
+      return { reply: RUN_ALL_ALREADY_RUNNING_REPLY, started: false, status: "already-running" };
+    }
+
+    if (result.status === "validation-blocked" || result.status === "validation-failed") {
+      this.logger.warn("Comando /run_specs_from_validation bloqueado pela validacao do backlog", {
+        ...logContext,
+        message: result.message,
+      });
+      return {
+        reply: `❌ ${result.message}`,
+        started: false,
+        status: result.status,
+      };
+    }
+
+    this.logger.warn("Comando /run_specs_from_validation bloqueado", {
+      ...logContext,
+      message: result.message,
+    });
+    return {
+      reply: `${RUN_SPECS_FROM_VALIDATION_AUTH_REQUIRED_REPLY_PREFIX}${result.message}`,
+      started: false,
+      status: "blocked",
+    };
+  }
+
   private buildRunSelectedTicketReply(
     result: RunSelectedTicketRequestResult,
     ticketFileName: string,
@@ -5947,22 +6096,35 @@ export class TelegramController {
     };
   }
 
-  private buildRunSpecsValidationReply(validation: Exclude<SpecEligibilityResult, {
-    status: "eligible";
-  }>): string {
+  private buildRunSpecsValidationReply(
+    validation: Exclude<SpecEligibilityResult, { status: "eligible" }>,
+    command: "/run_specs" | "/run_specs_from_validation" = "/run_specs",
+  ): string {
+    const invalidPrefix =
+      command === "/run_specs"
+        ? RUN_SPECS_INVALID_SPEC_REPLY_PREFIX
+        : RUN_SPECS_FROM_VALIDATION_INVALID_SPEC_REPLY_PREFIX;
+    const notFoundPrefix =
+      command === "/run_specs"
+        ? RUN_SPECS_NOT_FOUND_REPLY_PREFIX
+        : RUN_SPECS_FROM_VALIDATION_NOT_FOUND_REPLY_PREFIX;
+    const notEligiblePrefix =
+      command === "/run_specs"
+        ? RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX
+        : RUN_SPECS_FROM_VALIDATION_NOT_ELIGIBLE_REPLY_PREFIX;
     if (validation.status === "invalid-path") {
-      return `${RUN_SPECS_INVALID_SPEC_REPLY_PREFIX} ${validation.message}`;
+      return `${invalidPrefix} ${validation.message}`;
     }
 
     if (validation.status === "not-found") {
       return [
-        `${RUN_SPECS_NOT_FOUND_REPLY_PREFIX} ${validation.spec.fileName}.`,
+        `${notFoundPrefix} ${validation.spec.fileName}.`,
         "Verifique se o arquivo existe em docs/specs/.",
       ].join(" ");
     }
 
     return [
-      `${RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX} ${validation.spec.fileName}.`,
+      `${notEligiblePrefix} ${validation.spec.fileName}.`,
       RUN_SPECS_VALIDATION_CRITERIA_REPLY,
       `Metadata atual: Status: ${this.renderMetadataValue(validation.metadata.status)};`,
       `Spec treatment: ${this.renderMetadataValue(validation.metadata.specTreatment)}.`,
