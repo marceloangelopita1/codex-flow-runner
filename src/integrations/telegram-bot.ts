@@ -17,6 +17,7 @@ import type {
   PlanSpecSessionCancelResult,
   PlanSpecSessionInputResult,
   PlanSpecSessionStartResult,
+  TargetCheckupRequestResult,
   TargetPrepareRequestResult,
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
@@ -75,6 +76,9 @@ interface BotControls {
   targetPrepare: (
     projectName: string,
   ) => Promise<TargetPrepareRequestResult> | TargetPrepareRequestResult;
+  targetCheckup: (
+    projectName?: string | null,
+  ) => Promise<TargetCheckupRequestResult> | TargetCheckupRequestResult;
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   runSpecsFromValidation: (
@@ -515,6 +519,8 @@ const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const TARGET_PREPARE_USAGE_REPLY = "ℹ️ Uso: /target_prepare <nome-do-projeto>.";
 const TARGET_PREPARE_FAILED_REPLY =
   "❌ Falha ao executar /target_prepare. Verifique logs do runner e tente novamente.";
+const TARGET_CHECKUP_FAILED_REPLY =
+  "❌ Falha ao executar /target_checkup. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
 const RUN_SPECS_FROM_VALIDATION_USAGE_REPLY =
   "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.";
@@ -722,6 +728,7 @@ const START_REPLY_LINES = [
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
   "/target_prepare <projeto> - prepara um diretorio irmao Git para o workflow completo sem trocar o projeto ativo",
+  "/target_checkup [projeto] - audita readiness do projeto ativo ou de um diretorio irmao explicito sem trocar o projeto ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
@@ -1408,6 +1415,10 @@ export class TelegramController {
       await this.handleTargetPrepareCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("target_checkup", async (ctx) => {
+      await this.handleTargetCheckupCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("run_all", async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run_all");
     });
@@ -1885,6 +1896,39 @@ export class TelegramController {
         error: error instanceof Error ? error.message : String(error),
       });
       await ctx.reply(TARGET_PREPARE_FAILED_REPLY);
+    }
+  }
+
+  private async handleTargetCheckupCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_checkup recebido via Telegram", {
+      chatId,
+      commandText: this.limit((ctx.message?.text ?? "").trim()),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_checkup",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const projectName = this.parseTargetCheckupCommandProjectName(ctx.message?.text);
+
+    try {
+      const result = await this.controls.targetCheckup(projectName);
+      await ctx.reply(this.buildTargetCheckupReply(result));
+    } catch (error) {
+      this.logger.error("Falha ao executar /target_checkup", {
+        chatId,
+        projectName: projectName ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(TARGET_CHECKUP_FAILED_REPLY);
     }
   }
 
@@ -3596,6 +3640,20 @@ export class TelegramController {
     }
 
     const match = commandText.match(/^\/target_prepare(?:@[^\s]+)?(?:\s+(.+))?$/u);
+    const value = match?.[1]?.trim();
+    if (!value) {
+      return null;
+    }
+
+    return value;
+  }
+
+  private parseTargetCheckupCommandProjectName(commandText?: string): string | null {
+    if (!commandText) {
+      return null;
+    }
+
+    const match = commandText.match(/^\/target_checkup(?:@[^\s]+)?(?:\s+(.+))?$/u);
     const value = match?.[1]?.trim();
     if (!value) {
       return null;
@@ -6106,6 +6164,23 @@ export class TelegramController {
         `Manifesto: ${result.summary.manifestPath}`,
         `Relatorio: ${result.summary.reportPath}`,
         `Versionamento: ${versioningLine}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
+    return `❌ ${result.message}`;
+  }
+
+  private buildTargetCheckupReply(result: TargetCheckupRequestResult): string {
+    if (result.status === "completed") {
+      return [
+        `✅ /target_checkup concluido para ${result.summary.targetProject.name}.`,
+        `Veredito geral: ${result.summary.overallVerdict}`,
+        `Snapshot analisado: ${result.summary.analyzedHeadSha} (${result.summary.branch})`,
+        `Relatorio JSON: ${result.summary.reportJsonPath}`,
+        `Relatorio Markdown: ${result.summary.reportMarkdownPath}`,
+        `report_commit_sha: ${result.summary.reportCommitSha}`,
+        `Versionamento final: ${result.summary.versioning.metadataCommitHash}@${result.summary.versioning.upstream}`,
         `Proxima acao: ${result.summary.nextAction}`,
       ].join("\n");
     }

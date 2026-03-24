@@ -11,6 +11,7 @@ import {
   DiscoverSpecSessionStartResult,
   PlanSpecCallbackIgnoredReason,
   RunSelectedTicketRequestResult,
+  TargetCheckupRequestResult,
   TargetPrepareRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
@@ -425,6 +426,7 @@ const createPlanSpecFinalBlock = (
 type ControlCommand =
   | "start"
   | "target_prepare"
+  | "target_checkup"
   | "run_all"
   | "run-all"
   | "codex_chat"
@@ -480,6 +482,7 @@ type OpenTicketReadResult =
 interface ControllerOptions {
   allowedChatId?: string;
   targetPrepareResult?: TargetPrepareRequestResult;
+  targetCheckupResult?: TargetCheckupRequestResult;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
@@ -703,6 +706,8 @@ const createController = (options: ControllerOptions = {}) => {
   const controlState = {
     targetPrepareCalls: 0,
     targetPrepareArgs: [] as string[],
+    targetCheckupCalls: 0,
+    targetCheckupArgs: [] as Array<string | null | undefined>,
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
@@ -796,6 +801,45 @@ const createController = (options: ControllerOptions = {}) => {
             commitHash: "prepare123",
             upstream: "origin/main",
             commitPushId: "prepare123@origin/main",
+          },
+        },
+      };
+    },
+    targetCheckup: (projectName?: string | null) => {
+      controlState.targetCheckupCalls += 1;
+      controlState.targetCheckupArgs.push(projectName);
+      if (options.targetCheckupResult) {
+        return options.targetCheckupResult;
+      }
+
+      const resolvedProjectName = projectName ?? "codex-flow-runner";
+      return {
+        status: "completed" as const,
+        summary: {
+          targetProject: {
+            name: resolvedProjectName,
+            path: `/home/mapita/projetos/${resolvedProjectName}`,
+          },
+          analyzedHeadSha: "abc123",
+          branch: "main",
+          overallVerdict: "invalid_for_gap_ticket_derivation" as const,
+          reportJsonPath:
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json",
+          reportMarkdownPath:
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.md",
+          reportCommitSha: "report123",
+          changedPaths: [
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json",
+            "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.md",
+          ],
+          nextAction:
+            "Corrija os gaps registrados, garanta novo snapshot limpo e rerode /target_checkup.",
+          versioning: {
+            status: "committed-and-pushed" as const,
+            metadataCommitHash: "meta456",
+            reportCommitHash: "report123",
+            upstream: "origin/main",
+            commitPushId: "meta456@origin/main",
           },
         },
       };
@@ -1507,6 +1551,27 @@ const callHandleTargetPrepareCommand = async (
   };
 
   await internalController.handleTargetPrepareCommand(context);
+};
+
+const callHandleTargetCheckupCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetCheckupCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetCheckupCommand(context);
 };
 
 const callBuildRunSpecsReply = async (
@@ -2755,6 +2820,70 @@ test("handleTargetPrepareCommand propaga bloqueio objetivo do executor", async (
   assert.equal(controlState.targetPrepareCalls, 1);
   assert.deepEqual(controlState.targetPrepareArgs, ["missing-project"]);
   assert.deepEqual(replies, ["❌ Projeto alvo nao encontrado para /target_prepare: missing-project."]);
+});
+
+test("handleTargetCheckupCommand usa o projeto ativo quando nenhum argumento e informado", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetCheckupCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_checkup" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetCheckupCalls, 1);
+  assert.deepEqual(controlState.targetCheckupArgs, [null]);
+  assert.match(replies[0] ?? "", /\/target_checkup concluido para codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Veredito geral: invalid_for_gap_ticket_derivation/u);
+  assert.match(replies[0] ?? "", /report_commit_sha: report123/u);
+});
+
+test("handleTargetCheckupCommand aceita alvo explicito e responde com resumo rastreavel", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetCheckupCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_checkup alpha-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetCheckupCalls, 1);
+  assert.deepEqual(controlState.targetCheckupArgs, ["alpha-project"]);
+  assert.match(replies[0] ?? "", /\/target_checkup concluido para alpha-project/u);
+  assert.match(replies[0] ?? "", /Relatorio JSON: docs\/checkups\/history\//u);
+  assert.match(replies[0] ?? "", /Versionamento final: meta456@origin\/main/u);
+});
+
+test("handleTargetCheckupCommand propaga bloqueio objetivo do executor", async () => {
+  const { controller, controlState } = createController({
+    targetCheckupResult: {
+      status: "blocked",
+      reason: "working-tree-dirty",
+      message: "O target_checkup exige working tree limpo antes de iniciar.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetCheckupCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_checkup alpha-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetCheckupCalls, 1);
+  assert.deepEqual(controlState.targetCheckupArgs, ["alpha-project"]);
+  assert.deepEqual(replies, ["❌ O target_checkup exige working tree limpo antes de iniciar."]);
 });
 
 test("gera resposta de inicio ao executar /run_specs", async () => {

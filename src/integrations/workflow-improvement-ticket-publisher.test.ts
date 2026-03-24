@@ -42,6 +42,16 @@ class StubGitVersioning implements GitVersioning {
     return this.evidence;
   }
 
+  async commitCheckupArtifacts(): Promise<{
+    commitHash: string;
+    upstream: string;
+    commitPushId: string;
+    reportCommitHash: string;
+    metadataCommitHash: string;
+  } | null> {
+    throw new Error("Nao esperado neste teste.");
+  }
+
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     return this.evidence;
   }

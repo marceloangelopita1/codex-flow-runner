@@ -143,6 +143,10 @@ import {
   TargetPrepareExecutor,
 } from "./target-prepare.js";
 import { TargetPrepareExecutionResult } from "../types/target-prepare.js";
+import {
+  TargetCheckupExecutor,
+} from "./target-checkup.js";
+import { TargetCheckupExecutionResult } from "../types/target-checkup.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -228,6 +232,7 @@ export interface TicketRunnerOptions {
   codexPreferencesService?: CodexPreferencesService;
   workflowImprovementTicketPublisher?: WorkflowImprovementTicketPublisher;
   targetPrepareExecutor?: TargetPrepareExecutor;
+  targetCheckupExecutor?: TargetCheckupExecutor;
 }
 
 interface ActiveDiscoverSpecSession {
@@ -642,6 +647,10 @@ export type TargetPrepareRequestResult =
   | TargetPrepareExecutionResult
   | RunnerRequestBlockedResult;
 
+export type TargetCheckupRequestResult =
+  | TargetCheckupExecutionResult
+  | RunnerRequestBlockedResult;
+
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
 
 type RunSlotStartPreflightResult =
@@ -813,6 +822,7 @@ export class TicketRunner {
   private readonly codexPreferencesService?: CodexPreferencesService;
   private readonly workflowImprovementTicketPublisher: WorkflowImprovementTicketPublisher | null;
   private readonly targetPrepareExecutor: TargetPrepareExecutor | null;
+  private readonly targetCheckupExecutor: TargetCheckupExecutor | null;
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
@@ -821,6 +831,7 @@ export class TicketRunner {
   private nextCodexChatSessionId = 1;
   private isShuttingDown = false;
   private targetPrepareInFlight = false;
+  private targetCheckupInFlight = false;
   private shutdownPromise: Promise<RunnerShutdownReport> | null = null;
   private completedShutdownReport: RunnerShutdownReport | null = null;
 
@@ -864,6 +875,7 @@ export class TicketRunner {
     this.codexPreferencesService = options.codexPreferencesService;
     this.workflowImprovementTicketPublisher = options.workflowImprovementTicketPublisher ?? null;
     this.targetPrepareExecutor = options.targetPrepareExecutor ?? null;
+    this.targetCheckupExecutor = options.targetCheckupExecutor ?? null;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -2776,6 +2788,90 @@ export class TicketRunner {
       return result;
     } finally {
       this.targetPrepareInFlight = false;
+      this.state.activeProject = previousActiveProject;
+      this.syncStateFromSlots();
+    }
+  };
+
+  requestTargetCheckup = async (
+    projectName?: string | null,
+  ): Promise<TargetCheckupRequestResult> => {
+    this.logger.info("Solicitacao de /target_checkup recebida", {
+      projectName: projectName ?? null,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+      targetCheckupInFlight: this.targetCheckupInFlight,
+    });
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/target_checkup");
+    }
+
+    if (!this.targetCheckupExecutor) {
+      return {
+        status: "failed",
+        message: "Executor de /target_checkup nao configurado nesta instancia do runner.",
+      };
+    }
+
+    if (this.targetCheckupInFlight) {
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message: "Ja existe uma execucao /target_checkup em andamento nesta instancia.",
+      };
+    }
+
+    if (this.activeSlots.size > 0) {
+      const activeProjects = this.getActiveProjects();
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message:
+          "Nao e possivel iniciar /target_checkup enquanto houver fluxo pesado ativo nesta instancia.",
+        activeProjects,
+      };
+    }
+
+    if (
+      this.isDiscoverSpecSessionActive() ||
+      this.isPlanSpecSessionActive() ||
+      this.isCodexChatSessionActive()
+    ) {
+      return {
+        status: "blocked",
+        reason: "global-free-text-busy",
+        message:
+          "Nao e possivel iniciar /target_checkup enquanto houver sessao interativa global ativa.",
+      };
+    }
+
+    this.targetCheckupInFlight = true;
+    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
+    const targetLabel = projectName?.trim() || this.state.activeProject?.name || "(sem projeto alvo)";
+
+    this.state.lastMessage = `Executando /target_checkup para ${targetLabel}`;
+    this.state.updatedAt = this.now();
+
+    try {
+      const result = await this.targetCheckupExecutor.execute({
+        activeProject: this.state.activeProject ? { ...this.state.activeProject } : null,
+        projectName,
+      });
+      this.state.lastMessage =
+        result.status === "completed"
+          ? `target_checkup concluido para ${result.summary.targetProject.name}`
+          : result.message;
+      this.state.updatedAt = this.now();
+      return result;
+    } finally {
+      this.targetCheckupInFlight = false;
       this.state.activeProject = previousActiveProject;
       this.syncStateFromSlots();
     }

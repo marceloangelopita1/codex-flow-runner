@@ -9,6 +9,20 @@ export interface GitSyncEvidence {
   commitPushId: string;
 }
 
+export interface GitCheckupPublicationEvidence extends GitSyncEvidence {
+  reportCommitHash: string;
+  metadataCommitHash: string;
+}
+
+export interface GitCheckupPublicationRequest {
+  paths: string[];
+  publicationSubject: string;
+  publicationBodyParagraphs?: string[];
+  finalizePublishedArtifacts: (reportCommitHash: string) => Promise<void>;
+  metadataSubject: string;
+  metadataBodyParagraphs?: string[];
+}
+
 export type GitSyncValidationFailureCode =
   | "working-tree-dirty"
   | "upstream-missing"
@@ -31,6 +45,9 @@ export interface GitVersioning {
     subject: string,
     bodyParagraphs?: string[],
   ): Promise<GitSyncEvidence | null>;
+  commitCheckupArtifacts(
+    request: GitCheckupPublicationRequest,
+  ): Promise<GitCheckupPublicationEvidence | null>;
   assertSyncedWithRemote(): Promise<GitSyncEvidence>;
 }
 
@@ -117,6 +134,51 @@ export class GitCliVersioning implements GitVersioning {
     await this.runGit(commitArgs);
     await this.runGit(["push"]);
     return this.collectPushEvidence({ requireCleanWorkingTree: false });
+  }
+
+  async commitCheckupArtifacts(
+    request: GitCheckupPublicationRequest,
+  ): Promise<GitCheckupPublicationEvidence | null> {
+    if (request.paths.length === 0) {
+      return null;
+    }
+
+    await this.runGit(["add", "--", ...request.paths]);
+
+    const initialChanged = await this.hasStagedChanges();
+    if (!initialChanged) {
+      return null;
+    }
+
+    await this.runGit(
+      buildCommitArgs(request.publicationSubject, request.publicationBodyParagraphs ?? []),
+    );
+
+    const reportCommitHash = (await this.runGit(["rev-parse", "HEAD"])).stdout.trim();
+    if (!reportCommitHash) {
+      throw new Error("Nao foi possivel identificar o commit inicial de publicacao do checkup.");
+    }
+
+    await request.finalizePublishedArtifacts(reportCommitHash);
+
+    await this.runGit(["add", "--", ...request.paths]);
+
+    const metadataChanged = await this.hasStagedChanges();
+    if (!metadataChanged) {
+      throw new Error(
+        "A atualizacao final de report_commit_sha nao gerou alteracoes staged para o checkup.",
+      );
+    }
+
+    await this.runGit(buildCommitArgs(request.metadataSubject, request.metadataBodyParagraphs ?? []));
+    await this.runGit(["push"]);
+
+    const evidence = await this.collectPushEvidence({ requireCleanWorkingTree: false });
+    return {
+      ...evidence,
+      reportCommitHash,
+      metadataCommitHash: evidence.commitHash,
+    };
   }
 
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
@@ -217,6 +279,15 @@ export class GitCliVersioning implements GitVersioning {
     }
   }
 }
+
+const buildCommitArgs = (subject: string, bodyParagraphs: string[]): string[] => {
+  const commitArgs = ["commit", "-m", subject];
+  for (const paragraph of bodyParagraphs) {
+    commitArgs.push("-m", paragraph);
+  }
+
+  return commitArgs;
+};
 
 const normalizeGitCommandError = (args: string[], error: unknown): Error => {
   const stderr = readGitCommandOutput(error, "stderr");

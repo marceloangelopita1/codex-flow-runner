@@ -133,6 +133,16 @@ class StubGitVersioning implements GitVersioning {
     return this.handler(paths, subject, bodyParagraphs);
   }
 
+  async commitCheckupArtifacts(): Promise<{
+    commitHash: string;
+    upstream: string;
+    commitPushId: string;
+    reportCommitHash: string;
+    metadataCommitHash: string;
+  } | null> {
+    throw new Error("not used");
+  }
+
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     throw new Error("not used");
   }

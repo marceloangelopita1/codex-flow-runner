@@ -152,6 +152,87 @@ test("commitAndPushPaths retorna null quando nao ha alteracoes staged", async ()
   ]);
 });
 
+test("commitCheckupArtifacts publica em duas fases e empurra apenas o commit final", async () => {
+  const calls: string[][] = [];
+  let headReads = 0;
+  let finalizedWith = "";
+
+  const client = new GitCliVersioning("/tmp/repo", {
+    runGit: async (args): Promise<CallResult> => {
+      calls.push(args);
+      if (args[0] === "diff") {
+        throw new Error("ha alteracoes staged");
+      }
+
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        headReads += 1;
+        return {
+          stdout: headReads === 1 ? "report123\n" : "meta456\n",
+          stderr: "",
+        };
+      }
+
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+        return { stdout: "origin/main\n", stderr: "" };
+      }
+
+      if (args[0] === "rev-list") {
+        return { stdout: "0\n", stderr: "" };
+      }
+
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  const evidence = await client.commitCheckupArtifacts({
+    paths: [
+      "docs/checkups/history/report.json",
+      "docs/checkups/history/report.md",
+    ],
+    publicationSubject: "docs(readiness): publish alpha-project project-readiness-checkup",
+    publicationBodyParagraphs: ["Analyzed head SHA: abc123"],
+    finalizePublishedArtifacts: async (reportCommitHash) => {
+      finalizedWith = reportCommitHash;
+    },
+    metadataSubject: "docs(readiness): register report_commit_sha for alpha-project",
+    metadataBodyParagraphs: ["Report JSON: docs/checkups/history/report.json"],
+  });
+
+  assert.equal(finalizedWith, "report123");
+  assert.deepEqual(calls, [
+    ["add", "--", "docs/checkups/history/report.json", "docs/checkups/history/report.md"],
+    ["diff", "--cached", "--quiet"],
+    [
+      "commit",
+      "-m",
+      "docs(readiness): publish alpha-project project-readiness-checkup",
+      "-m",
+      "Analyzed head SHA: abc123",
+    ],
+    ["rev-parse", "HEAD"],
+    ["add", "--", "docs/checkups/history/report.json", "docs/checkups/history/report.md"],
+    ["diff", "--cached", "--quiet"],
+    [
+      "commit",
+      "-m",
+      "docs(readiness): register report_commit_sha for alpha-project",
+      "-m",
+      "Report JSON: docs/checkups/history/report.json",
+    ],
+    ["push"],
+    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    ["rev-list", "--count", "origin/main..HEAD"],
+    ["rev-parse", "HEAD"],
+  ]);
+  assert.deepEqual(evidence, {
+    commitHash: "meta456",
+    metadataCommitHash: "meta456",
+    reportCommitHash: "report123",
+    upstream: "origin/main",
+    commitPushId: "meta456@origin/main",
+  });
+});
+
 test("commitTicketClosure inclui stderr do git quando push falha no wrapper controlado", async () => {
   const client = new GitCliVersioning("/tmp/repo", {
     runGit: async (args): Promise<CallResult> => {

@@ -317,6 +317,31 @@ export interface TargetPrepareCodexClient {
   runTargetPrepare(request: TargetPrepareCodexRequest): Promise<TargetPrepareCodexResult>;
 }
 
+export interface TargetCheckupCodexRequest {
+  targetProject: ProjectRef;
+  runnerRepoPath: string;
+  runnerReference: string;
+  reportJsonPath: string;
+  reportMarkdownPath: string;
+  reportFactsJson: string;
+}
+
+export interface TargetCheckupCodexResult {
+  output: string;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface TargetCheckupCodexClient {
+  ensureAuthenticated(): Promise<void>;
+  snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): TargetCheckupCodexClient;
+  runTargetCheckup(request: TargetCheckupCodexRequest): Promise<TargetCheckupCodexResult>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
@@ -402,6 +427,7 @@ const SPEC_TICKET_VALIDATION_PROMPT_FILE = "09-validar-tickets-derivados-da-spec
 const SPEC_TICKET_VALIDATION_AUTOCORRECT_PROMPT_FILE =
   "10-autocorrigir-tickets-derivados-da-spec.md";
 const TARGET_PREPARE_PROMPT_FILE = "13-target-prepare-controlled-onboarding.md";
+const TARGET_CHECKUP_PROMPT_FILE = "14-target-checkup-readiness-audit.md";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -1037,6 +1063,68 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async runTargetCheckup(request: TargetCheckupCodexRequest): Promise<TargetCheckupCodexResult> {
+    const promptTemplatePath = path.join(PROMPTS_DIR, TARGET_CHECKUP_PROMPT_FILE);
+    let prompt = "";
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTargetCheckupPrompt(promptTemplate, request);
+
+      this.logger.info("Executando target_checkup via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        promptTemplatePath,
+      });
+
+      const preferences = await this.snapshotInvocationPreferences();
+      const result = await this.dependencies.runCodexCommand({
+        cwd: this.repoPath,
+        prompt,
+        env: {
+          ...process.env,
+        },
+        preferences,
+      });
+
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
+        this.logger.warn("Codex CLI retornou diagnostico em stderr no target_checkup", {
+          targetProjectName: request.targetProject.name,
+          codexCliTranscriptPreview: diagnostics.stderrPreview,
+          ...(diagnostics.stdoutPreview
+            ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+            : {}),
+        });
+      }
+
+      this.logger.info("target_checkup concluido via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+      });
+
+      return {
+        output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
+      };
+    } catch (error) {
+      const details = errorMessage(error);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        request.targetProject.name,
+        "implement",
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
+    }
+  }
+
   async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
     this.logger.info("Iniciando sessao de planejamento via Codex CLI exec/resume", {
       repoPath: this.repoPath,
@@ -1451,6 +1539,36 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
       `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
       `- Referencia textual do runner: \`${request.runnerReference}\``,
+      "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
+    ].join("\n");
+  }
+
+  private buildTargetCheckupPrompt(
+    promptTemplate: string,
+    request: TargetCheckupCodexRequest,
+  ): string {
+    const stageTemplate = promptTemplate
+      .replace(/<RUNNER_REPO_PATH>/gu, request.runnerRepoPath)
+      .replace(/<RUNNER_REFERENCE>/gu, request.runnerReference)
+      .replace(/<TARGET_PROJECT_NAME>/gu, request.targetProject.name)
+      .replace(/<TARGET_PROJECT_PATH>/gu, request.targetProject.path)
+      .replace(/<TARGET_CHECKUP_REPORT_JSON_PATH>/gu, request.reportJsonPath)
+      .replace(/<TARGET_CHECKUP_REPORT_MARKDOWN_PATH>/gu, request.reportMarkdownPath)
+      .replace(/<TARGET_CHECKUP_FACTS_JSON>/gu, request.reportFactsJson);
+
+    return [
+      stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional do target_checkup:",
+      `- Projeto alvo: \`${request.targetProject.name}\``,
+      `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
+      `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
+      `- Referencia textual do runner: \`${request.runnerReference}\``,
+      `- Artefato JSON do relatorio: \`${request.reportJsonPath}\``,
+      `- Artefato Markdown do relatorio: \`${request.reportMarkdownPath}\``,
+      "- Responda somente com Markdown editorial derivado dos fatos serializados.",
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
   }

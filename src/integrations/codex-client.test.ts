@@ -193,6 +193,56 @@ test("runTargetPrepare injeta allowlist, fontes gerenciadas e contexto do runner
   assert.match(capturedPrompt, /Target path: \/home\/mapita\/projetos\/alpha-project/u);
 });
 
+test("runTargetCheckup injeta payload factual e caminhos de artefato", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Runner path: <RUNNER_REPO_PATH>",
+        "Runner ref: <RUNNER_REFERENCE>",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+        "JSON path: <TARGET_CHECKUP_REPORT_JSON_PATH>",
+        "Markdown path: <TARGET_CHECKUP_REPORT_MARKDOWN_PATH>",
+        "Facts:",
+        "<TARGET_CHECKUP_FACTS_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "### Executive summary\nok", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetCheckup({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    reportJsonPath: "docs/checkups/history/report.json",
+    reportMarkdownPath: "docs/checkups/history/report.md",
+    reportFactsJson: JSON.stringify(
+      {
+        overall_verdict: "invalid_for_gap_ticket_derivation",
+        analyzed_head_sha: "abc123",
+      },
+      null,
+      2,
+    ),
+  });
+
+  assert.match(result.promptTemplatePath, /14-target-checkup-readiness-audit\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(capturedPrompt, /Runner ref: codex-flow-runner@\/home\/mapita\/projetos\/codex-flow-runner/u);
+  assert.match(capturedPrompt, /Target name: alpha-project/u);
+  assert.match(capturedPrompt, /JSON path: docs\/checkups\/history\/report\.json/u);
+  assert.match(capturedPrompt, /Markdown path: docs\/checkups\/history\/report\.md/u);
+  assert.match(capturedPrompt, /"overall_verdict": "invalid_for_gap_ticket_derivation"/u);
+});
+
 test("runStage injeta guia operacional de shell no prompt", async () => {
   let capturedPrompt = "";
 

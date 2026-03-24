@@ -139,6 +139,18 @@ Quando um repositório Git irmão ainda não aparece em `/projects`, agora exist
 
 O `target_prepare` não troca implicitamente o projeto ativo do runner. Quando o preparo termina com sucesso e o repositório passa a atender `.git` + `tickets/open/`, ele pode aparecer em `/projects`.
 
+## Readiness audit canônico do projeto alvo
+
+Depois do preparo, o runner também consegue auditar readiness de forma determinística:
+
+- `/target_checkup` usa o projeto ativo atual sem trocá-lo;
+- `/target_checkup <project-name>` opera sobre um diretório irmão explícito sem mudar o projeto ativo global;
+- o fluxo exige working tree limpo, `HEAD` resolvido e branch simbólica antes de publicar qualquer artefato canônico;
+- a coleta do v1 cobre `integridade do preparo`, `operabilidade local`, `saude de validacao/entrega` e `governanca documental`, com `observabilidade` explícita como dimensão opcional e não bloqueante;
+- o relatório canônico é gerado em `docs/checkups/history/<timestamp>-project-readiness-checkup.json` e `.md`;
+- rodadas concluídas operacionalmente versionam o par `.json` + `.md` mesmo quando o veredito geral é `invalid_for_gap_ticket_derivation`;
+- falhas internas antes da fronteira de versionamento não publicam artefato canônico e retornam diagnóstico explícito.
+
 ## Como uma spec vira implementação
 
 Depois que a spec existe no projeto, o caminho real fica assim:
@@ -1184,6 +1196,7 @@ npm run dev
 
 - `/start` -> mostra descrição do bot e comandos disponíveis
 - `/target_prepare <projeto>` -> prepara um diretório irmão Git para o workflow completo sem trocar o projeto ativo
+- `/target_checkup [projeto]` -> audita readiness do projeto ativo ou de um diretório irmão explícito sem trocar o projeto ativo
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
 - `/run-all` -> alias legado compatível para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo

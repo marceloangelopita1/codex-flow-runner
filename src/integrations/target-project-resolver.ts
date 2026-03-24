@@ -2,15 +2,22 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { TargetPrepareResolvedProject } from "../types/target-prepare.js";
 
+export interface ResolveTargetProjectOptions {
+  commandLabel?: string;
+}
+
 export interface TargetProjectResolver {
-  resolveProject(projectName: string): Promise<TargetPrepareResolvedProject>;
+  resolveProject(
+    projectName: string,
+    options?: ResolveTargetProjectOptions,
+  ): Promise<TargetPrepareResolvedProject>;
 }
 
 export class InvalidTargetProjectNameError extends Error {
-  constructor(projectName: string) {
+  constructor(projectName: string, commandLabel: string) {
     super(
       [
-        "Nome invalido para /target_prepare.",
+        `Nome invalido para ${commandLabel}.`,
         `Recebido: ${projectName || "(vazio)"}.`,
         "Use apenas o nome literal do diretorio irmao em PROJECTS_ROOT_PATH, sem barras ou '..'.",
       ].join(" "),
@@ -20,10 +27,10 @@ export class InvalidTargetProjectNameError extends Error {
 }
 
 export class TargetProjectNotFoundError extends Error {
-  constructor(projectName: string, projectsRootPath: string) {
+  constructor(projectName: string, projectsRootPath: string, commandLabel: string) {
     super(
       [
-        `Projeto alvo nao encontrado para /target_prepare: ${projectName}.`,
+        `Projeto alvo nao encontrado para ${commandLabel}: ${projectName}.`,
         `PROJECTS_ROOT_PATH: ${projectsRootPath}.`,
       ].join(" "),
     );
@@ -32,10 +39,10 @@ export class TargetProjectNotFoundError extends Error {
 }
 
 export class TargetProjectGitMissingError extends Error {
-  constructor(projectName: string) {
+  constructor(projectName: string, commandLabel: string) {
     super(
       [
-        `Projeto alvo ${projectName} nao e um repositorio Git valido para /target_prepare.`,
+        `Projeto alvo ${projectName} nao e um repositorio Git valido para ${commandLabel}.`,
         "O diretorio precisa existir e conter .git.",
       ].join(" "),
     );
@@ -46,21 +53,25 @@ export class TargetProjectGitMissingError extends Error {
 export class FileSystemTargetProjectResolver implements TargetProjectResolver {
   constructor(private readonly projectsRootPath: string) {}
 
-  async resolveProject(projectName: string): Promise<TargetPrepareResolvedProject> {
+  async resolveProject(
+    projectName: string,
+    options: ResolveTargetProjectOptions = {},
+  ): Promise<TargetPrepareResolvedProject> {
+    const commandLabel = options.commandLabel ?? "/target_prepare";
     const normalizedName = projectName.trim();
     if (!this.isValidProjectName(normalizedName)) {
-      throw new InvalidTargetProjectNameError(projectName);
+      throw new InvalidTargetProjectNameError(projectName, commandLabel);
     }
 
     const projectPath = path.join(this.projectsRootPath, normalizedName);
     const stats = await safeStat(projectPath);
     if (!stats?.isDirectory()) {
-      throw new TargetProjectNotFoundError(normalizedName, this.projectsRootPath);
+      throw new TargetProjectNotFoundError(normalizedName, this.projectsRootPath, commandLabel);
     }
 
     const gitMetadataExists = Boolean(await safeStat(path.join(projectPath, ".git")));
     if (!gitMetadataExists) {
-      throw new TargetProjectGitMissingError(normalizedName);
+      throw new TargetProjectGitMissingError(normalizedName, commandLabel);
     }
 
     const openTicketsDir = await safeStat(path.join(projectPath, "tickets", "open"));

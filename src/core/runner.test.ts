@@ -777,6 +777,24 @@ class StubGitVersioning implements GitVersioning {
     return this.evidence;
   }
 
+  async commitCheckupArtifacts(): Promise<{
+    commitHash: string;
+    upstream: string;
+    commitPushId: string;
+    reportCommitHash: string;
+    metadataCommitHash: string;
+  } | null> {
+    if (this.failCommitClosure) {
+      throw new Error(this.commitClosureErrorMessage);
+    }
+
+    return {
+      ...this.evidence,
+      reportCommitHash: "report123",
+      metadataCommitHash: this.evidence.commitHash,
+    };
+  }
+
   async assertSyncedWithRemote(): Promise<GitSyncEvidence> {
     this.syncChecks += 1;
     if (this.failSyncCheck) {
@@ -8641,6 +8659,73 @@ test("requestTargetPrepare delega ao executor dedicado e preserva o projeto ativ
 
   assert.equal(result.status, "completed");
   assert.deepEqual(requestedProjects, ["beta-target"]);
+  assert.deepEqual(runner.getState().activeProject, previousActiveProject);
+  assert.equal(runner.getState().phase, "idle");
+});
+
+test("requestTargetCheckup delega ao executor dedicado sem trocar o projeto ativo global", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const receivedRequests: Array<{
+    projectName?: string | null;
+    activeProject: ProjectRef | null;
+  }> = [];
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetCheckupExecutor: {
+        execute: async (request) => {
+          receivedRequests.push({
+            projectName: request.projectName ?? null,
+            activeProject: request.activeProject,
+          });
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject: request.activeProject ?? {
+                name: "fallback-project",
+                path: "/home/mapita/projetos/fallback-project",
+              },
+              analyzedHeadSha: "abc123",
+              branch: "main",
+              overallVerdict: "invalid_for_gap_ticket_derivation" as const,
+              reportJsonPath: "docs/checkups/history/report.json",
+              reportMarkdownPath: "docs/checkups/history/report.md",
+              reportCommitSha: "report123",
+              changedPaths: [
+                "docs/checkups/history/report.json",
+                "docs/checkups/history/report.md",
+              ],
+              nextAction:
+                "Corrija os gaps registrados, garanta novo snapshot limpo e rerode /target_checkup.",
+              versioning: {
+                status: "committed-and-pushed" as const,
+                metadataCommitHash: "meta456",
+                reportCommitHash: "report123",
+                upstream: "origin/main",
+                commitPushId: "meta456@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const previousActiveProject = runner.getState().activeProject;
+  const result = await runner.requestTargetCheckup();
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(receivedRequests, [
+    {
+      projectName: null,
+      activeProject: activeProjectA,
+    },
+  ]);
   assert.deepEqual(runner.getState().activeProject, previousActiveProject);
   assert.equal(runner.getState().phase, "idle");
 });

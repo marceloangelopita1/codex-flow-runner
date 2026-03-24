@@ -6,15 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-24 20:21Z
-- Last reviewed at (UTC): 2026-03-24 21:36Z
+- Last reviewed at (UTC): 2026-03-24 22:23Z
 - Source: product-need
 - Related tickets:
   - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md
-  - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md
+  - tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md
   - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md
 - Related execplans:
   - execplans/2026-03-24-target-prepare-controlled-onboarding-gap.md
+  - execplans/2026-03-24-target-checkup-readiness-audit-gap.md
 - Related commits:
   - 
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
@@ -139,7 +140,7 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md [fonte=source-spec]
+  - tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md [fonte=source-spec]
   - tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md [fonte=source-spec]
   - tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md [fonte=source-spec]
   - tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md [fonte=source-spec]
@@ -170,7 +171,7 @@
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 - Explicitei no ticket de `target_checkup` os campos obrigatorios de RF-12 (`working_tree_clean_at_start=true`, `report_commit_sha` quando houver versionamento e demais metadados do snapshot) e ajustei os `Closure criteria` para tornar esses itens observaveis no aceite.
-  - Artefatos afetados: tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md
+  - Artefatos afetados: tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 - Explicitei no ticket de `target_derive_gaps` os campos autocontidos exigidos por RF-27 e o write-back completo exigido por RF-28, incluindo `Gap ID`, SHAs, caminhos do relatorio, `derivation_status`, `derived_at_utc` e a taxonomia completa de resultados por gap, alem de refletir isso nos `Closure criteria`.
@@ -223,8 +224,9 @@
   - Escopo funcional, contrato operacional, restricoes, guardrails, UX e rastreabilidade do v1 foram definidos.
   - Existem fundacoes parciais reutilizaveis no runner atual para a entrega: descoberta de diretorios irmaos elegiveis por primeiro nivel, fila `P0 -> P1 -> P2` com suporte a `Status: blocked`, helper de commit/push, slot/capacidade para fluxos atuais e traces locais base em `.codex-flow-runner/flow-traces/`.
   - A jornada `target_prepare` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_prepare <project-name>`, resolve repo Git irmao ainda inelegivel em `/projects`, rejeita pseudo-caminhos como `.`, aplica prompt dedicado com allowlist forte, valida merge gerenciado de `AGENTS.md`/`README.md`, gera manifesto + relatorio canonicos no repo alvo e cruza a fronteira de commit/push apenas apos pos-check deterministico.
+  - A jornada `target_checkup` agora possui implementacao funcional fechada tecnicamente em `GO`: o runner expoe `/target_checkup [<project-name>]`, bloqueia working tree sujo e `HEAD`/branch invalidos, coleta evidencias deterministicas nas dimensoes obrigatorias, sintetiza apenas a leitura editorial via Codex, gera `docs/checkups/history/<timestamp>-project-readiness-checkup.{json,md}` e versiona o par canônico mesmo quando o veredito geral e `invalid_for_gap_ticket_derivation`.
 - Pendencias em aberto:
-  - Nenhum RF/CA da jornada `target_checkup` esta atendido integralmente; faltam preflight Git limpo, coleta deterministica por dimensao, schema canonico `md + json`, regras de validade por SHA/idade/drift e versionamento mesmo para resultado invalido (`tickets/open/2026-03-24-target-checkup-readiness-audit-gap.md`).
+  - As validacoes manuais externas da jornada `target_checkup` permanecem pendentes: smoke real via Telegram em repo preparado, confirmacao observavel do caso `invalid_for_gap_ticket_derivation` publicado e verificacao de permissao real de `git push` nos repositorios alvo de teste (`tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md`).
   - Nenhum RF/CA da jornada `target_derive_gaps` esta atendido integralmente; faltam validacao do relatorio, materializacao idempotente por `Gap fingerprint`, tickets readiness autocontidos e write-back do resultado por gap no proprio checkup (`tickets/open/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`).
   - Nenhum RF/CA de controle operacional compartilhado dos fluxos target esta atendido integralmente; faltam slot/bloqueios, `/_status`, `/_cancel`, milestones, CTAs e traces canonicos para `prepare`, `checkup` e `derive` (`tickets/open/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`).
 - Evidencias de validacao:
@@ -257,9 +259,12 @@
 - 2026-03-24 - Nao abrir ticket automatico no projeto alvo para limitacoes do proprio runner no v1 - evita complexidade cross-repo precoce e impede backlog incorreto no alvo.
 - 2026-03-24 - Reaproveitar a matriz objetiva de prioridade ja existente para todo ticket derivado de checkup - mantem coerencia com a fila sequencial `P0 -> P1 -> P2` e evita taxonomia paralela de prioridade.
 - 2026-03-24 - Manter esta frente em uma unica spec e quebrar a entrega em multiplos tickets/execplans - os tres comandos compartilham o mesmo modelo de artefatos e contrato; a separacao mais saudavel e de execucao, nao de visao.
+- 2026-03-24 - Registrar `report_commit_sha` pela convencao `initial-publication-commit-recorded-by-follow-up-metadata-commit` - evita a circularidade impossivel de gravar no proprio arquivo o hash do commit que ainda depende desse mesmo arquivo.
 
 ## Historico de atualizacao
 - 2026-03-24 20:21Z - Versao inicial da spec consolidada apos entrevista profunda cobrindo contrato de compatibilidade, onboarding via `prepare`, readiness audit via `checkup`, derivacao conservadora de gaps, UX de Telegram, status/cancel e rastreabilidade local/canonica.
 - 2026-03-24 20:34Z - Triagem inicial concluida contra o estado atual do codigo; 4 tickets abertos para cobrir `target_prepare`, `target_checkup`, `target_derive_gaps` e a camada compartilhada de Telegram/status/cancel/traces.
 - 2026-03-24 21:30Z - Execucao do ticket de `target_prepare` implementou o comando `/target_prepare <project-name>`, o resolvedor explicito de repo irmao, o prompt dedicado com allowlist forte, o pos-check deterministico e a geracao/versionamento de manifesto + relatorio canonicos no repo alvo; permaneceram pendentes apenas as validacoes manuais externas e os tickets irmaos de `checkup`, `derive` e controle operacional compartilhado.
 - 2026-03-24 21:36Z - Fechamento tecnico do ticket `target_prepare` concluido em `GO` com validacao manual externa pendente; o resolvedor foi endurecido para rejeitar `.` como pseudo-diretorio irmao e o ticket passou a viver em `tickets/closed/2026-03-24-target-prepare-controlled-onboarding-gap.md`.
+- 2026-03-24 22:19Z - Execucao do ticket `target_checkup` adicionou o comando `/target_checkup [<project-name>]`, preflight Git deterministico, coleta por dimensao, schema canonico `md + json`, validacao por SHA/idade/drift e versionamento em duas fases para registrar `report_commit_sha`; permaneceram pendentes apenas os smokes manuais externos e os tickets irmaos de `derive` e controle operacional compartilhado.
+- 2026-03-24 22:23Z - Fechamento tecnico do ticket `target_checkup` concluido em `GO` com validacao manual externa pendente; o ticket passou a viver em `tickets/closed/2026-03-24-target-checkup-readiness-audit-gap.md`.

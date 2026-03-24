@@ -1,7 +1,7 @@
 # [TICKET] Falta readiness audit deterministico e versionado para `/target_checkup`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S1
@@ -95,17 +95,35 @@ Nao obrigatorio. Direcao concreta: introduzir executor de `target_checkup` com p
 ## Closure criteria
 - Requisito/RF/CA coberto: RF-01 (comando `/target_checkup`), RF-10, RF-11; CA-04.
 - Evidencia observavel: `/target_checkup` aceita projeto ativo por default e alvo explicito por argumento sem trocar o projeto ativo global; working tree sujo bloqueia o fluxo cedo, sem artefato canonico valido; testes automatizados cobrem sucesso por alvo explicito, sucesso por projeto ativo, tree sujo e erros de resolucao do alvo.
+- Validacao de fechamento: `src/core/target-checkup.ts` resolve o projeto ativo sem argumento, usa `src/integrations/target-project-resolver.ts` para alvo explicito com `commandLabel` dedicado e bloqueia preflight sujo via `src/integrations/target-checkup-git-guard.ts` antes de qualquer write-back canonico; `src/core/runner.ts` preserva o projeto ativo global; `src/integrations/telegram-bot.ts` expoe `/target_checkup [projeto]`; `src/core/target-checkup.test.ts`, `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts` cobrem sucesso com projeto ativo, sucesso com alvo explicito, dirty tree e replies observaveis; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-checkup.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts src/integrations/git-client.test.ts` passou em 2026-03-24 22:23Z com 466 testes aprovados.
 - Requisito/RF/CA coberto: RF-12, RF-13, RF-14, RF-15, RF-16; CA-05.
 - Evidencia observavel: o fluxo gera `docs/checkups/history/<timestamp>-project-readiness-checkup.md` e `.json` com `analyzed_head_sha`, `branch`, `working_tree_clean_at_start=true`, `started_at_utc`, `finished_at_utc`, `report_commit_sha` quando houver versionamento do proprio relatorio, vereditos por dimensao e veredito geral, registrando evidencias deterministicas e sintetizando risco/impacto sem inventar fatos; testes cobrem schema, dimensoes obrigatorias, captura de comando/exit code/duracao/resumos e proibe relatorio "valido" sem base deterministica.
+- Validacao de fechamento: `src/types/target-checkup.ts` define schema, dimensoes obrigatorias, naming canonico e regras de validade por SHA/idade/drift; `src/core/target-checkup.ts` coleta evidencias nas dimensoes obrigatorias, limita a IA a sintese editorial via `prompts/14-target-checkup-readiness-audit.md`, escreve `md + json` em `docs/checkups/history/` e computa o veredito geral deterministicamente; `src/integrations/codex-client.ts` injeta apenas o payload factual serializado; `src/core/target-checkup.test.ts` valida schema, dimensoes, captura de comandos e caso `valid_for_gap_ticket_derivation`; `src/integrations/codex-client.test.ts` confirma a injecao do payload factual e dos caminhos de artefato; `README.md` e `docs/specs/2026-03-24-onboarding-readiness-e-derivacao-de-gaps-para-projeto-alvo.md` foram atualizados no mesmo changeset; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou em 2026-03-24 22:23Z sem erros de TypeScript.
 - Requisito/RF/CA coberto: RF-17, RF-18; CA-05, CA-06.
 - Evidencia observavel: rodadas concluídas operacionalmente versionam os artefatos canonicos mesmo quando o veredito final e `invalid_for_gap_ticket_derivation`; quando houver versionamento do relatorio, o artefato publicado registra `report_commit_sha`, e o preflight limpo fica observavel por `working_tree_clean_at_start=true`; falha interna nao publica artefato canonico e devolve mensagem distinguindo rodada nao publicada de rodada publicada invalida; testes cobrem versao invalida-ainda-versionada, falha interna sem publicacao e regras de validade por SHA/idade/drift; a validacao manual herdada confirma o caso `invalid_for_gap_ticket_derivation` e permissao real de `git push`.
+- Validacao de fechamento: `src/integrations/git-client.ts` publica o checkup em duas fases para registrar `report_commit_sha` pela convencao documentada; `src/integrations/git-client.test.ts` valida a fronteira de commit/push em duas fases; `src/core/target-checkup.test.ts` cobre `invalid_for_gap_ticket_derivation` ainda versionado, falha antes da publicacao quando um comando muta o repo e validacao de idade/drift/cadeia do `report_commit_sha`; o fluxo tecnico foi revalidado em diff/codigo/testes e restaram apenas os smokes manuais externos herdados pela spec.
+
+## Manual validation pending
+- Entrega tecnica concluida: sim. O recorte funcional e documental deste ticket esta implementado, revalidado contra o ExecPlan e coberto por testes automatizados locais.
+- Validacoes manuais externas ainda necessarias:
+  - Exercitar `/target_checkup` via Telegram em repositorio preparado real cujo veredito final seja `invalid_for_gap_ticket_derivation` e confirmar que o par canonico `md + json` foi publicado mesmo assim.
+  - Confirmar permissao real de `git push` no remoto dos repositorios alvo de teste usados pelo fluxo.
+- Como executar a validacao manual:
+  - Preparar um repo de smoke em `/home/mapita/projetos` com `target_prepare` ja concluido e um caso controlado que mantenha o veredito geral invalido para derivacao.
+  - Iniciar o runner com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run dev`.
+  - Acionar `/target_checkup` no chat Telegram autorizado, depois inspecionar `git status --porcelain`, `git log -1 --stat` e os artefatos em `docs/checkups/history/` no repo alvo.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado, aos repositorios Git de teste e a um remoto com permissao real de `git push`.
+- Motivo para nao bloquear o aceite: a entrega tecnica ja foi comprovada por diff, codigo, suite automatizada e typecheck; o restante depende apenas de exercicio operacional externo ao agente.
 
 ## Decision log
 - 2026-03-24 - Ticket aberto na triagem da spec para isolar o gate funcional entre `prepare` e `derive`; sem checkup versionado o backlog de readiness ficaria sem base canonica para materializacao.
+- 2026-03-24 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-24 22:23Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-target-checkup-readiness-audit-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.
