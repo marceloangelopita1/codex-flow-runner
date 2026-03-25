@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-25 16:27Z
-- Last reviewed at (UTC): 2026-03-25 17:53Z
+- Last reviewed at (UTC): 2026-03-25 17:58Z
 - Source: operational-gap
 - Related tickets:
   - tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
@@ -205,14 +205,23 @@
   - leitura manual positiva de `/home/mapita/projetos/target-prepare-report-smoke/AGENTS.md` e `/home/mapita/projetos/target-prepare-report-smoke/README.md`, com markers gerenciados presentes e conteúdo preexistente relevante preservado.
 
 ## Auditoria final de entrega
-- Auditoria executada em:
-- Resultado:
+- Auditoria executada em: 2026-03-25T17:58:08Z
+- Checklist aplicado: `docs/workflows/codex-quality-gates.md`
+- Resultado: sem gaps residuais; a spec permanece em `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
   - nenhum
+- Evidencias finais revalidadas nesta etapa:
+  - releitura integral desta spec, dos tickets fechados relacionados e dos execplans relacionados antes do veredito final;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/target-prepare.test.ts`, com `4/4` testes verdes;
+  - `rg -n 'TARGET_PREPARE_EXACT_COPY_SOURCES|TARGET_PREPARE_MERGED_FILE_SOURCES|TARGET_PREPARE_(CONTRACT_VERSION|SCHEMA_VERSION|MANIFEST_PATH|REPORT_PATH)' src/types/target-prepare.ts`, confirmando inventário propagado e contrato do manifesto inalterados;
+  - `rg -n 'Relatório do target_prepare|Resumo|Elegível para /projects: sim|Compatível com workflow completo: sim|Próxima ação recomendada|Snapshot do Git|Caminhos alterados|Superfícies gerenciadas|Resumo do Codex|Notas|Target Prepare Report|Eligible for /projects: yes|Compatible with workflow complete: yes' src/core/target-prepare.ts src/core/target-prepare.test.ts`, confirmando o contrato textual final em português e ausência de vestígio legado nas superfícies auditadas;
+  - `cmp` sem mismatch entre o runner e `/home/mapita/projetos/target-prepare-report-smoke` nas oito fontes `copy-exact` propagadas;
+  - leitura manual positiva de `/home/mapita/projetos/target-prepare-report-smoke/docs/workflows/target-prepare-report.md`, `/home/mapita/projetos/target-prepare-report-smoke/AGENTS.md` e `/home/mapita/projetos/target-prepare-report-smoke/README.md`, com relatório final em português, markers gerenciados preservados e conteúdo preexistente relevante mantido;
+  - `git -C /home/mapita/projetos/target-prepare-report-smoke status --short` limpo e HEAD/upstream confirmado em `45ad9cdb1bf8fe6de60ad3781f97774d63b8b9b3@origin/main`.
 - Causas-raiz sistemicas identificadas:
-  - nenhuma auditoria final executada ainda; a causa imediata observada é propagação de documentação-base com português inconsistente para projetos-alvo.
+  - nenhuma; a auditoria final não encontrou gap funcional residual a classificar.
 - Ajustes genericos promovidos ao workflow:
-  - nenhum ainda
+  - nenhum; não houve evidência para abrir backlog transversal nesta etapa.
 
 ## Riscos e impacto
 - Risco funcional: baixo, desde que a implementação preserve contratos documentais e schema do manifesto.
@@ -234,3 +243,4 @@
 - 2026-03-25 17:27Z - Fechamento do ticket `copy-exact` concluido em `GO`: o ticket foi movido para `tickets/closed/`, com evidencias objetivas de inventario preservado, diff restrito ao pacote documental, suite de `target_prepare` verde e smoke end-to-end sem mismatch nas oito fontes.
 - 2026-03-25 17:48Z - Execução do ticket do relatório humano concluída sem fechamento formal: `renderReport()` foi revisado para o contrato em português, a suíte focada de `target_prepare` ficou verde e um smoke executor-driven em `/home/mapita/projetos/target-prepare-report-smoke` confirmou o relatório gerado no alvo, a preservação dos blocos gerenciados e a convergência do fluxo com commit/push local.
 - 2026-03-25 17:53Z - Fechamento formal do ticket do relatório humano concluido em `GO`: o ticket foi movido para `tickets/closed/`, o backlog derivado ficou sem pendencias abertas e `Spec treatment` foi promovido para `done`.
+- 2026-03-25 17:58Z - Auditoria final pós-`/run_all` concluída sem gaps residuais: a spec foi revalidada contra tickets/execplans fechados, estado atual do código e smoke disponível, permaneceu em `Status: attended` com `Spec treatment: done` e não exigiu follow-up funcional.
