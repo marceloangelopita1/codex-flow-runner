@@ -8700,6 +8700,58 @@ test("requestTargetPrepare delega ao executor dedicado e preserva o projeto ativ
   assert.equal(runner.getState().phase, "idle");
 });
 
+test("requestTargetPrepare usa o projeto ativo quando nenhum argumento e informado", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const requestedProjects: string[] = [];
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async (projectName: string) => {
+          requestedProjects.push(projectName);
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject: {
+                name: projectName,
+                path: `/home/mapita/projetos/${projectName}`,
+              },
+              eligibleForProjects: true,
+              compatibleWithWorkflowComplete: true,
+              nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+              manifestPath: "docs/workflows/target-prepare-manifest.json",
+              reportPath: "docs/workflows/target-prepare-report.md",
+              changedPaths: [
+                "AGENTS.md",
+                "README.md",
+                "docs/workflows/target-prepare-manifest.json",
+                "docs/workflows/target-prepare-report.md",
+              ],
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "prepare123",
+                upstream: "origin/main",
+                commitPushId: "prepare123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const result = await runner.requestTargetPrepare();
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(requestedProjects, [activeProjectA.name]);
+  assert.equal(runner.getState().activeProject?.name, activeProjectA.name);
+});
+
 test("requestTargetCheckup delega ao executor dedicado sem trocar o projeto ativo global", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({
@@ -8842,6 +8894,129 @@ test("requestTargetDerive delega ao executor dedicado sem trocar o projeto ativo
   assert.equal(runner.getState().phase, "idle");
 });
 
+test("requestTargetDerive usa o projeto ativo quando o projeto nao e informado", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const receivedRequests: Array<{ projectName: string; reportPath: string }> = [];
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetDeriveExecutor: {
+        execute: async (request) => {
+          receivedRequests.push({ ...request });
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject: {
+                name: request.projectName,
+                path: `/home/mapita/projetos/${request.projectName}`,
+              },
+              analyzedHeadSha: "abc123",
+              reportJsonPath: request.reportPath.replace(/\.md$/u, ".json"),
+              reportMarkdownPath: request.reportPath.replace(/\.json$/u, ".md"),
+              reportCommitSha: "report123",
+              completionMode: "applied" as const,
+              derivationStatus: "materialized" as const,
+              changedPaths: [
+                "docs/checkups/history/report.json",
+                "docs/checkups/history/report.md",
+                "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+              ],
+              touchedTicketPaths: [
+                "tickets/open/2026-03-24-readiness-gap-example-abc123.md",
+              ],
+              gapResults: [
+                {
+                  gapId: "readiness-gap-id|abc123def456",
+                  gapFingerprint: "readiness-gap|abc123def456",
+                  result: "materialized_as_ticket" as const,
+                  ticketPaths: ["tickets/open/2026-03-24-readiness-gap-example-abc123.md"],
+                },
+              ],
+              nextAction:
+                "Revise os tickets readiness derivados no projeto alvo e siga o fluxo sequencial normal de execucao.",
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "derive123",
+                upstream: "origin/main",
+                commitPushId: "derive123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const result = await runner.requestTargetDerive(null, "docs/checkups/history/report.json");
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(receivedRequests, [
+    {
+      projectName: activeProjectA.name,
+      reportPath: "docs/checkups/history/report.json",
+    },
+  ]);
+  assert.equal(runner.getState().activeProject?.name, activeProjectA.name);
+});
+
+test("requestTargetPrepare sem argumento falha com bloqueio explicito quando nao ha projeto ativo", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async () => {
+          throw new Error("nao deveria executar");
+        },
+      },
+    },
+  });
+
+  (runner as unknown as { state: { activeProject: ProjectRef | null } }).state.activeProject = null;
+
+  const result = await runner.requestTargetPrepare();
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.reason, "active-project-unavailable");
+  assert.match(result.message, /nao existe projeto ativo selecionado/u);
+});
+
+test("requestTargetDerive sem projeto explicito falha com bloqueio explicito quando nao ha projeto ativo", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetDeriveExecutor: {
+        execute: async () => {
+          throw new Error("nao deveria executar");
+        },
+      },
+    },
+  });
+
+  (runner as unknown as { state: { activeProject: ProjectRef | null } }).state.activeProject = null;
+
+  const result = await runner.requestTargetDerive(null, "docs/checkups/history/report.json");
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.reason, "active-project-unavailable");
+  assert.match(result.message, /nao existe projeto ativo selecionado/u);
+});
 test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e bloqueia comandos concorrentes", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({

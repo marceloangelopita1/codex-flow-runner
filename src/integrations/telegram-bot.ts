@@ -79,13 +79,13 @@ import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
 
 interface BotControls {
   targetPrepare: (
-    projectName: string,
+    projectName?: string | null,
   ) => Promise<TargetPrepareRequestResult> | TargetPrepareRequestResult;
   targetCheckup: (
     projectName?: string | null,
   ) => Promise<TargetCheckupRequestResult> | TargetCheckupRequestResult;
   targetDerive: (
-    projectName: string,
+    projectName: string | null | undefined,
     reportPath: string,
   ) => Promise<TargetDeriveRequestResult> | TargetDeriveRequestResult;
   cancelTargetPrepare: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
@@ -531,13 +531,12 @@ interface CallbackAuditContext {
 const RUN_ALL_STARTED_REPLY = "▶️ Runner iniciado via /run_all.";
 const RUN_ALL_ALREADY_RUNNING_REPLY = "ℹ️ Runner já está em execução.";
 const RUN_ALL_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
-const TARGET_PREPARE_USAGE_REPLY = "ℹ️ Uso: /target_prepare <nome-do-projeto>.";
 const TARGET_PREPARE_FAILED_REPLY =
   "❌ Falha ao executar /target_prepare. Verifique logs do runner e tente novamente.";
 const TARGET_CHECKUP_FAILED_REPLY =
   "❌ Falha ao executar /target_checkup. Verifique logs do runner e tente novamente.";
 const TARGET_DERIVE_USAGE_REPLY =
-  "ℹ️ Uso: /target_derive_gaps <nome-do-projeto> <report-path>.";
+  "ℹ️ Uso: /target_derive_gaps [nome-do-projeto] <report-path>.";
 const TARGET_DERIVE_FAILED_REPLY =
   "❌ Falha ao executar /target_derive_gaps. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
@@ -766,13 +765,13 @@ const START_REPLY_LINES = [
   "",
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
-  "/target_prepare <projeto> - prepara um diretorio irmao Git para o workflow completo sem trocar o projeto ativo",
+  "/target_prepare [projeto] - prepara o projeto ativo ou um diretorio irmao Git explicito para o workflow completo sem trocar o projeto ativo",
   "/target_prepare_status - mostra status detalhado do /target_prepare ativo",
   "/target_prepare_cancel - solicita cancelamento cooperativo do /target_prepare ativo",
   "/target_checkup [projeto] - audita readiness do projeto ativo ou de um diretorio irmao explicito sem trocar o projeto ativo",
   "/target_checkup_status - mostra status detalhado do /target_checkup ativo",
   "/target_checkup_cancel - solicita cancelamento cooperativo do /target_checkup ativo",
-  "/target_derive_gaps <projeto> <report-path> - materializa gaps readiness elegiveis a partir de um report canonico explicito",
+  "/target_derive_gaps [projeto] <report-path> - materializa gaps readiness elegiveis a partir do projeto ativo ou de um projeto explicito",
   "/target_derive_gaps_status - mostra status detalhado do /target_derive_gaps ativo",
   "/target_derive_gaps_cancel - solicita cancelamento cooperativo do /target_derive_gaps ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
@@ -1997,10 +1996,6 @@ export class TelegramController {
     }
 
     const projectName = this.parseTargetPrepareCommandProjectName(ctx.message?.text);
-    if (!projectName) {
-      await ctx.reply(TARGET_PREPARE_USAGE_REPLY);
-      return;
-    }
 
     try {
       this.captureNotificationChat(chatId);
@@ -3946,7 +3941,7 @@ export class TelegramController {
   }
 
   private parseTargetDeriveCommandArgs(commandText?: string): {
-    projectName: string;
+    projectName: string | null;
     reportPath: string;
   } | null {
     if (!commandText) {
@@ -3961,7 +3956,10 @@ export class TelegramController {
 
     const firstWhitespace = value.search(/\s/u);
     if (firstWhitespace < 0) {
-      return null;
+      return {
+        projectName: null,
+        reportPath: value,
+      };
     }
 
     const projectName = value.slice(0, firstWhitespace).trim();

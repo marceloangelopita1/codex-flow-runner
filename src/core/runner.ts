@@ -2826,9 +2826,12 @@ export class TicketRunner {
     }
   };
 
-  requestTargetPrepare = async (projectName: string): Promise<TargetPrepareRequestResult> => {
+  requestTargetPrepare = async (
+    projectName?: string | null,
+  ): Promise<TargetPrepareRequestResult> => {
+    const requestedProjectName = this.normalizeRequestedTargetProjectName(projectName);
     this.logger.info("Solicitacao de /target_prepare recebida", {
-      projectName,
+      requestedProjectName,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
       hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
@@ -2856,7 +2859,22 @@ export class TicketRunner {
       return blocked;
     }
 
-    return this.startTargetPrepareFlow(projectName);
+    const targetProjectResolution = this.resolveTargetProjectCommandInput(
+      "/target_prepare",
+      requestedProjectName,
+    );
+    if (targetProjectResolution.status === "blocked") {
+      this.touch("error", targetProjectResolution.message);
+      this.logger.warn("Fluxo target bloqueado por projeto ativo ausente", {
+        command: "/target_prepare",
+        requestedProjectName,
+        activeProjectName: this.state.activeProject?.name ?? null,
+        activeProjectPath: this.state.activeProject?.path ?? null,
+      });
+      return targetProjectResolution;
+    }
+
+    return this.startTargetPrepareFlow(targetProjectResolution);
   };
 
   requestTargetCheckup = async (
@@ -2895,11 +2913,12 @@ export class TicketRunner {
   };
 
   requestTargetDerive = async (
-    projectName: string,
+    projectName: string | null | undefined,
     reportPath: string,
   ): Promise<TargetDeriveRequestResult> => {
+    const requestedProjectName = this.normalizeRequestedTargetProjectName(projectName);
     this.logger.info("Solicitacao de /target_derive_gaps recebida", {
-      projectName,
+      requestedProjectName,
       reportPath,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
@@ -2928,7 +2947,23 @@ export class TicketRunner {
       return blocked;
     }
 
-    return this.startTargetDeriveFlow(projectName, reportPath);
+    const targetProjectResolution = this.resolveTargetProjectCommandInput(
+      "/target_derive_gaps",
+      requestedProjectName,
+    );
+    if (targetProjectResolution.status === "blocked") {
+      this.touch("error", targetProjectResolution.message);
+      this.logger.warn("Fluxo target bloqueado por projeto ativo ausente", {
+        command: "/target_derive_gaps",
+        requestedProjectName,
+        reportPath,
+        activeProjectName: this.state.activeProject?.name ?? null,
+        activeProjectPath: this.state.activeProject?.path ?? null,
+      });
+      return targetProjectResolution;
+    }
+
+    return this.startTargetDeriveFlow(targetProjectResolution, reportPath);
   };
 
   cancelTargetPrepare = async (): Promise<TargetFlowCancelResult> =>
@@ -2980,16 +3015,22 @@ export class TicketRunner {
     return null;
   }
 
-  private async startTargetPrepareFlow(projectName: string): Promise<TargetPrepareRequestResult> {
+  private async startTargetPrepareFlow(params: {
+    requestedProjectName: string | null;
+    effectiveProjectName: string;
+    effectiveProjectPath: string | null;
+  }): Promise<TargetPrepareRequestResult> {
     const startedAt = this.now();
     const outcome = await this.startTargetFlowRequest<TargetPrepareMilestone, TargetPrepareExecutionResult>({
       flow: "target-prepare",
       startedAt,
       inputs: {
-        projectName,
+        requestedProjectName: params.requestedProjectName,
+        effectiveProjectName: params.effectiveProjectName,
+        effectiveProjectPath: params.effectiveProjectPath,
       },
       execute: (hooks: TargetPrepareLifecycleHooks) =>
-        this.targetPrepareExecutor!.execute(projectName, hooks),
+        this.targetPrepareExecutor!.execute(params.effectiveProjectName, hooks),
     });
 
     if (outcome.kind === "terminal") {
@@ -3044,7 +3085,11 @@ export class TicketRunner {
   }
 
   private async startTargetDeriveFlow(
-    projectName: string,
+    params: {
+      requestedProjectName: string | null;
+      effectiveProjectName: string;
+      effectiveProjectPath: string | null;
+    },
     reportPath: string,
   ): Promise<TargetDeriveRequestResult> {
     const startedAt = this.now();
@@ -3052,13 +3097,15 @@ export class TicketRunner {
       flow: "target-derive",
       startedAt,
       inputs: {
-        projectName,
+        requestedProjectName: params.requestedProjectName,
+        effectiveProjectName: params.effectiveProjectName,
+        effectiveProjectPath: params.effectiveProjectPath,
         reportPath,
       },
       execute: (hooks: TargetDeriveLifecycleHooks) =>
         this.targetDeriveExecutor!.execute(
           {
-            projectName,
+            projectName: params.effectiveProjectName,
             reportPath,
           },
           hooks,
@@ -3076,6 +3123,50 @@ export class TicketRunner {
     return {
       status: "started",
       message: `Execucao /target_derive_gaps iniciada para ${active.targetProject.name}.`,
+    };
+  }
+
+  private normalizeRequestedTargetProjectName(projectName?: string | null): string | null {
+    const normalizedName = projectName?.trim() ?? "";
+    return normalizedName || null;
+  }
+
+  private resolveTargetProjectCommandInput(
+    command: "/target_prepare" | "/target_derive_gaps",
+    requestedProjectName: string | null,
+  ):
+    | {
+        status: "resolved";
+        requestedProjectName: string | null;
+        effectiveProjectName: string;
+        effectiveProjectPath: string | null;
+      }
+    | RunnerRequestBlockedResult {
+    if (requestedProjectName) {
+      return {
+        status: "resolved",
+        requestedProjectName,
+        effectiveProjectName: requestedProjectName,
+        effectiveProjectPath: null,
+      };
+    }
+
+    if (!this.state.activeProject) {
+      return {
+        status: "blocked",
+        reason: "active-project-unavailable",
+        message: [
+          `Nao e possivel iniciar ${command} sem argumento porque nao existe projeto ativo selecionado.`,
+          "Use /select_project ou /projects para definir o projeto ativo, ou informe <nome-do-projeto> explicitamente.",
+        ].join(" "),
+      };
+    }
+
+    return {
+      status: "resolved",
+      requestedProjectName: null,
+      effectiveProjectName: this.state.activeProject.name,
+      effectiveProjectPath: this.state.activeProject.path,
     };
   }
 

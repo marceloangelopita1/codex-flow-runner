@@ -720,11 +720,11 @@ const createController = (options: ControllerOptions = {}) => {
   const logger = new SpyLogger();
   const controlState = {
     targetPrepareCalls: 0,
-    targetPrepareArgs: [] as string[],
+    targetPrepareArgs: [] as Array<string | null | undefined>,
     targetCheckupCalls: 0,
     targetCheckupArgs: [] as Array<string | null | undefined>,
     targetDeriveCalls: 0,
-    targetDeriveArgs: [] as Array<{ projectName: string; reportPath: string }>,
+    targetDeriveArgs: [] as Array<{ projectName: string | null | undefined; reportPath: string }>,
     targetPrepareCancelCalls: 0,
     targetCheckupCancelCalls: 0,
     targetDeriveCancelCalls: 0,
@@ -791,23 +791,24 @@ const createController = (options: ControllerOptions = {}) => {
     .map(cloneOpenTicket);
 
   const controls = {
-    targetPrepare: (projectName: string) => {
+    targetPrepare: (projectName?: string | null) => {
       controlState.targetPrepareCalls += 1;
       controlState.targetPrepareArgs.push(projectName);
       if (options.targetPrepareResult) {
         return options.targetPrepareResult;
       }
 
+      const resolvedProjectName = projectName ?? defaultActiveProject.name;
       return {
         status: "completed" as const,
         summary: {
           targetProject: {
-            name: projectName,
-            path: `/home/mapita/projetos/${projectName}`,
+            name: resolvedProjectName,
+            path: `/home/mapita/projetos/${resolvedProjectName}`,
           },
           eligibleForProjects: true,
           compatibleWithWorkflowComplete: true,
-          nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+          nextAction: `Selecionar o projeto por /select_project ${resolvedProjectName} ou pelo menu /projects.`,
           manifestPath: "docs/workflows/target-prepare-manifest.json",
           reportPath: "docs/workflows/target-prepare-report.md",
           changedPaths: [
@@ -882,19 +883,20 @@ const createController = (options: ControllerOptions = {}) => {
         }
       );
     },
-    targetDerive: (projectName: string, reportPath: string) => {
+    targetDerive: (projectName: string | null | undefined, reportPath: string) => {
       controlState.targetDeriveCalls += 1;
       controlState.targetDeriveArgs.push({ projectName, reportPath });
       if (options.targetDeriveResult) {
         return options.targetDeriveResult;
       }
 
+      const resolvedProjectName = projectName ?? defaultActiveProject.name;
       return {
         status: "completed" as const,
         summary: {
           targetProject: {
-            name: projectName,
-            path: `/home/mapita/projetos/${projectName}`,
+            name: resolvedProjectName,
+            path: `/home/mapita/projetos/${resolvedProjectName}`,
           },
           analyzedHeadSha: "abc123",
           reportJsonPath: "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json",
@@ -2932,7 +2934,7 @@ test("gera resposta acionavel quando /run-all e bloqueado por autenticacao", asy
   assert.equal(controlState.runAllCalls, 1);
 });
 
-test("handleTargetPrepareCommand exige argumento explicito", async () => {
+test("handleTargetPrepareCommand usa o projeto ativo quando nenhum argumento e informado", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
 
@@ -2945,8 +2947,10 @@ test("handleTargetPrepareCommand exige argumento explicito", async () => {
     },
   });
 
-  assert.deepEqual(replies, ["ℹ️ Uso: /target_prepare <nome-do-projeto>."]);
-  assert.equal(controlState.targetPrepareCalls, 0);
+  assert.equal(controlState.targetPrepareCalls, 1);
+  assert.deepEqual(controlState.targetPrepareArgs, [null]);
+  assert.match(replies[0] ?? "", /\/target_prepare concluido para codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Elegivel para \/projects: sim/u);
 });
 
 test("handleTargetPrepareCommand responde com resumo final rastreavel no caminho feliz", async () => {
@@ -3186,13 +3190,13 @@ test("handleTargetCheckupCancelCommand traduz cancelamento tardio depois da fron
   ]);
 });
 
-test("handleTargetDeriveCommand exige projeto e report-path explicitos", async () => {
+test("handleTargetDeriveCommand exige report-path explicito quando nenhum argumento e informado", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
 
   await callHandleTargetDeriveCommand(controller, {
     chat: { id: 42 },
-    message: { text: "/target_derive_gaps alpha-project" },
+    message: { text: "/target_derive_gaps" },
     reply: async (text) => {
       replies.push(String(text));
       return {};
@@ -3200,7 +3204,33 @@ test("handleTargetDeriveCommand exige projeto e report-path explicitos", async (
   });
 
   assert.equal(controlState.targetDeriveCalls, 0);
-  assert.deepEqual(replies, ["ℹ️ Uso: /target_derive_gaps <nome-do-projeto> <report-path>."]);
+  assert.deepEqual(replies, ["ℹ️ Uso: /target_derive_gaps [nome-do-projeto] <report-path>."]);
+});
+
+test("handleTargetDeriveCommand usa o projeto ativo quando apenas report-path e informado", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetDeriveCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_derive_gaps docs/checkups/history/report.json",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetDeriveCalls, 1);
+  assert.deepEqual(controlState.targetDeriveArgs, [
+    {
+      projectName: null,
+      reportPath: "docs/checkups/history/report.json",
+    },
+  ]);
+  assert.match(replies[0] ?? "", /\/target_derive_gaps concluido para codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Status da derivacao: materialized/u);
 });
 
 test("handleTargetDeriveCommand aceita args explicitos e responde com resumo rastreavel", async () => {
@@ -3530,6 +3560,8 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /Codex Flow Runner/u);
   assert.match(reply, /Comandos aceitos:/u);
   assert.match(reply, /\/start/u);
+  assert.match(reply, /\/target_prepare \[projeto\]/u);
+  assert.match(reply, /\/target_derive_gaps \[projeto\] <report-path>/u);
   assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/specs/u);

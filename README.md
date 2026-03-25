@@ -46,9 +46,9 @@ Isso é importante porque abre um caminho mais acessivel para pessoas sem famili
 
 Depois de configurar o bot, o Telegram vira um painel de controle simples:
 
-- você pode preparar um repositório Git irmão ainda inelegível em `/projects` por `/target_prepare <project-name>`;
+- você pode preparar o projeto ativo ou um repositório Git irmão ainda inelegível em `/projects` por `/target_prepare [project-name]`;
 - você pode auditar readiness do projeto ativo ou de um diretório irmão por `/target_checkup [project-name]`;
-- você pode derivar gaps readiness de um report canônico por `/target_derive_gaps <project-name> <report-path>`;
+- você pode derivar gaps readiness de um report canônico por `/target_derive_gaps [project-name] <report-path>`;
 - cada fluxo target expõe comandos `*_status` e `*_cancel` para acompanhamento e cancelamento cooperativo antes de versionamento;
 - enquanto um fluxo target operacional estiver ativo, `/status` e `/projects` continuam liberados, mas troca de projeto e sessões interativas ficam bloqueadas;
 - você pode ver o status do runner;
@@ -135,6 +135,7 @@ Compatibilidade do projeto alvo com o workflow completo continua sendo pre-requi
 
 Quando um repositório Git irmão ainda não aparece em `/projects`, agora existe uma etapa operacional explícita:
 
+- `/target_prepare` usa o projeto ativo atual sem trocá-lo;
 - `/target_prepare <project-name>` resolve apenas o nome literal do diretório irmão em `PROJECTS_ROOT_PATH`;
 - o fluxo exige `.git`, working tree limpo e bloqueia mutações fora da allowlist documental do workflow;
 - `AGENTS.md` e `README.md` são mesclados in-place com bloco gerenciado, enquanto os contratos canônicos restantes são sincronizados para a versão atual do runner;
@@ -159,7 +160,9 @@ Depois do preparo, o runner também consegue auditar readiness de forma determin
 
 Quando um report de `target_checkup` fica elegível para derivação, o runner também consegue transformá-lo em backlog local auditável:
 
-- `/target_derive_gaps <project-name> <report-path>` exige projeto explícito, working tree limpo e `report-path` explícito relativo ao repositório alvo;
+- `/target_derive_gaps <report-path>` usa o projeto ativo atual sem trocá-lo;
+- `/target_derive_gaps <project-name> <report-path>` opera sobre um diretório irmão explícito sem mudar o projeto ativo global;
+- o fluxo exige working tree limpo e `report-path` explícito relativo ao repositório alvo;
 - o fluxo aceita `report-path` apontando para o `.json` ou para o `.md`, mas sempre valida o par canônico do mesmo stem;
 - relatórios inválidos, stale, driftados, sem elegibilidade explícita ou pertencentes a outro projeto são recusados sem criar ou alterar tickets;
 - a análise estruturada calcula `Gap ID`, `Gap fingerprint`, score e `Priority` deterministicamente em código;
@@ -1214,13 +1217,13 @@ npm run dev
 ## Controle por Telegram
 
 - `/start` -> mostra descrição do bot e comandos disponíveis
-- `/target_prepare <projeto>` -> prepara um diretório irmão Git para o workflow completo sem trocar o projeto ativo
+- `/target_prepare [projeto]` -> prepara o projeto ativo ou um diretório irmão Git explícito para o workflow completo sem trocar o projeto ativo
 - `/target_prepare_status` -> mostra status detalhado do `/target_prepare` ativo
 - `/target_prepare_cancel` -> solicita cancelamento cooperativo do `/target_prepare` antes da fronteira de versionamento
 - `/target_checkup [projeto]` -> audita readiness do projeto ativo ou de um diretório irmão explícito sem trocar o projeto ativo
 - `/target_checkup_status` -> mostra status detalhado do `/target_checkup` ativo
 - `/target_checkup_cancel` -> solicita cancelamento cooperativo do `/target_checkup` antes da fronteira de versionamento
-- `/target_derive_gaps <projeto> <report-path>` -> deriva gaps readiness de um report canônico elegível sem trocar o projeto ativo
+- `/target_derive_gaps [projeto] <report-path>` -> deriva gaps readiness de um report canônico elegível a partir do projeto ativo ou de um projeto explícito, sem trocar o projeto ativo
 - `/target_derive_gaps_status` -> mostra status detalhado do `/target_derive_gaps` ativo
 - `/target_derive_gaps_cancel` -> solicita cancelamento cooperativo do `/target_derive_gaps` antes da fronteira de versionamento
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
