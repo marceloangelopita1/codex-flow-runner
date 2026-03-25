@@ -6,14 +6,15 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-25 16:27Z
-- Last reviewed at (UTC): 2026-03-25 16:27Z
+- Last reviewed at (UTC): 2026-03-25 16:56Z
 - Source: operational-gap
 - Related tickets:
-  - nenhum
+  - tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
+  - tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md
 - Related execplans:
   - nenhum
 - Related commits:
-  - nenhum
+  - chore(specs): triage 2026-03-25-revisao-editorial-explicita-das-documentacoes-propagadas-por-target-prepare.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -94,33 +95,78 @@
 - Nota de uso: esta spec foi criada para organizar a correção futura; como ainda não houve derivação nem execução via `/run_specs`, esta seção permanece `n/a`.
 - Politica historica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-03-25T16:51:24.554Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: O pacote derivado agora cobre de forma explícita as pendências `copy-exact` e `runner-generated`, herda as validações manuais relevantes da spec para `AGENTS.md` e `README.md`, e torna essas checagens observáveis nos `Closure criteria` ligados a `RF-10`/`CA-06`; não restaram gaps objetivos no backlog derivado.
+- Ciclos executados: 1
+- Thread da validacao: 019d25e0-7813-7040-8358-f1876a64ce84
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md [fonte=source-spec]
+  - tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: O pacote cobre as pendências de `copy-exact` e do relatório humano, mas ainda não herda nem torna observáveis as validações manuais da spec para os blocos gerenciados propagados em `AGENTS.md` e `README.md`; por isso o backlog derivado permanece incompleto para o aceite da spec.
+  - Thread: 019d25e0-7813-7040-8358-f1876a64ce84
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10, spec-inheritance-gap|tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+- Ciclo 1 [revalidation]: GO (high)
+  - Resumo: O pacote derivado agora cobre de forma explícita as pendências `copy-exact` e `runner-generated`, herda as validações manuais relevantes da spec para `AGENTS.md` e `README.md`, e torna essas checagens observáveis nos `Closure criteria` ligados a `RF-10`/`CA-06`; não restaram gaps objetivos no backlog derivado.
+  - Thread: 019d25e0-7813-7040-8358-f1876a64ce84
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 2
+    - O ticket das fontes `copy-exact` passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final. [applied]
+    - O ticket do relatório humano passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- O ticket das fontes `copy-exact` passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final.
+  - Artefatos afetados: tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
+  - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
+  - Resultado: applied
+- O ticket do relatório humano passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final.
+  - Artefatos afetados: tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md
+  - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativacao ou skip:
-  - n/a
-- Classificacao final:
-  - n/a
-- Confianca:
-  - n/a
-- Frente causal analisada:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: A menor causa plausível é execução inicial incompleta do pacote derivado apesar de instruções já suficientes, seguida de correção pelo próprio spec-ticket-validation.
 - Achados sistemicos:
-  - n/a
+  - nenhum
 - Artefatos do workflow consultados:
-  - `DOCUMENTATION.md`
-  - `SPECS.md`
-  - `src/types/target-prepare.ts`
-  - `src/core/target-prepare.ts`
-  - `docs/workflows/discover-spec.md`
-  - `docs/workflows/target-project-compatibility-contract.md`
-  - `docs/workflows/target-prepare-managed-agents-section.md`
-  - `docs/workflows/target-prepare-managed-readme-section.md`
-- Elegibilidade de publicacao:
-  - n/a
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - src/core/runner.ts
+  - src/core/runner.test.ts
+  - src/core/spec-ticket-validation.ts
+  - src/core/spec-ticket-validation.test.ts
+  - src/types/spec-ticket-validation.ts
+- Elegibilidade de publicacao: nao
 - Resultado do ticket transversal ou limitacao operacional:
-  - n/a
-- Nota de uso: esta seção permanece `n/a` até que a spec participe de `/run_specs`.
-- Politica anti-duplicacao: quando esta spec gerar execução futura, a retrospectiva sistêmica deve focar na causa-raiz da derivação e não repetir a própria descrição do problema editorial já consolidada aqui.
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
@@ -139,15 +185,18 @@
   - o inventário atual das superfícies propagadas por `/target_prepare` foi revisado a partir do código-fonte;
   - a distinção entre superfícies `copy-exact`, blocos gerenciados e artefatos gerados pelo runner foi explicitada;
   - os guardrails para preservar contrato e schema durante a revisão editorial foram definidos.
+  - as superfícies de blocos gerenciados `docs/workflows/target-prepare-managed-agents-section.md` e `docs/workflows/target-prepare-managed-readme-section.md` ja estao editorialmente coerentes com `DOCUMENTATION.md`, e o merge gerenciado continua coberto por `src/core/target-prepare.test.ts`;
+  - a estabilidade contratual do manifesto `docs/workflows/target-prepare-manifest.json` ja esta protegida por `src/types/target-prepare.ts` e por asserts em `src/core/target-prepare.test.ts`.
 - Pendencias em aberto:
-  - corrigir editorialmente as superfícies em escopo;
-  - validar a propagação corrigida em smoke de `/target_prepare`;
-  - derivar ticket(s) futuros somente quando houver decisão de execução.
+  - executar o ticket `tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md` para revisar as fontes `copy-exact` ainda inconsistentes e registrar explicitamente a cobertura do inventario propagado;
+  - executar o ticket `tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md` para revisar o texto gerado por `renderReport()` sem alterar o contrato do manifesto;
+  - validar a propagacao corrigida em smoke de `/target_prepare`, com revisao manual dos diffs e do relatorio humano gerado no alvo.
 - Evidencias de validacao:
   - leitura de `src/types/target-prepare.ts` para enumerar `TARGET_PREPARE_EXACT_COPY_SOURCES` e `TARGET_PREPARE_MERGED_FILE_SOURCES`;
   - leitura de `src/core/target-prepare.ts` para identificar a geração textual de `docs/workflows/target-prepare-report.md` e o contrato do manifesto;
   - releitura das documentações canônicas atualmente propagadas pelo fluxo para confirmar a presença de inconsistências editoriais e de acentuação;
-  - validação de que esta spec nasce apenas como alinhamento documental, sem ticket derivado aberto nesta rodada.
+  - validacao de que `src/core/target-prepare.test.ts` ja cobre merge gerenciado e estabilidade contratual do manifesto;
+  - abertura dos tickets derivados desta triagem em `tickets/open/` para separar o lote documental `copy-exact` do ajuste de codigo/teste do relatorio humano.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -173,3 +222,5 @@
 
 ## Historico de atualizacao
 - 2026-03-25 16:27Z - Versão inicial da spec criada a partir da revisão explícita das superfícies documentais propagadas pelo `/target_prepare`.
+- 2026-03-25 16:36Z - Triagem inicial concluida; inventario/manifesto/blocos gerenciados classificados contra o estado atual do repositorio e dois tickets derivados abertos para cobrir as pendencias `copy-exact` e `runner-generated` remanescentes.
+- 2026-03-25 16:56Z - Validacao final da triagem concluida; a spec permaneceu em `Status: approved` com `Spec treatment: pending`, com rastreabilidade mantida para os dois tickets abertos e sem gaps residuais no backlog derivado desta etapa.
