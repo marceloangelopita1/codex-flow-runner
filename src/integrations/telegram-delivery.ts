@@ -143,6 +143,13 @@ export const RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY: TelegramDeliveryPolicy 
   maxBackoffMs: 10_000,
 };
 
+export const TARGET_FLOW_MILESTONE_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "target-flow-milestone",
+  maxAttempts: 4,
+  baseBackoffMs: 1000,
+  maxBackoffMs: 10_000,
+};
+
 export const INTERACTIVE_TELEGRAM_DELIVERY_POLICY: TelegramDeliveryPolicy = {
   name: "interactive-message",
   maxAttempts: 2,

@@ -9,6 +9,7 @@ import {
   PlanSpecSessionPhase,
   RunnerSlotKind,
   RunnerState,
+  RunnerTargetFlowState,
   createInitialState,
 } from "../types/state.js";
 import {
@@ -50,6 +51,10 @@ import {
   RunSpecsTicketValidationSummary,
   RunSpecsTriageFinalStage,
   RunSpecsTriageTimingStage,
+  TargetCheckupFlowSummary,
+  TargetDeriveFlowSummary,
+  TargetFlowMilestoneLifecycleEvent,
+  TargetPrepareFlowSummary,
 } from "../types/flow-timing.js";
 import { Logger } from "./logger.js";
 import {
@@ -87,6 +92,7 @@ import {
 } from "../integrations/spec-planning-trace-store.js";
 import {
   FileSystemWorkflowTraceStore,
+  TargetFlowTraceRecordRequest,
   WorkflowStageTraceRecord,
   WorkflowTraceSourceCommand,
   WorkflowTraceStage,
@@ -143,14 +149,29 @@ import {
   TargetPrepareExecutor,
 } from "./target-prepare.js";
 import { TargetPrepareExecutionResult } from "../types/target-prepare.js";
+import { TargetPrepareLifecycleHooks } from "../types/target-prepare.js";
 import {
   TargetCheckupExecutor,
 } from "./target-checkup.js";
 import { TargetCheckupExecutionResult } from "../types/target-checkup.js";
+import { TargetCheckupLifecycleHooks } from "../types/target-checkup.js";
 import {
   TargetDeriveExecutor,
 } from "./target-derive.js";
 import { TargetDeriveExecutionResult } from "../types/target-derive.js";
+import { TargetDeriveLifecycleHooks } from "../types/target-derive.js";
+import {
+  TargetCheckupMilestone,
+  TargetDeriveMilestone,
+  TargetFlowAiExchange,
+  TargetFlowCommand,
+  TargetFlowKind,
+  TargetFlowMilestone,
+  TargetFlowVersionBoundaryState,
+  TargetPrepareMilestone,
+  renderTargetFlowMilestoneLabel,
+  targetFlowKindToCommand,
+} from "../types/target-flow.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -218,6 +239,10 @@ export interface RunFlowEventHandlers {
   ) => Promise<FlowNotificationDelivery | null | void> | FlowNotificationDelivery | null | void;
 }
 
+export interface TargetFlowEventHandlers {
+  onMilestone: (event: TargetFlowMilestoneLifecycleEvent) => Promise<void> | void;
+}
+
 export interface TicketRunnerOptions {
   discoverSpecSessionTimeoutMs?: number;
   planSpecSessionTimeoutMs?: number;
@@ -233,6 +258,7 @@ export interface TicketRunnerOptions {
   codexChatEventHandlers?: CodexChatEventHandlers;
   runSpecsEventHandlers?: RunSpecsEventHandlers;
   runFlowEventHandlers?: RunFlowEventHandlers;
+  targetFlowEventHandlers?: TargetFlowEventHandlers;
   codexPreferencesService?: CodexPreferencesService;
   workflowImprovementTicketPublisher?: WorkflowImprovementTicketPublisher;
   targetPrepareExecutor?: TargetPrepareExecutor;
@@ -307,6 +333,33 @@ interface ActiveRunnerSlot {
   phase: RunnerState["phase"];
   startedAt: Date;
   loopPromise: Promise<void> | null;
+}
+
+interface TargetFlowTraceMilestoneRecord {
+  milestone: TargetFlowMilestone;
+  milestoneLabel: string;
+  message: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  recordedAtUtc: string;
+}
+
+interface ActiveTargetFlowExecution<Stage extends string = string> {
+  flow: TargetFlowKind;
+  command: TargetFlowCommand;
+  targetProject: ProjectRef;
+  phase: RunnerState["phase"];
+  milestone: Stage;
+  milestoneLabel: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  cancelRequestedAt: Date | null;
+  startedAt: Date;
+  updatedAt: Date;
+  lastMessage: string;
+  timing: FlowTimingCollector<Stage>;
+  currentStageStartedAtMs: number;
+  traceInputs: Record<string, unknown>;
+  traceMilestones: TargetFlowTraceMilestoneRecord[];
+  traceAiExchanges: TargetFlowAiExchange[];
 }
 
 interface FlowTimingCollector<Stage extends string> {
@@ -649,16 +702,42 @@ export type RunSelectedTicketRequestResult =
     };
 
 export type TargetPrepareRequestResult =
+  | {
+      status: "started";
+      message: string;
+    }
   | TargetPrepareExecutionResult
   | RunnerRequestBlockedResult;
 
 export type TargetCheckupRequestResult =
+  | {
+      status: "started";
+      message: string;
+    }
   | TargetCheckupExecutionResult
   | RunnerRequestBlockedResult;
 
 export type TargetDeriveRequestResult =
+  | {
+      status: "started";
+      message: string;
+    }
   | TargetDeriveExecutionResult
   | RunnerRequestBlockedResult;
+
+export type TargetFlowCancelResult =
+  | {
+      status: "accepted";
+      message: string;
+    }
+  | {
+      status: "late";
+      message: string;
+    }
+  | {
+      status: "inactive";
+      message: string;
+    };
 
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
 
@@ -671,7 +750,8 @@ type RunSlotStartPreflightResult =
 export type SyncActiveProjectResult =
   | { status: "updated" }
   | { status: "blocked-discover-spec" }
-  | { status: "blocked-plan-spec" };
+  | { status: "blocked-plan-spec" }
+  | { status: "blocked-target-flow" };
 
 export type RunnerProjectControlAction = "pause" | "resume";
 
@@ -828,6 +908,7 @@ export class TicketRunner {
   private readonly codexChatEventHandlers?: CodexChatEventHandlers;
   private readonly runSpecsEventHandlers?: RunSpecsEventHandlers;
   private readonly runFlowEventHandlers?: RunFlowEventHandlers;
+  private readonly targetFlowEventHandlers?: TargetFlowEventHandlers;
   private readonly codexPreferencesService?: CodexPreferencesService;
   private readonly workflowImprovementTicketPublisher: WorkflowImprovementTicketPublisher | null;
   private readonly targetPrepareExecutor: TargetPrepareExecutor | null;
@@ -836,13 +917,11 @@ export class TicketRunner {
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
+  private activeTargetFlow: ActiveTargetFlowExecution | null = null;
   private nextDiscoverSpecSessionId = 1;
   private nextPlanSpecSessionId = 1;
   private nextCodexChatSessionId = 1;
   private isShuttingDown = false;
-  private targetPrepareInFlight = false;
-  private targetCheckupInFlight = false;
-  private targetDeriveInFlight = false;
   private shutdownPromise: Promise<RunnerShutdownReport> | null = null;
   private completedShutdownReport: RunnerShutdownReport | null = null;
 
@@ -883,6 +962,7 @@ export class TicketRunner {
     this.codexChatEventHandlers = options.codexChatEventHandlers;
     this.runSpecsEventHandlers = options.runSpecsEventHandlers;
     this.runFlowEventHandlers = options.runFlowEventHandlers;
+    this.targetFlowEventHandlers = options.targetFlowEventHandlers;
     this.codexPreferencesService = options.codexPreferencesService;
     this.workflowImprovementTicketPublisher = options.workflowImprovementTicketPublisher ?? null;
     this.targetPrepareExecutor = options.targetPrepareExecutor ?? null;
@@ -903,6 +983,21 @@ export class TicketRunner {
     ...(this.state.activeProject
       ? {
           activeProject: { ...this.state.activeProject },
+        }
+      : {}),
+    ...(this.state.targetFlow
+      ? {
+          targetFlow: {
+            ...this.state.targetFlow,
+            targetProject: { ...this.state.targetFlow.targetProject },
+            startedAt: new Date(this.state.targetFlow.startedAt),
+            updatedAt: new Date(this.state.targetFlow.updatedAt),
+            ...(this.state.targetFlow.cancelRequestedAt
+              ? {
+                  cancelRequestedAt: new Date(this.state.targetFlow.cancelRequestedAt),
+                }
+              : {}),
+          },
         }
       : {}),
     ...(this.state.discoverSpecSession
@@ -1130,6 +1225,10 @@ export class TicketRunner {
 
     if (this.isPlanSpecSessionActive()) {
       return { status: "blocked-plan-spec" };
+    }
+
+    if (this.activeTargetFlow) {
+      return { status: "blocked-target-flow" };
     }
 
     this.state.activeProject = { ...project };
@@ -2738,7 +2837,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      targetPrepareInFlight: this.targetPrepareInFlight,
+      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
     });
 
     if (this.isShuttingDown) {
@@ -2752,57 +2851,12 @@ export class TicketRunner {
       };
     }
 
-    if (this.targetPrepareInFlight) {
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message: "Ja existe uma execucao /target_prepare em andamento nesta instancia.",
-      };
+    const blocked = this.buildTargetFlowStartBlockedResult("/target_prepare");
+    if (blocked) {
+      return blocked;
     }
 
-    if (this.activeSlots.size > 0) {
-      const activeProjects = this.getActiveProjects();
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message:
-          "Nao e possivel iniciar /target_prepare enquanto houver fluxo pesado ativo nesta instancia.",
-        activeProjects,
-      };
-    }
-
-    if (
-      this.isDiscoverSpecSessionActive() ||
-      this.isPlanSpecSessionActive() ||
-      this.isCodexChatSessionActive()
-    ) {
-      return {
-        status: "blocked",
-        reason: "global-free-text-busy",
-        message:
-          "Nao e possivel iniciar /target_prepare enquanto houver sessao interativa global ativa.",
-      };
-    }
-
-    this.targetPrepareInFlight = true;
-    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
-
-    this.state.lastMessage = `Executando /target_prepare para ${projectName}`;
-    this.state.updatedAt = this.now();
-
-    try {
-      const result = await this.targetPrepareExecutor.execute(projectName);
-      this.state.lastMessage =
-        result.status === "completed"
-          ? `target_prepare concluido para ${result.summary.targetProject.name}`
-          : result.message;
-      this.state.updatedAt = this.now();
-      return result;
-    } finally {
-      this.targetPrepareInFlight = false;
-      this.state.activeProject = previousActiveProject;
-      this.syncStateFromSlots();
-    }
+    return this.startTargetPrepareFlow(projectName);
   };
 
   requestTargetCheckup = async (
@@ -2818,7 +2872,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      targetCheckupInFlight: this.targetCheckupInFlight,
+      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
     });
 
     if (this.isShuttingDown) {
@@ -2832,61 +2886,12 @@ export class TicketRunner {
       };
     }
 
-    if (this.targetCheckupInFlight) {
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message: "Ja existe uma execucao /target_checkup em andamento nesta instancia.",
-      };
+    const blocked = this.buildTargetFlowStartBlockedResult("/target_checkup");
+    if (blocked) {
+      return blocked;
     }
 
-    if (this.activeSlots.size > 0) {
-      const activeProjects = this.getActiveProjects();
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message:
-          "Nao e possivel iniciar /target_checkup enquanto houver fluxo pesado ativo nesta instancia.",
-        activeProjects,
-      };
-    }
-
-    if (
-      this.isDiscoverSpecSessionActive() ||
-      this.isPlanSpecSessionActive() ||
-      this.isCodexChatSessionActive()
-    ) {
-      return {
-        status: "blocked",
-        reason: "global-free-text-busy",
-        message:
-          "Nao e possivel iniciar /target_checkup enquanto houver sessao interativa global ativa.",
-      };
-    }
-
-    this.targetCheckupInFlight = true;
-    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
-    const targetLabel = projectName?.trim() || this.state.activeProject?.name || "(sem projeto alvo)";
-
-    this.state.lastMessage = `Executando /target_checkup para ${targetLabel}`;
-    this.state.updatedAt = this.now();
-
-    try {
-      const result = await this.targetCheckupExecutor.execute({
-        activeProject: this.state.activeProject ? { ...this.state.activeProject } : null,
-        projectName,
-      });
-      this.state.lastMessage =
-        result.status === "completed"
-          ? `target_checkup concluido para ${result.summary.targetProject.name}`
-          : result.message;
-      this.state.updatedAt = this.now();
-      return result;
-    } finally {
-      this.targetCheckupInFlight = false;
-      this.state.activeProject = previousActiveProject;
-      this.syncStateFromSlots();
-    }
+    return this.startTargetCheckupFlow(projectName);
   };
 
   requestTargetDerive = async (
@@ -2904,7 +2909,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      targetDeriveInFlight: this.targetDeriveInFlight,
+      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
     });
 
     if (this.isShuttingDown) {
@@ -2918,11 +2923,35 @@ export class TicketRunner {
       };
     }
 
-    if (this.targetDeriveInFlight) {
+    const blocked = this.buildTargetFlowStartBlockedResult("/target_derive_gaps");
+    if (blocked) {
+      return blocked;
+    }
+
+    return this.startTargetDeriveFlow(projectName, reportPath);
+  };
+
+  cancelTargetPrepare = async (): Promise<TargetFlowCancelResult> =>
+    this.cancelTargetFlow("target-prepare");
+
+  cancelTargetCheckup = async (): Promise<TargetFlowCancelResult> =>
+    this.cancelTargetFlow("target-checkup");
+
+  cancelTargetDerive = async (): Promise<TargetFlowCancelResult> =>
+    this.cancelTargetFlow("target-derive");
+
+  private buildTargetFlowStartBlockedResult(
+    command: TargetFlowCommand,
+  ): RunnerRequestBlockedResult | null {
+    if (this.activeTargetFlow) {
       return {
         status: "blocked",
         reason: "project-slot-busy",
-        message: "Ja existe uma execucao /target_derive_gaps em andamento nesta instancia.",
+        message: [
+          `Nao e possivel iniciar ${command} enquanto ${this.activeTargetFlow.command} estiver em andamento para ${this.activeTargetFlow.targetProject.name}.`,
+          "Use /status ou o comando *_status correspondente para acompanhar a execucao atual.",
+        ].join(" "),
+        activeProjects: [{ ...this.activeTargetFlow.targetProject }],
       };
     }
 
@@ -2931,8 +2960,7 @@ export class TicketRunner {
       return {
         status: "blocked",
         reason: "project-slot-busy",
-        message:
-          "Nao e possivel iniciar /target_derive_gaps enquanto houver fluxo pesado ativo nesta instancia.",
+        message: `Nao e possivel iniciar ${command} enquanto houver fluxo pesado ativo nesta instancia.`,
         activeProjects,
       };
     }
@@ -2945,33 +2973,699 @@ export class TicketRunner {
       return {
         status: "blocked",
         reason: "global-free-text-busy",
-        message:
-          "Nao e possivel iniciar /target_derive_gaps enquanto houver sessao interativa global ativa.",
+        message: `Nao e possivel iniciar ${command} enquanto houver sessao interativa global ativa.`,
       };
     }
 
-    this.targetDeriveInFlight = true;
-    const previousActiveProject = this.state.activeProject ? { ...this.state.activeProject } : null;
-    this.state.lastMessage = `Executando /target_derive_gaps para ${projectName}`;
-    this.state.updatedAt = this.now();
+    return null;
+  }
 
-    try {
-      const result = await this.targetDeriveExecutor.execute({
+  private async startTargetPrepareFlow(projectName: string): Promise<TargetPrepareRequestResult> {
+    const startedAt = this.now();
+    const outcome = await this.startTargetFlowRequest<TargetPrepareMilestone, TargetPrepareExecutionResult>({
+      flow: "target-prepare",
+      startedAt,
+      inputs: {
+        projectName,
+      },
+      execute: (hooks: TargetPrepareLifecycleHooks) =>
+        this.targetPrepareExecutor!.execute(projectName, hooks),
+    });
+
+    if (outcome.kind === "terminal") {
+      return outcome.result;
+    }
+
+    const active = outcome.active;
+    void outcome.runPromise.then(async (result) => {
+      await this.finalizeTargetPrepareFlow(active, result);
+    });
+    return {
+      status: "started",
+      message: `Execucao /target_prepare iniciada para ${active.targetProject.name}.`,
+    };
+  }
+
+  private async startTargetCheckupFlow(
+    projectName?: string | null,
+  ): Promise<TargetCheckupRequestResult> {
+    const startedAt = this.now();
+    const activeProjectSnapshot = this.state.activeProject ? { ...this.state.activeProject } : null;
+    const outcome = await this.startTargetFlowRequest<TargetCheckupMilestone, TargetCheckupExecutionResult>({
+      flow: "target-checkup",
+      startedAt,
+      inputs: {
+        projectName: projectName ?? null,
+        activeProjectName: activeProjectSnapshot?.name ?? null,
+        activeProjectPath: activeProjectSnapshot?.path ?? null,
+      },
+      execute: (hooks: TargetCheckupLifecycleHooks) =>
+        this.targetCheckupExecutor!.execute(
+          {
+            activeProject: activeProjectSnapshot,
+            projectName,
+          },
+          hooks,
+        ),
+    });
+
+    if (outcome.kind === "terminal") {
+      return outcome.result;
+    }
+
+    const active = outcome.active;
+    void outcome.runPromise.then(async (result) => {
+      await this.finalizeTargetCheckupFlow(active, result);
+    });
+    return {
+      status: "started",
+      message: `Execucao /target_checkup iniciada para ${active.targetProject.name}.`,
+    };
+  }
+
+  private async startTargetDeriveFlow(
+    projectName: string,
+    reportPath: string,
+  ): Promise<TargetDeriveRequestResult> {
+    const startedAt = this.now();
+    const outcome = await this.startTargetFlowRequest<TargetDeriveMilestone, TargetDeriveExecutionResult>({
+      flow: "target-derive",
+      startedAt,
+      inputs: {
         projectName,
         reportPath,
-      });
-      this.state.lastMessage =
-        result.status === "completed"
-          ? `target_derive_gaps concluido para ${result.summary.targetProject.name}`
-          : result.message;
-      this.state.updatedAt = this.now();
-      return result;
-    } finally {
-      this.targetDeriveInFlight = false;
-      this.state.activeProject = previousActiveProject;
-      this.syncStateFromSlots();
+      },
+      execute: (hooks: TargetDeriveLifecycleHooks) =>
+        this.targetDeriveExecutor!.execute(
+          {
+            projectName,
+            reportPath,
+          },
+          hooks,
+        ),
+    });
+
+    if (outcome.kind === "terminal") {
+      return outcome.result;
     }
-  };
+
+    const active = outcome.active;
+    void outcome.runPromise.then(async (result) => {
+      await this.finalizeTargetDeriveFlow(active, result);
+    });
+    return {
+      status: "started",
+      message: `Execucao /target_derive_gaps iniciada para ${active.targetProject.name}.`,
+    };
+  }
+
+  private async startTargetFlowRequest<
+    Stage extends TargetFlowMilestone,
+    Result extends TargetPrepareExecutionResult | TargetCheckupExecutionResult | TargetDeriveExecutionResult,
+  >(params: {
+    flow: TargetFlowKind;
+    startedAt: Date;
+    inputs: Record<string, unknown>;
+    execute:
+      | ((hooks: TargetPrepareLifecycleHooks) => Promise<Result>)
+      | ((hooks: TargetCheckupLifecycleHooks) => Promise<Result>)
+      | ((hooks: TargetDeriveLifecycleHooks) => Promise<Result>);
+  }):
+    Promise<
+      | {
+          kind: "started";
+          active: ActiveTargetFlowExecution<Stage>;
+          runPromise: Promise<Result>;
+        }
+      | {
+          kind: "terminal";
+          result: Result;
+        }
+    > {
+    type RuntimeHooks = {
+      onMilestone: (event: {
+        flow: TargetFlowKind;
+        command: TargetFlowCommand;
+        targetProject: ProjectRef;
+        milestone: Stage;
+        milestoneLabel: string;
+        message: string;
+        versionBoundaryState: TargetFlowVersionBoundaryState;
+        recordedAtUtc: string;
+      }) => Promise<void>;
+      onAiExchange: (event: TargetFlowAiExchange) => Promise<void>;
+      isCancellationRequested: () => boolean;
+    };
+
+    let activated = false;
+    let activeExecution: ActiveTargetFlowExecution<Stage> | null = null;
+    let resolveGate:
+      | ((value: { status: "started" } | { status: "terminal"; result: Result }) => void)
+      | null = null;
+    const gate = new Promise<{ status: "started" } | { status: "terminal"; result: Result }>(
+      (resolve) => {
+        resolveGate = resolve;
+      },
+    );
+
+    const hooks: RuntimeHooks = {
+      onMilestone: async (event: {
+        flow: TargetFlowKind;
+        command: TargetFlowCommand;
+        targetProject: ProjectRef;
+        milestone: Stage;
+        milestoneLabel: string;
+        message: string;
+        versionBoundaryState: TargetFlowVersionBoundaryState;
+        recordedAtUtc: string;
+      }) => {
+        activeExecution = await this.handleTargetFlowMilestone<Stage>({
+          flow: params.flow,
+          startedAt: params.startedAt,
+          inputs: params.inputs,
+          event,
+        });
+        if (!activated) {
+          activated = true;
+          resolveGate?.({ status: "started" });
+        }
+      },
+      onAiExchange: async (event: TargetFlowAiExchange) => {
+        if (!activeExecution) {
+          return;
+        }
+
+        activeExecution.traceAiExchanges.push({
+          stageLabel: event.stageLabel,
+          promptTemplatePath: event.promptTemplatePath,
+          promptText: event.promptText,
+          outputText: event.outputText,
+          ...(event.diagnostics ? { diagnostics: { ...event.diagnostics } } : {}),
+        });
+      },
+      isCancellationRequested: () => Boolean(activeExecution?.cancelRequestedAt),
+    };
+
+    const runPromise = (params.execute as (hooks: RuntimeHooks) => Promise<Result>)(hooks)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          status: "failed",
+          message,
+        } as Result;
+      })
+      .then((result) => {
+        if (!activated) {
+          resolveGate?.({ status: "terminal", result });
+        }
+        return result;
+      });
+
+    const gateResult = await gate;
+    if (gateResult.status === "terminal") {
+      return {
+        kind: "terminal",
+        result: gateResult.result,
+      };
+    }
+
+    if (!activeExecution) {
+      return {
+        kind: "terminal",
+        result: {
+          status: "failed",
+          message: "Fluxo target iniciou sem publicar milestone inicial observavel.",
+        } as Result,
+      };
+    }
+
+    return {
+      kind: "started",
+      active: activeExecution,
+      runPromise,
+    };
+  }
+
+  private async handleTargetFlowMilestone<Stage extends TargetFlowMilestone>(params: {
+    flow: TargetFlowKind;
+    startedAt: Date;
+    inputs: Record<string, unknown>;
+    event: {
+      flow: TargetFlowKind;
+      command: TargetFlowCommand;
+      targetProject: ProjectRef;
+      milestone: Stage;
+      milestoneLabel: string;
+      message: string;
+      versionBoundaryState: TargetFlowVersionBoundaryState;
+      recordedAtUtc: string;
+    };
+  }): Promise<ActiveTargetFlowExecution<Stage>> {
+    const eventTimestamp = new Date(params.event.recordedAtUtc);
+    const recordedAt = Number.isNaN(eventTimestamp.getTime()) ? this.now() : eventTimestamp;
+    let active = this.activeTargetFlow as ActiveTargetFlowExecution<Stage> | null;
+
+    if (!active) {
+      active = {
+        flow: params.flow,
+        command: params.event.command,
+        targetProject: { ...params.event.targetProject },
+        phase: this.mapTargetFlowPhase(params.flow, params.event.milestone),
+        milestone: params.event.milestone,
+        milestoneLabel: params.event.milestoneLabel,
+        versionBoundaryState: params.event.versionBoundaryState,
+        cancelRequestedAt: null,
+        startedAt: params.startedAt,
+        updatedAt: recordedAt,
+        lastMessage: params.event.message,
+        timing: this.createFlowTimingCollector<Stage>(params.startedAt.getTime()),
+        currentStageStartedAtMs: params.startedAt.getTime(),
+        traceInputs: { ...params.inputs },
+        traceMilestones: [],
+        traceAiExchanges: [],
+      };
+      this.activeTargetFlow = active;
+    } else if (active.milestone !== params.event.milestone) {
+      this.recordFlowStageCompletion(
+        active.timing,
+        active.milestone,
+        recordedAt.getTime() - active.currentStageStartedAtMs,
+      );
+      active.currentStageStartedAtMs = recordedAt.getTime();
+      active.milestone = params.event.milestone;
+    }
+
+    active.phase = this.mapTargetFlowPhase(params.flow, params.event.milestone);
+    active.milestoneLabel = params.event.milestoneLabel;
+    active.versionBoundaryState = params.event.versionBoundaryState;
+    active.updatedAt = recordedAt;
+    active.lastMessage = params.event.message;
+    active.traceMilestones.push({
+      milestone: params.event.milestone,
+      milestoneLabel: params.event.milestoneLabel,
+      message: params.event.message,
+      versionBoundaryState: params.event.versionBoundaryState,
+      recordedAtUtc: params.event.recordedAtUtc,
+    });
+
+    this.syncStateFromSlots();
+    this.state.lastMessage = params.event.message;
+    this.state.updatedAt = recordedAt;
+
+    await this.emitTargetFlowMilestone({
+      flow: params.flow,
+      command: params.event.command,
+      targetProjectName: params.event.targetProject.name,
+      targetProjectPath: params.event.targetProject.path,
+      milestone: params.event.milestone,
+      milestoneLabel: params.event.milestoneLabel,
+      message: params.event.message,
+      versionBoundaryState: params.event.versionBoundaryState,
+      timestampUtc: params.event.recordedAtUtc,
+    });
+
+    return active;
+  }
+
+  private cancelTargetFlow(flow: TargetFlowKind): TargetFlowCancelResult {
+    const command = targetFlowKindToCommand(flow);
+    if (!this.activeTargetFlow || this.activeTargetFlow.flow !== flow) {
+      return {
+        status: "inactive",
+        message: `Nenhuma execucao ${command} ativa no momento.`,
+      };
+    }
+
+    if (this.activeTargetFlow.versionBoundaryState === "after-versioning") {
+      return {
+        status: "late",
+        message: `${command} ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.`,
+      };
+    }
+
+    if (!this.activeTargetFlow.cancelRequestedAt) {
+      this.activeTargetFlow.cancelRequestedAt = this.now();
+      this.activeTargetFlow.updatedAt = this.now();
+      this.activeTargetFlow.lastMessage = `Cancelamento solicitado para ${command}.`;
+      this.syncStateFromSlots();
+      this.state.lastMessage = this.activeTargetFlow.lastMessage;
+      this.state.updatedAt = this.activeTargetFlow.updatedAt;
+    }
+
+    return {
+      status: "accepted",
+      message: `Cancelamento de ${command} solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.`,
+    };
+  }
+
+  private async finalizeTargetPrepareFlow(
+    active: ActiveTargetFlowExecution<TargetPrepareMilestone>,
+    result: TargetPrepareExecutionResult,
+  ): Promise<void> {
+    const summary = this.buildTargetPrepareFlowSummary(active, result);
+    await this.completeTargetFlow(active, summary);
+  }
+
+  private async finalizeTargetCheckupFlow(
+    active: ActiveTargetFlowExecution<TargetCheckupMilestone>,
+    result: TargetCheckupExecutionResult,
+  ): Promise<void> {
+    const summary = this.buildTargetCheckupFlowSummary(active, result);
+    await this.completeTargetFlow(active, summary);
+  }
+
+  private async finalizeTargetDeriveFlow(
+    active: ActiveTargetFlowExecution<TargetDeriveMilestone>,
+    result: TargetDeriveExecutionResult,
+  ): Promise<void> {
+    const summary = this.buildTargetDeriveFlowSummary(active, result);
+    await this.completeTargetFlow(active, summary);
+  }
+
+  private async completeTargetFlow(
+    active: ActiveTargetFlowExecution,
+    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+  ): Promise<void> {
+    if (
+      this.activeTargetFlow &&
+      this.activeTargetFlow.command === active.command &&
+      this.activeTargetFlow.targetProject.path === active.targetProject.path
+    ) {
+      this.activeTargetFlow = null;
+    }
+
+    this.syncStateFromSlots();
+    this.state.lastMessage = this.buildTargetFlowFinalMessage(summary);
+    this.state.updatedAt = this.now();
+
+    await this.recordTargetFlowTrace(active, summary);
+    await this.emitRunFlowCompleted(summary);
+  }
+
+  private buildTargetPrepareFlowSummary(
+    active: ActiveTargetFlowExecution<TargetPrepareMilestone>,
+    result: TargetPrepareExecutionResult,
+  ): TargetPrepareFlowSummary {
+    const finishedAt = this.now().getTime();
+    const timing =
+      result.status === "completed"
+        ? this.completeTargetFlowTiming(active, finishedAt)
+        : this.interruptTargetFlowTiming(active, finishedAt);
+
+    if (result.status === "completed") {
+      return {
+        flow: "target-prepare",
+        command: "/target_prepare",
+        outcome: "success",
+        finalStage: "versioning",
+        completionReason: "completed",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: "after-versioning",
+        nextAction: result.summary.nextAction,
+        artifactPaths: uniqueSorted([
+          result.summary.manifestPath,
+          result.summary.reportPath,
+          ...result.summary.changedPaths,
+        ]),
+        versionedArtifactPaths: [...result.summary.changedPaths],
+        details:
+          result.summary.versioning.status === "committed-and-pushed"
+            ? `Versionamento: ${result.summary.versioning.commitHash}@${result.summary.versioning.upstream}`
+            : `Versionamento: ${result.summary.versioning.errorMessage}`,
+        timing,
+        summary: result.summary,
+      };
+    }
+
+    if (result.status === "cancelled") {
+      return {
+        flow: "target-prepare",
+        command: "/target_prepare",
+        outcome: "cancelled",
+        finalStage: result.summary.cancelledAtMilestone,
+        completionReason: "cancelled",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: active.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: [...result.summary.changedPaths],
+        versionedArtifactPaths: [],
+        details: `Cancelado em ${renderTargetFlowMilestoneLabel("target-prepare", result.summary.cancelledAtMilestone)}.`,
+        timing,
+      };
+    }
+
+    return {
+      flow: "target-prepare",
+      command: "/target_prepare",
+      outcome: result.status === "blocked" ? "blocked" : "failure",
+      finalStage: active.milestone,
+      completionReason: result.status === "blocked" ? "blocked" : "failed",
+      timestampUtc: new Date(finishedAt).toISOString(),
+      targetProjectName: active.targetProject.name,
+      targetProjectPath: active.targetProject.path,
+      versionBoundaryState: active.versionBoundaryState,
+      nextAction:
+        result.status === "blocked"
+          ? "Corrija o bloqueio objetivo reportado e rerode o fluxo."
+          : "Revise o estado local do repositorio alvo antes de rerodar.",
+      artifactPaths: [],
+      versionedArtifactPaths: [],
+      details: result.message,
+      timing,
+    };
+  }
+
+  private buildTargetCheckupFlowSummary(
+    active: ActiveTargetFlowExecution<TargetCheckupMilestone>,
+    result: TargetCheckupExecutionResult,
+  ): TargetCheckupFlowSummary {
+    const finishedAt = this.now().getTime();
+    const timing =
+      result.status === "completed"
+        ? this.completeTargetFlowTiming(active, finishedAt)
+        : this.interruptTargetFlowTiming(active, finishedAt);
+
+    if (result.status === "completed") {
+      return {
+        flow: "target-checkup",
+        command: "/target_checkup",
+        outcome: "success",
+        finalStage: "versioning",
+        completionReason: "completed",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: "after-versioning",
+        nextAction: result.summary.nextAction,
+        artifactPaths: uniqueSorted([
+          result.summary.reportJsonPath,
+          result.summary.reportMarkdownPath,
+          ...result.summary.changedPaths,
+        ]),
+        versionedArtifactPaths: [...result.summary.changedPaths],
+        details: `Veredito geral: ${result.summary.overallVerdict}.`,
+        timing,
+        summary: result.summary,
+      };
+    }
+
+    if (result.status === "cancelled") {
+      return {
+        flow: "target-checkup",
+        command: "/target_checkup",
+        outcome: "cancelled",
+        finalStage: result.summary.cancelledAtMilestone,
+        completionReason: "cancelled",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: active.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: [...result.summary.changedPaths],
+        versionedArtifactPaths: [],
+        details: `Cancelado em ${renderTargetFlowMilestoneLabel("target-checkup", result.summary.cancelledAtMilestone)}.`,
+        timing,
+      };
+    }
+
+    return {
+      flow: "target-checkup",
+      command: "/target_checkup",
+      outcome: result.status === "blocked" ? "blocked" : "failure",
+      finalStage: active.milestone,
+      completionReason: result.status === "blocked" ? "blocked" : "failed",
+      timestampUtc: new Date(finishedAt).toISOString(),
+      targetProjectName: active.targetProject.name,
+      targetProjectPath: active.targetProject.path,
+      versionBoundaryState: active.versionBoundaryState,
+      nextAction:
+        result.status === "blocked"
+          ? "Corrija o bloqueio objetivo reportado e rerode o fluxo."
+          : "Revise o artefato local e o working tree do projeto alvo antes de rerodar.",
+      artifactPaths: [],
+      versionedArtifactPaths: [],
+      details: result.message,
+      timing,
+    };
+  }
+
+  private buildTargetDeriveFlowSummary(
+    active: ActiveTargetFlowExecution<TargetDeriveMilestone>,
+    result: TargetDeriveExecutionResult,
+  ): TargetDeriveFlowSummary {
+    const finishedAt = this.now().getTime();
+    const timing =
+      result.status === "completed"
+        ? this.completeTargetFlowTiming(active, finishedAt)
+        : this.interruptTargetFlowTiming(active, finishedAt);
+
+    if (result.status === "completed") {
+      return {
+        flow: "target-derive",
+        command: "/target_derive_gaps",
+        outcome: "success",
+        finalStage: "versioning",
+        completionReason: "completed",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState:
+          result.summary.versioning.status === "committed-and-pushed"
+            ? "after-versioning"
+            : active.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: uniqueSorted([
+          result.summary.reportJsonPath,
+          result.summary.reportMarkdownPath,
+          ...result.summary.touchedTicketPaths,
+          ...result.summary.changedPaths,
+        ]),
+        versionedArtifactPaths: [...result.summary.changedPaths],
+        details: `Status da derivacao: ${result.summary.derivationStatus}.`,
+        timing,
+        summary: result.summary,
+      };
+    }
+
+    if (result.status === "cancelled") {
+      return {
+        flow: "target-derive",
+        command: "/target_derive_gaps",
+        outcome: "cancelled",
+        finalStage: result.summary.cancelledAtMilestone,
+        completionReason: "cancelled",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: active.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: [...result.summary.changedPaths],
+        versionedArtifactPaths: [],
+        details: `Cancelado em ${renderTargetFlowMilestoneLabel("target-derive", result.summary.cancelledAtMilestone)}.`,
+        timing,
+      };
+    }
+
+    return {
+      flow: "target-derive",
+      command: "/target_derive_gaps",
+      outcome: result.status === "blocked" ? "blocked" : "failure",
+      finalStage: active.milestone,
+      completionReason: result.status === "blocked" ? "blocked" : "failed",
+      timestampUtc: new Date(finishedAt).toISOString(),
+      targetProjectName: active.targetProject.name,
+      targetProjectPath: active.targetProject.path,
+      versionBoundaryState: active.versionBoundaryState,
+      nextAction:
+        result.status === "blocked"
+          ? "Corrija o bloqueio objetivo reportado e rerode o fluxo."
+          : "Revise o report e o estado local do repositorio alvo antes de rerodar.",
+      artifactPaths: [],
+      versionedArtifactPaths: [],
+      details: result.message,
+      timing,
+    };
+  }
+
+  private completeTargetFlowTiming<Stage extends string>(
+    active: ActiveTargetFlowExecution<Stage>,
+    finishedAtMs: number,
+  ): FlowTimingSnapshot<Stage> {
+    this.recordFlowStageCompletion(
+      active.timing,
+      active.milestone,
+      finishedAtMs - active.currentStageStartedAtMs,
+    );
+    return this.buildFlowTimingSnapshot(active.timing, finishedAtMs);
+  }
+
+  private interruptTargetFlowTiming<Stage extends string>(
+    active: ActiveTargetFlowExecution<Stage>,
+    finishedAtMs: number,
+  ): FlowTimingSnapshot<Stage> {
+    this.markFlowInterrupted(active.timing, active.milestone);
+    return this.buildFlowTimingSnapshot(active.timing, finishedAtMs);
+  }
+
+  private buildTargetFlowFinalMessage(
+    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+  ): string {
+    if (summary.outcome === "success") {
+      return `${summary.command.replace("/", "")} concluido para ${summary.targetProjectName}`;
+    }
+
+    if (summary.outcome === "cancelled") {
+      return `${summary.command.replace("/", "")} cancelado para ${summary.targetProjectName}`;
+    }
+
+    return summary.details ?? `${summary.command.replace("/", "")} encerrado com ${summary.outcome}`;
+  }
+
+  private mapTargetFlowPhase(
+    flow: TargetFlowKind,
+    milestone: TargetFlowMilestone,
+  ): RunnerState["phase"] {
+    if (flow === "target-prepare") {
+      if (milestone === "preflight") {
+        return "target-prepare-preflight";
+      }
+      if (milestone === "ai-adjustment") {
+        return "target-prepare-ai-adjustment";
+      }
+      if (milestone === "post-check") {
+        return "target-prepare-post-check";
+      }
+      return "target-prepare-versioning";
+    }
+
+    if (flow === "target-checkup") {
+      if (milestone === "preflight") {
+        return "target-checkup-preflight";
+      }
+      if (milestone === "evidence-collection") {
+        return "target-checkup-evidence-collection";
+      }
+      if (milestone === "editorial-summary") {
+        return "target-checkup-editorial-summary";
+      }
+      return "target-checkup-versioning";
+    }
+
+    if (milestone === "preflight") {
+      return "target-derive-preflight";
+    }
+    if (milestone === "dedup-prioritization") {
+      return "target-derive-dedup-prioritization";
+    }
+    if (milestone === "materialization") {
+      return "target-derive-materialization";
+    }
+    return "target-derive-versioning";
+  }
 
   private buildGlobalFreeTextBusyResult(
     requestedCommand: "/discover_spec" | "/plan_spec" | "/codex_chat",
@@ -2980,6 +3674,17 @@ export class TicketRunner {
     reason: "global-free-text-busy";
     message: string;
   } | null {
+    if (this.activeTargetFlow) {
+      return {
+        status: "blocked",
+        reason: "global-free-text-busy",
+        message: [
+          `Nao e possivel iniciar ${requestedCommand} enquanto ${this.activeTargetFlow.command} estiver em andamento.`,
+          "Acompanhe por /status ou pelo comando *_status correspondente e tente novamente depois.",
+        ].join(" "),
+      };
+    }
+
     const hasActiveDiscoverSpecSession = this.isDiscoverSpecSessionActive();
     const hasActivePlanSpecSession = this.isPlanSpecSessionActive();
     const hasActiveCodexChatSession = this.isCodexChatSessionActive();
@@ -4788,6 +5493,27 @@ export class TicketRunner {
     }
   }
 
+  private async emitTargetFlowMilestone(event: TargetFlowMilestoneLifecycleEvent): Promise<void> {
+    if (!this.targetFlowEventHandlers) {
+      return;
+    }
+
+    try {
+      await this.targetFlowEventHandlers.onMilestone({
+        ...event,
+      });
+    } catch (error) {
+      this.logger.error("Falha ao emitir milestone de fluxo target", {
+        flow: event.flow,
+        command: event.command,
+        targetProjectName: event.targetProjectName,
+        targetProjectPath: event.targetProjectPath,
+        milestone: event.milestone,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async emitRunFlowCompleted(event: RunnerFlowSummary): Promise<void> {
     this.state.lastRunFlowSummary = this.cloneRunnerFlowSummary(event);
     this.state.updatedAt = new Date(event.timestampUtc);
@@ -4864,6 +5590,18 @@ export class TicketRunner {
 
     if (this.isShuttingDown) {
       return this.buildShutdownBlockedResult(command);
+    }
+
+    if (this.activeTargetFlow) {
+      return {
+        status: "blocked",
+        reason: "project-slot-busy",
+        message: [
+          `Nao e possivel iniciar ${command} enquanto ${this.activeTargetFlow.command} estiver em andamento para ${this.activeTargetFlow.targetProject.name}.`,
+          "Acompanhe por /status ou pelo comando *_status correspondente e tente novamente quando o fluxo target encerrar.",
+        ].join(" "),
+        activeProjects: [{ ...this.activeTargetFlow.targetProject }],
+      };
     }
 
     let roundDependencies: RunnerRoundDependencies;
@@ -9918,6 +10656,75 @@ export class TicketRunner {
     }
   }
 
+  private async recordTargetFlowTrace(
+    active: ActiveTargetFlowExecution,
+    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+  ): Promise<void> {
+    const traceRequest: TargetFlowTraceRecordRequest = {
+      flow: active.flow,
+      sourceCommand: active.command,
+      targetProjectName: active.targetProject.name,
+      targetProjectPath: active.targetProject.path,
+      inputs: { ...active.traceInputs },
+      milestones: active.traceMilestones.map((milestone) => ({
+        milestone: milestone.milestone,
+        milestoneLabel: milestone.milestoneLabel,
+        message: milestone.message,
+        versionBoundaryState: milestone.versionBoundaryState,
+        recordedAtUtc: milestone.recordedAtUtc,
+      })),
+      aiExchanges: active.traceAiExchanges.map((exchange) => ({
+        stageLabel: exchange.stageLabel,
+        promptTemplatePath: exchange.promptTemplatePath,
+        promptText: exchange.promptText,
+        outputText: exchange.outputText,
+        ...(exchange.diagnostics ? { diagnostics: { ...exchange.diagnostics } } : {}),
+      })),
+      artifactPaths: [...summary.artifactPaths],
+      versionedArtifactPaths: [...summary.versionedArtifactPaths],
+      outcome: {
+        status: summary.outcome,
+        summary: this.buildTargetFlowFinalMessage(summary),
+        ...(summary.outcome === "failure" || summary.outcome === "blocked"
+          ? { errorMessage: summary.details ?? this.buildTargetFlowFinalMessage(summary) }
+          : {}),
+        metadata: this.buildTargetFlowTraceMetadata(summary),
+      },
+      recordedAt: this.now(),
+    };
+
+    try {
+      const traceStore = this.workflowTraceStoreFactory(active.targetProject.path);
+      await traceStore.recordTargetFlowTrace(traceRequest);
+    } catch (error) {
+      this.logger.warn("Falha ao persistir trilha de fluxo target", {
+        flow: active.flow,
+        command: active.command,
+        targetProjectName: active.targetProject.name,
+        targetProjectPath: active.targetProject.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private buildTargetFlowTraceMetadata(
+    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+  ): Record<string, unknown> {
+    return {
+      completionReason: summary.completionReason,
+      finalStage: summary.finalStage,
+      nextAction: summary.nextAction,
+      versionBoundaryState: summary.versionBoundaryState,
+      totalDurationMs: summary.timing.totalDurationMs,
+      ...(summary.summary
+        ? {
+            summary: JSON.parse(JSON.stringify(summary.summary)) as Record<string, unknown>,
+          }
+        : {}),
+      ...(summary.details ? { details: summary.details } : {}),
+    };
+  }
+
   private createFlowTimingCollector<Stage extends string>(startedAtMs = Date.now()): FlowTimingCollector<Stage> {
     return {
       startedAtMs,
@@ -10495,68 +11302,87 @@ export class TicketRunner {
       return this.cloneRunAllFlowSummary(summary);
     }
 
+    if (summary.flow === "run-specs") {
+      return {
+        ...summary,
+        spec: { ...summary.spec },
+        ...(summary.codexPreferences
+          ? {
+              codexPreferences: this.cloneFlowCodexPreferencesSnapshot(summary.codexPreferences),
+            }
+          : {}),
+        triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
+        timing: this.cloneFlowTimingSnapshot(summary.timing),
+        ...(summary.specTriage
+          ? {
+              specTriage: this.cloneRunSpecsSpecTriageSummary(summary.specTriage),
+            }
+          : {}),
+        ...(summary.specTicketValidation
+          ? {
+              specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
+                summary.specTicketValidation,
+              ),
+            }
+          : {}),
+        ...(summary.specTicketDerivationRetrospective
+          ? {
+              specTicketDerivationRetrospective:
+                this.cloneRunSpecsDerivationRetrospectiveSummary(
+                  summary.specTicketDerivationRetrospective,
+                ),
+            }
+          : {}),
+        ...(summary.specCloseAndVersion
+          ? {
+              specCloseAndVersion: this.cloneRunSpecsSpecCloseAndVersionSummary(
+                summary.specCloseAndVersion,
+              ),
+            }
+          : {}),
+        ...(summary.specAudit
+          ? {
+              specAudit: this.cloneRunSpecsSpecAuditSummary(summary.specAudit),
+            }
+          : {}),
+        ...(summary.workflowGapAnalysis
+          ? {
+              workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
+                summary.workflowGapAnalysis,
+              ),
+            }
+          : {}),
+        ...(summary.workflowImprovementTicket
+          ? {
+              workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
+                summary.workflowImprovementTicket,
+              ),
+            }
+          : {}),
+        ...(summary.runAllSummary
+          ? {
+              runAllSummary: this.cloneRunAllFlowSummary(summary.runAllSummary),
+            }
+          : {}),
+      };
+    }
+
     return {
       ...summary,
-      spec: { ...summary.spec },
       ...(summary.codexPreferences
         ? {
             codexPreferences: this.cloneFlowCodexPreferencesSnapshot(summary.codexPreferences),
           }
         : {}),
-      triageTiming: this.cloneFlowTimingSnapshot(summary.triageTiming),
       timing: this.cloneFlowTimingSnapshot(summary.timing),
-      ...(summary.specTriage
+      artifactPaths: [...summary.artifactPaths],
+      versionedArtifactPaths: [...summary.versionedArtifactPaths],
+      ...(summary.summary
         ? {
-            specTriage: this.cloneRunSpecsSpecTriageSummary(summary.specTriage),
+            summary: JSON.parse(JSON.stringify(summary.summary)) as typeof summary.summary,
           }
         : {}),
-      ...(summary.specTicketValidation
-        ? {
-            specTicketValidation: this.cloneRunSpecsTicketValidationSummary(
-              summary.specTicketValidation,
-            ),
-          }
-        : {}),
-      ...(summary.specTicketDerivationRetrospective
-        ? {
-            specTicketDerivationRetrospective:
-              this.cloneRunSpecsDerivationRetrospectiveSummary(
-                summary.specTicketDerivationRetrospective,
-              ),
-          }
-        : {}),
-      ...(summary.specCloseAndVersion
-        ? {
-            specCloseAndVersion: this.cloneRunSpecsSpecCloseAndVersionSummary(
-              summary.specCloseAndVersion,
-            ),
-          }
-        : {}),
-      ...(summary.specAudit
-        ? {
-            specAudit: this.cloneRunSpecsSpecAuditSummary(summary.specAudit),
-          }
-        : {}),
-      ...(summary.workflowGapAnalysis
-        ? {
-            workflowGapAnalysis: this.cloneWorkflowGapAnalysisResult(
-              summary.workflowGapAnalysis,
-            ),
-          }
-        : {}),
-      ...(summary.workflowImprovementTicket
-        ? {
-            workflowImprovementTicket: this.cloneWorkflowImprovementTicketPublicationResult(
-              summary.workflowImprovementTicket,
-            ),
-          }
-        : {}),
-      ...(summary.runAllSummary
-        ? {
-            runAllSummary: this.cloneRunAllFlowSummary(summary.runAllSummary),
-          }
-        : {}),
-    };
+    } as RunnerFlowSummary;
   }
 
   private parseSpecTriageStageResult(outputText: string): SpecTriageStageResult {
@@ -10876,7 +11702,11 @@ export class TicketRunner {
   }
 
   private getActiveProjects(): ProjectRef[] {
-    return Array.from(this.activeSlots.values()).map((slot) => ({ ...slot.project }));
+    const projects = Array.from(this.activeSlots.values()).map((slot) => ({ ...slot.project }));
+    if (this.activeTargetFlow) {
+      projects.push({ ...this.activeTargetFlow.targetProject });
+    }
+    return projects;
   }
 
   private buildSlotKey(project: ProjectRef): string {
@@ -10904,6 +11734,18 @@ export class TicketRunner {
       return "/discover_spec";
     }
 
+    if (kind === "target-prepare") {
+      return "/target_prepare";
+    }
+
+    if (kind === "target-checkup") {
+      return "/target_checkup";
+    }
+
+    if (kind === "target-derive") {
+      return "/target_derive_gaps";
+    }
+
     return "/plan_spec";
   }
 
@@ -10918,6 +11760,37 @@ export class TicketRunner {
       : "";
 
     return `Capacidade maxima de ${RUNNER_SLOT_LIMIT} runners ativos atingida.${suffix}`;
+  }
+
+  private mapTargetFlowKindToSlotKind(flow: TargetFlowKind): Extract<
+    RunnerSlotKind,
+    "target-prepare" | "target-checkup" | "target-derive"
+  > {
+    if (flow === "target-prepare") {
+      return "target-prepare";
+    }
+
+    if (flow === "target-checkup") {
+      return "target-checkup";
+    }
+
+    return "target-derive";
+  }
+
+  private buildTargetFlowStateSnapshot(active: ActiveTargetFlowExecution): RunnerTargetFlowState {
+    return {
+      flow: active.flow,
+      command: active.command,
+      targetProject: { ...active.targetProject },
+      phase: active.phase,
+      milestone: active.milestone as TargetFlowMilestone,
+      milestoneLabel: active.milestoneLabel,
+      versionBoundaryState: active.versionBoundaryState,
+      cancelRequestedAt: active.cancelRequestedAt ? new Date(active.cancelRequestedAt) : null,
+      startedAt: new Date(active.startedAt),
+      updatedAt: new Date(active.updatedAt),
+      lastMessage: active.lastMessage,
+    };
   }
 
   private buildShutdownBlockedResult(command: string): {
@@ -10978,28 +11851,50 @@ export class TicketRunner {
     const slots = Array.from(this.activeSlots.values()).sort(
       (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
     );
+    const targetFlow = this.activeTargetFlow ? this.buildTargetFlowStateSnapshot(this.activeTargetFlow) : null;
+    const renderedTargetSlot = targetFlow
+      ? {
+          project: { ...targetFlow.targetProject },
+          kind: this.mapTargetFlowKindToSlotKind(targetFlow.flow),
+          phase: targetFlow.phase,
+          currentTicket: null,
+          currentSpec: null,
+          targetFlowCommand: targetFlow.command,
+          targetFlowMilestone: targetFlow.milestone,
+          targetFlowVersionBoundaryState: targetFlow.versionBoundaryState,
+          isPaused: false,
+          startedAt: new Date(targetFlow.startedAt),
+        }
+      : null;
 
     this.state.capacity = {
       limit: RUNNER_SLOT_LIMIT,
-      used: slots.length,
+      used: slots.length + (renderedTargetSlot ? 1 : 0),
     };
-    this.state.activeSlots = slots.map((slot) => ({
-      project: { ...slot.project },
-      kind: slot.kind,
-      phase: slot.phase,
-      currentTicket: slot.currentTicket,
-      currentSpec: slot.currentSpec,
-      ...(slot.runSpecsSourceCommand
-        ? { runSpecsSourceCommand: slot.runSpecsSourceCommand }
-        : {}),
-      ...(slot.runSpecsEntryPoint ? { runSpecsEntryPoint: slot.runSpecsEntryPoint } : {}),
-      isPaused: slot.isPaused,
-      startedAt: new Date(slot.startedAt),
-    }));
+    this.state.activeSlots = [
+      ...slots.map((slot) => ({
+        project: { ...slot.project },
+        kind: slot.kind,
+        phase: slot.phase,
+        currentTicket: slot.currentTicket,
+        currentSpec: slot.currentSpec,
+        ...(slot.runSpecsSourceCommand
+          ? { runSpecsSourceCommand: slot.runSpecsSourceCommand }
+          : {}),
+        ...(slot.runSpecsEntryPoint ? { runSpecsEntryPoint: slot.runSpecsEntryPoint } : {}),
+        isPaused: slot.isPaused,
+        startedAt: new Date(slot.startedAt),
+      })),
+      ...(renderedTargetSlot ? [renderedTargetSlot] : []),
+    ];
+    this.state.targetFlow = targetFlow;
 
     this.state.isRunning = slots.some(
       (slot) => this.isTicketSlotKind(slot.kind) && (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)),
     );
+    if (targetFlow) {
+      this.state.isRunning = true;
+    }
 
     const activeProject = this.state.activeProject;
     if (activeProject) {
@@ -11016,12 +11911,17 @@ export class TicketRunner {
         if (
           !this.isDiscoverSpecSessionActive() &&
           !this.isPlanSpecSessionActive() &&
-          !this.isCodexChatSessionActive() &&
-          this.state.phase !== "error"
+          !this.isCodexChatSessionActive()
         ) {
-          this.state.phase = "idle";
+          this.state.phase = targetFlow?.phase ?? (this.state.phase === "error" ? "error" : "idle");
         }
       }
+    } else if (
+      !this.isDiscoverSpecSessionActive() &&
+      !this.isPlanSpecSessionActive() &&
+      !this.isCodexChatSessionActive()
+    ) {
+      this.state.phase = targetFlow?.phase ?? (this.state.phase === "error" ? "error" : "idle");
     }
 
     this.state.updatedAt = this.now();
@@ -11071,3 +11971,5 @@ export class TicketRunner {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const uniqueSorted = (values: string[]): string[] => Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));

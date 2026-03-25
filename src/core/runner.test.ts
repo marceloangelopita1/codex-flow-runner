@@ -1132,6 +1132,10 @@ const createWorkflowTraceCollector = () => {
         decisionPath: `.codex-flow-runner/flow-traces/decisions/${traceId}-decision.json`,
       };
     },
+    recordTargetFlowTrace: async () => ({
+      traceId: "target-trace",
+      sessionPath: ".codex-flow-runner/flow-traces/target-flows/target-trace.json",
+    }),
   });
 
   return {
@@ -1298,6 +1302,39 @@ const waitForCodexChatSessionToClose = async (
   }
 
   assert.fail("sessao /codex_chat nao encerrou dentro do timeout esperado");
+};
+
+const waitForTargetFlowToClose = async (
+  runner: TicketRunner,
+  timeoutMs = 2000,
+): Promise<void> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!runner.getState().targetFlow) {
+      return;
+    }
+
+    await sleep(5);
+  }
+
+  assert.fail("fluxo target nao encerrou dentro do timeout esperado");
+};
+
+const waitForFlowSummaryCount = async (
+  flowSummaries: RunnerFlowSummary[],
+  expectedCount: number,
+  timeoutMs = 2000,
+): Promise<void> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (flowSummaries.length >= expectedCount) {
+      return;
+    }
+
+    await sleep(5);
+  }
+
+  assert.fail("resumo final de fluxo nao foi emitido dentro do timeout esperado");
 };
 
 const createTempProjectRoot = async (): Promise<string> =>
@@ -8803,4 +8840,293 @@ test("requestTargetDerive delega ao executor dedicado sem trocar o projeto ativo
   ]);
   assert.deepEqual(runner.getState().activeProject, previousActiveProject);
   assert.equal(runner.getState().phase, "idle");
+});
+
+test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e bloqueia comandos concorrentes", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const milestoneEvents: string[] = [];
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetFlowEventHandlers: {
+        onMilestone: async (event) => {
+          milestoneEvents.push(`${event.command}:${event.milestone}:${event.versionBoundaryState}`);
+        },
+      },
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:00:00.000Z",
+          });
+          await release.promise;
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "versioning",
+            milestoneLabel: "versionamento",
+            message: `Versionamento concluido para ${projectName}.`,
+            versionBoundaryState: "after-versioning",
+            recordedAtUtc: "2026-03-24T23:00:10.000Z",
+          });
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              eligibleForProjects: true,
+              compatibleWithWorkflowComplete: true,
+              nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+              manifestPath: "docs/workflows/target-prepare-manifest.json",
+              reportPath: "docs/workflows/target-prepare-report.md",
+              changedPaths: [
+                "AGENTS.md",
+                "README.md",
+                "docs/workflows/target-prepare-manifest.json",
+                "docs/workflows/target-prepare-report.md",
+              ],
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "prepare123",
+                upstream: "origin/main",
+                commitPushId: "prepare123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetPrepare("beta-target");
+
+  assert.deepEqual(startResult, {
+    status: "started",
+    message: "Execucao /target_prepare iniciada para beta-target.",
+  });
+  assert.equal(runner.getState().targetFlow?.command, "/target_prepare");
+  assert.equal(runner.getState().targetFlow?.milestone, "preflight");
+  assert.equal(runner.getState().targetFlow?.versionBoundaryState, "before-versioning");
+  assert.equal(runner.getState().activeSlots[0]?.kind, "target-prepare");
+  assert.equal(runner.getState().activeSlots[0]?.targetFlowCommand, "/target_prepare");
+  assert.equal(runner.getState().phase, "target-prepare-preflight");
+
+  const runAllBlocked = await runner.requestRunAll();
+  assert.equal(runAllBlocked.status, "blocked");
+  assert.equal(runAllBlocked.reason, "project-slot-busy");
+
+  const runSpecsBlocked = await runner.requestRunSpecs(
+    "2026-02-19-approved-spec-triage-run-specs.md",
+  );
+  assert.equal(runSpecsBlocked.status, "blocked");
+  assert.equal(runSpecsBlocked.reason, "project-slot-busy");
+
+  const discoverBlocked = await runner.startDiscoverSpecSession("42");
+  assert.equal(discoverBlocked.status, "blocked");
+  assert.equal(discoverBlocked.reason, "global-free-text-busy");
+
+  const planBlocked = await runner.startPlanSpecSession("42");
+  assert.equal(planBlocked.status, "blocked");
+  assert.equal(planBlocked.reason, "global-free-text-busy");
+
+  const chatBlocked = await runner.startCodexChatSession("42");
+  assert.equal(chatBlocked.status, "blocked");
+  assert.equal(chatBlocked.reason, "global-free-text-busy");
+
+  const syncResult = await runner.syncActiveProject({
+    name: "gamma-project",
+    path: "/home/mapita/projetos/gamma-project",
+  });
+  assert.deepEqual(syncResult, { status: "blocked-target-flow" });
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.equal(runner.getState().targetFlow, null);
+  assert.equal(runner.getState().phase, "idle");
+  assert.deepEqual(milestoneEvents, [
+    "/target_prepare:preflight:before-versioning",
+    "/target_prepare:versioning:after-versioning",
+  ]);
+  assert.equal(flowSummaries.length, 1);
+  assert.equal(flowSummaries[0]?.flow, "target-prepare");
+  assert.equal(flowSummaries[0]?.outcome, "success");
+});
+
+test("cancelTargetPrepare aceita cancelamento antes da fronteira e encerra o fluxo como cancelled", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "ai-adjustment",
+            milestoneLabel: "adequacao por IA",
+            message: `Adequacao por IA em andamento para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:05:00.000Z",
+          });
+          await release.promise;
+          if (hooks?.isCancellationRequested?.()) {
+            return {
+              status: "cancelled" as const,
+              summary: {
+                targetProject,
+                cancelledAtMilestone: "ai-adjustment" as const,
+                changedPaths: ["README.md"],
+                nextAction:
+                  "Revise as alteracoes locais antes de decidir se o preparo deve ser descartado ou retomado.",
+              },
+            };
+          }
+
+          return {
+            status: "failed" as const,
+            message: "cancelamento esperado nao observado",
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetPrepare("beta-target");
+  assert.equal(startResult.status, "started");
+
+  const cancelResult = await runner.cancelTargetPrepare();
+  assert.equal(cancelResult.status, "accepted");
+  assert.match(cancelResult.message, /checkpoint seguro antes de versionar/u);
+  assert.ok(runner.getState().targetFlow?.cancelRequestedAt);
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.equal(flowSummaries.length, 1);
+  assert.equal(flowSummaries[0]?.flow, "target-prepare");
+  assert.equal(flowSummaries[0]?.outcome, "cancelled");
+  assert.equal(flowSummaries[0]?.finalStage, "ai-adjustment");
+  assert.equal(runner.getState().lastRunFlowSummary?.outcome, "cancelled");
+});
+
+test("cancelTargetPrepare responde cancelamento tardio apos cruzar a fronteira de versionamento", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const versioningStarted = createDeferred<void>();
+  const release = createDeferred<void>();
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:10:00.000Z",
+          });
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "versioning",
+            milestoneLabel: "versionamento",
+            message: `Versionamento em andamento para ${projectName}.`,
+            versionBoundaryState: "after-versioning",
+            recordedAtUtc: "2026-03-24T23:10:10.000Z",
+          });
+          versioningStarted.resolve(undefined);
+          await release.promise;
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              eligibleForProjects: true,
+              compatibleWithWorkflowComplete: true,
+              nextAction: `Selecionar o projeto por /select_project ${projectName} ou pelo menu /projects.`,
+              manifestPath: "docs/workflows/target-prepare-manifest.json",
+              reportPath: "docs/workflows/target-prepare-report.md",
+              changedPaths: [
+                "AGENTS.md",
+                "README.md",
+                "docs/workflows/target-prepare-manifest.json",
+                "docs/workflows/target-prepare-report.md",
+              ],
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: "prepare123",
+                upstream: "origin/main",
+                commitPushId: "prepare123@origin/main",
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetPrepare("beta-target");
+  assert.equal(startResult.status, "started");
+
+  await versioningStarted.promise;
+  assert.equal(runner.getState().targetFlow?.versionBoundaryState, "after-versioning");
+
+  const cancelResult = await runner.cancelTargetPrepare();
+  assert.equal(cancelResult.status, "late");
+  assert.match(cancelResult.message, /cancelamento tardio/u);
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.equal(flowSummaries.length, 1);
+  assert.equal(flowSummaries[0]?.outcome, "success");
 });

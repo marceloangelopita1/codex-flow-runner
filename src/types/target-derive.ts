@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ProjectRef } from "./project.js";
+import { TargetDeriveMilestone, TargetFlowLifecycleHooks } from "./target-flow.js";
 import type { TargetCheckupDimensionKey } from "./target-checkup.js";
 
 export const TARGET_DERIVE_GAP_TYPES = [
@@ -113,13 +114,24 @@ export interface TargetDeriveTicketSummary {
     | {
         status: "no-op";
         reason: "existing-mapping";
-      };
+  };
+}
+
+export interface TargetDeriveCancelledSummary {
+  targetProject: ProjectRef;
+  cancelledAtMilestone: TargetDeriveMilestone;
+  changedPaths: string[];
+  nextAction: string;
 }
 
 export type TargetDeriveExecutionResult =
   | {
       status: "completed";
       summary: TargetDeriveTicketSummary;
+    }
+  | {
+      status: "cancelled";
+      summary: TargetDeriveCancelledSummary;
     }
   | {
       status: "blocked";
@@ -142,6 +154,8 @@ export type TargetDeriveExecutionResult =
       status: "failed";
       message: string;
     };
+
+export type TargetDeriveLifecycleHooks = TargetFlowLifecycleHooks<TargetDeriveMilestone>;
 
 export interface TargetDeriveGapAnalysisCodexRequest {
   targetProject: ProjectRef;

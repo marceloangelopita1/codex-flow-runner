@@ -1,7 +1,7 @@
 # [TICKET] Fluxos target ainda nao compartilham controle operacional, status/cancel e traces canonicos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P2
 - Severity: S2
@@ -102,10 +102,38 @@ Nao obrigatorio. Direcao concreta: adicionar tipos e estados de fluxo target, es
 
 ## Decision log
 - 2026-03-24 - Ticket aberto na triagem da spec para isolar a camada compartilhada de controle operacional e UX; isso reduz risco de espalhar status/cancel/traces de forma inconsistente pelos tres fluxos target.
+- 2026-03-25 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validacao manual externa pendente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-25 00:26Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-24-target-flows-telegram-status-cancel-and-traces-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO` (validacao manual externa pendente)
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion.
+- Evidencia objetiva por closure criterion:
+  - `RF-29`, `RF-30`, `CA-12`, `CA-13`: `src/core/runner.ts` promove os tres fluxos target a slot operacional compartilhado, bloqueia `run-all`, `run-specs`, sessoes globais e troca de projeto enquanto um target flow estiver ativo, expoe `cancelTargetPrepare|Checkup|Derive` e diferencia cancelamento aceito de cancelamento tardio via `versionBoundaryState`; `src/integrations/telegram-bot.ts` registra `/target_prepare_status`, `/target_prepare_cancel`, `/target_checkup_status`, `/target_checkup_cancel`, `/target_derive_gaps_status` e `/target_derive_gaps_cancel`, e o `/status` passou a refletir milestone, fronteira e fluxo ativo; a cobertura automatizada valida a matriz de bloqueios, o status detalhado e o cancelamento tardio/antecipado em `src/core/runner.test.ts` e `src/integrations/telegram-bot.test.ts`.
+  - `RF-31`, `RF-32`, `CA-12`, `CA-13`: `src/core/target-prepare.ts`, `src/core/target-checkup.ts` e `src/core/target-derive.ts` publicam milestones canonicos e checkpoints de cancelamento antes da fronteira de versionamento; `src/main.ts` e `src/integrations/telegram-bot.ts` enviam milestones curtos e resumos finais editoriais com `nextAction`, artefatos e CTA seguro; os testes `execute publica milestones canonicos e respeita cancelamento cooperativo antes do versionamento` nos tres executores target, mais a suite `src/integrations/telegram-bot.test.ts`, provam o lifecycle observavel e os resumos finais contextuais.
+  - `RF-33`, `CA-14`: `src/integrations/workflow-trace-store.ts` adiciona `recordTargetFlowTrace(...)` em `.codex-flow-runner/flow-traces/target-flows/` com inputs, milestones, exchanges de IA, artefatos, outcome e deduplicacao segura de `traceId`; `src/core/runner.ts` persiste esse contrato ao concluir cada target flow; `src/integrations/workflow-trace-store.test.ts` cobre serializacao do schema e protecao contra sobrescrita, enquanto `src/core/runner.test.ts` valida a emissao/finalizacao do fluxo com trace associado.
+  - Validacao manual pendente relevante: a entrega tecnica foi concluida e a falta remanescente e apenas o smoke externo em Telegram real, necessario para exercitar CTAs/callbacks reais dos tres fluxos. Classificacao do remanescente: `external/manual`. Escopo: local ao ambiente operacional de validacao.
+- Entrega tecnica concluida:
+  - contratos centrais de estado, slot e summary agora cobrem `target_prepare`, `target_checkup` e `target_derive_gaps`;
+  - Telegram passou a expor comandos dedicados de status/cancel, milestones e resumo final dos tres fluxos;
+  - traces locais canonicos dos fluxos target foram materializados e cobertos por teste;
+  - README e spec de origem foram atualizados para refletir o comportamento implementado.
+- Validacoes executadas:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/core/target-prepare.test.ts src/core/target-checkup.test.ts src/core/target-derive.test.ts src/integrations/workflow-trace-store.test.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+  - `git diff --check`
+- Validacao manual externa pendente: sim.
+- Validacao manual ainda necessaria:
+  - executar `/target_prepare`, `/target_checkup` e `/target_derive_gaps` em chat Telegram autorizado, exercitando tambem os respectivos `*_status` e `*_cancel`;
+  - confirmar no chat que milestones, fronteira de versionamento e CTA final aparecem como observado nos testes;
+  - confirmar no repositorio alvo que cancelamento precoce nao cruza a fronteira de versionamento e que traces sao persistidos em `.codex-flow-runner/flow-traces/target-flows/`.
+- Como executar a validacao manual:
+  - iniciar o runner em ambiente com Telegram real habilitado;
+  - disparar cada fluxo target a partir de chat autorizado e consultar `*_status` durante a execucao;
+  - solicitar `*_cancel` antes da fronteira de versionamento em pelo menos uma rodada e repetir apos a fronteira em outra, verificando a resposta explicita;
+  - inspecionar os traces locais gerados e o estado do repositorio alvo apos cada smoke.
+- Responsavel operacional pela validacao manual: operador do runner com acesso ao chat Telegram autorizado e aos repositorios alvo usados no smoke.

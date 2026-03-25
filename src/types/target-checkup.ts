@@ -1,4 +1,5 @@
 import { ProjectRef } from "./project.js";
+import { TargetCheckupMilestone, TargetFlowLifecycleHooks } from "./target-flow.js";
 import type {
   TargetDeriveGapType,
   TargetDerivePriorityMatrix,
@@ -177,10 +178,21 @@ export interface TargetCheckupSummary {
   };
 }
 
+export interface TargetCheckupCancelledSummary {
+  targetProject: ProjectRef;
+  cancelledAtMilestone: TargetCheckupMilestone;
+  changedPaths: string[];
+  nextAction: string;
+}
+
 export type TargetCheckupExecutionResult =
   | {
       status: "completed";
       summary: TargetCheckupSummary;
+    }
+  | {
+      status: "cancelled";
+      summary: TargetCheckupCancelledSummary;
     }
   | {
       status: "blocked";
@@ -199,6 +211,8 @@ export type TargetCheckupExecutionResult =
       status: "failed";
       message: string;
     };
+
+export type TargetCheckupLifecycleHooks = TargetFlowLifecycleHooks<TargetCheckupMilestone>;
 
 export interface TargetCheckupDerivationValidationContext {
   currentHeadSha?: string | null;

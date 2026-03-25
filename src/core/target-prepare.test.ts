@@ -393,4 +393,65 @@ test("execute devolve diagnostico explicito quando push falha apos pos-check", a
   }
 });
 
+test("execute publica milestones canonicos e respeita cancelamento cooperativo antes do versionamento", async () => {
+  const { rootPath, project } = await createTempTargetRepo("prepare-cancelled");
+
+  try {
+    const changedPathsAfterCodex = [
+      "AGENTS.md",
+      "README.md",
+      ...TARGET_PREPARE_EXACT_COPY_SOURCES.map((entry) => entry.targetPath),
+    ];
+    const changedPathsBeforeVersioning = [
+      ...changedPathsAfterCodex,
+      TARGET_PREPARE_MANIFEST_PATH,
+      TARGET_PREPARE_REPORT_PATH,
+    ];
+    const milestones: string[] = [];
+    const aiStages: string[] = [];
+    let cancelRequested = false;
+    const executor = new ControlledTargetPrepareExecutor({
+      logger: new SpyLogger(),
+      targetProjectResolver: {
+        resolveProject: async () => project,
+      },
+      createCodexClient: () =>
+        new StubTargetPrepareCodexClient(async (request) => {
+          await syncManagedWorkflowArtifacts(project.path, request);
+        }),
+      createGitVersioning: () =>
+        new StubGitVersioning(async () => ({
+          commitHash: "prepare123",
+          upstream: "origin/main",
+          commitPushId: "prepare123@origin/main",
+        })),
+      createGitGuard: () =>
+        new StubTargetPrepareGitGuard([changedPathsAfterCodex, changedPathsBeforeVersioning]),
+      runnerRepoPath,
+      now: () => new Date("2026-03-24T22:30:00.000Z"),
+    });
+
+    const result = await executor.execute(project.name, {
+      onMilestone: async (event) => {
+        milestones.push(event.milestone);
+        if (event.milestone === "ai-adjustment") {
+          cancelRequested = true;
+        }
+      },
+      onAiExchange: async (event) => {
+        aiStages.push(event.stageLabel);
+      },
+      isCancellationRequested: () => cancelRequested,
+    });
+
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.summary.cancelledAtMilestone, "ai-adjustment");
+    assert.deepEqual(milestones, ["preflight", "ai-adjustment"]);
+    assert.deepEqual(aiStages, ["adequacao por IA"]);
+    assert.deepEqual(result.summary.changedPaths, changedPathsAfterCodex);
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});
+
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");

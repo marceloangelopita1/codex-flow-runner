@@ -360,6 +360,22 @@ const bootstrap = async () => {
           return telegram.sendRunFlowSummary(event);
         },
       },
+      targetFlowEventHandlers: {
+        onMilestone: async (event) => {
+          if (!telegram) {
+            logger.warn("Milestone de fluxo target nao enviada: Telegram indisponivel", {
+              flow: event.flow,
+              command: event.command,
+              targetProjectName: event.targetProjectName,
+              targetProjectPath: event.targetProjectPath,
+              milestone: event.milestone,
+            });
+            return;
+          }
+
+          await telegram.sendTargetFlowMilestone(event);
+        },
+      },
       codexPreferencesService,
       targetPrepareExecutor,
       targetCheckupExecutor,
@@ -384,6 +400,9 @@ const bootstrap = async () => {
       targetPrepare: runner.requestTargetPrepare,
       targetCheckup: runner.requestTargetCheckup,
       targetDerive: runner.requestTargetDerive,
+      cancelTargetPrepare: runner.cancelTargetPrepare,
+      cancelTargetCheckup: runner.cancelTargetCheckup,
+      cancelTargetDerive: runner.cancelTargetDerive,
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
       runSpecsFromValidation: runner.requestRunSpecsFromValidation,
@@ -454,6 +473,24 @@ const bootstrap = async () => {
               await activeProjectStore.save(previousActiveProject);
             } catch (error) {
               logger.error("Falha ao restaurar projeto ativo persistido apos bloqueio de troca", {
+                projectName: previousActiveProject.name,
+                projectPath: previousActiveProject.path,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
+          return {
+            status: sync.status,
+          };
+        }
+
+        if (sync.status === "blocked-target-flow") {
+          if (selection.changed && previousActiveProject) {
+            try {
+              await activeProjectStore.save(previousActiveProject);
+            } catch (error) {
+              logger.error("Falha ao restaurar projeto ativo persistido apos bloqueio de target flow", {
                 projectName: previousActiveProject.name,
                 projectPath: previousActiveProject.path,
                 error: error instanceof Error ? error.message : String(error),

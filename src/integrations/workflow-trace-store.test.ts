@@ -307,3 +307,131 @@ test("recordStageTrace aceita spec-ticket-validation com metadata observavel do 
     await cleanupTempProjectRoot(projectPath);
   }
 });
+
+test("recordTargetFlowTrace persiste milestones, IA, artefatos e outcome final dos fluxos target", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordTargetFlowTrace({
+      flow: "target-checkup",
+      sourceCommand: "/target_checkup",
+      targetProjectName: "alpha-project",
+      targetProjectPath: "/home/mapita/projetos/alpha-project",
+      inputs: {
+        projectName: "alpha-project",
+      },
+      milestones: [
+        {
+          milestone: "preflight",
+          milestoneLabel: "preflight",
+          message: "Preflight concluido para alpha-project.",
+          versionBoundaryState: "before-versioning",
+          recordedAtUtc: "2026-03-24T23:00:00.000Z",
+        },
+        {
+          milestone: "versioning",
+          milestoneLabel: "versionamento",
+          message: "Versionamento em andamento para alpha-project.",
+          versionBoundaryState: "after-versioning",
+          recordedAtUtc: "2026-03-24T23:02:00.000Z",
+        },
+      ],
+      aiExchanges: [
+        {
+          stageLabel: "sintese/redacao",
+          promptTemplatePath: "/repo/prompts/14-target-checkup-readiness-audit.md",
+          promptText: "Sintetize o readiness report.",
+          outputText: "### Executive summary\nTudo pronto.\n",
+          diagnostics: {
+            stdoutPreview: "### Executive summary",
+          },
+        },
+      ],
+      artifactPaths: [
+        "docs/checkups/history/report.json",
+        "docs/checkups/history/report.md",
+      ],
+      versionedArtifactPaths: [
+        "docs/checkups/history/report.json",
+        "docs/checkups/history/report.md",
+      ],
+      outcome: {
+        status: "success",
+        summary: "target_checkup concluido para alpha-project",
+        metadata: {
+          overallVerdict: "valid_for_gap_ticket_derivation",
+        },
+      },
+      recordedAt: new Date("2026-03-24T23:05:00.000Z"),
+    });
+
+    assert.match(
+      record.sessionPath,
+      /^\.codex-flow-runner\/flow-traces\/target-flows\/.+\.json$/u,
+    );
+
+    const payloadRaw = await fs.readFile(resolveTraceFile(projectPath, record.sessionPath), "utf8");
+    const payload = JSON.parse(payloadRaw) as {
+      flow: string;
+      sourceCommand: string;
+      targetProject: { name: string };
+      milestones: Array<{ milestone: string; versionBoundaryState: string }>;
+      aiExchanges: Array<{ promptTemplatePath: string }>;
+      artifactPaths: string[];
+      outcome: { status: string; metadata?: Record<string, unknown> };
+    };
+
+    assert.equal(payload.flow, "target-checkup");
+    assert.equal(payload.sourceCommand, "/target_checkup");
+    assert.equal(payload.targetProject.name, "alpha-project");
+    assert.equal(payload.milestones[1]?.milestone, "versioning");
+    assert.equal(payload.milestones[1]?.versionBoundaryState, "after-versioning");
+    assert.equal(
+      payload.aiExchanges[0]?.promptTemplatePath,
+      "/repo/prompts/14-target-checkup-readiness-audit.md",
+    );
+    assert.deepEqual(payload.artifactPaths, [
+      "docs/checkups/history/report.json",
+      "docs/checkups/history/report.md",
+    ]);
+    assert.equal(payload.outcome.status, "success");
+    assert.equal(payload.outcome.metadata?.overallVerdict, "valid_for_gap_ticket_derivation");
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});
+
+test("recordTargetFlowTrace evita sobrescrita silenciosa quando o traceId colide", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const request = {
+      flow: "target-prepare" as const,
+      sourceCommand: "/target_prepare" as const,
+      targetProjectName: "alpha-project",
+      targetProjectPath: "/home/mapita/projetos/alpha-project",
+      inputs: {
+        projectName: "alpha-project",
+      },
+      milestones: [],
+      aiExchanges: [],
+      artifactPaths: [],
+      versionedArtifactPaths: [],
+      outcome: {
+        status: "cancelled" as const,
+        summary: "cancelado antes de versionar",
+      },
+      recordedAt: new Date("2026-03-24T23:10:00.000Z"),
+    };
+
+    const first = await store.recordTargetFlowTrace(request);
+    const second = await store.recordTargetFlowTrace(request);
+
+    assert.notEqual(first.traceId, second.traceId);
+    assert.match(second.traceId, /-2$/u);
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});

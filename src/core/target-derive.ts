@@ -12,6 +12,10 @@ import { TargetDeriveGitGuard } from "../integrations/target-derive-git-guard.js
 import { TargetProjectResolver } from "../integrations/target-project-resolver.js";
 import { ProjectRef } from "../types/project.js";
 import {
+  TARGET_DERIVE_MILESTONE_LABELS,
+  targetFlowKindToCommand,
+} from "../types/target-flow.js";
+import {
   buildTargetDeriveGapFingerprint,
   buildTargetDeriveGapId,
   computeGapDerivationStatus,
@@ -19,6 +23,7 @@ import {
   mapDecisionToResultStatus,
   TargetDeriveExecutionResult,
   TargetDeriveGapAnalysisItem,
+  TargetDeriveLifecycleHooks,
   TargetDeriveNormalizedGap,
   TargetDeriveResultStatus,
   TargetDeriveTicketSummary,
@@ -52,7 +57,10 @@ export interface TargetDeriveExecuteRequest {
 }
 
 export interface TargetDeriveExecutor {
-  execute(request: TargetDeriveExecuteRequest): Promise<TargetDeriveExecutionResult>;
+  execute(
+    request: TargetDeriveExecuteRequest,
+    hooks?: TargetDeriveLifecycleHooks,
+  ): Promise<TargetDeriveExecutionResult>;
 }
 
 interface ResolvedReportPaths {
@@ -99,7 +107,10 @@ export class ControlledTargetDeriveExecutor implements TargetDeriveExecutor {
     this.now = dependencies.now ?? (() => new Date());
   }
 
-  async execute(request: TargetDeriveExecuteRequest): Promise<TargetDeriveExecutionResult> {
+  async execute(
+    request: TargetDeriveExecuteRequest,
+    hooks?: TargetDeriveLifecycleHooks,
+  ): Promise<TargetDeriveExecutionResult> {
     let targetProject: ProjectRef;
     try {
       const resolved = await this.dependencies.targetProjectResolver.resolveProject(
@@ -194,9 +205,41 @@ export class ControlledTargetDeriveExecutor implements TargetDeriveExecutor {
             : "Falha ao validar autenticacao do Codex CLI para /target_derive_gaps.",
       };
     }
+    await hooks?.onMilestone?.({
+      flow: "target-derive",
+      command: targetFlowKindToCommand("target-derive"),
+      targetProject,
+      milestone: "preflight",
+      milestoneLabel: TARGET_DERIVE_MILESTONE_LABELS.preflight,
+      message: `Preflight concluido para ${targetProject.name}.`,
+      versionBoundaryState: "before-versioning",
+      recordedAtUtc: this.now().toISOString(),
+    });
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "preflight",
+          changedPaths: [],
+          nextAction:
+            "Nenhuma alteracao foi versionada. Reavalie o report e rerode quando estiver pronto.",
+        },
+      };
+    }
 
     let gapAnalysis;
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-derive",
+        command: targetFlowKindToCommand("target-derive"),
+        targetProject,
+        milestone: "dedup-prioritization",
+        milestoneLabel: TARGET_DERIVE_MILESTONE_LABELS["dedup-prioritization"],
+        message: `Deduplicacao/priorizacao em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "before-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       const result = await fixedCodexClient.runTargetDeriveGapAnalysis({
         targetProject,
         runnerRepoPath: this.dependencies.runnerRepoPath,
@@ -220,15 +263,44 @@ export class ControlledTargetDeriveExecutor implements TargetDeriveExecutor {
         ),
       });
       gapAnalysis = parseTargetDeriveGapAnalysisOutput(result.output);
+      await hooks?.onAiExchange?.({
+        stageLabel: TARGET_DERIVE_MILESTONE_LABELS["dedup-prioritization"],
+        promptTemplatePath: result.promptTemplatePath,
+        promptText: result.promptText,
+        outputText: result.output,
+        ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+      });
     } catch (error) {
       return {
         status: "failed",
         message: error instanceof Error ? error.message : String(error),
       };
     }
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "dedup-prioritization",
+          changedPaths: [],
+          nextAction:
+            "Nenhuma alteracao foi versionada. Reavalie a analise gerada antes de decidir uma nova rodada.",
+        },
+      };
+    }
 
     const normalizedGaps = normalizeGaps(gapAnalysis.gaps, resolvedReportPaths.jsonPath);
     const ticketInventory = await this.loadTicketInventory(targetProject.path);
+    await hooks?.onMilestone?.({
+      flow: "target-derive",
+      command: targetFlowKindToCommand("target-derive"),
+      targetProject,
+      milestone: "materialization",
+      milestoneLabel: TARGET_DERIVE_MILESTONE_LABELS.materialization,
+      message: `Materializacao em andamento para ${targetProject.name}.`,
+      versionBoundaryState: "before-versioning",
+      recordedAtUtc: this.now().toISOString(),
+    });
     const plannedOutcomes = await this.planGapOutcomes({
       targetProject,
       report,
@@ -264,8 +336,30 @@ export class ControlledTargetDeriveExecutor implements TargetDeriveExecutor {
       .map((entry) => entry.ticketMutation)
       .filter((entry): entry is PlannedTicketMutation => Boolean(entry))
       .filter((entry) => entry.content !== entry.existingContent);
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "materialization",
+          changedPaths: changedTicketMutations.map((entry) => entry.path),
+          nextAction:
+            "Revise tickets e write-back locais gerados antes do versionamento para decidir se devem ser descartados ou reaproveitados.",
+        },
+      };
+    }
 
     if (!reportJsonChanged && !reportMarkdownChanged && changedTicketMutations.length === 0) {
+      await hooks?.onMilestone?.({
+        flow: "target-derive",
+        command: targetFlowKindToCommand("target-derive"),
+        targetProject,
+        milestone: "versioning",
+        milestoneLabel: TARGET_DERIVE_MILESTONE_LABELS.versioning,
+        message: `Versionamento avaliado para ${targetProject.name}: nenhuma alteracao nova para publicar.`,
+        versionBoundaryState: "after-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       return {
         status: "completed",
         summary: this.buildSummary({
@@ -307,9 +401,31 @@ export class ControlledTargetDeriveExecutor implements TargetDeriveExecutor {
       ...(reportMarkdownChanged ? [resolvedReportPaths.markdownPath] : []),
       ...changedTicketMutations.map((entry) => entry.path),
     ]);
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "materialization",
+          changedPaths,
+          nextAction:
+            "As alteracoes locais da derivacao ficaram sem commit/push. Revise o working tree antes de decidir o proximo passo.",
+        },
+      };
+    }
 
     const gitVersioning = this.dependencies.createGitVersioning(targetProject);
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-derive",
+        command: targetFlowKindToCommand("target-derive"),
+        targetProject,
+        milestone: "versioning",
+        milestoneLabel: TARGET_DERIVE_MILESTONE_LABELS.versioning,
+        message: `Versionamento em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "after-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       const evidence = await gitVersioning.commitAndPushPaths(
         changedPaths,
         `chore(readiness): derive gaps for ${targetProject.name}`,

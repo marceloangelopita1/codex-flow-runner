@@ -676,6 +676,66 @@ test("execute registra runner limitation sem abrir ticket no projeto alvo", asyn
   }
 });
 
+test("execute publica milestones canonicos e respeita cancelamento cooperativo antes do versionamento", async () => {
+  const { rootPath, project, reportJsonPath, reportMarkdownPath } =
+    await createTargetRepoWithReport({
+      projectName: "derive-cancelled",
+      stem: "2026-03-24T22-30-00Z-project-readiness-checkup",
+    });
+
+  try {
+    const milestones: string[] = [];
+    const aiStages: string[] = [];
+    let cancelRequested = false;
+    const gitVersioning = new StubGitVersioning();
+    const executor = createExecutor({
+      project,
+      codexClient: new StubTargetDeriveCodexClient([buildGapAnalysisOutput()]),
+      gitGuard: new StubTargetDeriveGitGuard({
+        currentHeadSha: "meta456",
+        headParentSha: "report123",
+        lastCommitByPath: {
+          [reportJsonPath]: "meta456",
+          [reportMarkdownPath]: "meta456",
+        },
+      }),
+      gitVersioning,
+      now: () => new Date("2026-03-24T23:00:00.000Z"),
+    });
+
+    const result = await executor.execute(
+      {
+        projectName: project.name,
+        reportPath: reportJsonPath,
+      },
+      {
+        onMilestone: async (event) => {
+          milestones.push(event.milestone);
+          if (event.milestone === "materialization") {
+            cancelRequested = true;
+          }
+        },
+        onAiExchange: async (event) => {
+          aiStages.push(event.stageLabel);
+        },
+        isCancellationRequested: () => cancelRequested,
+      },
+    );
+
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.summary.cancelledAtMilestone, "materialization");
+    assert.deepEqual(milestones, ["preflight", "dedup-prioritization", "materialization"]);
+    assert.deepEqual(aiStages, ["deduplicacao/priorizacao"]);
+    assert.equal(gitVersioning.commitRequests.length, 0);
+    assert.ok(
+      result.summary.changedPaths.some((entry) => entry.startsWith("tickets/open/")),
+      "expected local derived ticket path in cancelled summary",
+    );
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});
+
 test("execute bloqueia quando o working tree inicial esta sujo", async () => {
   const { rootPath, project, reportJsonPath } = await createTargetRepoWithReport({
     projectName: "alpha-project",

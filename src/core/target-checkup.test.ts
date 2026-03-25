@@ -655,3 +655,82 @@ test("evaluateTargetCheckupDerivationReadiness valida idade, drift e cadeia do r
   assert.equal(brokenChain.eligible, false);
   assert.ok(brokenChain.reasons.includes("report-commit-chain-broken"));
 });
+
+test("execute publica milestones canonicos e respeita cancelamento cooperativo antes do versionamento", async () => {
+  const { rootPath, project } = await createPreparedTargetRepo("checkup-cancelled", {
+    packageJson: {
+      scripts: {
+        test: "echo ok",
+      },
+    },
+  });
+
+  try {
+    const reportJsonPath =
+      "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.json";
+    const reportMarkdownPath =
+      "docs/checkups/history/2026-03-24T22-30-00Z-project-readiness-checkup.md";
+    const milestones: string[] = [];
+    const aiStages: string[] = [];
+    let cancelRequested = false;
+    const executor = new ControlledTargetCheckupExecutor({
+      logger: new SpyLogger(),
+      targetProjectResolver: {
+        resolveProject: async () => ({
+          ...project,
+          eligibleForProjects: true,
+        }),
+      },
+      createCodexClient: () => new StubTargetCheckupCodexClient(),
+      createGitVersioning: () =>
+        new StubGitVersioning(async () => ({
+          commitHash: "meta456",
+          reportCommitHash: "report123",
+          metadataCommitHash: "meta456",
+          upstream: "origin/main",
+          commitPushId: "meta456@origin/main",
+        })),
+      createGitGuard: () =>
+        new StubTargetCheckupGitGuard({
+          changedPathsByCall: [[reportJsonPath, reportMarkdownPath]],
+        }),
+      runnerRepoPath,
+      now: () => new Date("2026-03-24T22:30:00.000Z"),
+      commandRunner: new StubCommandRunner({
+        "npm run test": {
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 1,
+          failedToSpawn: false,
+        },
+      }),
+    });
+
+    const result = await executor.execute(
+      {
+        activeProject: project,
+      },
+      {
+        onMilestone: async (event) => {
+          milestones.push(event.milestone);
+          if (event.milestone === "editorial-summary") {
+            cancelRequested = true;
+          }
+        },
+        onAiExchange: async (event) => {
+          aiStages.push(event.stageLabel);
+        },
+        isCancellationRequested: () => cancelRequested,
+      },
+    );
+
+    assert.equal(result.status, "cancelled");
+    assert.equal(result.summary.cancelledAtMilestone, "editorial-summary");
+    assert.deepEqual(milestones, ["preflight", "evidence-collection", "editorial-summary"]);
+    assert.deepEqual(aiStages, ["sintese/redacao"]);
+    assert.deepEqual(result.summary.changedPaths, [reportJsonPath, reportMarkdownPath]);
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});

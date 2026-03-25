@@ -19,6 +19,7 @@ import type {
   PlanSpecSessionStartResult,
   TargetCheckupRequestResult,
   TargetDeriveRequestResult,
+  TargetFlowCancelResult,
   TargetPrepareRequestResult,
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
@@ -39,6 +40,7 @@ import {
   CodexSpeedSelectionSnapshot,
 } from "../types/codex-preferences.js";
 import { RunnerSlotKind, RunnerState } from "../types/state.js";
+import { TargetFlowKind } from "../types/target-flow.js";
 import {
   TicketFinalSummary,
   TicketNotificationDispatchError,
@@ -51,6 +53,7 @@ import {
   RunAllFlowSummary,
   RunSpecsFlowSummary,
   RunnerFlowSummary,
+  TargetFlowMilestoneLifecycleEvent,
 } from "../types/flow-timing.js";
 import {
   CALLBACK_CHAT_DELIVERY_POLICY,
@@ -59,6 +62,7 @@ import {
   isTelegramMessageDeliveryDispatchError,
   RUN_FLOW_SUMMARY_DELIVERY_POLICY,
   RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY,
+  TARGET_FLOW_MILESTONE_DELIVERY_POLICY,
   TelegramDeliveryLogMessages,
   TelegramDeliveryResult,
   TelegramDeliveryService,
@@ -84,6 +88,9 @@ interface BotControls {
     projectName: string,
     reportPath: string,
   ) => Promise<TargetDeriveRequestResult> | TargetDeriveRequestResult;
+  cancelTargetPrepare: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
+  cancelTargetCheckup: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
+  cancelTargetDerive: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   runSpecsFromValidation: (
@@ -178,6 +185,9 @@ type ProjectSelectionControlResult =
     }
   | {
       status: "blocked-plan-spec";
+    }
+  | {
+      status: "blocked-target-flow";
     };
 
 interface OpenTicketRef {
@@ -692,6 +702,8 @@ const SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY =
   "❌ Não é possível trocar o projeto ativo durante uma sessão /discover_spec ativa.";
 const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
   "❌ Não é possível trocar o projeto ativo durante uma sessão /plan_spec ativa.";
+const SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY =
+  "❌ Não é possível trocar o projeto ativo enquanto um fluxo target operacional estiver em andamento.";
 const LIST_PROJECTS_FAILED_REPLY =
   "❌ Falha ao listar projetos elegíveis. Verifique logs do runner e tente novamente.";
 const SELECT_PROJECT_FAILED_REPLY =
@@ -729,6 +741,24 @@ const RUN_SPECS_FLOW_TIMING_STAGE_ORDER = [
   "spec-audit",
   "spec-workflow-retrospective",
 ] as const;
+const TARGET_PREPARE_TIMING_STAGE_ORDER = [
+  "preflight",
+  "ai-adjustment",
+  "post-check",
+  "versioning",
+] as const;
+const TARGET_CHECKUP_TIMING_STAGE_ORDER = [
+  "preflight",
+  "evidence-collection",
+  "editorial-summary",
+  "versioning",
+] as const;
+const TARGET_DERIVE_TIMING_STAGE_ORDER = [
+  "preflight",
+  "dedup-prioritization",
+  "materialization",
+  "versioning",
+] as const;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -737,8 +767,14 @@ const START_REPLY_LINES = [
   "Comandos aceitos:",
   "/start - mostra esta ajuda",
   "/target_prepare <projeto> - prepara um diretorio irmao Git para o workflow completo sem trocar o projeto ativo",
+  "/target_prepare_status - mostra status detalhado do /target_prepare ativo",
+  "/target_prepare_cancel - solicita cancelamento cooperativo do /target_prepare ativo",
   "/target_checkup [projeto] - audita readiness do projeto ativo ou de um diretorio irmao explicito sem trocar o projeto ativo",
+  "/target_checkup_status - mostra status detalhado do /target_checkup ativo",
+  "/target_checkup_cancel - solicita cancelamento cooperativo do /target_checkup ativo",
   "/target_derive_gaps <projeto> <report-path> - materializa gaps readiness elegiveis a partir de um report canonico explicito",
+  "/target_derive_gaps_status - mostra status detalhado do /target_derive_gaps ativo",
+  "/target_derive_gaps_cancel - solicita cancelamento cooperativo do /target_derive_gaps ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
@@ -1225,6 +1261,39 @@ export class TelegramController {
     });
   }
 
+  async sendTargetFlowMilestone(event: TargetFlowMilestoneLifecycleEvent): Promise<void> {
+    if (!this.notificationChatId) {
+      this.logger.warn("Milestone de fluxo target nao enviada: chat de notificacao indefinido", {
+        flow: event.flow,
+        command: event.command,
+        targetProjectName: event.targetProjectName,
+        targetProjectPath: event.targetProjectPath,
+        milestone: event.milestone,
+      });
+      return;
+    }
+
+    await this.telegramDelivery.deliverTextMessage({
+      destinationChatId: this.notificationChatId,
+      text: this.buildTargetFlowMilestoneMessage(event),
+      policy: TARGET_FLOW_MILESTONE_DELIVERY_POLICY,
+      logicalMessageType: "target-flow-milestone",
+      logMessages: {
+        success: "Milestone de fluxo target enviada no Telegram",
+        transientFailure: "Falha transitoria ao enviar milestone de fluxo target no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar milestone de fluxo target no Telegram",
+      },
+      context: {
+        flow: event.flow,
+        command: event.command,
+        targetProjectName: event.targetProjectName,
+        targetProjectPath: event.targetProjectPath,
+        milestone: event.milestone,
+        versionBoundaryState: event.versionBoundaryState,
+      },
+    });
+  }
+
   async sendRunFlowSummary(summary: RunnerFlowSummary): Promise<FlowNotificationDelivery | null> {
     if (!this.notificationChatId) {
       this.logger.warn("Resumo final de fluxo nao enviado: chat de notificacao indefinido", {
@@ -1243,17 +1312,26 @@ export class TelegramController {
       finalStage: summary.finalStage,
       completionReason: summary.completionReason,
       totalDurationMs: summary.timing.totalDurationMs,
-      activeProjectName: summary.activeProjectName,
-      activeProjectPath: summary.activeProjectPath,
       ...(summary.flow === "run-all"
         ? {
+            activeProjectName: summary.activeProjectName,
+            activeProjectPath: summary.activeProjectPath,
             processedTicketsCount: summary.processedTicketsCount,
           }
-        : {
-            specFileName: summary.spec.fileName,
-            sourceCommand: summary.sourceCommand,
-            entryPoint: summary.entryPoint,
-          }),
+        : summary.flow === "run-specs"
+          ? {
+              activeProjectName: summary.activeProjectName,
+              activeProjectPath: summary.activeProjectPath,
+              specFileName: summary.spec.fileName,
+              sourceCommand: summary.sourceCommand,
+              entryPoint: summary.entryPoint,
+            }
+          : {
+              targetProjectName: summary.targetProjectName,
+              targetProjectPath: summary.targetProjectPath,
+              command: summary.command,
+              versionBoundaryState: summary.versionBoundaryState,
+            }),
       ...(summary.codexPreferences
         ? {
             model: summary.codexPreferences.model,
@@ -1425,12 +1503,36 @@ export class TelegramController {
       await this.handleTargetPrepareCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("target_prepare_status", async (ctx) => {
+      await this.handleTargetPrepareStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_prepare_cancel", async (ctx) => {
+      await this.handleTargetPrepareCancelCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("target_checkup", async (ctx) => {
       await this.handleTargetCheckupCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("target_checkup_status", async (ctx) => {
+      await this.handleTargetCheckupStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_checkup_cancel", async (ctx) => {
+      await this.handleTargetCheckupCancelCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("target_derive_gaps", async (ctx) => {
       await this.handleTargetDeriveCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_derive_gaps_status", async (ctx) => {
+      await this.handleTargetDeriveStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_derive_gaps_cancel", async (ctx) => {
+      await this.handleTargetDeriveCancelCommand(ctx as unknown as CommandContext);
     });
 
     this.bot.command("run_all", async (ctx) => {
@@ -1901,6 +2003,7 @@ export class TelegramController {
     }
 
     try {
+      this.captureNotificationChat(chatId);
       const result = await this.controls.targetPrepare(projectName);
       await ctx.reply(this.buildTargetPrepareReply(result));
     } catch (error) {
@@ -1911,6 +2014,43 @@ export class TelegramController {
       });
       await ctx.reply(TARGET_PREPARE_FAILED_REPLY);
     }
+  }
+
+  private async handleTargetPrepareStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_prepare_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_prepare_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    await ctx.reply(this.buildTargetFlowStatusReply("target-prepare", this.getState()));
+  }
+
+  private async handleTargetPrepareCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_prepare_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_prepare_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelTargetPrepare();
+    await ctx.reply(this.buildTargetFlowCancelReply(result));
   }
 
   private async handleTargetCheckupCommand(ctx: CommandContext): Promise<void> {
@@ -1934,6 +2074,7 @@ export class TelegramController {
     const projectName = this.parseTargetCheckupCommandProjectName(ctx.message?.text);
 
     try {
+      this.captureNotificationChat(chatId);
       const result = await this.controls.targetCheckup(projectName);
       await ctx.reply(this.buildTargetCheckupReply(result));
     } catch (error) {
@@ -1944,6 +2085,43 @@ export class TelegramController {
       });
       await ctx.reply(TARGET_CHECKUP_FAILED_REPLY);
     }
+  }
+
+  private async handleTargetCheckupStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_checkup_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_checkup_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    await ctx.reply(this.buildTargetFlowStatusReply("target-checkup", this.getState()));
+  }
+
+  private async handleTargetCheckupCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_checkup_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_checkup_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelTargetCheckup();
+    await ctx.reply(this.buildTargetFlowCancelReply(result));
   }
 
   private async handleTargetDeriveCommand(ctx: CommandContext): Promise<void> {
@@ -1971,6 +2149,7 @@ export class TelegramController {
     }
 
     try {
+      this.captureNotificationChat(chatId);
       const result = await this.controls.targetDerive(parsed.projectName, parsed.reportPath);
       await ctx.reply(this.buildTargetDeriveReply(result));
     } catch (error) {
@@ -1982,6 +2161,43 @@ export class TelegramController {
       });
       await ctx.reply(TARGET_DERIVE_FAILED_REPLY);
     }
+  }
+
+  private async handleTargetDeriveStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_derive_gaps_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_derive_gaps_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    await ctx.reply(this.buildTargetFlowStatusReply("target-derive", this.getState()));
+  }
+
+  private async handleTargetDeriveCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_derive_gaps_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_derive_gaps_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelTargetDerive();
+    await ctx.reply(this.buildTargetFlowCancelReply(result));
   }
 
   private async handleRunSpecsCommand(ctx: CommandContext): Promise<void> {
@@ -3145,6 +3361,11 @@ export class TelegramController {
       return;
     }
 
+    if (state.targetFlow) {
+      await ctx.reply(SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY);
+      return;
+    }
+
     try {
       const result = await this.controls.selectProjectByName(projectName);
       await ctx.reply(this.buildSelectProjectReply(result));
@@ -3194,6 +3415,11 @@ export class TelegramController {
 
     if (state.planSpecSession) {
       await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY);
+      return;
+    }
+
+    if (state.targetFlow) {
+      await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY);
       return;
     }
 
@@ -3658,6 +3884,11 @@ export class TelegramController {
         return;
       }
 
+      if (selectionResult.status === "blocked-target-flow") {
+        await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY);
+        return;
+      }
+
       const refreshedSnapshot = await this.controls.listProjects();
       const activeProjectPage = this.resolveActiveProjectPage(refreshedSnapshot);
       const rendered = this.buildProjectsReply(refreshedSnapshot, activeProjectPage);
@@ -4011,6 +4242,10 @@ export class TelegramController {
 
     if (result.status === "blocked-plan-spec") {
       return SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY;
+    }
+
+    if (result.status === "blocked-target-flow") {
+      return SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY;
     }
 
     if (result.status === "selected") {
@@ -6234,6 +6469,13 @@ export class TelegramController {
   }
 
   private buildTargetPrepareReply(result: TargetPrepareRequestResult): string {
+    if (result.status === "started") {
+      return [
+        `▶️ ${result.message}`,
+        "Use /target_prepare_status para acompanhar e /target_prepare_cancel para solicitar cancelamento antes de versionamento.",
+      ].join("\n");
+    }
+
     if (result.status === "completed") {
       const versioningLine =
         result.summary.versioning.status === "committed-and-pushed"
@@ -6251,10 +6493,26 @@ export class TelegramController {
       ].join("\n");
     }
 
+    if (result.status === "cancelled") {
+      return [
+        `ℹ️ /target_prepare cancelado para ${result.summary.targetProject.name}.`,
+        `Cancelado em: ${result.summary.cancelledAtMilestone}`,
+        `Mudancas locais: ${result.summary.changedPaths.join(", ") || "(nenhuma)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
     return `❌ ${result.message}`;
   }
 
   private buildTargetCheckupReply(result: TargetCheckupRequestResult): string {
+    if (result.status === "started") {
+      return [
+        `▶️ ${result.message}`,
+        "Use /target_checkup_status para acompanhar e /target_checkup_cancel para solicitar cancelamento antes de versionamento.",
+      ].join("\n");
+    }
+
     if (result.status === "completed") {
       return [
         `✅ /target_checkup concluido para ${result.summary.targetProject.name}.`,
@@ -6268,10 +6526,26 @@ export class TelegramController {
       ].join("\n");
     }
 
+    if (result.status === "cancelled") {
+      return [
+        `ℹ️ /target_checkup cancelado para ${result.summary.targetProject.name}.`,
+        `Cancelado em: ${result.summary.cancelledAtMilestone}`,
+        `Mudancas locais: ${result.summary.changedPaths.join(", ") || "(nenhuma)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
     return `❌ ${result.message}`;
   }
 
   private buildTargetDeriveReply(result: TargetDeriveRequestResult): string {
+    if (result.status === "started") {
+      return [
+        `▶️ ${result.message}`,
+        "Use /target_derive_gaps_status para acompanhar e /target_derive_gaps_cancel para solicitar cancelamento antes de versionamento.",
+      ].join("\n");
+    }
+
     if (result.status === "completed") {
       const header =
         result.summary.completionMode === "no-op-existing-mapping"
@@ -6294,7 +6568,46 @@ export class TelegramController {
       ].join("\n");
     }
 
+    if (result.status === "cancelled") {
+      return [
+        `ℹ️ /target_derive_gaps cancelado para ${result.summary.targetProject.name}.`,
+        `Cancelado em: ${result.summary.cancelledAtMilestone}`,
+        `Mudancas locais: ${result.summary.changedPaths.join(", ") || "(nenhuma)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
     return `❌ ${result.message}`;
+  }
+
+  private buildTargetFlowStatusReply(flow: TargetFlowKind, state: RunnerState): string {
+    if (!state.targetFlow || state.targetFlow.flow !== flow) {
+      return `ℹ️ Nenhuma execucao ${this.renderTargetFlowCommand(flow)} ativa no momento.`;
+    }
+
+    return [
+      `ℹ️ Status de ${state.targetFlow.command}`,
+      `Projeto alvo: ${state.targetFlow.targetProject.name}`,
+      `Caminho do projeto alvo: ${state.targetFlow.targetProject.path}`,
+      `Milestone atual: ${state.targetFlow.milestoneLabel}`,
+      `Fronteira de versionamento: ${state.targetFlow.versionBoundaryState}`,
+      `Cancelamento solicitado: ${state.targetFlow.cancelRequestedAt ? "sim" : "nao"}`,
+      `Iniciado em: ${state.targetFlow.startedAt.toISOString()}`,
+      `Atualizado em: ${state.targetFlow.updatedAt.toISOString()}`,
+      `Detalhe: ${state.targetFlow.lastMessage}`,
+    ].join("\n");
+  }
+
+  private buildTargetFlowCancelReply(result: TargetFlowCancelResult): string {
+    if (result.status === "accepted") {
+      return `✅ ${result.message}`;
+    }
+
+    if (result.status === "late") {
+      return `ℹ️ ${result.message}`;
+    }
+
+    return `ℹ️ ${result.message}`;
   }
 
   private buildDiscoverSpecStartReply(result: DiscoverSpecSessionStartResult): string {
@@ -6704,6 +7017,51 @@ export class TelegramController {
       return lines.join("\n");
     }
 
+    if (summary.flow !== "run-specs") {
+      const sections: EditorialSection[] = [
+        {
+          title: "Visao geral do fluxo",
+          lines: [
+            `Fluxo: ${summary.command}`,
+            `Projeto alvo: ${summary.targetProjectName}`,
+            `Caminho do projeto alvo: ${summary.targetProjectPath}`,
+            `Resultado: ${this.renderOutcome(summary.outcome)}`,
+            `Fase final: ${summary.finalStage}`,
+            `Motivo de encerramento: ${summary.completionReason}`,
+            `Fronteira de versionamento: ${summary.versionBoundaryState}`,
+            `Timestamp UTC: ${summary.timestampUtc}`,
+            `Proxima acao: ${summary.nextAction}`,
+            `Artefatos tocados: ${summary.artifactPaths.join(", ") || "(nenhum)"}`,
+            `Artefatos versionados: ${summary.versionedArtifactPaths.join(", ") || "(nenhum)"}`,
+            ...(summary.details ? [`Detalhes: ${summary.details}`] : []),
+          ],
+        },
+      ];
+
+      if (summary.summary) {
+        sections.push({
+          title: "Resumo deterministico",
+          lines: [
+            JSON.stringify(summary.summary, null, 2),
+          ],
+        });
+      }
+
+      sections.push({
+        title: "Timing do fluxo",
+        lines: this.buildTimingDetailLines(
+          summary.timing,
+          summary.flow === "target-prepare"
+            ? TARGET_PREPARE_TIMING_STAGE_ORDER
+            : summary.flow === "target-checkup"
+              ? TARGET_CHECKUP_TIMING_STAGE_ORDER
+              : TARGET_DERIVE_TIMING_STAGE_ORDER,
+        ),
+      });
+
+      return this.renderEditorialMessage(lines, sections);
+    }
+
     const sections: EditorialSection[] = [
       {
         title: "Visao geral do fluxo",
@@ -6775,13 +7133,17 @@ export class TelegramController {
     return this.renderEditorialMessage(lines, sections);
   }
 
-  private renderOutcome(outcome: "success" | "failure" | "blocked"): string {
+  private renderOutcome(outcome: "success" | "failure" | "blocked" | "cancelled"): string {
     if (outcome === "success") {
       return "sucesso";
     }
 
     if (outcome === "blocked") {
       return "bloqueado";
+    }
+
+    if (outcome === "cancelled") {
+      return "cancelado";
     }
 
     return "falha";
@@ -7302,6 +7664,7 @@ export class TelegramController {
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
+      `Fluxo target ativo: ${state.targetFlow?.command ?? "nenhum"}`,
       `Sessão /discover_spec: ${state.discoverSpecSession ? "ativa" : "inativa"}`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Sessão /codex_chat: ${state.codexChatSession ? "ativa" : "inativa"}`,
@@ -7322,6 +7685,11 @@ export class TelegramController {
           `pausado: ${slot.isPaused ? "sim" : "nao"}`,
           `ticket: ${slot.currentTicket ?? "nenhum"}`,
           `spec: ${slot.currentSpec ?? "nenhuma"}`,
+          ...(slot.targetFlowCommand ? [`comando: ${slot.targetFlowCommand}`] : []),
+          ...(slot.targetFlowMilestone ? [`milestone: ${slot.targetFlowMilestone}`] : []),
+          ...(slot.targetFlowVersionBoundaryState
+            ? [`fronteira: ${slot.targetFlowVersionBoundaryState}`]
+            : []),
           ...(slot.kind === "run-specs" && slot.runSpecsSourceCommand
             ? [`origem: ${this.resolveRunSpecsSourceCommand(slot.runSpecsSourceCommand)}`]
             : []),
@@ -7346,13 +7714,19 @@ export class TelegramController {
           `Último comando de origem do fluxo: ${this.resolveRunSpecsSourceCommand(state.lastRunFlowSummary.sourceCommand)}`,
           `Último ponto de entrada do fluxo: ${this.resolveRunSpecsEntryPoint(state.lastRunFlowSummary.entryPoint)}`,
         );
-      } else {
+      } else if (state.lastRunFlowSummary.flow === "run-all") {
         if (state.lastRunFlowSummary.lastProcessedTicket) {
           lines.push(`Último ticket processado no fluxo: ${state.lastRunFlowSummary.lastProcessedTicket}`);
         }
         if (state.lastRunFlowSummary.selectionTicket) {
           lines.push(`Último ticket afetado na seleção: ${state.lastRunFlowSummary.selectionTicket}`);
         }
+      } else {
+        lines.push(
+          `Último projeto alvo de fluxo target: ${state.lastRunFlowSummary.targetProjectName}`,
+          `Último comando target: ${state.lastRunFlowSummary.command}`,
+          `Fronteira do último target flow: ${state.lastRunFlowSummary.versionBoundaryState}`,
+        );
       }
       if (state.lastRunFlowSummary.details) {
         lines.push(`Detalhes do último fluxo: ${state.lastRunFlowSummary.details}`);
@@ -7405,6 +7779,23 @@ export class TelegramController {
           `Parte do resumo de fluxo com falha: ${failure.failedChunkIndex}/${failure.chunkCount ?? failure.failedChunkIndex}`,
         );
       }
+    }
+
+    if (state.targetFlow) {
+      lines.push(
+        `Fase do fluxo target: ${state.targetFlow.phase}`,
+        `Projeto alvo do fluxo target: ${state.targetFlow.targetProject.name}`,
+        `Caminho do projeto alvo do fluxo target: ${state.targetFlow.targetProject.path}`,
+        `Comando target ativo: ${state.targetFlow.command}`,
+        `Milestone target atual: ${state.targetFlow.milestoneLabel}`,
+        `Fronteira de versionamento target: ${state.targetFlow.versionBoundaryState}`,
+        `Início do fluxo target: ${state.targetFlow.startedAt.toISOString()}`,
+        `Última atualização do fluxo target: ${state.targetFlow.updatedAt.toISOString()}`,
+      );
+      if (state.targetFlow.cancelRequestedAt) {
+        lines.push(`Cancelamento target solicitado em: ${state.targetFlow.cancelRequestedAt.toISOString()}`);
+      }
+      lines.push(`Detalhe do fluxo target: ${state.targetFlow.lastMessage}`);
     }
 
     if (state.discoverSpecSession) {
@@ -7693,6 +8084,30 @@ export class TelegramController {
     return reason;
   }
 
+  private buildTargetFlowMilestoneMessage(event: TargetFlowMilestoneLifecycleEvent): string {
+    return [
+      "📍 Milestone de fluxo target",
+      `Comando: ${event.command}`,
+      `Projeto alvo: ${event.targetProjectName}`,
+      `Milestone: ${event.milestoneLabel}`,
+      `Fronteira de versionamento: ${event.versionBoundaryState}`,
+      `Detalhe: ${event.message}`,
+      `Timestamp UTC: ${event.timestampUtc}`,
+    ].join("\n");
+  }
+
+  private renderTargetFlowCommand(flow: TargetFlowKind): string {
+    if (flow === "target-prepare") {
+      return "/target_prepare";
+    }
+
+    if (flow === "target-checkup") {
+      return "/target_checkup";
+    }
+
+    return "/target_derive_gaps";
+  }
+
   private renderRunnerSlotCommand(kind: RunnerSlotKind): string {
     if (kind === "run-all") {
       return "/run_all";
@@ -7712,6 +8127,18 @@ export class TelegramController {
 
     if (kind === "discover-spec") {
       return "/discover_spec";
+    }
+
+    if (kind === "target-prepare") {
+      return "/target_prepare";
+    }
+
+    if (kind === "target-checkup") {
+      return "/target_checkup";
+    }
+
+    if (kind === "target-derive") {
+      return "/target_derive_gaps";
     }
 
     return "/plan_spec";

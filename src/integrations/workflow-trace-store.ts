@@ -1,11 +1,18 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { CodexStageDiagnostics, SpecFlowStage, TicketFlowStage } from "./codex-client.js";
+import type {
+  TargetFlowCommand,
+  TargetFlowKind,
+  TargetFlowMilestone,
+  TargetFlowVersionBoundaryState,
+} from "../types/target-flow.js";
 
 const TRACE_ROOT_DIR = ".codex-flow-runner/flow-traces";
 const REQUESTS_DIR = "requests";
 const RESPONSES_DIR = "responses";
 const DECISIONS_DIR = "decisions";
+const TARGET_FLOWS_DIR = "target-flows";
 
 export type WorkflowTraceStage =
   | TicketFlowStage
@@ -46,8 +53,54 @@ export interface WorkflowStageTraceRecord {
   decisionPath: string;
 }
 
+export interface TargetFlowTraceMilestoneRecord {
+  milestone: TargetFlowMilestone;
+  milestoneLabel: string;
+  message: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  recordedAtUtc: string;
+}
+
+export interface TargetFlowTraceAiExchangeRecord {
+  stageLabel: string;
+  promptTemplatePath: string;
+  promptText: string;
+  outputText: string;
+  diagnostics?: {
+    stdoutPreview?: string;
+    stderrPreview?: string;
+  };
+}
+
+export interface TargetFlowTraceOutcome {
+  status: "success" | "failure" | "blocked" | "cancelled";
+  summary: string;
+  errorMessage?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TargetFlowTraceRecordRequest {
+  flow: TargetFlowKind;
+  sourceCommand: TargetFlowCommand;
+  targetProjectName: string;
+  targetProjectPath: string;
+  inputs: Record<string, unknown>;
+  milestones: TargetFlowTraceMilestoneRecord[];
+  aiExchanges: TargetFlowTraceAiExchangeRecord[];
+  artifactPaths: string[];
+  versionedArtifactPaths: string[];
+  outcome: TargetFlowTraceOutcome;
+  recordedAt: Date;
+}
+
+export interface TargetFlowTraceRecord {
+  traceId: string;
+  sessionPath: string;
+}
+
 export interface WorkflowTraceStore {
   recordStageTrace(request: WorkflowStageTraceRecordRequest): Promise<WorkflowStageTraceRecord>;
+  recordTargetFlowTrace(request: TargetFlowTraceRecordRequest): Promise<TargetFlowTraceRecord>;
 }
 
 export class FileSystemWorkflowTraceStore implements WorkflowTraceStore {
@@ -80,6 +133,42 @@ export class FileSystemWorkflowTraceStore implements WorkflowTraceStore {
           recordedAtUtc: request.recordedAt.toISOString(),
           decision: request.decision,
           diagnostics: request.diagnostics ?? null,
+        },
+        null,
+        2,
+      ).concat("\n"),
+    );
+
+    return record;
+  }
+
+  async recordTargetFlowTrace(
+    request: TargetFlowTraceRecordRequest,
+  ): Promise<TargetFlowTraceRecord> {
+    await this.ensureBaseStructure();
+    const traceId = await this.allocateTargetFlowTraceId(request);
+    const record: TargetFlowTraceRecord = {
+      traceId,
+      sessionPath: this.buildTargetFlowSessionPath(traceId),
+    };
+
+    await this.writeRelativeFile(
+      record.sessionPath,
+      JSON.stringify(
+        {
+          flow: request.flow,
+          sourceCommand: request.sourceCommand,
+          targetProject: {
+            name: request.targetProjectName,
+            path: request.targetProjectPath,
+          },
+          recordedAtUtc: request.recordedAt.toISOString(),
+          inputs: request.inputs,
+          milestones: request.milestones,
+          aiExchanges: request.aiExchanges,
+          artifactPaths: request.artifactPaths,
+          versionedArtifactPaths: request.versionedArtifactPaths,
+          outcome: request.outcome,
         },
         null,
         2,
@@ -132,6 +221,7 @@ export class FileSystemWorkflowTraceStore implements WorkflowTraceStore {
     await fs.mkdir(this.resolveRelativeDir(REQUESTS_DIR), { recursive: true });
     await fs.mkdir(this.resolveRelativeDir(RESPONSES_DIR), { recursive: true });
     await fs.mkdir(this.resolveRelativeDir(DECISIONS_DIR), { recursive: true });
+    await fs.mkdir(this.resolveRelativeDir(TARGET_FLOWS_DIR), { recursive: true });
   }
 
   private async allocateTraceId(request: WorkflowStageTraceRecordRequest): Promise<string> {
@@ -158,6 +248,28 @@ export class FileSystemWorkflowTraceStore implements WorkflowTraceStore {
     throw new Error(
       "Nao foi possivel alocar identificador unico para trilha do fluxo principal desta etapa.",
     );
+  }
+
+  private async allocateTargetFlowTraceId(request: TargetFlowTraceRecordRequest): Promise<string> {
+    const targetSlug = normalizeSlug(request.targetProjectName);
+    const baseTraceId = [
+      formatTraceTimestamp(request.recordedAt),
+      request.sourceCommand.replace(/\//gu, ""),
+      request.flow,
+      targetSlug,
+    ]
+      .filter(Boolean)
+      .join("-");
+
+    for (let attempt = 0; attempt < 1000; attempt += 1) {
+      const candidate = attempt === 0 ? baseTraceId : `${baseTraceId}-${attempt + 1}`;
+      const sessionExists = await this.relativePathExists(this.buildTargetFlowSessionPath(candidate));
+      if (!sessionExists) {
+        return candidate;
+      }
+    }
+
+    throw new Error("Nao foi possivel alocar identificador unico para trilha de fluxo target.");
   }
 
   private async relativePathExists(relativePath: string): Promise<boolean> {
@@ -190,6 +302,10 @@ export class FileSystemWorkflowTraceStore implements WorkflowTraceStore {
 
   private buildDecisionPath(traceId: string): string {
     return path.posix.join(TRACE_ROOT_DIR, DECISIONS_DIR, `${traceId}-decision.json`);
+  }
+
+  private buildTargetFlowSessionPath(traceId: string): string {
+    return path.posix.join(TRACE_ROOT_DIR, TARGET_FLOWS_DIR, `${traceId}.json`);
   }
 
   private resolveRelativeDir(relativeDirectory: string): string {

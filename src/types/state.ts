@@ -12,6 +12,12 @@ import {
 } from "./flow-timing.js";
 import { ProjectRef } from "./project.js";
 import {
+  TargetFlowCommand,
+  TargetFlowKind,
+  TargetFlowMilestone,
+  TargetFlowVersionBoundaryState,
+} from "./target-flow.js";
+import {
   DiscoverSpecCategoryCoverageRecord,
   DiscoverSpecPendingItem,
 } from "./discover-spec.js";
@@ -38,6 +44,18 @@ export type RunnerPhase =
   | "plan-spec-waiting-codex"
   | "plan-spec-waiting-user"
   | "plan-spec-awaiting-final-action"
+  | "target-prepare-preflight"
+  | "target-prepare-ai-adjustment"
+  | "target-prepare-post-check"
+  | "target-prepare-versioning"
+  | "target-checkup-preflight"
+  | "target-checkup-evidence-collection"
+  | "target-checkup-editorial-summary"
+  | "target-checkup-versioning"
+  | "target-derive-preflight"
+  | "target-derive-dedup-prioritization"
+  | "target-derive-materialization"
+  | "target-derive-versioning"
   | "codex-chat-waiting-user"
   | "codex-chat-waiting-codex"
   | "paused"
@@ -162,7 +180,10 @@ export type RunnerSlotKind =
   | "run-ticket"
   | "discover-spec"
   | "plan-spec"
-  | "codex-chat";
+  | "codex-chat"
+  | "target-prepare"
+  | "target-checkup"
+  | "target-derive";
 
 export interface RunnerActiveSlotState {
   project: ProjectRef;
@@ -172,8 +193,25 @@ export interface RunnerActiveSlotState {
   currentSpec: string | null;
   runSpecsSourceCommand?: RunSpecsSourceCommand;
   runSpecsEntryPoint?: RunSpecsEntryPoint;
+  targetFlowCommand?: TargetFlowCommand;
+  targetFlowMilestone?: TargetFlowMilestone;
+  targetFlowVersionBoundaryState?: TargetFlowVersionBoundaryState;
   isPaused: boolean;
   startedAt: Date;
+}
+
+export interface RunnerTargetFlowState {
+  flow: TargetFlowKind;
+  command: TargetFlowCommand;
+  targetProject: ProjectRef;
+  phase: RunnerPhase;
+  milestone: TargetFlowMilestone;
+  milestoneLabel: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  cancelRequestedAt: Date | null;
+  startedAt: Date;
+  updatedAt: Date;
+  lastMessage: string;
 }
 
 export interface RunnerCapacitySnapshot {
@@ -189,6 +227,7 @@ export interface RunnerState {
   activeProject: ProjectRef | null;
   capacity: RunnerCapacitySnapshot;
   activeSlots: RunnerActiveSlotState[];
+  targetFlow: RunnerTargetFlowState | null;
   discoverSpecSession: DiscoverSpecSessionState | null;
   planSpecSession: PlanSpecSessionState | null;
   codexChatSession: CodexChatSessionState | null;
@@ -217,6 +256,7 @@ export const createInitialState = (
     used: 0,
   },
   activeSlots: [],
+  targetFlow: null,
   discoverSpecSession: null,
   planSpecSession: null,
   codexChatSession: null,

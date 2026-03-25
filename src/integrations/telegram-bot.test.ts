@@ -13,6 +13,7 @@ import {
   RunSelectedTicketRequestResult,
   TargetCheckupRequestResult,
   TargetDeriveRequestResult,
+  TargetFlowCancelResult,
   TargetPrepareRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
@@ -39,6 +40,7 @@ import {
   FlowNotificationDispatchError,
   FlowTimingSnapshot,
   RunAllFlowSummary,
+  RunnerFlowSummary,
   RunAllTimingStage,
   RunSpecsFlowSummary,
   RunSpecsFlowTimingStage,
@@ -86,6 +88,7 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
     used: 0,
   },
   activeSlots: [],
+  targetFlow: null,
   discoverSpecSession: null,
   planSpecSession: null,
   phase: "idle",
@@ -427,7 +430,14 @@ const createPlanSpecFinalBlock = (
 type ControlCommand =
   | "start"
   | "target_prepare"
+  | "target_prepare_status"
+  | "target_prepare_cancel"
   | "target_checkup"
+  | "target_checkup_status"
+  | "target_checkup_cancel"
+  | "target_derive_gaps"
+  | "target_derive_gaps_status"
+  | "target_derive_gaps_cancel"
   | "run_all"
   | "run-all"
   | "codex_chat"
@@ -485,6 +495,9 @@ interface ControllerOptions {
   targetPrepareResult?: TargetPrepareRequestResult;
   targetCheckupResult?: TargetCheckupRequestResult;
   targetDeriveResult?: TargetDeriveRequestResult;
+  targetPrepareCancelResult?: TargetFlowCancelResult;
+  targetCheckupCancelResult?: TargetFlowCancelResult;
+  targetDeriveCancelResult?: TargetFlowCancelResult;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
@@ -712,6 +725,9 @@ const createController = (options: ControllerOptions = {}) => {
     targetCheckupArgs: [] as Array<string | null | undefined>,
     targetDeriveCalls: 0,
     targetDeriveArgs: [] as Array<{ projectName: string; reportPath: string }>,
+    targetPrepareCancelCalls: 0,
+    targetCheckupCancelCalls: 0,
+    targetDeriveCancelCalls: 0,
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
@@ -809,6 +825,15 @@ const createController = (options: ControllerOptions = {}) => {
         },
       };
     },
+    cancelTargetPrepare: () => {
+      controlState.targetPrepareCancelCalls += 1;
+      return (
+        options.targetPrepareCancelResult ?? {
+          status: "inactive" as const,
+          message: "Nenhuma execucao /target_prepare ativa no momento.",
+        }
+      );
+    },
     targetCheckup: (projectName?: string | null) => {
       controlState.targetCheckupCalls += 1;
       controlState.targetCheckupArgs.push(projectName);
@@ -847,6 +872,15 @@ const createController = (options: ControllerOptions = {}) => {
           },
         },
       };
+    },
+    cancelTargetCheckup: () => {
+      controlState.targetCheckupCancelCalls += 1;
+      return (
+        options.targetCheckupCancelResult ?? {
+          status: "inactive" as const,
+          message: "Nenhuma execucao /target_checkup ativa no momento.",
+        }
+      );
     },
     targetDerive: (projectName: string, reportPath: string) => {
       controlState.targetDeriveCalls += 1;
@@ -895,6 +929,15 @@ const createController = (options: ControllerOptions = {}) => {
           },
         },
       };
+    },
+    cancelTargetDerive: () => {
+      controlState.targetDeriveCancelCalls += 1;
+      return (
+        options.targetDeriveCancelResult ?? {
+          status: "inactive" as const,
+          message: "Nenhuma execucao /target_derive_gaps ativa no momento.",
+        }
+      );
     },
     runAll: () => {
       controlState.runAllCalls += 1;
@@ -1645,6 +1688,63 @@ const callHandleTargetDeriveCommand = async (
   };
 
   await internalController.handleTargetDeriveCommand(context);
+};
+
+const callHandleTargetPrepareStatusCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetPrepareStatusCommand: (
+      value: {
+        chat: { id: number };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetPrepareStatusCommand(context);
+};
+
+const callHandleTargetPrepareCancelCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetPrepareCancelCommand: (
+      value: {
+        chat: { id: number };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetPrepareCancelCommand(context);
+};
+
+const callHandleTargetCheckupCancelCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetCheckupCancelCommand: (
+      value: {
+        chat: { id: number };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetCheckupCancelCommand(context);
 };
 
 const callBuildRunSpecsReply = async (
@@ -2871,6 +2971,31 @@ test("handleTargetPrepareCommand responde com resumo final rastreavel no caminho
   assert.match(replies[0] ?? "", /Proxima acao: Selecionar o projeto/u);
 });
 
+test("handleTargetPrepareCommand responde com CTA de acompanhamento quando o fluxo inicia de forma assincrona", async () => {
+  const { controller, controlState } = createController({
+    targetPrepareResult: {
+      status: "started",
+      message: "Execucao /target_prepare iniciada para alpha-project.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/target_prepare alpha-project" },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCalls, 1);
+  assert.deepEqual(controlState.targetPrepareArgs, ["alpha-project"]);
+  assert.match(replies[0] ?? "", /Execucao \/target_prepare iniciada para alpha-project/u);
+  assert.match(replies[0] ?? "", /\/target_prepare_status/u);
+  assert.match(replies[0] ?? "", /\/target_prepare_cancel/u);
+});
+
 test("handleTargetPrepareCommand propaga bloqueio objetivo do executor", async () => {
   const { controller, controlState } = createController({
     targetPrepareResult: {
@@ -2893,6 +3018,84 @@ test("handleTargetPrepareCommand propaga bloqueio objetivo do executor", async (
   assert.equal(controlState.targetPrepareCalls, 1);
   assert.deepEqual(controlState.targetPrepareArgs, ["missing-project"]);
   assert.deepEqual(replies, ["❌ Projeto alvo nao encontrado para /target_prepare: missing-project."]);
+});
+
+test("handleTargetPrepareStatusCommand informa ausencia quando nao ha fluxo ativo", async () => {
+  const { controller } = createController();
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.deepEqual(replies, ["ℹ️ Nenhuma execucao /target_prepare ativa no momento."]);
+});
+
+test("handleTargetPrepareStatusCommand renderiza milestone e fronteira do fluxo ativo", async () => {
+  const state = createState({
+    targetFlow: {
+      flow: "target-prepare",
+      command: "/target_prepare",
+      targetProject: {
+        name: "alpha-project",
+        path: "/home/mapita/projetos/alpha-project",
+      },
+      phase: "target-prepare-ai-adjustment",
+      milestone: "ai-adjustment",
+      milestoneLabel: "adequacao por IA",
+      versionBoundaryState: "before-versioning",
+      cancelRequestedAt: null,
+      startedAt: new Date("2026-03-24T23:00:00.000Z"),
+      updatedAt: new Date("2026-03-24T23:01:00.000Z"),
+      lastMessage: "Adequacao por IA em andamento.",
+    },
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.match(replies[0] ?? "", /Status de \/target_prepare/u);
+  assert.match(replies[0] ?? "", /Projeto alvo: alpha-project/u);
+  assert.match(replies[0] ?? "", /Milestone atual: adequacao por IA/u);
+  assert.match(replies[0] ?? "", /Fronteira de versionamento: before-versioning/u);
+  assert.match(replies[0] ?? "", /Detalhe: Adequacao por IA em andamento\./u);
+});
+
+test("handleTargetPrepareCancelCommand confirma cancelamento cooperativo aceito", async () => {
+  const { controller, controlState } = createController({
+    targetPrepareCancelResult: {
+      status: "accepted",
+      message:
+        "Cancelamento de /target_prepare solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCancelCalls, 1);
+  assert.deepEqual(replies, [
+    "✅ Cancelamento de /target_prepare solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.",
+  ]);
 });
 
 test("handleTargetCheckupCommand usa o projeto ativo quando nenhum argumento e informado", async () => {
@@ -2959,6 +3162,30 @@ test("handleTargetCheckupCommand propaga bloqueio objetivo do executor", async (
   assert.deepEqual(replies, ["❌ O target_checkup exige working tree limpo antes de iniciar."]);
 });
 
+test("handleTargetCheckupCancelCommand traduz cancelamento tardio depois da fronteira", async () => {
+  const { controller, controlState } = createController({
+    targetCheckupCancelResult: {
+      status: "late",
+      message:
+        "/target_checkup ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetCheckupCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetCheckupCancelCalls, 1);
+  assert.deepEqual(replies, [
+    "ℹ️ /target_checkup ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.",
+  ]);
+});
+
 test("handleTargetDeriveCommand exige projeto e report-path explicitos", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
@@ -3003,6 +3230,32 @@ test("handleTargetDeriveCommand aceita args explicitos e responde com resumo ras
   assert.match(replies[0] ?? "", /Versionamento: derive123@origin\/main/u);
 });
 
+test("handleTargetDeriveCommand responde com CTA de acompanhamento quando o fluxo inicia de forma assincrona", async () => {
+  const { controller, controlState } = createController({
+    targetDeriveResult: {
+      status: "started",
+      message: "Execucao /target_derive_gaps iniciada para alpha-project.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetDeriveCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_derive_gaps alpha-project docs/checkups/history/report.json",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetDeriveCalls, 1);
+  assert.match(replies[0] ?? "", /Execucao \/target_derive_gaps iniciada para alpha-project/u);
+  assert.match(replies[0] ?? "", /\/target_derive_gaps_status/u);
+  assert.match(replies[0] ?? "", /\/target_derive_gaps_cancel/u);
+});
+
 test("handleTargetDeriveCommand propaga bloqueio objetivo do executor", async () => {
   const { controller, controlState } = createController({
     targetDeriveResult: {
@@ -3035,6 +3288,87 @@ test("handleTargetDeriveCommand propaga bloqueio objetivo do executor", async ()
   assert.deepEqual(replies, [
     "❌ O repositorio recebeu commit novo depois do ultimo write-back do report; gere um novo /target_checkup antes de derivar novamente.",
   ]);
+});
+
+test("envia resumo final de fluxo target com fronteira de versionamento e proxima acao", async () => {
+  const { controller } = createController({ allowedChatId: "42" });
+  const sentMessages = mockSendMessage(controller);
+
+  const summary: RunnerFlowSummary = {
+    flow: "target-prepare",
+    command: "/target_prepare",
+    outcome: "success",
+    finalStage: "versioning",
+    completionReason: "completed",
+    timestampUtc: "2026-03-24T23:15:00.000Z",
+    targetProjectName: "alpha-project",
+    targetProjectPath: "/home/mapita/projetos/alpha-project",
+    versionBoundaryState: "after-versioning",
+    nextAction:
+      "Selecionar o projeto por /select_project alpha-project ou pelo menu /projects.",
+    artifactPaths: [
+      "docs/workflows/target-prepare-manifest.json",
+      "docs/workflows/target-prepare-report.md",
+    ],
+    versionedArtifactPaths: [
+      "AGENTS.md",
+      "README.md",
+      "docs/workflows/target-prepare-manifest.json",
+      "docs/workflows/target-prepare-report.md",
+    ],
+    details: "Versionamento: prepare123@origin/main",
+    timing: {
+      startedAtUtc: "2026-03-24T23:14:00.000Z",
+      finishedAtUtc: "2026-03-24T23:15:00.000Z",
+      totalDurationMs: 60000,
+      durationsByStageMs: {
+        preflight: 10000,
+        "ai-adjustment": 20000,
+        "post-check": 15000,
+        versioning: 15000,
+      },
+      completedStages: ["preflight", "ai-adjustment", "post-check", "versioning"],
+      interruptedStage: null,
+    },
+    summary: {
+      targetProject: {
+        name: "alpha-project",
+        path: "/home/mapita/projetos/alpha-project",
+      },
+      eligibleForProjects: true,
+      compatibleWithWorkflowComplete: true,
+      nextAction:
+        "Selecionar o projeto por /select_project alpha-project ou pelo menu /projects.",
+      manifestPath: "docs/workflows/target-prepare-manifest.json",
+      reportPath: "docs/workflows/target-prepare-report.md",
+      changedPaths: [
+        "AGENTS.md",
+        "README.md",
+        "docs/workflows/target-prepare-manifest.json",
+        "docs/workflows/target-prepare-report.md",
+      ],
+      versioning: {
+        status: "committed-and-pushed",
+        commitHash: "prepare123",
+        upstream: "origin/main",
+        commitPushId: "prepare123@origin/main",
+      },
+    },
+  };
+
+  await controller.sendRunFlowSummary(summary);
+
+  assert.equal(sentMessages.length, 1);
+  assert.match(sentMessages[0]?.text ?? "", /Fluxo: \/target_prepare/u);
+  assert.match(sentMessages[0]?.text ?? "", /Projeto alvo: alpha-project/u);
+  assert.match(sentMessages[0]?.text ?? "", /Resultado: sucesso/u);
+  assert.match(sentMessages[0]?.text ?? "", /Fronteira de versionamento: after-versioning/u);
+  assert.match(
+    sentMessages[0]?.text ?? "",
+    /Proxima acao: Selecionar o projeto por \/select_project alpha-project/u,
+  );
+  assert.match(sentMessages[0]?.text ?? "", /Resumo deterministico/u);
+  assert.match(sentMessages[0]?.text ?? "", /Tempo total: 1m 0s \(60000 ms\)/u);
 });
 
 test("gera resposta de inicio ao executar /run_specs", async () => {
@@ -6313,6 +6647,45 @@ test("/select-project permite troca durante execucao em outro projeto", async ()
   assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
 });
 
+test("/select-project fica bloqueado enquanto um fluxo target estiver ativo", async () => {
+  const { controller, controlState } = createController({
+    getState: () =>
+      createState({
+        targetFlow: {
+          flow: "target-checkup",
+          command: "/target_checkup",
+          targetProject: {
+            name: "alpha-project",
+            path: "/home/mapita/projetos/alpha-project",
+          },
+          phase: "target-checkup-evidence-collection",
+          milestone: "evidence-collection",
+          milestoneLabel: "coleta de evidencias",
+          versionBoundaryState: "before-versioning",
+          cancelRequestedAt: null,
+          startedAt: new Date("2026-03-24T23:20:00.000Z"),
+          updatedAt: new Date("2026-03-24T23:21:00.000Z"),
+          lastMessage: "Coleta de evidencias em andamento.",
+        },
+      }),
+  });
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.selectedProjectNames.length, 0);
+  assert.deepEqual(replies, [
+    "❌ Não é possível trocar o projeto ativo enquanto um fluxo target operacional estiver em andamento.",
+  ]);
+});
+
 test("/select-project confirma troca quando projeto existe", async () => {
   const { controller, controlState } = createController();
   const replies: string[] = [];
@@ -7677,6 +8050,91 @@ test("status inclui rastreabilidade da notificacao do resumo final de fluxo e su
   assert.match(reply, /Fase com falha de notificação de fluxo: implement/u);
   assert.match(reply, /Código do erro de notificação de fluxo: 400/u);
   assert.match(reply, /Parte do resumo de fluxo com falha: 2\/3/u);
+});
+
+test("status detalha fluxo target ativo e o ultimo target flow concluido", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      isRunning: true,
+      phase: "target-checkup-evidence-collection",
+      capacity: {
+        limit: 5,
+        used: 1,
+      },
+      activeSlots: [
+        {
+          project: {
+            name: "alpha-project",
+            path: "/home/mapita/projetos/alpha-project",
+          },
+          kind: "target-checkup",
+          phase: "target-checkup-evidence-collection",
+          currentTicket: null,
+          currentSpec: null,
+          isPaused: false,
+          targetFlowCommand: "/target_checkup",
+          targetFlowMilestone: "evidence-collection",
+          targetFlowVersionBoundaryState: "before-versioning",
+          startedAt: new Date("2026-03-24T23:20:00.000Z"),
+        },
+      ],
+      targetFlow: {
+        flow: "target-checkup",
+        command: "/target_checkup",
+        targetProject: {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+        },
+        phase: "target-checkup-evidence-collection",
+        milestone: "evidence-collection",
+        milestoneLabel: "coleta de evidencias",
+        versionBoundaryState: "before-versioning",
+        cancelRequestedAt: new Date("2026-03-24T23:21:30.000Z"),
+        startedAt: new Date("2026-03-24T23:20:00.000Z"),
+        updatedAt: new Date("2026-03-24T23:21:00.000Z"),
+        lastMessage: "Coleta de evidencias em andamento.",
+      },
+      lastRunFlowSummary: {
+        flow: "target-derive",
+        command: "/target_derive_gaps",
+        outcome: "cancelled",
+        finalStage: "materialization",
+        completionReason: "cancelled",
+        timestampUtc: "2026-03-24T23:19:00.000Z",
+        targetProjectName: "beta-project",
+        targetProjectPath: "/home/mapita/projetos/beta-project",
+        versionBoundaryState: "before-versioning",
+        nextAction: "Revise o working tree antes de decidir o proximo passo.",
+        artifactPaths: ["tickets/open/2026-03-24-gap-beta.md"],
+        versionedArtifactPaths: [],
+        details: "Cancelado em materializacao.",
+        timing: {
+          startedAtUtc: "2026-03-24T23:18:00.000Z",
+          finishedAtUtc: "2026-03-24T23:19:00.000Z",
+          totalDurationMs: 60000,
+          durationsByStageMs: {
+            preflight: 10000,
+            "dedup-prioritization": 20000,
+            materialization: 30000,
+          },
+          completedStages: ["preflight", "dedup-prioritization"],
+          interruptedStage: "materialization",
+        },
+      },
+    }),
+  );
+
+  assert.match(reply, /Fluxo target ativo: \/target_checkup/u);
+  assert.match(reply, /1\. alpha-project \(\/target_checkup\)/u);
+  assert.match(reply, /milestone: evidence-collection/u);
+  assert.match(reply, /Último fluxo concluído: target-derive \(cancelled\)/u);
+  assert.match(reply, /Último comando target: \/target_derive_gaps/u);
+  assert.match(reply, /Fase do fluxo target: target-checkup-evidence-collection/u);
+  assert.match(reply, /Milestone target atual: coleta de evidencias/u);
+  assert.match(reply, /Cancelamento target solicitado em: 2026-03-24T23:21:30\.000Z/u);
+  assert.match(reply, /Detalhe do fluxo target: Coleta de evidencias em andamento\./u);
 });
 
 test("status inclui ultimo evento notificado em sucesso com rastreabilidade", () => {

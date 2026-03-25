@@ -1,5 +1,23 @@
 import { CodexFlowPreferencesSnapshot } from "./codex-preferences.js";
 import {
+  TargetCheckupSummary,
+} from "./target-checkup.js";
+import {
+  TargetDeriveTicketSummary,
+} from "./target-derive.js";
+import {
+  TargetPrepareSummary,
+} from "./target-prepare.js";
+import {
+  TargetCheckupMilestone,
+  TargetDeriveMilestone,
+  TargetFlowCommand,
+  TargetFlowKind,
+  TargetFlowMilestone,
+  TargetFlowVersionBoundaryState,
+  TargetPrepareMilestone,
+} from "./target-flow.js";
+import {
   SpecTicketValidationAppliedCorrection,
   SpecTicketValidationCyclePhase,
   SpecTicketValidationConfidenceLevel,
@@ -170,7 +188,73 @@ export interface RunSpecsFlowSummary {
   runAllSummary?: RunAllFlowSummary;
 }
 
-export type RunnerFlowSummary = RunAllFlowSummary | RunSpecsFlowSummary;
+export interface TargetFlowMilestoneLifecycleEvent {
+  flow: TargetFlowKind;
+  command: TargetFlowCommand;
+  targetProjectName: string;
+  targetProjectPath: string;
+  milestone: TargetFlowMilestone;
+  milestoneLabel: string;
+  message: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  timestampUtc: string;
+}
+
+export type TargetFlowOutcome = "success" | "failure" | "blocked" | "cancelled";
+
+export type TargetPrepareFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
+export type TargetCheckupFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
+export type TargetDeriveFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
+
+interface TargetFlowSummaryBase<Flow extends TargetFlowKind, Stage extends string, Summary> {
+  flow: Flow;
+  command: TargetFlowCommand;
+  outcome: TargetFlowOutcome;
+  finalStage: Stage | "unknown";
+  completionReason: "completed" | "failed" | "blocked" | "cancelled";
+  timestampUtc: string;
+  targetProjectName: string;
+  targetProjectPath: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  nextAction: string;
+  artifactPaths: string[];
+  versionedArtifactPaths: string[];
+  details?: string;
+  codexPreferences?: CodexFlowPreferencesSnapshot;
+  timing: FlowTimingSnapshot<Stage>;
+  summary?: Summary;
+}
+
+export type TargetPrepareFlowSummary = TargetFlowSummaryBase<
+  "target-prepare",
+  TargetPrepareMilestone,
+  TargetPrepareSummary
+> & {
+  completionReason: TargetPrepareFlowCompletionReason;
+};
+
+export type TargetCheckupFlowSummary = TargetFlowSummaryBase<
+  "target-checkup",
+  TargetCheckupMilestone,
+  TargetCheckupSummary
+> & {
+  completionReason: TargetCheckupFlowCompletionReason;
+};
+
+export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
+  "target-derive",
+  TargetDeriveMilestone,
+  TargetDeriveTicketSummary
+> & {
+  completionReason: TargetDeriveFlowCompletionReason;
+};
+
+export type RunnerFlowSummary =
+  | RunAllFlowSummary
+  | RunSpecsFlowSummary
+  | TargetPrepareFlowSummary
+  | TargetCheckupFlowSummary
+  | TargetDeriveFlowSummary;
 
 export type FlowNotificationErrorClass =
   | "telegram-rate-limit"

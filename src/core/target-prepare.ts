@@ -11,6 +11,10 @@ import { GitVersioning } from "../integrations/git-client.js";
 import { TargetPrepareGitGuard } from "../integrations/target-prepare-git-guard.js";
 import { TargetProjectResolver } from "../integrations/target-project-resolver.js";
 import {
+  TARGET_PREPARE_MILESTONE_LABELS,
+  targetFlowKindToCommand,
+} from "../types/target-flow.js";
+import {
   isTargetPreparePathAllowed,
   renderTargetPrepareManagedBlockEnd,
   renderTargetPrepareManagedBlockStart,
@@ -23,6 +27,7 @@ import {
   TARGET_PREPARE_REQUIRED_DIRECTORIES,
   TARGET_PREPARE_SCHEMA_VERSION,
   TargetPrepareExecutionResult,
+  TargetPrepareLifecycleHooks,
   TargetPrepareManifest,
   TargetPrepareResolvedProject,
   TargetPrepareSurfaceEvidence,
@@ -39,7 +44,10 @@ interface TargetPrepareExecutorDependencies {
 }
 
 export interface TargetPrepareExecutor {
-  execute(projectName: string): Promise<TargetPrepareExecutionResult>;
+  execute(
+    projectName: string,
+    hooks?: TargetPrepareLifecycleHooks,
+  ): Promise<TargetPrepareExecutionResult>;
 }
 
 export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
@@ -49,7 +57,10 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     this.now = dependencies.now ?? (() => new Date());
   }
 
-  async execute(projectName: string): Promise<TargetPrepareExecutionResult> {
+  async execute(
+    projectName: string,
+    hooks?: TargetPrepareLifecycleHooks,
+  ): Promise<TargetPrepareExecutionResult> {
     let targetProject: TargetPrepareResolvedProject;
     try {
       targetProject = await this.dependencies.targetProjectResolver.resolveProject(projectName);
@@ -88,9 +99,41 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
     const gitBranch = await gitGuard.getCurrentBranch();
     const gitHeadAtStart = await gitGuard.getHeadSha();
+    await hooks?.onMilestone?.({
+      flow: "target-prepare",
+      command: targetFlowKindToCommand("target-prepare"),
+      targetProject,
+      milestone: "preflight",
+      milestoneLabel: TARGET_PREPARE_MILESTONE_LABELS.preflight,
+      message: `Preflight concluido para ${targetProject.name}.`,
+      versionBoundaryState: "before-versioning",
+      recordedAtUtc: this.now().toISOString(),
+    });
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "preflight",
+          changedPaths: [],
+          nextAction:
+            "Nenhuma alteracao foi versionada. Revise o contexto do projeto alvo e rerode quando estiver pronto.",
+        },
+      };
+    }
 
     let codexOutput = "";
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-prepare",
+        command: targetFlowKindToCommand("target-prepare"),
+        targetProject,
+        milestone: "ai-adjustment",
+        milestoneLabel: TARGET_PREPARE_MILESTONE_LABELS["ai-adjustment"],
+        message: `Adequacao por IA em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "before-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       const codexResult = await fixedCodexClient.runTargetPrepare({
         targetProject,
         runnerRepoPath: this.dependencies.runnerRepoPath,
@@ -100,6 +143,13 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
         mergeSources: this.resolveMergeSources(),
       });
       codexOutput = codexResult.output.trim();
+      await hooks?.onAiExchange?.({
+        stageLabel: TARGET_PREPARE_MILESTONE_LABELS["ai-adjustment"],
+        promptTemplatePath: codexResult.promptTemplatePath,
+        promptText: codexResult.promptText,
+        outputText: codexResult.output,
+        ...(codexResult.diagnostics ? { diagnostics: codexResult.diagnostics } : {}),
+      });
     } catch (error) {
       return {
         status: "failed",
@@ -111,6 +161,18 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     const disallowedPaths = changedPathsAfterCodex.filter(
       (entry) => !isTargetPreparePathAllowed(entry),
     );
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "ai-adjustment",
+          changedPaths: changedPathsAfterCodex,
+          nextAction:
+            "Inspecione o diff local gerado antes do versionamento e descarte ou reaproveite as mudancas conscientemente.",
+        },
+      };
+    }
     if (disallowedPaths.length > 0) {
       return {
         status: "failed",
@@ -123,6 +185,16 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
 
     let validatedSurfaces: TargetPrepareSurfaceEvidence[];
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-prepare",
+        command: targetFlowKindToCommand("target-prepare"),
+        targetProject,
+        milestone: "post-check",
+        milestoneLabel: TARGET_PREPARE_MILESTONE_LABELS["post-check"],
+        message: `Pos-check em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "before-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       validatedSurfaces = await this.validateManagedSurfaces(targetProject.path);
     } catch (error) {
       return {
@@ -162,6 +234,18 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     const disallowedPathsAfterArtifacts = changedPathsBeforeVersioning.filter(
       (entry) => !isTargetPreparePathAllowed(entry),
     );
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "post-check",
+          changedPaths: changedPathsBeforeVersioning,
+          nextAction:
+            "Revise manifesto, relatorio e demais mudancas locais antes de decidir se deseja descartalas ou rerodar o fluxo.",
+        },
+      };
+    }
     if (disallowedPathsAfterArtifacts.length > 0) {
       return {
         status: "failed",
@@ -175,6 +259,16 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     const gitVersioning = this.dependencies.createGitVersioning(targetProject);
     const commitSubject = `chore(onboarding): prepare ${targetProject.name} for codex-flow-runner`;
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-prepare",
+        command: targetFlowKindToCommand("target-prepare"),
+        targetProject,
+        milestone: "versioning",
+        milestoneLabel: TARGET_PREPARE_MILESTONE_LABELS.versioning,
+        message: `Versionamento em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "after-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       const evidence = await gitVersioning.commitAndPushPaths(changedPathsBeforeVersioning, commitSubject, [
         `Target prepare manifest: ${TARGET_PREPARE_MANIFEST_PATH}`,
         `Target prepare report: ${TARGET_PREPARE_REPORT_PATH}`,

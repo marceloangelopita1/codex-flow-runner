@@ -1,5 +1,6 @@
 import { CodexInvocationPreferences } from "./codex-preferences.js";
 import { ProjectRef } from "./project.js";
+import { TargetFlowLifecycleHooks, TargetPrepareMilestone } from "./target-flow.js";
 
 export const TARGET_PREPARE_CONTRACT_VERSION = "1.0";
 export const TARGET_PREPARE_SCHEMA_VERSION = "1.0";
@@ -166,13 +167,24 @@ export interface TargetPrepareSummary {
     | {
         status: "failed";
         errorMessage: string;
-      };
+  };
+}
+
+export interface TargetPrepareCancelledSummary {
+  targetProject: ProjectRef;
+  cancelledAtMilestone: TargetPrepareMilestone;
+  changedPaths: string[];
+  nextAction: string;
 }
 
 export type TargetPrepareExecutionResult =
   | {
       status: "completed";
       summary: TargetPrepareSummary;
+    }
+  | {
+      status: "cancelled";
+      summary: TargetPrepareCancelledSummary;
     }
   | {
       status: "blocked";
@@ -188,3 +200,5 @@ export type TargetPrepareExecutionResult =
       status: "failed";
       message: string;
     };
+
+export type TargetPrepareLifecycleHooks = TargetFlowLifecycleHooks<TargetPrepareMilestone>;

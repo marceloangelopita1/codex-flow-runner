@@ -113,9 +113,9 @@
 - [x] CA-09 - Reexecutar `derive` sobre relatorio novo com gap equivalente reutiliza/atualiza ticket aberto existente; se o equivalente ja estiver fechado, cria novo ticket com vinculo de recorrencia.
 - [x] CA-10 - Ticket derivado do checkup nasce autocontido, com caminho do relatorio `.md`, caminho do `.json`, `Gap fingerprint`, dimensao, evidencias objetivas, matriz de prioridade, superficies locais de remediacao e closure criteria observaveis suficientes para outra IA executar sem reler o relatorio inteiro.
 - [x] CA-11 - Gap cuja remediacao mora no runner aparece no write-back da derivacao como `not_materialized_runner_limitation`, sem abrir ticket automatico no projeto alvo.
-- [ ] CA-12 - Durante execucao ativa de qualquer um dos tres comandos, `/status` e `/projects` seguem disponiveis, enquanto `/select_project`, `/discover_spec`, `/plan_spec`, `/run_specs`, `/run_all` e `/codex_chat` ficam bloqueados com mensagem explicita.
-- [ ] CA-13 - Cada fluxo expoe `/_status` e `/_cancel`; cancelar antes da fronteira de versionamento encerra sem commit/push; apos a fronteira, o bot responde com tratamento explicito de cancelamento tardio.
-- [ ] CA-14 - Os tres fluxos geram traces locais em `.codex-flow-runner/flow-traces/` com comando, projeto, milestone, resultado, artefatos e eventos de sucesso/falha/cancelamento.
+- [x] CA-12 - Durante execucao ativa de qualquer um dos tres comandos, `/status` e `/projects` seguem disponiveis, enquanto `/select_project`, `/discover_spec`, `/plan_spec`, `/run_specs`, `/run_all` e `/codex_chat` ficam bloqueados com mensagem explicita.
+- [x] CA-13 - Cada fluxo expoe `/_status` e `/_cancel`; cancelar antes da fronteira de versionamento encerra sem commit/push; apos a fronteira, o bot responde com tratamento explicito de cancelamento tardio.
+- [x] CA-14 - Os tres fluxos geram traces locais em `.codex-flow-runner/flow-traces/` com comando, projeto, milestone, resultado, artefatos e eventos de sucesso/falha/cancelamento.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -265,6 +265,7 @@
 - 2026-03-24 - Registrar `report_commit_sha` pela convencao `initial-publication-commit-recorded-by-follow-up-metadata-commit` - evita a circularidade impossivel de gravar no proprio arquivo o hash do commit que ainda depende desse mesmo arquivo.
 
 ## Historico de atualizacao
+- 2026-03-25 00:21Z - Fluxos `target_prepare`, `target_checkup` e `target_derive_gaps` passaram a ocupar o slot operacional compartilhado do runner, com comandos `*_status` e `*_cancel`, milestones canonicos no Telegram e em `/status`, cancelamento cooperativo antes da fronteira de versionamento, tratamento explicito de cancelamento tardio e traces locais em `.codex-flow-runner/flow-traces/target-flows/`; validacao automatizada do ticket concluida, com smoke manual em Telegram real ainda pendente.
 - 2026-03-24 20:21Z - Versao inicial da spec consolidada apos entrevista profunda cobrindo contrato de compatibilidade, onboarding via `prepare`, readiness audit via `checkup`, derivacao conservadora de gaps, UX de Telegram, status/cancel e rastreabilidade local/canonica.
 - 2026-03-24 20:34Z - Triagem inicial concluida contra o estado atual do codigo; 4 tickets abertos para cobrir `target_prepare`, `target_checkup`, `target_derive_gaps` e a camada compartilhada de Telegram/status/cancel/traces.
 - 2026-03-24 21:30Z - Execucao do ticket de `target_prepare` implementou o comando `/target_prepare <project-name>`, o resolvedor explicito de repo irmao, o prompt dedicado com allowlist forte, o pos-check deterministico e a geracao/versionamento de manifesto + relatorio canonicos no repo alvo; permaneceram pendentes apenas as validacoes manuais externas e os tickets irmaos de `checkup`, `derive` e controle operacional compartilhado.

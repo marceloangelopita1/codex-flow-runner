@@ -4,6 +4,7 @@ import path from "node:path";
 import { Logger } from "./logger.js";
 import {
   TargetCheckupCodexClient,
+  TargetCheckupCodexResult,
   TargetCheckupCodexRequest,
 } from "../integrations/codex-client.js";
 import { GitVersioning } from "../integrations/git-client.js";
@@ -18,6 +19,10 @@ import {
   TARGET_PREPARE_MERGED_FILE_SOURCES,
   TARGET_PREPARE_REPORT_PATH,
 } from "../types/target-prepare.js";
+import {
+  TARGET_CHECKUP_MILESTONE_LABELS,
+  targetFlowKindToCommand,
+} from "../types/target-flow.js";
 import {
   buildTargetCheckupReportFileStem,
   evaluateTargetCheckupDerivationReadiness,
@@ -38,6 +43,7 @@ import {
   TargetCheckupDimensionVerdict,
   TargetCheckupEvidenceItem,
   TargetCheckupExecutionResult,
+  TargetCheckupLifecycleHooks,
   TargetCheckupOverallVerdict,
   TargetCheckupReport,
   TARGET_CHECKUP_SCHEMA_VERSION,
@@ -64,7 +70,10 @@ export interface TargetCheckupExecuteRequest {
 }
 
 export interface TargetCheckupExecutor {
-  execute(request: TargetCheckupExecuteRequest): Promise<TargetCheckupExecutionResult>;
+  execute(
+    request: TargetCheckupExecuteRequest,
+    hooks?: TargetCheckupLifecycleHooks,
+  ): Promise<TargetCheckupExecutionResult>;
 }
 
 interface TargetCheckupCommandRunnerRequest {
@@ -121,7 +130,10 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
     this.commandRunner = dependencies.commandRunner ?? new DefaultTargetCheckupCommandRunner();
   }
 
-  async execute(request: TargetCheckupExecuteRequest): Promise<TargetCheckupExecutionResult> {
+  async execute(
+    request: TargetCheckupExecuteRequest,
+    hooks?: TargetCheckupLifecycleHooks,
+  ): Promise<TargetCheckupExecutionResult> {
     let targetProject: ProjectRef;
     try {
       targetProject = await this.resolveTargetProject(request);
@@ -186,9 +198,41 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
       path.join(TARGET_CHECKUP_HISTORY_DIR, `${reportStem}.md`),
     );
     const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
+    await hooks?.onMilestone?.({
+      flow: "target-checkup",
+      command: targetFlowKindToCommand("target-checkup"),
+      targetProject,
+      milestone: "preflight",
+      milestoneLabel: TARGET_CHECKUP_MILESTONE_LABELS.preflight,
+      message: `Preflight concluido para ${targetProject.name}.`,
+      versionBoundaryState: "before-versioning",
+      recordedAtUtc: this.now().toISOString(),
+    });
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "preflight",
+          changedPaths: [],
+          nextAction:
+            "Nenhum artefato canônico foi versionado. Revise o contexto do projeto alvo e rerode quando estiver pronto.",
+        },
+      };
+    }
 
     let collected: CollectDimensionsResult;
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-checkup",
+        command: targetFlowKindToCommand("target-checkup"),
+        targetProject,
+        milestone: "evidence-collection",
+        milestoneLabel: TARGET_CHECKUP_MILESTONE_LABELS["evidence-collection"],
+        message: `Coleta de evidencias em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "before-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       collected = await this.collectDimensions({
         targetProject,
         gitGuard,
@@ -211,6 +255,18 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
         message: error instanceof Error ? error.message : String(error),
       };
     }
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "evidence-collection",
+          changedPaths: [],
+          nextAction:
+            "Nenhum artefato canônico foi publicado. Reavalie a rodada e rerode quando quiser gerar um novo snapshot.",
+        },
+      };
+    }
 
     const finishedAt = this.now();
     const draftReport = this.buildReport({
@@ -230,10 +286,28 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
 
     let editorialSummaryMarkdown = "";
     try {
-      editorialSummaryMarkdown = await this.renderEditorialSummary({
+      await hooks?.onMilestone?.({
+        flow: "target-checkup",
+        command: targetFlowKindToCommand("target-checkup"),
+        targetProject,
+        milestone: "editorial-summary",
+        milestoneLabel: TARGET_CHECKUP_MILESTONE_LABELS["editorial-summary"],
+        message: `Sintese/redacao em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "before-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
+      const editorialResult = await this.renderEditorialSummary({
         codexClient: fixedCodexClient,
         report: draftReport,
         runnerReference,
+      });
+      editorialSummaryMarkdown = editorialResult.markdown;
+      await hooks?.onAiExchange?.({
+        stageLabel: TARGET_CHECKUP_MILESTONE_LABELS["editorial-summary"],
+        promptTemplatePath: editorialResult.promptTemplatePath,
+        promptText: editorialResult.promptText,
+        outputText: editorialResult.outputText,
+        ...(editorialResult.diagnostics ? { diagnostics: editorialResult.diagnostics } : {}),
       });
     } catch (error) {
       return {
@@ -270,6 +344,18 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
     const unexpectedPaths = changedPathsBeforeVersioning.filter(
       (entry) => ![reportJsonPath, reportMarkdownPath].includes(normalizeRelativePath(entry)),
     );
+    if (hooks?.isCancellationRequested?.()) {
+      return {
+        status: "cancelled",
+        summary: {
+          targetProject,
+          cancelledAtMilestone: "editorial-summary",
+          changedPaths: changedPathsBeforeVersioning,
+          nextAction:
+            "Os artefatos locais do checkup ficaram disponiveis sem commit/push; revise-os antes de decidir o proximo passo.",
+        },
+      };
+    }
     if (unexpectedPaths.length > 0) {
       return {
         status: "failed",
@@ -282,6 +368,16 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
 
     const gitVersioning = this.dependencies.createGitVersioning(targetProject);
     try {
+      await hooks?.onMilestone?.({
+        flow: "target-checkup",
+        command: targetFlowKindToCommand("target-checkup"),
+        targetProject,
+        milestone: "versioning",
+        milestoneLabel: TARGET_CHECKUP_MILESTONE_LABELS.versioning,
+        message: `Versionamento em andamento para ${targetProject.name}.`,
+        versionBoundaryState: "after-versioning",
+        recordedAtUtc: this.now().toISOString(),
+      });
       const publicationEvidence = await gitVersioning.commitCheckupArtifacts({
         paths: [reportJsonPath, reportMarkdownPath],
         publicationSubject: `docs(readiness): publish ${targetProject.name} ${TARGET_CHECKUP_REPORT_FILE_SUFFIX}`,
@@ -962,7 +1058,13 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
     codexClient: TargetCheckupCodexClient;
     report: TargetCheckupReport;
     runnerReference: string;
-  }): Promise<string> {
+  }): Promise<{
+    markdown: string;
+    outputText: string;
+    promptTemplatePath: string;
+    promptText: string;
+    diagnostics?: TargetCheckupCodexResult["diagnostics"];
+  }> {
     const factsPayload = JSON.stringify(
       {
         target_project: params.report.target_project,
@@ -990,10 +1092,22 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
 
     const sanitized = sanitizeEditorialSummary(result.output);
     if (sanitized) {
-      return sanitized;
+      return {
+        markdown: sanitized,
+        outputText: result.output,
+        promptTemplatePath: result.promptTemplatePath,
+        promptText: result.promptText,
+        ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+      };
     }
 
-    return buildDeterministicEditorialFallback(params.report);
+    return {
+      markdown: buildDeterministicEditorialFallback(params.report),
+      outputText: result.output,
+      promptTemplatePath: result.promptTemplatePath,
+      promptText: result.promptText,
+      ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
+    };
   }
 
   private async writeReportArtifacts(
