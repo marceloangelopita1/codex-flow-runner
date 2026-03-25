@@ -2,9 +2,9 @@
 
 Esta pasta contém especificações funcionais e jornadas de uso em Markdown.
 
-Cada especificação pode originar:
-- um ticket em `tickets/open/` quando o trabalho ainda precisa de refinamento;
-- um execplan em `execplans/` quando o escopo já estiver claro e pronto para execução.
+Cada especificação deve seguir o contrato canônico de derivação:
+- primeiro um ticket em `tickets/open/`;
+- depois, quando necessário para execução segura, um execplan em `execplans/` derivado do ticket.
 
 ## Padrão oficial
 - Guia completo: `SPECS.md`

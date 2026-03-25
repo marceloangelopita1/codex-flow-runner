@@ -1,7 +1,7 @@
 # [TICKET] Falta revisao editorial rastreavel nas fontes copy-exact propagadas por `/target_prepare`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -10,7 +10,7 @@
 - Owner:
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
 - Parent commit (optional):
 - Analysis stage (when applicable): spec-triage
 - Active project (when applicable): codex-flow-runner
@@ -36,6 +36,7 @@
   - INTERNAL_TICKETS.md
   - tickets/templates/internal-ticket-template.md
   - docs/workflows/codex-quality-gates.md
+  - execplans/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
   - src/types/target-prepare.ts
   - docs/workflows/target-prepare-managed-agents-section.md
   - docs/workflows/target-prepare-managed-readme-section.md
@@ -111,10 +112,33 @@ Todas as superficies `copy-exact` listadas pelo contrato atual devem ficar expli
 
 ## Decision log
 - 2026-03-25 - Ticket aberto na triagem da spec porque o problema mais amplo de propagacao editorial esta concentrado primeiro nas fontes `copy-exact`, que sao replicadas literalmente para qualquer projeto preparado.
+- 2026-03-25 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md`; o resultado final ficou `GO` porque os tres closure criteria foram confirmados com evidencia objetiva e nao restou gap tecnico/funcional neste recorte.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-25 17:27Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+  - PR: N/A
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO`
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion antes da decisao final.
+- Evidencia objetiva por closure criterion:
+  - `RF-01`, `RF-02`, `RF-08`, `CA-01`, `CA-02`: `src/types/target-prepare.ts` continua listando exatamente as mesmas oito superficies em `TARGET_PREPARE_EXACT_COPY_SOURCES`; a classificacao por superficie ficou registrada no ExecPlan (`sete editadas`, `uma revalidada sem diff`); `git diff --name-only` no runner mostrou alteracoes apenas em `EXTERNAL_PROMPTS.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`, `docs/specs/README.md`, `docs/specs/templates/spec-template.md`, `docs/workflows/discover-spec.md` e na trilha documental da spec, sem superifice `copy-exact` relevante fora do pacote.
+  - `RF-06`, `RF-07`, `RF-09`: `git diff --word-diff -- EXTERNAL_PROMPTS.md INTERNAL_TICKETS.md PLANS.md SPECS.md docs/specs/README.md docs/specs/templates/spec-template.md docs/workflows/discover-spec.md docs/workflows/target-project-compatibility-contract.md` confirmou apenas correcoes editoriais e pequenos ajustes seguros de coerencia, preservando paths, headings canonicos e contrato operacional; `docs/workflows/target-project-compatibility-contract.md` foi explicitamente revalidado sem necessidade de diff.
+  - `RF-10`, `CA-06`, com validacoes manuais herdadas de `RF-03` e `CA-03`: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-prepare.test.ts` passou com `514` testes e `0` falhas; o smoke no repo `/home/mapita/projetos/target-prepare-copy-exact-smoke` confirmou `cmp` sem mismatch nas oito fontes `copy-exact`, commit preparado `cff30685c9c56067108dc2e80789db245194e5ca` e markers/legibilidade positivos dos blocos gerenciados em `AGENTS.md` e `README.md`.
+- Entrega tecnica concluida:
+  - sete superficies `copy-exact` receberam correcao editorial segura;
+  - `docs/workflows/target-project-compatibility-contract.md` foi revalidado sem diff;
+  - a spec e o ExecPlan registraram explicitamente quais superficies foram revisadas ou apenas revalidadas.
+- Validacoes executadas:
+  - `rg -n 'targetPath: "(EXTERNAL_PROMPTS.md|INTERNAL_TICKETS.md|PLANS.md|SPECS.md|docs/specs/README.md|docs/specs/templates/spec-template.md|docs/workflows/discover-spec.md|docs/workflows/target-project-compatibility-contract.md)"' src/types/target-prepare.ts`
+  - `git diff --name-only`
+  - `git diff --word-diff -- EXTERNAL_PROMPTS.md INTERNAL_TICKETS.md PLANS.md SPECS.md docs/specs/README.md docs/specs/templates/spec-template.md docs/workflows/discover-spec.md docs/workflows/target-project-compatibility-contract.md`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-prepare.test.ts`
+  - `for f in EXTERNAL_PROMPTS.md INTERNAL_TICKETS.md PLANS.md SPECS.md docs/specs/README.md docs/specs/templates/spec-template.md docs/workflows/discover-spec.md docs/workflows/target-project-compatibility-contract.md; do cmp -s "/home/mapita/projetos/codex-flow-runner/$f" "/home/mapita/projetos/target-prepare-copy-exact-smoke/$f" || echo "mismatch: $f"; done`
+  - `git -C /home/mapita/projetos/target-prepare-copy-exact-smoke show --stat --name-only --format=fuller HEAD`
+  - `rg -n 'codex-flow-runner:target-prepare-managed-(agents|readme):(start|end)' /home/mapita/projetos/target-prepare-copy-exact-smoke/AGENTS.md /home/mapita/projetos/target-prepare-copy-exact-smoke/README.md`
+- Validacao manual externa pendente: nao.

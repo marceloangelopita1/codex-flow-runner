@@ -20,16 +20,16 @@ Em `external_prompts/requests/`, cada arquivo é o prompt final literal que ser�
 6. Repetir os passos 4 e 5 até que os pontos críticos estejam esclarecidos.
 7. Consolidar a decisão aplicável ao projeto em `external_prompts/decisions/<yyyy-mm-dd>-<slug>.md`.
 
-## Comportamento obrigatorio do Codex
+## Comportamento obrigatório do Codex
 - Sempre que o usuário pedir para "criar", "montar", "escrever" ou "gerar" um prompt externo, o Codex deve salvar o prompt final em `external_prompts/requests/<yyyy-mm-dd>-<slug>.md`.
 - Sempre que o usuário pedir um prompt de esclarecimento sobre uma resposta já salva em `external_prompts/responses/`, o Codex deve criar um follow-up em `external_prompts/requests/<yyyy-mm-dd>-<slug>-followup-<nn>.md`.
-- Em follow-up, o Codex deve explicitar no texto do request qual arquivo de `responses/` esta sendo usado como base e quais pontos precisam de clarificação.
+- Em follow-up, o Codex deve explicitar no texto do request qual arquivo de `responses/` está sendo usado como base e quais pontos precisam de clarificação.
 - Não basta responder apenas no chat: o artefato precisa existir em arquivo no repositório.
 - O arquivo salvo deve ser o texto final literal de envio (copy-paste), sem etapas internas, notas editoriais ou metacomentarios.
 - Na resposta ao usuário, o Codex deve informar o caminho do arquivo criado/atualizado.
 
 ## Regras não negociáveis
-- Nunca incluir segredos, tokens, chaves, credenciais, cookies, payloads sensiveis ou dados pessoais.
+- Nunca incluir segredos, tokens, chaves, credenciais, cookies, payloads sensíveis ou dados pessoais.
 - O request deve ser 100% copy-paste para envio externo.
 - Não incluir referências internas de código ou estrutura do repositório.
 - Não incluir instruções de processo interno no request (ex.: checklist, anotação editorial, metacomentário de autoria).
@@ -37,7 +37,7 @@ Em `external_prompts/requests/`, cada arquivo é o prompt final literal que ser�
 - Follow-up nunca substitui/edita a resposta original salva: ele complementa com uma nova rodada registrada em arquivo próprio.
 
 ## Como solicitar ao Codex
-Descreva o problema em linguagem natural e peca para montar o prompt externo final.
+Descreva o problema em linguagem natural e peça para montar o prompt externo final.
 
 O Codex deve:
 - produzir um prompt pronto para envio, sem limpeza manual;
@@ -49,7 +49,7 @@ O Codex deve:
 
 Para follow-up de esclarecimento, descreva:
 - qual resposta em `responses/` deve ser usada como base;
-- quais pontos estao ambiguos, incompletos ou conflitantes;
+- quais pontos estão ambíguos, incompletos ou conflitantes;
 - qual formato de resposta facilitaria fechar (ou adiar) a decisão.
 
 Nesses casos, o Codex deve gerar um novo request de follow-up, sem sobrescrever request/response anteriores.
@@ -68,11 +68,11 @@ Para requests de follow-up, incluir também:
 - referência explícita ao arquivo de resposta base em `external_prompts/responses/...`;
 - lista objetiva dos pontos a esclarecer;
 - instrução para a IA externa responder ponto a ponto;
-- pedido explícito para indicar se a recomendacao anterior foi mantida, ajustada ou revertida.
+- pedido explícito para indicar se a recomendação anterior foi mantida, ajustada ou revertida.
 
 Não inclua no request:
 - checklist interno de pre-envio;
-- anotacoes editoriais de template (ex.: "(máximo 3)");
+- anotações editoriais de template (ex.: "(máximo 3)");
 - instruções sobre como o prompt foi criado.
 
 Use `external_prompts/templates/request-template.md` como base.
@@ -80,41 +80,41 @@ Use `external_prompts/templates/request-template.md` como base.
 ## Checklist interno de segurança (fora do request)
 Antes de enviar para a IA externa, confirme internamente:
 - [ ] Revisei e removi segredos/tokens/chaves/credenciais.
-- [ ] Não inclui dados pessoais ou payload sensivel.
-- [ ] O request e autocontido e não depende de contexto interno do repositório.
-- [ ] O request esta pronto para envio sem edicao adicional.
+- [ ] Não inclui dados pessoais ou payload sensível.
+- [ ] O request é autocontido e não depende de contexto interno do repositório.
+- [ ] O request está pronto para envio sem edição adicional.
 
 ## Checklist objetivo de prompt engineering (fora do request)
 Antes de enviar, confirme:
-- [ ] A tarefa esta clara e específica (sem ambiguidade principal).
-- [ ] O contexto fornecido e suficiente para decidir, sem detalhes internos irrelevantes.
+- [ ] A tarefa está clara e específica (sem ambiguidade principal).
+- [ ] O contexto fornecido é suficiente para decidir, sem detalhes internos irrelevantes.
 - [ ] A pergunta principal pode ser validada objetivamente.
 - [ ] As perguntas secundarias (se houver) são poucas e não redundantes.
-- [ ] Restrições e limites estao explícitos.
+- [ ] Restrições e limites estão explícitos.
 - [ ] O formato de resposta solicitado facilita comparar alternativas e trade-offs.
 - [ ] O prompt pede riscos, incertezas e critérios de validação.
-- [ ] O texto não contem segredos nem dados sensiveis.
+- [ ] O texto não contém segredos nem dados sensíveis.
 
 ## Anti-padrões (não usar)
 - Colocar no request seções de controle interno como "Checklist de segurança pre-envio".
-- Colocar no request anotacoes editoriais de template como "(máximo 3)".
+- Colocar no request anotações editoriais de template como "(máximo 3)".
 - Referenciar arquivo/linha, nomes de arquivos, funções internas ou detalhes de implementação local.
-- Explicar o processo interno de criacao do prompt em vez de focar na tarefa da IA externa.
-- Enviar histórico excessivo que não muda a recomendacao.
+- Explicar o processo interno de criação do prompt em vez de focar na tarefa da IA externa.
+- Enviar histórico excessivo que não muda a recomendação.
 - Pedir "a melhor solução" sem pedir trade-offs, riscos e critérios de validação.
-- Criar follow-up sem apontar claramente qual resposta de `responses/` esta sendo esclarecida.
+- Criar follow-up sem apontar claramente qual resposta de `responses/` está sendo esclarecida.
 - Sobrescrever a resposta original para "encaixar" esclarecimentos (isso quebra rastreabilidade).
 
 ## Formato recomendado da resposta externa
-Peca para a IA externa responder de forma estruturada:
-- recomendacao principal;
+Peça para a IA externa responder de forma estruturada:
+- recomendação principal;
 - alternativas e trade-offs;
 - riscos e pontos de incerteza;
 - critérios de validação;
 - próximos passos concretos.
 
-## Convencao de nomes
-- Slug: minusculo com hifen (`[a-z0-9-]`), ex.: `regras-usucapiao-evidencia`.
+## Convenção de nomes
+- Slug: minúsculo com hífen (`[a-z0-9-]`), ex.: `regras-usucapiao-evidencia`.
 - Arquivo: `<yyyy-mm-dd>-<slug>.md`.
 - O mesmo slug/data deve ser reaproveitado entre request/response/decision quando for a trilha principal.
 - Follow-up: `<yyyy-mm-dd>-<slug>-followup-<nn>.md` (ex.: `2026-02-13-value-timeline-estrategia-avaliacoes-imovel-followup-01.md`).

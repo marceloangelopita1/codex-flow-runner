@@ -3,14 +3,14 @@
 ## Finalidade
 Este documento define o padrão de ExecPlan deste repositório.
 
-Um ExecPlan é um plano executável, auto-contido e auditável, pensado para tarefas complexas e longas. Quem executa o plano deve conseguir concluir o trabalho apenas com:
+Um ExecPlan é um plano executável, autocontido e auditável, pensado para tarefas complexas e longas. Quem executa o plano deve conseguir concluir o trabalho apenas com:
 - o estado atual do repositório;
 - o próprio arquivo do plano.
 
-## Quando ExecPlan e obrigatorio
-ExecPlan e obrigatorio quando houver qualquer um dos cenários abaixo:
-- mudança em multiplos arquivos com dependências entre si;
-- alteracao de arquitetura, pipeline ou fluxo do runner;
+## Quando ExecPlan é obrigatório
+ExecPlan é obrigatório quando houver qualquer um dos cenários abaixo:
+- mudança em múltiplos arquivos com dependências entre si;
+- alteração de arquitetura, pipeline ou fluxo do runner;
 - mudança de contrato (payload, schema, shape de output, validações críticas);
 - migração/versionamento/cache com possível impacto em compatibilidade;
 - tarefa longa com marcos intermediários e risco de deriva.
@@ -26,8 +26,8 @@ Exemplos:
 - `execplans/2026-02-19-hardening-ciclo-sequencial.md`
 
 ## Regras não negociáveis
-- O plano deve ser auto-contido (sem depender de contexto implicito ou memoria externa).
-- Todo critério de aceitacao deve ser observavel por comportamento (comando + resultado esperado).
+- O plano deve ser autocontido (sem depender de contexto implícito ou memória externa).
+- Todo critério de aceitação deve ser observável por comportamento (comando + resultado esperado).
 - Todo passo de execução deve indicar comando e diretório de execução.
 - O plano deve explicitar escopo, não-escopo, riscos e dependências.
 - Termos específicos do projeto devem ser explicados no próprio plano.
@@ -37,10 +37,10 @@ Exemplos:
   - spec de origem;
   - RFs/CAs cobertos por este ticket;
   - assumptions/defaults escolhidos para eliminar ambiguidade;
-  - matriz `requisito -> validacao observavel`.
+  - matriz `requisito -> validação observável`.
 
 ## Estrutura obrigatória do ExecPlan
-Todo arquivo em `execplans/*.md` deve conter as seções abaixo, nesta ordem, com estes titulos:
+Todo arquivo em `execplans/*.md` deve conter as seções abaixo, nesta ordem, com estes títulos:
 
 1. `Purpose / Big Picture`
 2. `Progress`
@@ -63,7 +63,7 @@ Todo arquivo em `execplans/*.md` deve conter as seções abaixo, nesta ordem, co
 - `Outcomes & Retrospective`: resultado final, pendências e lições.
 - `Context and Orientation`: contexto local de código, caminhos e pontos de entrada.
 - `Context and Orientation`: deve incluir, quando aplicável, spec de origem, RF/CA subset e assumptions/defaults adotados.
-- `Plan of Work`: marcos (milestones) narrativos com entregaveis claros.
+- `Plan of Work`: marcos (milestones) narrativos com entregáveis claros.
 - `Concrete Steps`: passos concretos com comandos e diretório.
 - `Validation and Acceptance`: como validar e o que comprova aceitação.
 - `Validation and Acceptance`: deve conter matriz objetiva relacionando cada closure criterion/requisito relevante a uma evidência observável.
@@ -92,15 +92,15 @@ Use este template como base para novos planos em `execplans/*.md`:
 - Fora de escopo:
 
 ## Progress
-- [ ] YYYY-MM-DD HH:MMZ - Planejamento inicial concluido.
-- [ ] YYYY-MM-DD HH:MMZ - Implementacao concluida.
-- [ ] YYYY-MM-DD HH:MMZ - Validacao final concluida.
+- [ ] YYYY-MM-DD HH:MMZ - Planejamento inicial concluído.
+- [ ] YYYY-MM-DD HH:MMZ - Implementação concluída.
+- [ ] YYYY-MM-DD HH:MMZ - Validação final concluída.
 
 ## Surprises & Discoveries
 - YYYY-MM-DD HH:MMZ - <descoberta>
 
 ## Decision Log
-- YYYY-MM-DD - Decisao: <decisao>
+- YYYY-MM-DD - Decisão: <decisão>
   - Motivo:
   - Impacto:
 
@@ -108,7 +108,7 @@ Use este template como base para novos planos em `execplans/*.md`:
 - Status final:
 - O que funcionou:
 - O que ficou pendente:
-- Proximos passos:
+- Próximos passos:
 
 ## Context and Orientation
 - Arquivos principais:
@@ -116,16 +116,16 @@ Use este template como base para novos planos em `execplans/*.md`:
 - RFs/CAs cobertos por este plano:
 - Assumptions / defaults adotados:
 - Fluxo atual:
-- Restricoes tecnicas:
+- Restrições técnicas:
 
 ## Plan of Work
 - Milestone 1:
-  - Entregavel:
-  - Evidencia de conclusao:
+  - Entregável:
+  - Evidência de conclusão:
   - Arquivos esperados:
 - Milestone 2:
-  - Entregavel:
-  - Evidencia de conclusao:
+  - Entregável:
+  - Evidência de conclusão:
   - Arquivos esperados:
 
 ## Concrete Steps
@@ -134,16 +134,16 @@ Use este template como base para novos planos em `execplans/*.md`:
 3. (workdir: `<path>`) Rodar `<comando>` para validar.
 
 ## Validation and Acceptance
-- Matriz requisito -> validacao:
+- Matriz requisito -> validação:
   - Requisito:
-  - Evidencia observavel:
+  - Evidência observável:
 - Comando: `<comando>`
-  - Esperado: `<resultado observavel>`
+  - Esperado: `<resultado observável>`
 - Comando: `<comando>`
-  - Esperado: `<resultado observavel>`
+  - Esperado: `<resultado observável>`
 
 ## Idempotence and Recovery
-- Idempotencia:
+- Idempotência:
 - Riscos:
 - Recovery / Rollback:
 
@@ -160,10 +160,10 @@ Use este template como base para novos planos em `execplans/*.md`:
 
 ## Checklist de qualidade do plano
 Antes de aprovar execução, confirme:
-- O plano esta auto-contido e sem dependências implicitas.
-- Há critérios de aceitacao observaveis para cada mudança relevante.
+- O plano está autocontido e sem dependências implícitas.
+- Há critérios de aceitação observáveis para cada mudança relevante.
 - Todos os comandos tem diretório explícito quando necessário.
-- Escopo e fora de escopo estao claros.
+- Escopo e fora de escopo estão claros.
 - Há milestones narrativos e progresso operacional separados.
 - Há estratégia de idempotencia e recuperação para passos arriscados.
 - Interfaces/dependências impactadas foram mapeadas.

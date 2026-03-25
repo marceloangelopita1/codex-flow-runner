@@ -27,10 +27,10 @@ Exemplos de gatilho:
 Exemplo curto de prompt inicial:
 
 ```text
-Vamos seguir o fluxo profundo no estilo /discover_spec deste repositorio.
+Vamos seguir o fluxo profundo no estilo /discover_spec deste repositório.
 Quero uma entrevista detalhada para criar uma spec.
-Minha ideia inicial e: [IDEIA]
-Nao implemente ainda.
+Minha ideia inicial é: [IDEIA]
+Não implemente ainda.
 ```
 
 ## Contrato operacional

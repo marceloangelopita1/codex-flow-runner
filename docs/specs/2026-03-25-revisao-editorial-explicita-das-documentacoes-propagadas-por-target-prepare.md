@@ -2,17 +2,17 @@
 
 ## Metadata
 - Spec ID: 2026-03-25-revisao-editorial-explicita-das-documentacoes-propagadas-por-target-prepare
-- Status: approved
+- Status: partially_attended
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-03-25 16:27Z
-- Last reviewed at (UTC): 2026-03-25 16:56Z
+- Last reviewed at (UTC): 2026-03-25 17:27Z
 - Source: operational-gap
 - Related tickets:
-  - tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
+  - tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
   - tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md
 - Related execplans:
-  - nenhum
+  - execplans/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
 - Related commits:
   - chore(specs): triage 2026-03-25-revisao-editorial-explicita-das-documentacoes-propagadas-por-target-prepare.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
@@ -75,11 +75,11 @@
 - Expandir esta spec para uma reforma geral de estilo editorial em prompts, testes, logs ou mensagens de runtime fora do fluxo `target_prepare`.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - Existe inventário explícito e verificável das superfícies documentais que o `/target_prepare` propaga hoje, cobrindo `copy-exact`, blocos gerenciados e textos humanos gerados pelo runner.
-- [ ] CA-02 - `EXTERNAL_PROMPTS.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`, `docs/specs/README.md`, `docs/specs/templates/spec-template.md`, `docs/workflows/discover-spec.md` e `docs/workflows/target-project-compatibility-contract.md` são revisados no repositório base com português correto e acentuação adequada, sem alterar seus contratos operacionais.
-- [ ] CA-03 - `docs/workflows/target-prepare-managed-agents-section.md` e `docs/workflows/target-prepare-managed-readme-section.md` passam a gerar blocos gerenciados editorialmente corretos para `AGENTS.md` e `README.md` dos projetos-alvo.
+- [x] CA-01 - Existe inventário explícito e verificável das superfícies documentais que o `/target_prepare` propaga hoje, cobrindo `copy-exact`, blocos gerenciados e textos humanos gerados pelo runner.
+- [x] CA-02 - `EXTERNAL_PROMPTS.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`, `docs/specs/README.md`, `docs/specs/templates/spec-template.md`, `docs/workflows/discover-spec.md` e `docs/workflows/target-project-compatibility-contract.md` são revisados no repositório base com português correto e acentuação adequada, sem alterar seus contratos operacionais.
+- [x] CA-03 - `docs/workflows/target-prepare-managed-agents-section.md` e `docs/workflows/target-prepare-managed-readme-section.md` passam a gerar blocos gerenciados editorialmente corretos para `AGENTS.md` e `README.md` dos projetos-alvo.
 - [ ] CA-04 - O texto de `docs/workflows/target-prepare-report.md`, gerado por `src/core/target-prepare.ts`, é revisado para português correto sem quebrar o contrato observável do fluxo nem a convergência do pós-check.
-- [ ] CA-05 - `docs/workflows/target-prepare-manifest.json` preserva schema, nomes de chave e versões atuais após a mudança.
+- [x] CA-05 - `docs/workflows/target-prepare-manifest.json` preserva schema, nomes de chave e versões atuais após a mudança.
 - [ ] CA-06 - Um repositório alvo de smoke preparado com `/target_prepare` passa a receber as superfícies documentais revisadas, sem repropagar os erros de português observados nesta abertura.
 
 ## Gate de validacao dos tickets derivados
@@ -106,14 +106,14 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md [fonte=source-spec]
+  - tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md [fonte=source-spec]
   - tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
   - Resumo: O pacote cobre as pendências de `copy-exact` e do relatório humano, mas ainda não herda nem torna observáveis as validações manuais da spec para os blocos gerenciados propagados em `AGENTS.md` e `README.md`; por isso o backlog derivado permanece incompleto para o aceite da spec.
   - Thread: 019d25e0-7813-7040-8358-f1876a64ce84
-  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10, spec-inheritance-gap|tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10
+  - Fingerprints abertos: closure-criteria-gap|tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10, spec-inheritance-gap|tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md&tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md|ca-03&ca-06&rf-03&rf-10
   - Reducao real de gaps vs. ciclo anterior: n/a
   - Correcoes deste ciclo: 0
 - Ciclo 1 [revalidation]: GO (high)
@@ -130,7 +130,7 @@
 
 #### Correcoes aplicadas
 - O ticket das fontes `copy-exact` passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final.
-  - Artefatos afetados: tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
+  - Artefatos afetados: tickets/closed/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md
   - Gaps relacionados: spec-inheritance-gap, closure-criteria-gap
   - Resultado: applied
 - O ticket do relatório humano passou a herdar explicitamente as validações manuais de `AGENTS.md` e `README.md` ligadas a `RF-03`/`CA-03`, com rastreabilidade para as fontes gerenciadas, e seus `Closure criteria` de `RF-10`/`CA-06` agora tornam essas checagens observáveis no smoke final.
@@ -170,33 +170,32 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - revisar diff textual completo de cada superfície propagação-crítica para confirmar correção editorial sem drift semântico;
-  - validar o texto final gerado para `docs/workflows/target-prepare-report.md` após a implementação;
-  - rodar smoke de `/target_prepare` em repositório descartável e revisar manualmente os arquivos propagados no alvo.
+  - validar o texto final gerado para `docs/workflows/target-prepare-report.md` após a implementação do ticket irmão;
+  - rerodar o smoke final da spec após a revisão do report humano para revalidar o pacote completo com a última superfície pendente.
 - Validacoes manuais pendentes:
-  - confirmar que o bloco gerenciado de `AGENTS.md` permanece legível e não conflita com conteúdo preexistente relevante do projeto alvo;
-  - confirmar que o bloco gerenciado de `README.md` continua claro para operadores humanos em um projeto externo real;
-  - revisar se a correção editorial do repositório base elimina a principal classe de erro relatada: perda de acentuação ao propagar documentação.
+  - revisar manualmente o wording final de `docs/workflows/target-prepare-report.md` no repositório alvo quando o ticket irmão for executado;
+  - confirmar, no rerun final de smoke, que a última classe de erro remanescente deixou de ser propagada pelo report humano.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: partially_attended
 - Itens atendidos:
   - o problema operacional foi identificado e delimitado;
   - o inventário atual das superfícies propagadas por `/target_prepare` foi revisado a partir do código-fonte;
   - a distinção entre superfícies `copy-exact`, blocos gerenciados e artefatos gerados pelo runner foi explicitada;
-  - os guardrails para preservar contrato e schema durante a revisão editorial foram definidos.
+  - os guardrails para preservar contrato e schema durante a revisão editorial foram definidos;
   - as superfícies de blocos gerenciados `docs/workflows/target-prepare-managed-agents-section.md` e `docs/workflows/target-prepare-managed-readme-section.md` ja estao editorialmente coerentes com `DOCUMENTATION.md`, e o merge gerenciado continua coberto por `src/core/target-prepare.test.ts`;
-  - a estabilidade contratual do manifesto `docs/workflows/target-prepare-manifest.json` ja esta protegida por `src/types/target-prepare.ts` e por asserts em `src/core/target-prepare.test.ts`.
+  - a estabilidade contratual do manifesto `docs/workflows/target-prepare-manifest.json` ja esta protegida por `src/types/target-prepare.ts` e por asserts em `src/core/target-prepare.test.ts`;
+  - o pacote `copy-exact` foi revisado no repositório base: sete superfícies receberam correção editorial e `docs/workflows/target-project-compatibility-contract.md` foi revalidado sem necessidade de diff;
+  - o smoke em `/home/mapita/projetos/target-prepare-copy-exact-smoke` confirmou `cmp` sem mismatch nas oito fontes `copy-exact` e legibilidade dos blocos gerenciados em `AGENTS.md` e `README.md`.
 - Pendencias em aberto:
-  - executar o ticket `tickets/open/2026-03-25-falta-revisao-editorial-rastreavel-nas-fontes-copy-exact-do-target-prepare.md` para revisar as fontes `copy-exact` ainda inconsistentes e registrar explicitamente a cobertura do inventario propagado;
   - executar o ticket `tickets/open/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md` para revisar o texto gerado por `renderReport()` sem alterar o contrato do manifesto;
-  - validar a propagacao corrigida em smoke de `/target_prepare`, com revisao manual dos diffs e do relatorio humano gerado no alvo.
+  - rerodar o smoke final da spec depois do ticket irmão para validar o report humano corrigido no alvo.
 - Evidencias de validacao:
   - leitura de `src/types/target-prepare.ts` para enumerar `TARGET_PREPARE_EXACT_COPY_SOURCES` e `TARGET_PREPARE_MERGED_FILE_SOURCES`;
   - leitura de `src/core/target-prepare.ts` para identificar a geração textual de `docs/workflows/target-prepare-report.md` e o contrato do manifesto;
-  - releitura das documentações canônicas atualmente propagadas pelo fluxo para confirmar a presença de inconsistências editoriais e de acentuação;
-  - validacao de que `src/core/target-prepare.test.ts` ja cobre merge gerenciado e estabilidade contratual do manifesto;
-  - abertura dos tickets derivados desta triagem em `tickets/open/` para separar o lote documental `copy-exact` do ajuste de codigo/teste do relatorio humano.
+  - `git diff --word-diff` focado em `EXTERNAL_PROMPTS.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`, `docs/specs/README.md`, `docs/specs/templates/spec-template.md`, `docs/workflows/discover-spec.md` e `docs/workflows/target-project-compatibility-contract.md`, confirmando correções editoriais com preservação de contrato;
+  - validacao de que `src/core/target-prepare.test.ts` permaneceu verde na suite acionada por `npm test -- src/core/target-prepare.test.ts` (514 testes / 0 falhas);
+  - smoke end-to-end no repositório descartável `/home/mapita/projetos/target-prepare-copy-exact-smoke`, com commit `cff30685c9c56067108dc2e80789db245194e5ca`, `cmp` sem mismatch nas oito fontes `copy-exact` e revisão manual positiva dos blocos gerenciados em `AGENTS.md` e `README.md`.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -224,3 +223,5 @@
 - 2026-03-25 16:27Z - Versão inicial da spec criada a partir da revisão explícita das superfícies documentais propagadas pelo `/target_prepare`.
 - 2026-03-25 16:36Z - Triagem inicial concluida; inventario/manifesto/blocos gerenciados classificados contra o estado atual do repositorio e dois tickets derivados abertos para cobrir as pendencias `copy-exact` e `runner-generated` remanescentes.
 - 2026-03-25 16:56Z - Validacao final da triagem concluida; a spec permaneceu em `Status: approved` com `Spec treatment: pending`, com rastreabilidade mantida para os dois tickets abertos e sem gaps residuais no backlog derivado desta etapa.
+- 2026-03-25 17:25Z - Execucao do ticket `copy-exact` concluida sem fechamento do ticket: sete superfícies propagadas por copia exata foram corrigidas, `docs/workflows/target-project-compatibility-contract.md` foi revalidado sem diff, a suite de `target_prepare` permaneceu verde e um smoke em repo descartável confirmou a propagação literal do pacote revisado.
+- 2026-03-25 17:27Z - Fechamento do ticket `copy-exact` concluido em `GO`: o ticket foi movido para `tickets/closed/`, com evidencias objetivas de inventario preservado, diff restrito ao pacote documental, suite de `target_prepare` verde e smoke end-to-end sem mismatch nas oito fontes.

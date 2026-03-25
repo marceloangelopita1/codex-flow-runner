@@ -107,12 +107,12 @@ Todo ticket deve incluir:
 - Comportamento observado vs esperado.
 - Rastreabilidade de origem quando aplicável:
   - stage/origem da analise quando o ticket nascer de retrospectiva de workflow;
-  - projeto ativo e repositorio alvo quando o ticket cruzar repositorios;
+  - projeto ativo e repositório alvo quando o ticket cruzar repositórios;
   - spec de origem;
   - caminho humano qualificado por projeto para a spec de origem quando o display diferir da chave canonica;
-  - caminho canonico usado para dedupe/reuse quando isso for relevante para automacao;
+  - caminho canônico usado para dedupe/reuse quando isso for relevante para automação;
   - IDs de RF/CA de origem;
-  - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
+  - RNFs e restrições técnicas/documentais relevantes herdados da spec, quando influenciarem implementação, aceite, documentação ou fechamento;
   - assumptions/defaults herdados que importam para a implementação;
   - validacoes pendentes ou manuais herdadas da spec, quando influenciarem cobertura ou aceite.
 - Passos de reprodução (quando possível).
@@ -120,14 +120,14 @@ Todo ticket deve incluir:
 - Avaliação de impacto (escopo + risco).
 - Critérios de fechamento observáveis.
 
-Nao force heranca literal de todo RNF ou restricao em todo ticket derivado. A barra minima e explicitar os itens da spec que realmente condicionam implementacao, aceite, documentacao ou fechamento do ticket em questao.
+Não force herança literal de todo RNF ou restrição em todo ticket derivado. A barra mínima é explicitar os itens da spec que realmente condicionam implementação, aceite, documentação ou fechamento do ticket em questão.
 
 Quando um ticket for criado a partir de retrospectiva de workflow (`spec-ticket-derivation-retrospective` ou `spec-workflow-retrospective`) ou de audit/review pós-implementação, inclua também:
 - causa-raiz provável do workflow (`spec`, `ticket`, `execplan`, `execution`, `validation`, `systemic-instruction`, `external/manual`);
 - por que essa classificação de causa é a menor explicação plausível;
 - se a remediação é local ou se deve atualizar uma instrução genérica do repositório.
 
-Não exija esses três campos extras para tickets criados durante derivação pré-implementação que nao sejam retrospectivas sistemicas, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
+Não exija esses três campos extras para tickets criados durante derivação pré-implementação que não sejam retrospectivas sistêmicas, como `spec-triage`, a menos que uma regra canônica do repositório seja atualizada explicitamente para ampliar esse contrato.
 
 `Proposed solution` é opcional por design.
 
