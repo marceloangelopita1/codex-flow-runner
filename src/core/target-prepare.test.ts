@@ -283,8 +283,14 @@ test("execute conclui target_prepare, versiona artefatos permitidos e preserva c
     );
 
     const report = await fs.readFile(path.join(project.path, TARGET_PREPARE_REPORT_PATH), "utf8");
-    assert.match(report, /Eligible for \/projects: yes/u);
-    assert.match(report, /Compatible with workflow complete: yes/u);
+    assert.match(report, /# Relatório do target_prepare/u);
+    assert.match(report, /## Resumo/u);
+    assert.match(report, /Elegível para \/projects: sim/u);
+    assert.match(report, /Compatível com workflow completo: sim/u);
+    assert.match(
+      report,
+      /Próxima ação recomendada: Selecionar o projeto por \/select_project prepared-project ou pelo menu \/projects\./u,
+    );
 
     const agentsContent = await fs.readFile(path.join(project.path, "AGENTS.md"), "utf8");
     const readmeContent = await fs.readFile(path.join(project.path, "README.md"), "utf8");

@@ -1,7 +1,7 @@
 # [TICKET] Relatorio humano do `/target_prepare` ainda sai com redacao inconsistente
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -10,7 +10,7 @@
 - Owner:
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md
 - Parent commit (optional):
 - Analysis stage (when applicable): spec-triage
 - Active project (when applicable): codex-flow-runner
@@ -36,6 +36,7 @@
   - INTERNAL_TICKETS.md
   - tickets/templates/internal-ticket-template.md
   - docs/workflows/codex-quality-gates.md
+  - execplans/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md
   - src/core/target-prepare.ts
   - src/core/target-prepare.test.ts
   - src/types/target-prepare.ts
@@ -104,10 +105,35 @@ O relatorio humano gerado por `renderReport()` deve sair em portugues correto e 
 
 ## Decision log
 - 2026-03-25 - Ticket aberto na triagem da spec como pacote separado porque a revisao do report entra em codigo e testes, com risco diferente do lote puramente documental das fontes `copy-exact`.
+- 2026-03-25 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e checklist de `docs/workflows/codex-quality-gates.md`; o resultado final ficou `GO` porque os tres closure criteria foram confirmados com evidencia objetiva e nao restou gap tecnico/funcional neste recorte.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-03-25 17:53Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: `execplans/2026-03-25-relatorio-humano-do-target-prepare-ainda-sai-com-redacao-inconsistente.md`
+  - Commit: mesmo changeset de fechamento versionado pelo runner.
+  - PR: N/A
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Resultado final do fechamento: `GO`
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion antes da decisao final.
+- Evidencia objetiva por closure criterion:
+  - `RF-04`, `RF-06`, `RF-07`, `CA-04`: `git diff -- src/core/target-prepare.ts src/core/target-prepare.test.ts` mostrou a revisao exclusiva do wording humano do report, preservando ordem de secoes e semantica operacional; `rg -n "Relatório do target_prepare|Resumo|Elegível para /projects: sim|Compatível com workflow completo: sim|Próxima ação recomendada|Snapshot do Git|Caminhos alterados|Superfícies gerenciadas|Resumo do Codex|Notas" src/core/target-prepare.ts src/core/target-prepare.test.ts` confirmou a convergencia do contrato textual em portugues nas superfices em escopo.
+  - `RF-05`, `CA-05`: `rg -n '^export const TARGET_PREPARE_(CONTRACT_VERSION|SCHEMA_VERSION|MANIFEST_PATH|REPORT_PATH) = ' src/types/target-prepare.ts` confirmou a preservacao de `TARGET_PREPARE_CONTRACT_VERSION="1.0"`, `TARGET_PREPARE_SCHEMA_VERSION="1.0"`, `docs/workflows/target-prepare-manifest.json` e `docs/workflows/target-prepare-report.md`, sem diff em `src/types/target-prepare.ts`.
+  - `RF-10`, `CA-06`, com validacoes manuais herdadas de `RF-03` e `CA-03`: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/target-prepare.test.ts` passou com `4/4` testes verdes; o smoke no repo `/home/mapita/projetos/target-prepare-report-smoke` confirmou o report final em portugues, ausencia de matches para o wording legado via `rg -n "Target Prepare Report|Eligible for /projects: yes|Compatible with workflow complete: yes" /home/mapita/projetos/target-prepare-report-smoke/docs/workflows/target-prepare-report.md`, `git -C /home/mapita/projetos/target-prepare-report-smoke status --porcelain` limpo e leitura manual positiva de `AGENTS.md` e `README.md` com markers preservados e sem conflito material com o conteudo preexistente relevante.
+- Entrega tecnica concluida:
+  - `src/core/target-prepare.ts` agora gera o report humano do `target_prepare` com headings, bullets e notas em portugues correto e acentuado.
+  - `src/core/target-prepare.test.ts` passou a blindar explicitamente o novo contrato textual do report sem relaxar a cobertura sobre manifesto, superficies gerenciadas e contexto preexistente.
+  - a spec de origem foi atualizada com `CA-04` e `CA-06` atendidos e com as evidencias do smoke executor-driven no alvo.
+- Validacoes executadas:
+  - `git diff -- src/core/target-prepare.ts src/core/target-prepare.test.ts docs/specs/2026-03-25-revisao-editorial-explicita-das-documentacoes-propagadas-por-target-prepare.md`
+  - `rg -n "Relatório do target_prepare|Resumo|Elegível para /projects: sim|Compatível com workflow completo: sim|Próxima ação recomendada|Snapshot do Git|Caminhos alterados|Superfícies gerenciadas|Resumo do Codex|Notas" src/core/target-prepare.ts src/core/target-prepare.test.ts`
+  - `rg -n '^export const TARGET_PREPARE_(CONTRACT_VERSION|SCHEMA_VERSION|MANIFEST_PATH|REPORT_PATH) = ' src/types/target-prepare.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/target-prepare.test.ts`
+  - `sed -n '1,220p' /home/mapita/projetos/target-prepare-report-smoke/docs/workflows/target-prepare-report.md`
+  - `sed -n '1,220p' /home/mapita/projetos/target-prepare-report-smoke/AGENTS.md`
+  - `sed -n '1,220p' /home/mapita/projetos/target-prepare-report-smoke/README.md`
+  - `rg -n "Target Prepare Report|Eligible for /projects: yes|Compatible with workflow complete: yes" /home/mapita/projetos/target-prepare-report-smoke/docs/workflows/target-prepare-report.md`
+  - `git -C /home/mapita/projetos/target-prepare-report-smoke status --porcelain`
+- Validacao manual externa pendente: nao.
