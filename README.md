@@ -171,7 +171,7 @@ Quando um report de `target_checkup` fica elegível para derivação, o runner t
 - o write-back atualiza o `.json` e o `.md` do report com `derivation_status`, `derived_at_utc`, resultado por gap e caminhos dos tickets afetados no mesmo changeset das mutações reais;
 - rerodar o mesmo `report-path` com o mesmo mapeamento retorna `no-op`, sem ticket duplicado e sem commit vazio.
 
-Os três fluxos target compartilham o mesmo slot operacional dos fluxos pesados do runner. Durante uma execução target ativa, `/status` e `/projects` seguem disponíveis, enquanto `/select_project`, `/discover_spec`, `/plan_spec`, `/run_specs`, `/run_all` e `/codex_chat` ficam bloqueados com mensagem explícita. Cada fluxo publica milestones curtos no Telegram e no `/status`, além de registrar traces locais em `.codex-flow-runner/flow-traces/target-flows/`.
+Os três fluxos target agora usam o mesmo modelo de concorrência por projeto dos demais fluxos pesados do runner: projetos diferentes podem executar `/target_prepare`, `/target_checkup`, `/target_derive_gaps`, `/run_all`, `/run_specs`, `/run_ticket`, `/discover_spec`, `/plan_spec` e `/codex_chat` ao mesmo tempo quando houver capacidade global, mas cada projeto continua aceitando no máximo um slot pesado por vez. Em caso de múltiplos fluxos target simultâneos, `/status` lista todos os slots ativos e os comandos `*_status` e `*_cancel` passam a se resolver pelo projeto ativo atual; se houver ambiguidade fora desse escopo, o bot orienta selecionar o projeto correto antes de continuar. Cada fluxo publica milestones curtos no Telegram e no `/status`, além de registrar traces locais em `.codex-flow-runner/flow-traces/target-flows/`.
 
 ## Como uma spec vira implementação
 
@@ -1218,14 +1218,14 @@ npm run dev
 
 - `/start` -> mostra descrição do bot e comandos disponíveis
 - `/target_prepare [projeto]` -> prepara o projeto ativo ou um diretório irmão Git explícito para o workflow completo sem trocar o projeto ativo
-- `/target_prepare_status` -> mostra status detalhado do `/target_prepare` ativo
-- `/target_prepare_cancel` -> solicita cancelamento cooperativo do `/target_prepare` antes da fronteira de versionamento
+- `/target_prepare_status` -> mostra status detalhado do `/target_prepare` resolvido para o projeto ativo atual
+- `/target_prepare_cancel` -> solicita cancelamento cooperativo do `/target_prepare` resolvido para o projeto ativo atual antes da fronteira de versionamento
 - `/target_checkup [projeto]` -> audita readiness do projeto ativo ou de um diretório irmão explícito sem trocar o projeto ativo
-- `/target_checkup_status` -> mostra status detalhado do `/target_checkup` ativo
-- `/target_checkup_cancel` -> solicita cancelamento cooperativo do `/target_checkup` antes da fronteira de versionamento
+- `/target_checkup_status` -> mostra status detalhado do `/target_checkup` resolvido para o projeto ativo atual
+- `/target_checkup_cancel` -> solicita cancelamento cooperativo do `/target_checkup` resolvido para o projeto ativo atual antes da fronteira de versionamento
 - `/target_derive_gaps [projeto] <report-path>` -> deriva gaps readiness de um report canônico elegível a partir do projeto ativo ou de um projeto explícito, sem trocar o projeto ativo
-- `/target_derive_gaps_status` -> mostra status detalhado do `/target_derive_gaps` ativo
-- `/target_derive_gaps_cancel` -> solicita cancelamento cooperativo do `/target_derive_gaps` antes da fronteira de versionamento
+- `/target_derive_gaps_status` -> mostra status detalhado do `/target_derive_gaps` resolvido para o projeto ativo atual
+- `/target_derive_gaps_cancel` -> solicita cancelamento cooperativo do `/target_derive_gaps` resolvido para o projeto ativo atual antes da fronteira de versionamento
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
 - `/run-all` -> alias legado compatível para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo

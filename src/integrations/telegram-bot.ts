@@ -6580,6 +6580,16 @@ export class TelegramController {
 
   private buildTargetFlowStatusReply(flow: TargetFlowKind, state: RunnerState): string {
     if (!state.targetFlow || state.targetFlow.flow !== flow) {
+      const activeFlowCount = state.activeSlots.filter(
+        (slot) => slot.kind === this.renderTargetFlowSlotKind(flow),
+      ).length;
+      if (activeFlowCount > 0) {
+        return [
+          `ℹ️ Existem ${activeFlowCount} execucoes ${this.renderTargetFlowCommand(flow)} ativas em outros projetos.`,
+          "Selecione o projeto correspondente e tente novamente, ou use /status para ver a lista completa.",
+        ].join(" ");
+      }
+
       return `ℹ️ Nenhuma execucao ${this.renderTargetFlowCommand(flow)} ativa no momento.`;
     }
 
@@ -7653,6 +7663,7 @@ export class TelegramController {
     state: RunnerState,
     codexPreferencesByProject: Map<string, CodexResolvedProjectPreferences | Error> = new Map(),
   ): string {
+    const activeTargetFlowCount = state.activeSlots.filter((slot) => Boolean(slot.targetFlowCommand)).length;
     const lines = [
       `Runner: ${state.isRunning ? "ativo" : "inativo"}`,
       `Pausado: ${state.isPaused ? "sim" : "não"}`,
@@ -7662,7 +7673,7 @@ export class TelegramController {
       `Projeto ativo: ${state.activeProject?.name ?? "nenhum"}`,
       `Caminho do projeto ativo: ${state.activeProject?.path ?? "(indefinido)"}`,
       `Runners ativos (global): ${state.capacity.used}/${state.capacity.limit}`,
-      `Fluxo target ativo: ${state.targetFlow?.command ?? "nenhum"}`,
+      `Fluxos target ativos: ${activeTargetFlowCount === 0 ? "nenhum" : activeTargetFlowCount}`,
       `Sessão /discover_spec: ${state.discoverSpecSession ? "ativa" : "inativa"}`,
       `Sessão /plan_spec: ${state.planSpecSession ? "ativa" : "inativa"}`,
       `Sessão /codex_chat: ${state.codexChatSession ? "ativa" : "inativa"}`,
@@ -8104,6 +8115,21 @@ export class TelegramController {
     }
 
     return "/target_derive_gaps";
+  }
+
+  private renderTargetFlowSlotKind(flow: TargetFlowKind): Extract<
+    RunnerSlotKind,
+    "target-prepare" | "target-checkup" | "target-derive"
+  > {
+    if (flow === "target-prepare") {
+      return "target-prepare";
+    }
+
+    if (flow === "target-checkup") {
+      return "target-checkup";
+    }
+
+    return "target-derive";
   }
 
   private renderRunnerSlotCommand(kind: RunnerSlotKind): string {

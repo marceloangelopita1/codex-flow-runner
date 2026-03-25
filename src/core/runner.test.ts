@@ -9017,7 +9017,7 @@ test("requestTargetDerive sem projeto explicito falha com bloqueio explicito qua
   assert.equal(result.reason, "active-project-unavailable");
   assert.match(result.message, /nao existe projeto ativo selecionado/u);
 });
-test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e bloqueia comandos concorrentes", async () => {
+test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e permite trocar o projeto ativo", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({
     activeProject: activeProjectA,
@@ -9104,33 +9104,12 @@ test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e bl
   assert.equal(runner.getState().activeSlots[0]?.targetFlowCommand, "/target_prepare");
   assert.equal(runner.getState().phase, "target-prepare-preflight");
 
-  const runAllBlocked = await runner.requestRunAll();
-  assert.equal(runAllBlocked.status, "blocked");
-  assert.equal(runAllBlocked.reason, "project-slot-busy");
-
-  const runSpecsBlocked = await runner.requestRunSpecs(
-    "2026-02-19-approved-spec-triage-run-specs.md",
-  );
-  assert.equal(runSpecsBlocked.status, "blocked");
-  assert.equal(runSpecsBlocked.reason, "project-slot-busy");
-
-  const discoverBlocked = await runner.startDiscoverSpecSession("42");
-  assert.equal(discoverBlocked.status, "blocked");
-  assert.equal(discoverBlocked.reason, "global-free-text-busy");
-
-  const planBlocked = await runner.startPlanSpecSession("42");
-  assert.equal(planBlocked.status, "blocked");
-  assert.equal(planBlocked.reason, "global-free-text-busy");
-
-  const chatBlocked = await runner.startCodexChatSession("42");
-  assert.equal(chatBlocked.status, "blocked");
-  assert.equal(chatBlocked.reason, "global-free-text-busy");
-
   const syncResult = await runner.syncActiveProject({
     name: "gamma-project",
     path: "/home/mapita/projetos/gamma-project",
   });
-  assert.deepEqual(syncResult, { status: "blocked-target-flow" });
+  assert.deepEqual(syncResult, { status: "updated" });
+  assert.equal(runner.getState().activeProject?.name, "gamma-project");
 
   release.resolve();
   await waitForTargetFlowToClose(runner, 1000);
@@ -9145,6 +9124,236 @@ test("requestTargetPrepare inicia lifecycle assincrono, expoe estado target e bl
   assert.equal(flowSummaries.length, 1);
   assert.equal(flowSummaries[0]?.flow, "target-prepare");
   assert.equal(flowSummaries[0]?.outcome, "success");
+});
+
+test("requestRunAll pode coexistir com /target_prepare em outro projeto", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(undefined, true, false, 20),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:30:00.000Z",
+          });
+          await release.promise;
+          return {
+            status: "cancelled" as const,
+            summary: {
+              targetProject,
+              cancelledAtMilestone: "preflight" as const,
+              changedPaths: [],
+              nextAction: "Reexecute quando quiser retomar o preparo.",
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const targetResult = await runner.requestTargetPrepare("beta-target");
+  const runAllResult = await runner.requestRunAll();
+
+  assert.deepEqual(targetResult, {
+    status: "started",
+    message: "Execucao /target_prepare iniciada para beta-target.",
+  });
+  assert.deepEqual(runAllResult, { status: "started" });
+  assert.equal(runner.getState().activeSlots.length, 2);
+  assert.match(
+    runner.getState().activeSlots.map((slot) => `${slot.project.name}:${slot.kind}`).join(","),
+    /beta-target:target-prepare/u,
+  );
+  assert.match(
+    runner.getState().activeSlots.map((slot) => `${slot.project.name}:${slot.kind}`).join(","),
+    /alpha-project:run-all/u,
+  );
+
+  release.resolve();
+  await waitForRunnerToStop(runner);
+});
+
+test("requestRunAll bloqueia o mesmo projeto quando /target_prepare ocupa o slot", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:31:00.000Z",
+          });
+          await release.promise;
+          return {
+            status: "cancelled" as const,
+            summary: {
+              targetProject,
+              cancelledAtMilestone: "preflight" as const,
+              changedPaths: [],
+              nextAction: "Reexecute quando quiser retomar o preparo.",
+            },
+          };
+        },
+      },
+    },
+  });
+
+  await runner.requestTargetPrepare("alpha-project");
+  const runAllResult = await runner.requestRunAll();
+  const planSpecResult = await runner.startPlanSpecSession("42");
+
+  assert.equal(runAllResult.status, "blocked");
+  assert.equal(runAllResult.reason, "project-slot-busy");
+  assert.match(runAllResult.message, /slot do projeto alpha-project ja ocupado por \/target_prepare/u);
+  assert.equal(planSpecResult.status, "blocked");
+  if (planSpecResult.status === "blocked") {
+    assert.equal(planSpecResult.reason, "project-slot-busy");
+    assert.match(planSpecResult.message, /slot do projeto alpha-project ja ocupado por \/target_prepare/u);
+  }
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+});
+
+test("requestTargetPrepare permite fluxos target em projetos diferentes e exige escopo para cancelar", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const releases = new Map<string, ReturnType<typeof createDeferred<void>>>();
+  const getRelease = (projectName: string) => {
+    let release = releases.get(projectName);
+    if (!release) {
+      release = createDeferred<void>();
+      releases.set(projectName, release);
+    }
+    return release;
+  };
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetPrepareExecutor: {
+        execute: async (projectName, hooks) => {
+          const targetProject = {
+            name: projectName,
+            path: `/home/mapita/projetos/${projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-prepare",
+            command: "/target_prepare",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${projectName}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-03-24T23:32:00.000Z",
+          });
+          await getRelease(projectName).promise;
+          if (hooks?.isCancellationRequested?.()) {
+            return {
+              status: "cancelled" as const,
+              summary: {
+                targetProject,
+                cancelledAtMilestone: "preflight" as const,
+                changedPaths: [],
+                nextAction: "Reexecute o preparo quando quiser continuar.",
+              },
+            };
+          }
+
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              eligibleForProjects: true,
+              compatibleWithWorkflowComplete: true,
+              nextAction: "Selecionar o projeto pelo menu /projects.",
+              manifestPath: "docs/workflows/target-prepare-manifest.json",
+              reportPath: "docs/workflows/target-prepare-report.md",
+              changedPaths: [
+                "docs/workflows/target-prepare-manifest.json",
+                "docs/workflows/target-prepare-report.md",
+              ],
+              versioning: {
+                status: "committed-and-pushed" as const,
+                commitHash: `prepare-${projectName}`,
+                upstream: "origin/main",
+                commitPushId: `prepare-${projectName}@origin/main`,
+              },
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const firstStart = await runner.requestTargetPrepare("alpha-project");
+  const secondStart = await runner.requestTargetPrepare("beta-project");
+
+  assert.deepEqual(firstStart, {
+    status: "started",
+    message: "Execucao /target_prepare iniciada para alpha-project.",
+  });
+  assert.deepEqual(secondStart, {
+    status: "started",
+    message: "Execucao /target_prepare iniciada para beta-project.",
+  });
+  assert.equal(
+    runner.getState().activeSlots.filter((slot) => slot.kind === "target-prepare").length,
+    2,
+  );
+
+  runner.syncActiveProject({
+    name: "gamma-project",
+    path: "/home/mapita/projetos/gamma-project",
+  });
+  const ambiguousCancel = await runner.cancelTargetPrepare();
+  assert.equal(ambiguousCancel.status, "ambiguous");
+  assert.match(ambiguousCancel.message, /Existem 2 execucoes \/target_prepare ativas/u);
+
+  runner.syncActiveProject(activeProjectA);
+  const scopedCancel = await runner.cancelTargetPrepare();
+  assert.equal(scopedCancel.status, "accepted");
+
+  getRelease("alpha-project").resolve();
+  getRelease("beta-project").resolve();
+  await waitForTargetFlowToClose(runner, 1000);
 });
 
 test("cancelTargetPrepare aceita cancelamento antes da fronteira e encerra o fluxo como cancelled", async () => {

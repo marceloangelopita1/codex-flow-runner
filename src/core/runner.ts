@@ -343,7 +343,17 @@ interface TargetFlowTraceMilestoneRecord {
   recordedAtUtc: string;
 }
 
+interface PendingTargetFlowReservation {
+  slotKey: string;
+  flow: TargetFlowKind;
+  command: TargetFlowCommand;
+  projectName: string;
+  projectPath: string | null;
+  startedAt: Date;
+}
+
 interface ActiveTargetFlowExecution<Stage extends string = string> {
+  slotKey: string;
   flow: TargetFlowKind;
   command: TargetFlowCommand;
   targetProject: ProjectRef;
@@ -737,6 +747,10 @@ export type TargetFlowCancelResult =
   | {
       status: "inactive";
       message: string;
+    }
+  | {
+      status: "ambiguous";
+      message: string;
     };
 
 type RunSlotPreflightSource = "run-all" | "run-specs" | "run-ticket";
@@ -917,7 +931,8 @@ export class TicketRunner {
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
-  private activeTargetFlow: ActiveTargetFlowExecution | null = null;
+  private readonly activeTargetFlows = new Map<string, ActiveTargetFlowExecution>();
+  private readonly pendingTargetFlows = new Map<string, PendingTargetFlowReservation>();
   private nextDiscoverSpecSessionId = 1;
   private nextPlanSpecSessionId = 1;
   private nextCodexChatSessionId = 1;
@@ -1225,10 +1240,6 @@ export class TicketRunner {
 
     if (this.isPlanSpecSessionActive()) {
       return { status: "blocked-plan-spec" };
-    }
-
-    if (this.activeTargetFlow) {
-      return { status: "blocked-target-flow" };
     }
 
     this.state.activeProject = { ...project };
@@ -2840,7 +2851,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
+      activeTargetFlowsCount: this.activeTargetFlows.size,
     });
 
     if (this.isShuttingDown) {
@@ -2852,11 +2863,6 @@ export class TicketRunner {
         status: "failed",
         message: "Executor de /target_prepare nao configurado nesta instancia do runner.",
       };
-    }
-
-    const blocked = this.buildTargetFlowStartBlockedResult("/target_prepare");
-    if (blocked) {
-      return blocked;
     }
 
     const targetProjectResolution = this.resolveTargetProjectCommandInput(
@@ -2880,8 +2886,9 @@ export class TicketRunner {
   requestTargetCheckup = async (
     projectName?: string | null,
   ): Promise<TargetCheckupRequestResult> => {
+    const requestedProjectName = this.normalizeRequestedTargetProjectName(projectName);
     this.logger.info("Solicitacao de /target_checkup recebida", {
-      projectName: projectName ?? null,
+      requestedProjectName,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
       hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
@@ -2890,7 +2897,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
+      activeTargetFlowsCount: this.activeTargetFlows.size,
     });
 
     if (this.isShuttingDown) {
@@ -2904,12 +2911,22 @@ export class TicketRunner {
       };
     }
 
-    const blocked = this.buildTargetFlowStartBlockedResult("/target_checkup");
-    if (blocked) {
-      return blocked;
+    const targetProjectResolution = this.resolveTargetProjectCommandInput(
+      "/target_checkup",
+      requestedProjectName,
+    );
+    if (targetProjectResolution.status === "blocked") {
+      this.touch("error", targetProjectResolution.message);
+      this.logger.warn("Fluxo target bloqueado por projeto ativo ausente", {
+        command: "/target_checkup",
+        requestedProjectName,
+        activeProjectName: this.state.activeProject?.name ?? null,
+        activeProjectPath: this.state.activeProject?.path ?? null,
+      });
+      return targetProjectResolution;
     }
 
-    return this.startTargetCheckupFlow(projectName);
+    return this.startTargetCheckupFlow(targetProjectResolution);
   };
 
   requestTargetDerive = async (
@@ -2928,7 +2945,7 @@ export class TicketRunner {
       activeProjectName: this.state.activeProject?.name,
       activeProjectPath: this.state.activeProject?.path,
       activeSlotsCount: this.activeSlots.size,
-      activeTargetFlowCommand: this.activeTargetFlow?.command ?? null,
+      activeTargetFlowsCount: this.activeTargetFlows.size,
     });
 
     if (this.isShuttingDown) {
@@ -2940,11 +2957,6 @@ export class TicketRunner {
         status: "failed",
         message: "Executor de /target_derive_gaps nao configurado nesta instancia do runner.",
       };
-    }
-
-    const blocked = this.buildTargetFlowStartBlockedResult("/target_derive_gaps");
-    if (blocked) {
-      return blocked;
     }
 
     const targetProjectResolution = this.resolveTargetProjectCommandInput(
@@ -2975,55 +2987,26 @@ export class TicketRunner {
   cancelTargetDerive = async (): Promise<TargetFlowCancelResult> =>
     this.cancelTargetFlow("target-derive");
 
-  private buildTargetFlowStartBlockedResult(
-    command: TargetFlowCommand,
-  ): RunnerRequestBlockedResult | null {
-    if (this.activeTargetFlow) {
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message: [
-          `Nao e possivel iniciar ${command} enquanto ${this.activeTargetFlow.command} estiver em andamento para ${this.activeTargetFlow.targetProject.name}.`,
-          "Use /status ou o comando *_status correspondente para acompanhar a execucao atual.",
-        ].join(" "),
-        activeProjects: [{ ...this.activeTargetFlow.targetProject }],
-      };
-    }
-
-    if (this.activeSlots.size > 0) {
-      const activeProjects = this.getActiveProjects();
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message: `Nao e possivel iniciar ${command} enquanto houver fluxo pesado ativo nesta instancia.`,
-        activeProjects,
-      };
-    }
-
-    if (
-      this.isDiscoverSpecSessionActive() ||
-      this.isPlanSpecSessionActive() ||
-      this.isCodexChatSessionActive()
-    ) {
-      return {
-        status: "blocked",
-        reason: "global-free-text-busy",
-        message: `Nao e possivel iniciar ${command} enquanto houver sessao interativa global ativa.`,
-      };
-    }
-
-    return null;
-  }
-
   private async startTargetPrepareFlow(params: {
     requestedProjectName: string | null;
     effectiveProjectName: string;
     effectiveProjectPath: string | null;
   }): Promise<TargetPrepareRequestResult> {
     const startedAt = this.now();
+    const reservation = this.reserveTargetFlowProjectSlot({
+      command: "/target_prepare",
+      flow: "target-prepare",
+      projectName: params.effectiveProjectName,
+      projectPath: params.effectiveProjectPath,
+      startedAt,
+    });
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
     const outcome = await this.startTargetFlowRequest<TargetPrepareMilestone, TargetPrepareExecutionResult>({
       flow: "target-prepare",
       startedAt,
+      reservation: reservation.reservation,
       inputs: {
         requestedProjectName: params.requestedProjectName,
         effectiveProjectName: params.effectiveProjectName,
@@ -3048,15 +3031,32 @@ export class TicketRunner {
   }
 
   private async startTargetCheckupFlow(
-    projectName?: string | null,
+    params: {
+      requestedProjectName: string | null;
+      effectiveProjectName: string;
+      effectiveProjectPath: string | null;
+    },
   ): Promise<TargetCheckupRequestResult> {
     const startedAt = this.now();
     const activeProjectSnapshot = this.state.activeProject ? { ...this.state.activeProject } : null;
+    const reservation = this.reserveTargetFlowProjectSlot({
+      command: "/target_checkup",
+      flow: "target-checkup",
+      projectName: params.effectiveProjectName,
+      projectPath: params.effectiveProjectPath,
+      startedAt,
+    });
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
     const outcome = await this.startTargetFlowRequest<TargetCheckupMilestone, TargetCheckupExecutionResult>({
       flow: "target-checkup",
       startedAt,
+      reservation: reservation.reservation,
       inputs: {
-        projectName: projectName ?? null,
+        requestedProjectName: params.requestedProjectName,
+        effectiveProjectName: params.effectiveProjectName,
+        effectiveProjectPath: params.effectiveProjectPath,
         activeProjectName: activeProjectSnapshot?.name ?? null,
         activeProjectPath: activeProjectSnapshot?.path ?? null,
       },
@@ -3064,7 +3064,7 @@ export class TicketRunner {
         this.targetCheckupExecutor!.execute(
           {
             activeProject: activeProjectSnapshot,
-            projectName,
+            projectName: params.requestedProjectName,
           },
           hooks,
         ),
@@ -3093,9 +3093,20 @@ export class TicketRunner {
     reportPath: string,
   ): Promise<TargetDeriveRequestResult> {
     const startedAt = this.now();
+    const reservation = this.reserveTargetFlowProjectSlot({
+      command: "/target_derive_gaps",
+      flow: "target-derive",
+      projectName: params.effectiveProjectName,
+      projectPath: params.effectiveProjectPath,
+      startedAt,
+    });
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
     const outcome = await this.startTargetFlowRequest<TargetDeriveMilestone, TargetDeriveExecutionResult>({
       flow: "target-derive",
       startedAt,
+      reservation: reservation.reservation,
       inputs: {
         requestedProjectName: params.requestedProjectName,
         effectiveProjectName: params.effectiveProjectName,
@@ -3132,7 +3143,7 @@ export class TicketRunner {
   }
 
   private resolveTargetProjectCommandInput(
-    command: "/target_prepare" | "/target_derive_gaps",
+    command: "/target_prepare" | "/target_checkup" | "/target_derive_gaps",
     requestedProjectName: string | null,
   ):
     | {
@@ -3176,6 +3187,7 @@ export class TicketRunner {
   >(params: {
     flow: TargetFlowKind;
     startedAt: Date;
+    reservation: PendingTargetFlowReservation;
     inputs: Record<string, unknown>;
     execute:
       | ((hooks: TargetPrepareLifecycleHooks) => Promise<Result>)
@@ -3231,6 +3243,7 @@ export class TicketRunner {
         recordedAtUtc: string;
       }) => {
         activeExecution = await this.handleTargetFlowMilestone<Stage>({
+          slotKey: params.reservation.slotKey,
           flow: params.flow,
           startedAt: params.startedAt,
           inputs: params.inputs,
@@ -3274,6 +3287,7 @@ export class TicketRunner {
 
     const gateResult = await gate;
     if (gateResult.status === "terminal") {
+      this.releasePendingTargetFlowReservation(params.reservation.slotKey);
       return {
         kind: "terminal",
         result: gateResult.result,
@@ -3281,6 +3295,7 @@ export class TicketRunner {
     }
 
     if (!activeExecution) {
+      this.releasePendingTargetFlowReservation(params.reservation.slotKey);
       return {
         kind: "terminal",
         result: {
@@ -3298,6 +3313,7 @@ export class TicketRunner {
   }
 
   private async handleTargetFlowMilestone<Stage extends TargetFlowMilestone>(params: {
+    slotKey: string;
     flow: TargetFlowKind;
     startedAt: Date;
     inputs: Record<string, unknown>;
@@ -3314,10 +3330,11 @@ export class TicketRunner {
   }): Promise<ActiveTargetFlowExecution<Stage>> {
     const eventTimestamp = new Date(params.event.recordedAtUtc);
     const recordedAt = Number.isNaN(eventTimestamp.getTime()) ? this.now() : eventTimestamp;
-    let active = this.activeTargetFlow as ActiveTargetFlowExecution<Stage> | null;
+    let active = this.activeTargetFlows.get(params.slotKey) as ActiveTargetFlowExecution<Stage> | null;
 
     if (!active) {
       active = {
+        slotKey: params.slotKey,
         flow: params.flow,
         command: params.event.command,
         targetProject: { ...params.event.targetProject },
@@ -3335,7 +3352,8 @@ export class TicketRunner {
         traceMilestones: [],
         traceAiExchanges: [],
       };
-      this.activeTargetFlow = active;
+      this.pendingTargetFlows.delete(params.slotKey);
+      this.activeTargetFlows.set(params.slotKey, active);
     } else if (active.milestone !== params.event.milestone) {
       this.recordFlowStageCompletion(
         active.timing,
@@ -3380,27 +3398,36 @@ export class TicketRunner {
 
   private cancelTargetFlow(flow: TargetFlowKind): TargetFlowCancelResult {
     const command = targetFlowKindToCommand(flow);
-    if (!this.activeTargetFlow || this.activeTargetFlow.flow !== flow) {
+    const resolution = this.resolveTargetFlowForControl(flow);
+    if (resolution.status === "inactive") {
       return {
         status: "inactive",
         message: `Nenhuma execucao ${command} ativa no momento.`,
       };
     }
 
-    if (this.activeTargetFlow.versionBoundaryState === "after-versioning") {
+    if (resolution.status === "ambiguous") {
+      return {
+        status: "ambiguous",
+        message: resolution.message,
+      };
+    }
+
+    const activeTargetFlow = resolution.targetFlow;
+    if (activeTargetFlow.versionBoundaryState === "after-versioning") {
       return {
         status: "late",
         message: `${command} ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.`,
       };
     }
 
-    if (!this.activeTargetFlow.cancelRequestedAt) {
-      this.activeTargetFlow.cancelRequestedAt = this.now();
-      this.activeTargetFlow.updatedAt = this.now();
-      this.activeTargetFlow.lastMessage = `Cancelamento solicitado para ${command}.`;
+    if (!activeTargetFlow.cancelRequestedAt) {
+      activeTargetFlow.cancelRequestedAt = this.now();
+      activeTargetFlow.updatedAt = this.now();
+      activeTargetFlow.lastMessage = `Cancelamento solicitado para ${command}.`;
       this.syncStateFromSlots();
-      this.state.lastMessage = this.activeTargetFlow.lastMessage;
-      this.state.updatedAt = this.activeTargetFlow.updatedAt;
+      this.state.lastMessage = activeTargetFlow.lastMessage;
+      this.state.updatedAt = activeTargetFlow.updatedAt;
     }
 
     return {
@@ -3437,13 +3464,8 @@ export class TicketRunner {
     active: ActiveTargetFlowExecution,
     summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
   ): Promise<void> {
-    if (
-      this.activeTargetFlow &&
-      this.activeTargetFlow.command === active.command &&
-      this.activeTargetFlow.targetProject.path === active.targetProject.path
-    ) {
-      this.activeTargetFlow = null;
-    }
+    this.activeTargetFlows.delete(active.slotKey);
+    this.pendingTargetFlows.delete(active.slotKey);
 
     this.syncStateFromSlots();
     this.state.lastMessage = this.buildTargetFlowFinalMessage(summary);
@@ -3765,17 +3787,6 @@ export class TicketRunner {
     reason: "global-free-text-busy";
     message: string;
   } | null {
-    if (this.activeTargetFlow) {
-      return {
-        status: "blocked",
-        reason: "global-free-text-busy",
-        message: [
-          `Nao e possivel iniciar ${requestedCommand} enquanto ${this.activeTargetFlow.command} estiver em andamento.`,
-          "Acompanhe por /status ou pelo comando *_status correspondente e tente novamente depois.",
-        ].join(" "),
-      };
-    }
-
     const hasActiveDiscoverSpecSession = this.isDiscoverSpecSessionActive();
     const hasActivePlanSpecSession = this.isPlanSpecSessionActive();
     const hasActiveCodexChatSession = this.isCodexChatSessionActive();
@@ -5681,18 +5692,6 @@ export class TicketRunner {
 
     if (this.isShuttingDown) {
       return this.buildShutdownBlockedResult(command);
-    }
-
-    if (this.activeTargetFlow) {
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message: [
-          `Nao e possivel iniciar ${command} enquanto ${this.activeTargetFlow.command} estiver em andamento para ${this.activeTargetFlow.targetProject.name}.`,
-          "Acompanhe por /status ou pelo comando *_status correspondente e tente novamente quando o fluxo target encerrar.",
-        ].join(" "),
-        activeProjects: [{ ...this.activeTargetFlow.targetProject }],
-      };
     }
 
     let roundDependencies: RunnerRoundDependencies;
@@ -11652,20 +11651,35 @@ export class TicketRunner {
     kind: RunnerSlotKind,
   ): { status: "reserved"; slot: ActiveRunnerSlot } | RunnerRequestBlockedResult {
     const slotKey = this.buildSlotKey(roundDependencies.activeProject);
+    const requestedCommand = this.renderSlotCommand(kind);
     const existing = this.activeSlots.get(slotKey);
     if (existing) {
-      const requestedCommand = this.renderSlotCommand(kind);
       const existingCommand = this.renderSlotCommand(existing.kind);
-      return {
-        status: "blocked",
-        reason: "project-slot-busy",
-        message:
-          `Nao e possivel iniciar ${requestedCommand}: slot do projeto ${roundDependencies.activeProject.name} ` +
-          `ja ocupado por ${existingCommand}.`,
-      };
+      return this.buildProjectSlotBusyResult(
+        requestedCommand,
+        roundDependencies.activeProject.name,
+        existingCommand,
+      );
     }
 
-    if (this.activeSlots.size >= RUNNER_SLOT_LIMIT) {
+    const targetFlowOccupancy = this.findProjectOccupancy({
+      name: roundDependencies.activeProject.name,
+      path: roundDependencies.activeProject.path,
+    });
+    if (targetFlowOccupancy && targetFlowOccupancy.kind !== "runner-slot") {
+      return this.buildProjectSlotBusyResult(
+        requestedCommand,
+        targetFlowOccupancy.kind === "pending-target-flow"
+          ? targetFlowOccupancy.projectName
+          : targetFlowOccupancy.project.name,
+        targetFlowOccupancy.command,
+        targetFlowOccupancy.kind === "pending-target-flow"
+          ? undefined
+          : [{ ...targetFlowOccupancy.project }],
+      );
+    }
+
+    if (this.getUsedProjectSlotCount() >= RUNNER_SLOT_LIMIT) {
       const activeProjects = this.getActiveProjects();
       return {
         status: "blocked",
@@ -11792,16 +11806,261 @@ export class TicketRunner {
     return Array.from(this.activeSlots.values()).filter((slot) => this.isTicketSlotKind(slot.kind));
   }
 
+  private getActiveTargetFlows(): ActiveTargetFlowExecution[] {
+    return Array.from(this.activeTargetFlows.values()).sort(
+      (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
+    );
+  }
+
   private getActiveProjects(): ProjectRef[] {
     const projects = Array.from(this.activeSlots.values()).map((slot) => ({ ...slot.project }));
-    if (this.activeTargetFlow) {
-      projects.push({ ...this.activeTargetFlow.targetProject });
+    for (const activeTargetFlow of this.getActiveTargetFlows()) {
+      projects.push({ ...activeTargetFlow.targetProject });
     }
     return projects;
   }
 
   private buildSlotKey(project: ProjectRef): string {
     return `${project.name}::${project.path}`;
+  }
+
+  private buildTargetSlotKey(projectName: string): string {
+    return projectName;
+  }
+
+  private matchesProjectRef(
+    project: ProjectRef,
+    requestedProject: {
+      name: string;
+      path: string | null;
+    },
+  ): boolean {
+    return project.name === requestedProject.name;
+  }
+
+  private findTargetFlowForProject(requestedProject: {
+    name: string;
+    path: string | null;
+  }): ActiveTargetFlowExecution | null {
+    const activeTargetFlow = this.activeTargetFlows.get(
+      this.buildTargetSlotKey(requestedProject.name),
+    );
+    if (!activeTargetFlow) {
+      return null;
+    }
+
+    return this.matchesProjectRef(activeTargetFlow.targetProject, requestedProject)
+      ? activeTargetFlow
+      : null;
+  }
+
+  private findPendingTargetFlowForProject(requestedProject: {
+    name: string;
+    path: string | null;
+  }): PendingTargetFlowReservation | null {
+    const pendingTargetFlow = this.pendingTargetFlows.get(
+      this.buildTargetSlotKey(requestedProject.name),
+    );
+    if (!pendingTargetFlow) {
+      return null;
+    }
+
+    if (
+      requestedProject.path &&
+      pendingTargetFlow.projectPath &&
+      pendingTargetFlow.projectPath !== requestedProject.path
+    ) {
+      return null;
+    }
+
+    return pendingTargetFlow;
+  }
+
+  private getUsedProjectSlotCount(): number {
+    return this.activeSlots.size + this.activeTargetFlows.size + this.pendingTargetFlows.size;
+  }
+
+  private findProjectOccupancy(
+    requestedProject: {
+      name: string;
+      path: string | null;
+    },
+  ):
+    | {
+        kind: "runner-slot";
+        command: string;
+        project: ProjectRef;
+      }
+    | {
+        kind: "target-flow";
+        command: TargetFlowCommand;
+        project: ProjectRef;
+      }
+    | {
+        kind: "pending-target-flow";
+        command: TargetFlowCommand;
+        projectName: string;
+      }
+    | null {
+    for (const slot of this.activeSlots.values()) {
+      if (!this.matchesProjectRef(slot.project, requestedProject)) {
+        continue;
+      }
+
+      return {
+        kind: "runner-slot",
+        command: this.renderSlotCommand(slot.kind),
+        project: { ...slot.project },
+      };
+    }
+
+    const activeTargetFlow = this.findTargetFlowForProject(requestedProject);
+    if (activeTargetFlow) {
+      return {
+        kind: "target-flow",
+        command: activeTargetFlow.command,
+        project: { ...activeTargetFlow.targetProject },
+      };
+    }
+
+    const pendingTargetFlow = this.findPendingTargetFlowForProject(requestedProject);
+    if (pendingTargetFlow) {
+      return {
+        kind: "pending-target-flow",
+        command: pendingTargetFlow.command,
+        projectName: pendingTargetFlow.projectName,
+      };
+    }
+
+    return null;
+  }
+
+  private buildProjectSlotBusyResult(
+    requestedCommand: string,
+    requestedProjectName: string,
+    activeCommand: string,
+    activeProjects?: ProjectRef[],
+  ): RunnerRequestBlockedResult {
+    return {
+      status: "blocked",
+      reason: "project-slot-busy",
+      message:
+        `Nao e possivel iniciar ${requestedCommand}: slot do projeto ${requestedProjectName} ` +
+        `ja ocupado por ${activeCommand}.`,
+      ...(activeProjects?.length ? { activeProjects } : {}),
+    };
+  }
+
+  private reserveTargetFlowProjectSlot(params: {
+    flow: TargetFlowKind;
+    command: TargetFlowCommand;
+    projectName: string;
+    projectPath: string | null;
+    startedAt: Date;
+  }):
+    | {
+        status: "reserved";
+        reservation: PendingTargetFlowReservation;
+      }
+    | RunnerRequestBlockedResult {
+    const occupancy = this.findProjectOccupancy({
+      name: params.projectName,
+      path: params.projectPath,
+    });
+    if (occupancy) {
+      return this.buildProjectSlotBusyResult(
+        params.command,
+        occupancy.kind === "pending-target-flow" ? occupancy.projectName : occupancy.project.name,
+        occupancy.command,
+        occupancy.kind === "pending-target-flow" ? undefined : [{ ...occupancy.project }],
+      );
+    }
+
+    if (this.getUsedProjectSlotCount() >= RUNNER_SLOT_LIMIT) {
+      const activeProjects = this.getActiveProjects();
+      return {
+        status: "blocked",
+        reason: "runner-capacity-maxed",
+        message: this.buildCapacityMaxedMessage(activeProjects),
+        activeProjects,
+      };
+    }
+
+    const reservation: PendingTargetFlowReservation = {
+      slotKey: this.buildTargetSlotKey(params.projectName),
+      flow: params.flow,
+      command: params.command,
+      projectName: params.projectName,
+      projectPath: params.projectPath,
+      startedAt: params.startedAt,
+    };
+    this.pendingTargetFlows.set(reservation.slotKey, reservation);
+    this.syncStateFromSlots();
+    this.logger.info("Slot target reservado", {
+      targetFlow: params.flow,
+      command: params.command,
+      targetProjectName: params.projectName,
+      targetProjectPath: params.projectPath,
+      usedSlots: this.getUsedProjectSlotCount(),
+      maxSlots: RUNNER_SLOT_LIMIT,
+    });
+
+    return {
+      status: "reserved",
+      reservation,
+    };
+  }
+
+  private releasePendingTargetFlowReservation(slotKey: string): void {
+    if (!this.pendingTargetFlows.delete(slotKey)) {
+      return;
+    }
+
+    this.syncStateFromSlots();
+  }
+
+  private resolveTargetFlowForControl(flow: TargetFlowKind):
+    | {
+        status: "active";
+        targetFlow: ActiveTargetFlowExecution;
+      }
+    | {
+        status: "inactive";
+      }
+    | {
+        status: "ambiguous";
+        message: string;
+      } {
+    const activeProjectName = this.state.activeProject?.name;
+    if (activeProjectName) {
+      const scopedTargetFlow = this.activeTargetFlows.get(this.buildTargetSlotKey(activeProjectName));
+      if (scopedTargetFlow?.flow === flow) {
+        return {
+          status: "active",
+          targetFlow: scopedTargetFlow,
+        };
+      }
+    }
+
+    const matchingTargetFlows = this.getActiveTargetFlows().filter((targetFlow) => targetFlow.flow === flow);
+    if (matchingTargetFlows.length === 0) {
+      return { status: "inactive" };
+    }
+
+    if (matchingTargetFlows.length === 1) {
+      return {
+        status: "active",
+        targetFlow: matchingTargetFlows[0]!,
+      };
+    }
+
+    return {
+      status: "ambiguous",
+      message: [
+        `Existem ${matchingTargetFlows.length} execucoes ${targetFlowKindToCommand(flow)} ativas em projetos diferentes.`,
+        "Selecione o projeto correspondente e tente novamente, ou use /status para identificar o slot certo.",
+      ].join(" "),
+    };
   }
 
   private renderSlotCommand(kind: RunnerSlotKind): string {
@@ -11938,29 +12197,45 @@ export class TicketRunner {
     ].join(" ");
   }
 
+  private selectTargetFlowStateSnapshot(): RunnerTargetFlowState | null {
+    const activeProjectName = this.state.activeProject?.name;
+    if (activeProjectName) {
+      const scopedTargetFlow = this.activeTargetFlows.get(this.buildTargetSlotKey(activeProjectName));
+      if (scopedTargetFlow) {
+        return this.buildTargetFlowStateSnapshot(scopedTargetFlow);
+      }
+    }
+
+    const targetFlows = this.getActiveTargetFlows();
+    if (targetFlows.length === 1) {
+      return this.buildTargetFlowStateSnapshot(targetFlows[0]!);
+    }
+
+    return null;
+  }
+
   private syncStateFromSlots(): void {
     const slots = Array.from(this.activeSlots.values()).sort(
       (left, right) => left.startedAt.getTime() - right.startedAt.getTime(),
     );
-    const targetFlow = this.activeTargetFlow ? this.buildTargetFlowStateSnapshot(this.activeTargetFlow) : null;
-    const renderedTargetSlot = targetFlow
-      ? {
-          project: { ...targetFlow.targetProject },
-          kind: this.mapTargetFlowKindToSlotKind(targetFlow.flow),
-          phase: targetFlow.phase,
-          currentTicket: null,
-          currentSpec: null,
-          targetFlowCommand: targetFlow.command,
-          targetFlowMilestone: targetFlow.milestone,
-          targetFlowVersionBoundaryState: targetFlow.versionBoundaryState,
-          isPaused: false,
-          startedAt: new Date(targetFlow.startedAt),
-        }
-      : null;
+    const targetFlows = this.getActiveTargetFlows();
+    const targetFlow = this.selectTargetFlowStateSnapshot();
+    const renderedTargetSlots = targetFlows.map((activeTargetFlow) => ({
+      project: { ...activeTargetFlow.targetProject },
+      kind: this.mapTargetFlowKindToSlotKind(activeTargetFlow.flow),
+      phase: activeTargetFlow.phase,
+      currentTicket: null,
+      currentSpec: null,
+      targetFlowCommand: activeTargetFlow.command,
+      targetFlowMilestone: activeTargetFlow.milestone as TargetFlowMilestone,
+      targetFlowVersionBoundaryState: activeTargetFlow.versionBoundaryState,
+      isPaused: false,
+      startedAt: new Date(activeTargetFlow.startedAt),
+    }));
 
     this.state.capacity = {
       limit: RUNNER_SLOT_LIMIT,
-      used: slots.length + (renderedTargetSlot ? 1 : 0),
+      used: slots.length + targetFlows.length + this.pendingTargetFlows.size,
     };
     this.state.activeSlots = [
       ...slots.map((slot) => ({
@@ -11976,14 +12251,14 @@ export class TicketRunner {
         isPaused: slot.isPaused,
         startedAt: new Date(slot.startedAt),
       })),
-      ...(renderedTargetSlot ? [renderedTargetSlot] : []),
+      ...renderedTargetSlots,
     ];
     this.state.targetFlow = targetFlow;
 
     this.state.isRunning = slots.some(
       (slot) => this.isTicketSlotKind(slot.kind) && (slot.isStarting || slot.isRunning || Boolean(slot.loopPromise)),
     );
-    if (targetFlow) {
+    if (targetFlows.length > 0) {
       this.state.isRunning = true;
     }
 

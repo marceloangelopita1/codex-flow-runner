@@ -3078,6 +3078,57 @@ test("handleTargetPrepareStatusCommand renderiza milestone e fronteira do fluxo 
   assert.match(replies[0] ?? "", /Detalhe: Adequacao por IA em andamento\./u);
 });
 
+test("handleTargetPrepareStatusCommand orienta selecionar o projeto quando ha execucoes em outros projetos", async () => {
+  const state = createState({
+    activeSlots: [
+      {
+        project: {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+        },
+        kind: "target-prepare",
+        phase: "target-prepare-preflight",
+        currentTicket: null,
+        currentSpec: null,
+        isPaused: false,
+        targetFlowCommand: "/target_prepare",
+        targetFlowMilestone: "preflight",
+        targetFlowVersionBoundaryState: "before-versioning",
+        startedAt: new Date("2026-03-24T23:00:00.000Z"),
+      },
+      {
+        project: {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+        },
+        kind: "target-prepare",
+        phase: "target-prepare-preflight",
+        currentTicket: null,
+        currentSpec: null,
+        isPaused: false,
+        targetFlowCommand: "/target_prepare",
+        targetFlowMilestone: "preflight",
+        targetFlowVersionBoundaryState: "before-versioning",
+        startedAt: new Date("2026-03-24T23:01:00.000Z"),
+      },
+    ],
+  });
+  const { controller } = createController({
+    getState: () => state,
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.match(replies[0] ?? "", /Existem 2 execucoes \/target_prepare ativas em outros projetos/u);
+});
+
 test("handleTargetPrepareCancelCommand confirma cancelamento cooperativo aceito", async () => {
   const { controller, controlState } = createController({
     targetPrepareCancelResult: {
@@ -3099,6 +3150,30 @@ test("handleTargetPrepareCancelCommand confirma cancelamento cooperativo aceito"
   assert.equal(controlState.targetPrepareCancelCalls, 1);
   assert.deepEqual(replies, [
     "✅ Cancelamento de /target_prepare solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.",
+  ]);
+});
+
+test("handleTargetPrepareCancelCommand renderiza cancelamento ambiguo quando ha multiplos fluxos", async () => {
+  const { controller, controlState } = createController({
+    targetPrepareCancelResult: {
+      status: "ambiguous",
+      message:
+        "Existem 2 execucoes /target_prepare ativas em projetos diferentes. Selecione o projeto correspondente e tente novamente, ou use /status para identificar o slot certo.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetPrepareCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCancelCalls, 1);
+  assert.deepEqual(replies, [
+    "ℹ️ Existem 2 execucoes /target_prepare ativas em projetos diferentes. Selecione o projeto correspondente e tente novamente, ou use /status para identificar o slot certo.",
   ]);
 });
 
@@ -8158,7 +8233,7 @@ test("status detalha fluxo target ativo e o ultimo target flow concluido", () =>
     }),
   );
 
-  assert.match(reply, /Fluxo target ativo: \/target_checkup/u);
+  assert.match(reply, /Fluxos target ativos: 1/u);
   assert.match(reply, /1\. alpha-project \(\/target_checkup\)/u);
   assert.match(reply, /milestone: evidence-collection/u);
   assert.match(reply, /Último fluxo concluído: target-derive \(cancelled\)/u);
