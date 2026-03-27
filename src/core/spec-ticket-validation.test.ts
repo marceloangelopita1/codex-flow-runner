@@ -7,7 +7,10 @@ import {
 } from "../integrations/codex-client.js";
 import {
   SpecTicketValidationAppliedCorrection,
+  SpecTicketValidationGap,
   SpecTicketValidationPassResult,
+  assessSpecTicketValidationOpenGapReduction,
+  collectSpecTicketValidationGapFingerprints,
 } from "../types/spec-ticket-validation.js";
 import {
   MAX_SPEC_TICKET_VALIDATION_CYCLES,
@@ -23,6 +26,8 @@ class StubSpecTicketValidationSession implements SpecTicketValidationSession {
   public readonly turnRequests: Array<{
     packageContext: string;
     appliedCorrectionsSummary: string[];
+    previousPassSummary: string | null;
+    previousOpenGapFingerprints: string[];
   }> = [];
   public cancelCalls = 0;
   private lastThreadId: string | null = null;
@@ -32,10 +37,15 @@ class StubSpecTicketValidationSession implements SpecTicketValidationSession {
   async runTurn(request: {
     packageContext: string;
     appliedCorrectionsSummary?: string[];
+    previousPass?: SpecTicketValidationPassResult | null;
   }): Promise<SpecTicketValidationSessionTurnResult> {
     this.turnRequests.push({
       packageContext: request.packageContext,
       appliedCorrectionsSummary: request.appliedCorrectionsSummary ?? [],
+      previousPassSummary: request.previousPass?.summary ?? null,
+      previousOpenGapFingerprints: request.previousPass
+        ? collectSpecTicketValidationGapFingerprints(request.previousPass.gaps)
+        : [],
     });
 
     const nextTurn = this.turns.shift();
@@ -66,21 +76,22 @@ const buildCorrection = (
   outcome,
 });
 
+const buildGap = (overrides: Partial<SpecTicketValidationGap> = {}): SpecTicketValidationGap => ({
+  gapType: "coverage-gap",
+  summary: "RF-02 ainda nao esta coberto.",
+  affectedArtifactPaths: ["tickets/open/example.md"],
+  requirementRefs: ["RF-02"],
+  evidence: ["Ticket atual nao menciona RF-02."],
+  probableRootCause: "ticket",
+  isAutoCorrectable: true,
+  ...overrides,
+});
+
 const buildPass = (overrides: Partial<SpecTicketValidationPassResult> = {}): SpecTicketValidationPassResult => ({
   verdict: "NO_GO",
   confidence: "medium",
   summary: "Pacote ainda possui gaps em aberto.",
-  gaps: [
-    {
-      gapType: "coverage-gap",
-      summary: "RF-02 ainda nao esta coberto.",
-      affectedArtifactPaths: ["tickets/open/example.md"],
-      requirementRefs: ["RF-02"],
-      evidence: ["Ticket atual nao menciona RF-02."],
-      probableRootCause: "ticket",
-      isAutoCorrectable: true,
-    },
-  ],
+  gaps: [buildGap()],
   appliedCorrections: [],
   ...overrides,
 });
@@ -94,6 +105,118 @@ const buildTurn = (
   parsed,
   promptTemplatePath: "/tmp/prompts/09-validar-tickets-derivados-da-spec.md",
   promptText: "prompt",
+});
+
+test("assessSpecTicketValidationOpenGapReduction retorna strict para subconjunto estrito de fingerprints", () => {
+  const assessment = assessSpecTicketValidationOpenGapReduction(
+    [
+      buildGap({
+        affectedArtifactPaths: ["tickets/open/a.md"],
+        requirementRefs: ["RF-02"],
+      }),
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/b.md"],
+        requirementRefs: ["CA-05"],
+      }),
+    ],
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/b.md"],
+        requirementRefs: ["CA-05"],
+      }),
+    ],
+  );
+
+  assert.equal(assessment.hasRealReduction, true);
+  assert.equal(assessment.mode, "strict");
+});
+
+test("assessSpecTicketValidationOpenGapReduction retorna anchored para remanescente reancorado no mesmo ticket e gapType", () => {
+  const assessment = assessSpecTicketValidationOpenGapReduction(
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/structural.md"],
+        requirementRefs: ["CA-04", "CA-05", "RF-04", "RF-17"],
+      }),
+      buildGap({
+        gapType: "coverage-gap",
+        affectedArtifactPaths: ["tickets/open/validation.md"],
+        requirementRefs: ["RF-16"],
+      }),
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/success.md"],
+        requirementRefs: ["CA-02", "CA-03"],
+      }),
+    ],
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/structural.md"],
+        requirementRefs: ["CA-01", "CA-05"],
+      }),
+    ],
+  );
+
+  assert.equal(assessment.hasRealReduction, true);
+  assert.equal(assessment.mode, "anchored");
+});
+
+test("assessSpecTicketValidationOpenGapReduction retorna none quando o remanescente muda de ticket", () => {
+  const assessment = assessSpecTicketValidationOpenGapReduction(
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/structural.md"],
+        requirementRefs: ["CA-04", "CA-05", "RF-04", "RF-17"],
+      }),
+      buildGap({
+        gapType: "coverage-gap",
+        affectedArtifactPaths: ["tickets/open/validation.md"],
+        requirementRefs: ["RF-16"],
+      }),
+    ],
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/other.md"],
+        requirementRefs: ["CA-01", "CA-05"],
+      }),
+    ],
+  );
+
+  assert.equal(assessment.hasRealReduction, false);
+  assert.equal(assessment.mode, "none");
+});
+
+test("assessSpecTicketValidationOpenGapReduction retorna none quando o remanescente muda de gapType", () => {
+  const assessment = assessSpecTicketValidationOpenGapReduction(
+    [
+      buildGap({
+        gapType: "closure-criteria-gap",
+        affectedArtifactPaths: ["tickets/open/structural.md"],
+        requirementRefs: ["CA-04", "CA-05", "RF-04", "RF-17"],
+      }),
+      buildGap({
+        gapType: "coverage-gap",
+        affectedArtifactPaths: ["tickets/open/validation.md"],
+        requirementRefs: ["RF-16"],
+      }),
+    ],
+    [
+      buildGap({
+        gapType: "spec-inheritance-gap",
+        affectedArtifactPaths: ["tickets/open/structural.md"],
+        requirementRefs: ["CA-01", "CA-05"],
+      }),
+    ],
+  );
+
+  assert.equal(assessment.hasRealReduction, false);
+  assert.equal(assessment.mode, "none");
 });
 
 test("retorna GO no primeiro passe quando o gate conclui com alta confianca", async () => {
@@ -233,6 +356,13 @@ test("executa autocorrecao e revalidacao quando o primeiro passe encontra gaps c
     session.turnRequests[1]?.appliedCorrectionsSummary,
     ["Adicionar RF-02 ao ticket derivado. [applied]"],
   );
+  assert.equal(
+    session.turnRequests[1]?.previousPassSummary,
+    "Pacote ainda possui gaps em aberto.",
+  );
+  assert.deepEqual(session.turnRequests[1]?.previousOpenGapFingerprints, [
+    "coverage-gap|tickets/open/example.md|rf-02",
+  ]);
   assert.equal(result.snapshots[1]?.realGapReductionFromPrevious, true);
   assert.deepEqual(result.allAppliedCorrections, autoCorrections);
 });
@@ -394,6 +524,106 @@ test("bloqueia a rodada quando nao ha reducao real dos gaps apos revalidacao", a
   assert.equal(result.cyclesExecuted, 1);
   assert.equal(result.snapshots.length, 2);
   assert.equal(result.snapshots[1]?.realGapReductionFromPrevious, false);
+});
+
+test("continua para nova tentativa quando o gap remanescente e reancorado no mesmo ticket e gapType", async () => {
+  const session = new StubSpecTicketValidationSession([
+    buildTurn(
+      buildPass({
+        confidence: "high",
+        summary: "Primeiro passe encontrou tres gaps corrigiveis.",
+        gaps: [
+          buildGap({
+            gapType: "closure-criteria-gap",
+            summary: "Ticket estrutural ainda nao torna observavel a restricao herdada.",
+            affectedArtifactPaths: ["tickets/open/structural.md"],
+            requirementRefs: ["CA-04", "CA-05", "RF-04", "RF-17"],
+            evidence: ["Closure criteria ainda nao cobre a rastreabilidade herdada."],
+          }),
+          buildGap({
+            gapType: "closure-criteria-gap",
+            summary: "Ticket de sucesso ainda nao torna observavel a validacao manual herdada.",
+            affectedArtifactPaths: ["tickets/open/success.md"],
+            requirementRefs: ["CA-02", "CA-03"],
+            evidence: ["Falta evidencia de smoke manual de legibilidade."],
+          }),
+          buildGap({
+            gapType: "coverage-gap",
+            summary: "Ticket de validacao ainda nao cobre RF-16.",
+            affectedArtifactPaths: ["tickets/open/validation.md"],
+            requirementRefs: ["RF-16"],
+            evidence: ["Falta criterio para coerencia entre artefatos completos e sumarios."],
+          }),
+        ],
+      }),
+    ),
+    buildTurn(
+      buildPass({
+        confidence: "medium",
+        summary: "Revalidacao fechou parte dos gaps, mas sobrou um remanescente reancorado.",
+        gaps: [
+          buildGap({
+            gapType: "closure-criteria-gap",
+            summary: "Ticket estrutural ainda nao torna observavel requestId/runId de ponta a ponta.",
+            affectedArtifactPaths: ["tickets/open/structural.md"],
+            requirementRefs: ["CA-01", "CA-05"],
+            evidence: ["A rastreabilidade herdada ficou parcialmente observavel, mas ainda incompleta."],
+          }),
+        ],
+      }),
+      "thread-validation-anchored",
+    ),
+    buildTurn(
+      buildPass({
+        verdict: "GO",
+        confidence: "high",
+        summary: "Segundo ciclo fechou o remanescente reancorado.",
+        gaps: [],
+      }),
+      "thread-validation-anchored",
+    ),
+  ]);
+  let autoCorrectCalls = 0;
+
+  const result = await runSpecTicketValidation(
+    {
+      startSession: async () => session,
+      autoCorrect: async ({ cycleNumber }) => {
+        autoCorrectCalls += 1;
+        return {
+          packageContext: `tickets derivados apos ciclo ${String(cycleNumber)}`,
+          appliedCorrections: [buildCorrection(`Correcao do ciclo ${String(cycleNumber)}.`)],
+          materialChangesApplied: true,
+        };
+      },
+    },
+    {
+      spec,
+      initialPackageContext: "tickets derivados iniciais",
+    },
+  );
+
+  assert.equal(result.verdict, "GO");
+  assert.equal(result.finalReason, "go-with-high-confidence");
+  assert.equal(result.cyclesExecuted, 2);
+  assert.equal(autoCorrectCalls, 2);
+  assert.equal(result.snapshots[1]?.realGapReductionFromPrevious, true);
+  assert.equal(
+    session.turnRequests[1]?.previousPassSummary,
+    "Primeiro passe encontrou tres gaps corrigiveis.",
+  );
+  assert.deepEqual(session.turnRequests[1]?.previousOpenGapFingerprints, [
+    "closure-criteria-gap|tickets/open/structural.md|ca-04&ca-05&rf-04&rf-17",
+    "closure-criteria-gap|tickets/open/success.md|ca-02&ca-03",
+    "coverage-gap|tickets/open/validation.md|rf-16",
+  ]);
+  assert.equal(
+    session.turnRequests[2]?.previousPassSummary,
+    "Revalidacao fechou parte dos gaps, mas sobrou um remanescente reancorado.",
+  );
+  assert.deepEqual(session.turnRequests[2]?.previousOpenGapFingerprints, [
+    "closure-criteria-gap|tickets/open/structural.md|ca-01&ca-05",
+  ]);
 });
 
 test("normaliza GO com confianca medium ou low para NO_GO final", async () => {

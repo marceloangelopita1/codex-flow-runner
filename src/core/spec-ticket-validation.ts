@@ -4,6 +4,7 @@ import {
   SpecTicketValidationSessionStartRequest,
 } from "../integrations/codex-client.js";
 import {
+  assessSpecTicketValidationOpenGapReduction,
   SpecTicketValidationAppliedCorrection,
   SpecTicketValidationCycleSnapshot,
   SpecTicketValidationFinalReason,
@@ -11,7 +12,6 @@ import {
   SpecTicketValidationResult,
   collectSpecTicketValidationGapFingerprints,
   hasAutoCorrectableGaps,
-  hasStrictOpenGapReduction,
   isConfidenceSufficientForGo,
 } from "../types/spec-ticket-validation.js";
 
@@ -150,6 +150,7 @@ export const runSpecTicketValidation = async (
           appliedCorrectionsSummary: autoCorrection.appliedCorrections.map(
             (correction) => `${correction.description} [${correction.outcome}]`,
           ),
+          previousPass: turn.parsed,
         })
         .catch((error) => {
           throw buildExecutionError(
@@ -162,10 +163,11 @@ export const runSpecTicketValidation = async (
         });
 
       cyclesExecuted = cycleNumber;
-      const realGapReductionFromPrevious = hasStrictOpenGapReduction(
+      const gapReductionAssessment = assessSpecTicketValidationOpenGapReduction(
         turn.parsed.gaps,
         nextTurn.parsed.gaps,
       );
+      const realGapReductionFromPrevious = gapReductionAssessment.hasRealReduction;
       const appliedCorrections = [
         ...autoCorrection.appliedCorrections,
         ...nextTurn.parsed.appliedCorrections,

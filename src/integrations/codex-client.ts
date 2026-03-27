@@ -37,6 +37,7 @@ import {
   type DiscoverSpecCategoryCoverage,
 } from "../types/discover-spec.js";
 import {
+  collectSpecTicketValidationGapFingerprints,
   SpecTicketValidationAppliedCorrection,
   SpecTicketValidationPassResult,
 } from "../types/spec-ticket-validation.js";
@@ -252,6 +253,7 @@ export interface SpecTicketValidationSessionStartRequest {
 export interface SpecTicketValidationSessionTurnRequest {
   packageContext: string;
   appliedCorrectionsSummary?: string[];
+  previousPass?: SpecTicketValidationPassResult | null;
 }
 
 export interface SpecTicketValidationSessionTurnResult {
@@ -1554,6 +1556,9 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Spec alvo: \`${request.spec.path}\``,
       `- Arquivo da spec: \`${request.spec.fileName}\``,
       `- Ciclo de autocorrecao: \`${request.cycleNumber}\``,
+      `- Veredito do ultimo passe: \`${request.latestPass.verdict}\``,
+      `- Confianca do ultimo passe: \`${request.latestPass.confidence}\``,
+      `- Resumo do ultimo passe: ${request.latestPass.summary}`,
       "- Natureza desta rodada: pre-run-all / pacote derivado de spec-triage.",
       "",
       "## Artefatos permitidos para escrita",
@@ -1570,6 +1575,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
             `  - Evidencias: ${gap.evidence.join(" | ") || "nenhuma"}`,
           ])
         : ["- Nenhum"]),
+      "",
+      "## Checagem final obrigatoria antes de encerrar esta rodada",
+      "- Se editar `Closure criteria`, releia integralmente cada ticket afetado e confirme que toda heranca relevante da spec ficou observavel no fechamento.",
+      "- Se ainda faltar RNF, restricao tecnica/documental ou validacao manual relevante para o mesmo ticket, nao trate a rodada como completa.",
       "",
       "## Pacote derivado atual",
       request.packageContext.trim(),
@@ -2634,6 +2643,7 @@ class CodexExecResumeSpecTicketValidationSession implements SpecTicketValidation
 
   private buildPrompt(request: SpecTicketValidationSessionTurnRequest): string {
     const appliedCorrectionsSummary = request.appliedCorrectionsSummary ?? [];
+    const previousPass = request.previousPass ?? null;
 
     return [
       this.promptTemplate.trimEnd(),
@@ -2653,6 +2663,38 @@ class CodexExecResumeSpecTicketValidationSession implements SpecTicketValidation
       ...(appliedCorrectionsSummary.length > 0
         ? appliedCorrectionsSummary.map((entry) => `- ${entry}`)
         : ["- Nenhuma"]),
+      "",
+      "## Resultado estruturado do passe anterior",
+      ...(previousPass
+        ? [
+            `- Veredito anterior: ${previousPass.verdict}`,
+            `- Confianca anterior: ${previousPass.confidence}`,
+            `- Resumo anterior: ${previousPass.summary}`,
+          ]
+        : ["- Nenhum passe anterior estruturado nesta sessao."]),
+      "",
+      "## Gaps abertos no passe anterior",
+      ...(previousPass && previousPass.gaps.length > 0
+        ? previousPass.gaps.flatMap((gap, index) => {
+            const fingerprint =
+              collectSpecTicketValidationGapFingerprints([gap])[0] ?? "indisponivel";
+            return [
+              `- Gap ${index + 1}: ${gap.gapType}: ${gap.summary}`,
+              `  - Fingerprint anterior: ${fingerprint}`,
+              `  - Artefatos afetados: ${gap.affectedArtifactPaths.join(", ") || "nenhum"}`,
+              `  - Requisitos: ${gap.requirementRefs.join(", ") || "nenhum"}`,
+              `  - Evidencias: ${gap.evidence.join(" | ") || "nenhuma"}`,
+            ];
+          })
+        : ["- Nenhum"]),
+      "",
+      "## Regras de comparacao obrigatorias para esta revalidacao",
+      ...(previousPass
+        ? [
+            "- Compare os gaps atuais com a lista acima antes de concluir se houve ou nao progresso real.",
+            "- Se um gap remanescente preservar o mesmo `gapType` e os mesmos `affectedArtifactPaths`, mas vier com `requirementRefs` mais especificas, trate isso por default como remanescente reancorado do gap anterior, nao como gap totalmente novo.",
+          ]
+        : ["- Nao ha historico estruturado anterior para comparar nesta rodada."]),
       "",
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");

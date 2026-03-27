@@ -1451,6 +1451,23 @@ test("startSpecTicketValidationSession usa codex exec/resume com thread local do
   const second = await session.runTurn({
     packageContext: "Pacote derivado apos correcao",
     appliedCorrectionsSummary: ["Adicionar cobertura explicita de RF-02. [applied]"],
+    previousPass: {
+      verdict: "NO_GO",
+      confidence: "medium",
+      summary: "Ainda existe um gap corrigivel.",
+      gaps: [
+        {
+          gapType: "coverage-gap",
+          summary: "RF-02 ainda nao esta coberto.",
+          affectedArtifactPaths: ["tickets/open/example.md"],
+          requirementRefs: ["RF-02"],
+          evidence: ["Ticket atual nao menciona RF-02."],
+          probableRootCause: "ticket",
+          isAutoCorrectable: true,
+        },
+      ],
+      appliedCorrections: [],
+    },
   });
 
   assert.equal(first.threadId, threadId);
@@ -1481,6 +1498,18 @@ test("startSpecTicketValidationSession usa codex exec/resume com thread local do
   assert.equal(capturedArgs[1]?.includes(threadId), true);
   assert.equal(capturedArgs[1]?.includes(triageThreadId), false);
   assert.match(capturedArgs[1]?.[capturedArgs[1].length - 1] ?? "", /Adicionar cobertura explicita/u);
+  assert.match(
+    capturedArgs[1]?.[capturedArgs[1].length - 1] ?? "",
+    /## Gaps abertos no passe anterior/u,
+  );
+  assert.match(
+    capturedArgs[1]?.[capturedArgs[1].length - 1] ?? "",
+    /coverage-gap\|tickets\/open\/example\.md\|rf-02/u,
+  );
+  assert.match(
+    capturedArgs[1]?.[capturedArgs[1].length - 1] ?? "",
+    /remanescente reancorado do gap anterior/u,
+  );
 
   await session.cancel();
 });
@@ -1698,9 +1727,13 @@ test("runSpecTicketValidationAutoCorrect executa prompt dedicado e parseia corre
   assert.equal(result.appliedCorrections.length, 1);
   assert.match(result.promptTemplatePath, /10-autocorrigir-tickets-derivados-da-spec\.md$/u);
   assert.match(result.promptText, /Natureza desta rodada: pre-run-all/u);
+  assert.match(result.promptText, /Veredito do ultimo passe: `NO_GO`/u);
+  assert.match(result.promptText, /Confianca do ultimo passe: `high`/u);
+  assert.match(result.promptText, /Resumo do ultimo passe: RF-02 ainda nao esta coberto\./u);
   assert.match(result.promptText, /## Artefatos permitidos para escrita/u);
   assert.match(result.promptText, /tickets\/open\/example\.md/u);
   assert.match(result.promptText, /coverage-gap: RF-02 ainda nao esta coberto\./u);
+  assert.match(result.promptText, /## Checagem final obrigatoria antes de encerrar esta rodada/u);
   assert.match(capturedPrompt, /Pacote derivado inicial/u);
   assert.equal(capturedArgs.length, 1);
   assert.equal(capturedArgs[0]?.includes("resume"), false);

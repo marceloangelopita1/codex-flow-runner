@@ -6,14 +6,16 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-03-19 15:31Z
-- Last reviewed at (UTC): 2026-03-19 18:10Z
+- Last reviewed at (UTC): 2026-03-27 17:17Z
 - Source: technical-evolution
 - Related tickets:
+  - tickets/closed/2026-03-27-spec-ticket-validation-bloqueia-progresso-real-com-gap-reancorado.md
   - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - tickets/closed/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
   - tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
 - Related execplans:
+  - execplans/2026-03-27-spec-ticket-validation-bloqueia-progresso-real-com-gap-reancorado.md
   - execplans/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - execplans/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - execplans/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md
@@ -44,12 +46,16 @@
 5. Quando houver gaps corrigiveis e alta confianca de reparo, o estagio aplica correcao automatica nos tickets/documentacao derivada e revalida, preservando o contexto apenas dentro do proprio ciclo de validacao.
 6. Se o pacote atingir confianca suficiente, o runner registra veredito `GO`, executa `spec-close-and-version`, encadeia `/run-all` e termina com `spec-audit`.
 7. Se, apos no maximo 2 ciclos completos de autocorrecao, nao houver reducao real dos gaps ou a confianca permanecer insuficiente, o runner registra veredito `NO_GO`, bloqueia `/run-all` e encerra a rodada com rastreabilidade do motivo.
+  - Para este gate, `reducao real` pode ser:
+    - estrita, quando os fingerprints remanescentes forem subconjunto estrito dos anteriores;
+    - ancorada, quando a quantidade total de gaps cair e o remanescente preservar o mesmo `gapType` e os mesmos `affectedArtifactPaths`, mesmo com `requirementRefs` refinadas.
 8. Quando a menor causa plausivel de um gap for sistemica e houver alta confianca de reaproveitamento, o fluxo abre automaticamente um ticket transversal de melhoria de workflow no repositorio `codex-flow-runner`, faz commit/push desse ticket e menciona o resultado no resumo do `/run_specs`.
 
 ## Requisitos funcionais
 - RF-01: o runner deve introduzir um novo estagio explicito `spec-ticket-validation` entre `spec-triage` e `spec-close-and-version`.
 - RF-02: `spec-ticket-validation` deve rodar em um exec novo, separado da fase `spec-triage`, sem carregar implicitamente o contexto conversacional da triagem.
 - RF-03: revalidacoes dentro do proprio estagio `spec-ticket-validation` podem reutilizar o mesmo conversation id/contexto da validacao.
+  - Nessas revalidacoes, o prompt deve receber tambem o resultado estruturado do passe anterior, incluindo resumo, gaps, evidencias e fingerprints dos gaps abertos anteriores.
 - RF-04: o contrato oficial de derivacao do repositorio deve passar a ser:
   - `spec -> tickets`
   - `ticket -> execplan` quando necessario
@@ -77,10 +83,14 @@
 - RF-10: o estagio deve emitir veredito formal `GO` ou `NO_GO` antes de qualquer `/run-all`.
 - RF-11: o estagio deve registrar lista objetiva de gaps, evidencias, correcao aplicada (quando houver), causa-raiz provavel e confianca final do veredito.
 - RF-12: quando o primeiro passe de validacao resultar em `NO_GO` com gaps corrigiveis, o runner deve tentar autocorrecao automatica do pacote derivado e revalidar.
+  - A revalidacao deve comparar o pacote atual com o historico estruturado do passe anterior, e nao apenas com um resumo textual das correcoes aplicadas.
 - RF-13: o loop de autocorrecao deve permitir no maximo 2 ciclos completos de `corrigir -> revalidar`.
 - RF-14: o runner deve bloquear a continuidade antes do `/run-all` quando:
   - nao houver reducao real dos gaps apos os ciclos permitidos; ou
   - a confianca para `GO` permanecer insuficiente apos os ciclos permitidos.
+  - `Reducao real` deve aceitar:
+    - reducao estrita por fingerprints remanescentes;
+    - reducao ancorada quando houver queda na quantidade total de gaps e o remanescente preservar o mesmo `gapType` e os mesmos `affectedArtifactPaths`.
 - RF-15: deve existir uma secao dedicada `Gate de validacao dos tickets derivados` na spec para registrar:
   - veredito `GO/NO_GO`;
   - gaps encontrados;
@@ -138,6 +148,7 @@
 - [x] CA-07 - Quando a primeira validacao identificar gaps corrigiveis, o runner executa autocorrecao e revalidacao automaticamente.
 - [x] CA-08 - O loop de autocorrecao executa no maximo 2 ciclos completos de `corrigir -> revalidar`.
 - [x] CA-09 - O runner bloqueia a continuidade antes do `/run-all` quando, apos os ciclos permitidos, nao houver reducao real dos gaps ou a confianca para `GO` permanecer insuficiente.
+  - Para este criterio, `reducao real` aceita reducao estrita por fingerprint ou reducao ancorada no mesmo `gapType + affectedArtifactPaths`, desde que a quantidade total de gaps tenha caido.
 - [x] CA-10 - O veredito `GO/NO_GO`, os gaps e as correcoes aplicadas ficam registrados na secao `Gate de validacao dos tickets derivados` da spec.
 - [x] CA-11 - O trace/log da rodada inclui o estagio `spec-ticket-validation`, o veredito final e os ciclos de validacao/autocorrecao executados.
 - [x] CA-12 - O resumo final do `/run_specs` enviado ao Telegram inclui veredito `GO/NO_GO`, gaps encontrados, correcoes aplicadas e resultado final da etapa.
@@ -174,6 +185,11 @@
   - default = autocorrecao + revalidacao;
   - no maximo 2 ciclos completos de `corrigir -> revalidar`;
   - bloquear antes do `/run-all` apenas quando o pacote permanecer inconsistente ou sem confianca suficiente para `GO`.
+- Politica de reducao real dos gaps:
+  - o sinal forte continua sendo reducao estrita por fingerprint de gap aberto;
+  - quando um gap remanescente preservar o mesmo `gapType` e os mesmos `affectedArtifactPaths`, mas vier com `requirementRefs` refinadas, isso deve contar como reducao ancorada se a quantidade total de gaps tiver caido;
+  - mudanca de ticket ou de `gapType` invalida a nocao de continuidade do gap anterior;
+  - a revalidacao deve receber historico estruturado do passe anterior para diferenciar remanescente reancorado de gap totalmente novo.
 - Politica de melhoria sistemica:
   - abrir ticket transversal somente quando a menor causa plausivel for sistemica, reaproveitavel e com beneficio claro para specs futuras;
   - se o ticket transversal nao puder ser criado/publicado, registrar limitacao nao bloqueante e seguir a spec corrente quando o pacote derivado estiver em `GO`.
@@ -184,11 +200,12 @@
 - Validacoes manuais pendentes:
   - Executar ao menos uma rodada real de `/run_specs` em projeto externo com `../codex-flow-runner` acessivel e confirmar resumo do Telegram para abertura bem-sucedida do ticket transversal; esta revalidacao permanece recomendada como auditoria operacional externa e nao configura gap residual da spec.
   - Executar ao menos uma rodada real de `/run_specs` em projeto externo sem `../codex-flow-runner` acessivel e confirmar resumo do Telegram para limitacao nao bloqueante; esta revalidacao permanece recomendada como auditoria operacional externa e nao configura gap residual da spec.
+  - Executar ao menos uma rodada real de `/run_specs` em que a primeira revalidacao reduza materialmente os gaps, mas deixe um remanescente reancorado no mesmo ticket e no mesmo `gapType`, confirmando que o gate nao encerra prematuramente com `no-real-gap-reduction`.
   - Validar manualmente se o resumo do `/run_specs` comunica `GO/NO_GO`, gaps, correcoes aplicadas, resultado do ticket transversal e a etapa `spec-audit` com clareza suficiente para operacao cotidiana; esta verificacao permanece recomendada e nao bloqueia `Status: attended`.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
-- Resultado da auditoria final: a linhagem completa foi relida contra spec, tickets fechados, execplans executados, prompt de auditoria e estado atual do codigo; `CA-19` foi revalidado no runner/testes, nao houve gaps tecnicos residuais e a spec foi promovida para `Status: attended` com `Spec treatment: done`.
+- Resultado da auditoria final: a auditoria de 2026-03-19 fechou a linhagem original desta spec, e o incidente externo de 2026-03-27 em `caixa-fonte-ids` reabriu temporariamente a necessidade de hardening do gate. Esta rodada local atualizou heuristica de progresso real, contexto estruturado de revalidacao e instrucoes de completude, com validacao verde em testes focados, `npm test`, `npm run check` e `npm run build`; com o fechamento do ticket derivado de 2026-03-27, a spec retorna para `Status: attended` com `Spec treatment: done`, mantendo apenas auditorias operacionais externas como recomendacao nao bloqueante.
 - Itens atendidos:
   - `src/core/runner.ts` ja possui a espinha dorsal `spec-triage -> spec-close-and-version -> /run-all -> spec-audit`, que pode ser estendida com o novo gate sem paralelizar tickets.
   - `src/integrations/ticket-queue.ts` ja consome a fila por prioridade `P0 -> P1 -> P2`, com fallback deterministico por nome no empate.
@@ -196,8 +213,9 @@
   - `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts` ja possuem infraestrutura de trace e resumo final reutilizavel para um novo estagio de spec.
   - `prompts/01-avaliar-spec-e-gerar-tickets.md` ja orienta a triagem da spec a criar tickets em `tickets/open/`.
   - `src/types/spec-ticket-validation.ts`, `src/integrations/spec-ticket-validation-parser.ts` e `prompts/09-validar-tickets-derivados-da-spec.md` agora materializam o contrato do gate com taxonomia fixa, confianca final, evidencias objetivas e correcoes aplicadas.
-  - `src/integrations/codex-client.ts` agora expone sessao stateful dedicada para `spec-ticket-validation`, iniciando o primeiro passe sem reutilizar `thread_id` de `spec-triage` e reaproveitando apenas o contexto local da propria validacao.
-  - `src/core/spec-ticket-validation.ts` agora implementa o loop de `autocorrecao -> revalidacao` com limite de 2 ciclos completos, reducao estrita de gaps e bloqueio por confianca insuficiente para `GO`.
+  - `src/integrations/codex-client.ts` agora expone sessao stateful dedicada para `spec-ticket-validation`, iniciando o primeiro passe sem reutilizar `thread_id` de `spec-triage`, reaproveitando apenas o contexto local da propria validacao e injetando na revalidacao um historico estruturado do passe anterior.
+  - `src/core/spec-ticket-validation.ts` agora implementa o loop de `autocorrecao -> revalidacao` com limite de 2 ciclos completos, reducao real de gaps por modo estrito ou ancorado e bloqueio por confianca insuficiente para `GO`.
+  - `prompts/09-validar-tickets-derivados-da-spec.md` e `prompts/10-autocorrigir-tickets-derivados-da-spec.md` agora orientam comparacao com o historico estruturado anterior e checagem final de completude dos `Closure criteria` herdados antes de encerrar cada rodada.
   - `tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md` consolidou `CA-04` a `CA-09` com validacao `GO` em testes focados, `npm test`, `npm run check` e `npm run build`.
   - `src/core/runner.ts`, `src/types/flow-timing.ts` e `src/types/state.ts` agora encadeiam `spec-ticket-validation` entre `spec-triage` e `spec-close-and-version`, distinguem `NO_GO` de falha tecnica e propagam o snapshot observavel do gate para o resumo final do fluxo.
   - `src/integrations/workflow-trace-store.ts` e `src/integrations/telegram-bot.ts` agora reconhecem `spec-ticket-validation`, persistem/verbalizam veredito, gaps, correcoes aplicadas e ciclos executados, e os testes cobrem os caminhos `GO` e `NO_GO`.
@@ -209,12 +227,14 @@
   - `src/core/runner.ts` preserva `spec-audit` como etapa separada e posterior apenas ao caminho `GO` de `spec-ticket-validation` e ao `/run-all` bem-sucedido; `src/core/runner.test.ts` cobre o caminho de sucesso com `finalStage: spec-audit` e o caminho de falha especifica em `spec-audit`, fechando `CA-19` sem fundir a semantica do novo gate com a auditoria final.
 - Pendencias em aberto:
   - Nenhuma pendencia tecnica residual nem ticket derivado aberto para esta spec.
-  - Permanecem apenas validacoes manuais externas registradas em `Validacoes pendentes ou manuais`, sem bloquear `Status: attended` nem `Spec treatment: done`.
+  - Permanecem apenas as validacoes manuais externas registradas em `Validacoes pendentes ou manuais`, incluindo a revalidacao operacional do caso de remanescente reancorado, sem bloquear `Status: attended` nem `Spec treatment: done`.
 - Evidencias de validacao:
   - `src/core/runner.ts`
   - `src/core/spec-ticket-validation.ts`
+  - `src/core/spec-ticket-validation.test.ts`
   - `src/core/runner.test.ts`
   - `src/integrations/codex-client.ts`
+  - `src/integrations/codex-client.test.ts`
   - `src/integrations/spec-ticket-validation-parser.ts`
   - `src/integrations/git-client.ts`
   - `src/integrations/ticket-queue.ts`
@@ -233,6 +253,7 @@
   - `prompts/05-encerrar-tratamento-spec-commit-push.md`
   - `prompts/08-auditar-spec-apos-run-all.md`
   - `prompts/09-validar-tickets-derivados-da-spec.md`
+  - `prompts/10-autocorrigir-tickets-derivados-da-spec.md`
   - `AGENTS.md`
   - `SPECS.md`
   - `docs/workflows/discover-spec.md`
@@ -245,10 +266,11 @@
 
 ## Auditoria final de entrega
 - Auditoria executada em: 2026-03-19 18:10Z
-- Resultado: a releitura integral da spec, dos tickets fechados relacionados, dos execplans relacionados, do prompt de auditoria e do estado atual do codigo/testes confirmou atendimento de RF-01..RF-28 e CA-01..CA-20. `CA-19` foi fechado nesta auditoria pela verificacao de `src/core/runner.ts` e `src/core/runner.test.ts`, que mantem `spec-audit` apenas apos `/run-all` encadeado bem-sucedido e preservam falha especifica dessa etapa quando aplicavel. Nao foram encontrados gaps tecnicos residuais; a spec foi promovida para `Status: attended` e `Spec treatment: done`.
+- Resultado: a releitura integral da spec, dos tickets fechados relacionados, dos execplans relacionados, do prompt de auditoria e do estado atual do codigo/testes confirmou atendimento de RF-01..RF-28 e CA-01..CA-20 na linhagem auditada em 2026-03-19. `CA-19` foi fechado nessa auditoria pela verificacao de `src/core/runner.ts` e `src/core/runner.test.ts`, que mantem `spec-audit` apenas apos `/run-all` encadeado bem-sucedido e preservam falha especifica dessa etapa quando aplicavel. Em 2026-03-27, um incidente externo reabriu temporariamente a spec para hardening do criterio de reducao real de gaps; a correção local foi concluída, o ticket derivado foi fechado e a spec retorna para `Status: attended` com `Spec treatment: done`.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - Nenhum. As validacoes manuais externas remanescentes sao auditorias operacionais recomendadas e nao configuram gap residual local nem follow-up adicional.
+  - Nenhum.
 - Tickets/follow-ups concluidos na linhagem auditada:
+  - tickets/closed/2026-03-27-spec-ticket-validation-bloqueia-progresso-real-com-gap-reancorado.md
   - tickets/closed/2026-03-19-spec-ticket-validation-criterios-taxonomia-e-autocorrecao.md
   - tickets/closed/2026-03-19-spec-ticket-validation-orquestracao-e-observabilidade.md
   - tickets/closed/2026-03-19-contrato-canonico-spec-para-tickets-e-qualidade-por-token.md
@@ -265,7 +287,7 @@
 - Risco de UX: o resumo do `/run_specs` ficar verboso demais e reduzir legibilidade no Telegram.
 - Mitigacao:
   - manter taxonomia fixa, criterios objetivos e veredito formal `GO/NO_GO`;
-  - limitar o loop a 2 ciclos completos e exigir reducao real dos gaps;
+  - limitar o loop a 2 ciclos completos e exigir reducao real dos gaps, seja estrita por fingerprint ou ancorada no mesmo `gapType + affectedArtifactPaths` com queda da contagem total;
   - tratar a falha de ticket transversal como limitacao nao bloqueante;
   - resumir o resultado final do gate com estrutura fixa e de alta sinalizacao.
 
@@ -277,6 +299,8 @@
 - 2026-03-19 - Abrir ticket transversal de melhoria de workflow automaticamente quando houver alta confianca de causa sistemica - promove melhoria continua reaproveitavel para specs futuras.
 - 2026-03-19 - Tornar nao bloqueante a impossibilidade de abrir/publicar o ticket transversal em `codex-flow-runner` - evita travar a entrega da spec corrente por uma limitacao operacional secundaria.
 - 2026-03-19 - Registrar explicitamente na documentacao do projeto o principio de qualidade por token da IA/Codex - transforma a diretriz em criterio transversal de comportamento, validacao e evolucao do workflow.
+- 2026-03-27 - Preservar a reducao estrita de gaps como sinal forte e aceitar reducao ancorada apenas quando o remanescente mantiver o mesmo `gapType + affectedArtifactPaths` com queda da contagem total - resolve o caso de remanescente reancorado sem abrir o gate para progresso falso em outro ticket.
+- 2026-03-27 - Enriquecer a revalidacao com historico estruturado do passe anterior antes de introduzir IDs semanticos persistentes de gap - melhora a comparacao entre gaps com menor custo e menor risco de compatibilidade nesta rodada.
 
 ## Historico de atualizacao
 - 2026-03-19 15:31Z - Versao inicial da spec criada a partir de entrevista detalhada para introduzir o gate `spec-ticket-validation`, formalizar o veredito `GO/NO_GO`, corrigir o contrato de derivacao `spec -> tickets` e explicitar o principio transversal de qualidade por token da IA/Codex.
@@ -290,3 +314,6 @@
 - 2026-03-19 18:01Z - Ticket transversal de workflow implementado com publicador tipado, commit/push por caminhos explicitos, observabilidade no trace/spec/Telegram e cobertura automatizada verde para `CA-13`, `CA-14` e `CA-15` (`npx tsx --test src/integrations/workflow-improvement-ticket-publisher.test.ts src/integrations/git-client.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts`, `npm test`, `npm run check`, `npm run build`).
 - 2026-03-19 18:05Z - Ticket `tickets/closed/2026-03-19-ticket-transversal-de-melhoria-de-workflow-no-run-specs.md` fechado como `fixed` apos releitura do diff, do ExecPlan e da spec de origem, mantendo apenas auditorias operacionais externas como recomendacao.
 - 2026-03-19 18:10Z - Auditoria final apos a rodada encadeada revalidou a linhagem inteira sem gaps tecnicos residuais, marcou `CA-19` como atendido, promoveu a spec para `Status: attended` e `Spec treatment: done`, e manteve apenas validacoes manuais externas como recomendacoes operacionais nao bloqueantes.
+- 2026-03-27 17:11Z - Incidente externo em `caixa-fonte-ids` mostrou que `realGapReduction` ainda era rigido demais para gap remanescente reancorado; a spec foi reaberta para `Status: partially_attended` e `Spec treatment: pending`, com novo ticket/ExecPlan de hardening.
+- 2026-03-27 17:15Z - Hardening local implementado e validado com suites focadas do gate/cliente/runner, `npm test`, `npm run check` e `npm run build`; a spec permanece `partially_attended/pending` apenas porque o ticket ainda nao foi fechado em commit nesta linhagem.
+- 2026-03-27 17:17Z - Ticket `tickets/closed/2026-03-27-spec-ticket-validation-bloqueia-progresso-real-com-gap-reancorado.md` fechado como `fixed`; a spec volta para `Status: attended` e `Spec treatment: done`, mantendo apenas auditorias operacionais externas como recomendacao nao bloqueante.

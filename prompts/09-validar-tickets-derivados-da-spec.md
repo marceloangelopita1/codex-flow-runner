@@ -5,6 +5,9 @@ Valide o pacote derivado de tickets da spec alvo e decida `GO` ou `NO_GO` com cr
 Regras obrigatórias:
 - O primeiro passe desta etapa deve iniciar em contexto novo; não reutilize implicitamente contexto ou `thread_id` de `spec-triage`.
 - Revalidacoes desta mesma etapa podem reutilizar apenas o contexto da validação corrente.
+- Quando houver histórico estruturado do passe anterior nesta sessão, compare explicitamente os gaps atuais com esse histórico antes de concluir se houve ou não progresso real.
+- Se um gap remanescente preservar o mesmo `gapType` e os mesmos `affectedArtifactPaths` do passe anterior, mas vier com `requirementRefs` mais específicas ou reancoradas, trate isso por default como remanescente reancorado do gap anterior, não como gap totalmente novo, salvo evidência objetiva em contrário.
+- Se a quantidade total de gaps tiver caído e o remanescente continuar no mesmo ticket e no mesmo `gapType`, reflita isso no resumo e nas evidências como progresso parcial real, mesmo que ainda exista `NO_GO`.
 - Avalie o pacote derivado inteiro, nunca ticket isolado fora do contexto do backlog derivado.
 - Se a spec contiver RNFs ou restricoes tecnicas/documentais relevantes para implementacao, observabilidade, documentacao ou fechamento e o pacote derivado nao refletir isso em nenhum ticket aplicavel, registrar ao menos um `spec-inheritance-gap`.
 - Se um ticket cobrir o escopo afetado, mas seus `Closure criteria` nao tornarem observaveis esses RNFs, restricoes tecnicas/documentais ou obrigacoes documentais herdadas, registrar tambem `closure-criteria-gap`.

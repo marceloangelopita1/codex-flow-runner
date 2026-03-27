@@ -101,6 +101,15 @@ export interface SpecTicketValidationResult {
   allAppliedCorrections: SpecTicketValidationAppliedCorrection[];
 }
 
+export type SpecTicketValidationGapReductionMode = "none" | "strict" | "anchored";
+
+export interface SpecTicketValidationOpenGapReductionAssessment {
+  hasRealReduction: boolean;
+  mode: SpecTicketValidationGapReductionMode;
+  previousOpenGapFingerprints: string[];
+  nextOpenGapFingerprints: string[];
+}
+
 const normalizeFingerprintToken = (value: string): string => {
   return value.trim().replace(/\s+/gu, " ").toLowerCase();
 };
@@ -130,6 +139,17 @@ export const buildSpecTicketValidationGapFingerprint = (
   ].join("|");
 };
 
+const buildSpecTicketValidationGapAnchor = (
+  gap: Pick<SpecTicketValidationGap, "gapType" | "affectedArtifactPaths">,
+): string => {
+  const normalizedArtifacts = normalizeFingerprintList(gap.affectedArtifactPaths);
+
+  return [
+    gap.gapType,
+    normalizedArtifacts.length > 0 ? normalizedArtifacts.join("&") : "artifact:none",
+  ].join("|");
+};
+
 export const collectSpecTicketValidationGapFingerprints = (
   gaps: ReadonlyArray<
     Pick<SpecTicketValidationGap, "gapType" | "affectedArtifactPaths" | "requirementRefs">
@@ -146,15 +166,56 @@ export const hasStrictOpenGapReduction = (
     Pick<SpecTicketValidationGap, "gapType" | "affectedArtifactPaths" | "requirementRefs">
   >,
 ): boolean => {
+  return assessSpecTicketValidationOpenGapReduction(previousGaps, nextGaps).mode === "strict";
+};
+
+export const assessSpecTicketValidationOpenGapReduction = (
+  previousGaps: ReadonlyArray<
+    Pick<SpecTicketValidationGap, "gapType" | "affectedArtifactPaths" | "requirementRefs">
+  >,
+  nextGaps: ReadonlyArray<
+    Pick<SpecTicketValidationGap, "gapType" | "affectedArtifactPaths" | "requirementRefs">
+  >,
+): SpecTicketValidationOpenGapReductionAssessment => {
   const previousFingerprints = collectSpecTicketValidationGapFingerprints(previousGaps);
   const nextFingerprints = collectSpecTicketValidationGapFingerprints(nextGaps);
 
   if (nextFingerprints.length >= previousFingerprints.length) {
-    return false;
+    return {
+      hasRealReduction: false,
+      mode: "none",
+      previousOpenGapFingerprints: previousFingerprints,
+      nextOpenGapFingerprints: nextFingerprints,
+    };
   }
 
   const previousSet = new Set(previousFingerprints);
-  return nextFingerprints.every((fingerprint) => previousSet.has(fingerprint));
+  if (nextFingerprints.every((fingerprint) => previousSet.has(fingerprint))) {
+    return {
+      hasRealReduction: true,
+      mode: "strict",
+      previousOpenGapFingerprints: previousFingerprints,
+      nextOpenGapFingerprints: nextFingerprints,
+    };
+  }
+
+  const previousAnchors = new Set(previousGaps.map((gap) => buildSpecTicketValidationGapAnchor(gap)));
+  const nextAnchors = nextGaps.map((gap) => buildSpecTicketValidationGapAnchor(gap));
+  if (nextAnchors.every((anchor) => previousAnchors.has(anchor))) {
+    return {
+      hasRealReduction: true,
+      mode: "anchored",
+      previousOpenGapFingerprints: previousFingerprints,
+      nextOpenGapFingerprints: nextFingerprints,
+    };
+  }
+
+  return {
+    hasRealReduction: false,
+    mode: "none",
+    previousOpenGapFingerprints: previousFingerprints,
+    nextOpenGapFingerprints: nextFingerprints,
+  };
 };
 
 export const hasAutoCorrectableGaps = (
