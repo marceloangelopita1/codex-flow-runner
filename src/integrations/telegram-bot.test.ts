@@ -18,7 +18,7 @@ import {
   RunnerProjectControlResult,
 } from "../core/runner.js";
 import { Logger } from "../core/logger.js";
-import { ProjectRef } from "../types/project.js";
+import { ProjectCatalogEntry, ProjectRef } from "../types/project.js";
 import {
   CodexFlowPreferencesSnapshot,
   CodexModelSelectionResult,
@@ -564,14 +564,17 @@ const createDefaultProjectSnapshot = (): ProjectSelectionSnapshot => ({
     {
       name: "alpha-project",
       path: "/home/mapita/projetos/alpha-project",
+      catalogStatus: "eligible",
     },
     {
       name: "beta-project",
       path: "/home/mapita/projetos/beta-project",
+      catalogStatus: "eligible",
     },
     {
       name: "codex-flow-runner",
       path: "/home/mapita/projetos/codex-flow-runner",
+      catalogStatus: "eligible",
     },
   ],
   activeProject: {
@@ -585,8 +588,14 @@ const cloneProject = (project: ProjectRef): ProjectRef => ({
   path: project.path,
 });
 
+const cloneCatalogProject = (project: ProjectCatalogEntry): ProjectCatalogEntry => ({
+  name: project.name,
+  path: project.path,
+  catalogStatus: project.catalogStatus,
+});
+
 const cloneSnapshot = (snapshot: ProjectSelectionSnapshot): ProjectSelectionSnapshot => ({
-  projects: snapshot.projects.map(cloneProject),
+  projects: snapshot.projects.map(cloneCatalogProject),
   activeProject: cloneProject(snapshot.activeProject),
 });
 
@@ -794,12 +803,8 @@ const createController = (options: ControllerOptions = {}) => {
     targetPrepare: (projectName?: string | null) => {
       controlState.targetPrepareCalls += 1;
       controlState.targetPrepareArgs.push(projectName);
-      if (options.targetPrepareResult) {
-        return options.targetPrepareResult;
-      }
-
       const resolvedProjectName = projectName ?? defaultActiveProject.name;
-      return {
+      const result = options.targetPrepareResult ?? {
         status: "completed" as const,
         summary: {
           targetProject: {
@@ -825,6 +830,17 @@ const createController = (options: ControllerOptions = {}) => {
           },
         },
       };
+
+      if (result.status === "completed") {
+        const preparedProject = mutableSnapshot.projects.find(
+          (project) => project.name === result.summary.targetProject.name,
+        );
+        if (preparedProject) {
+          preparedProject.catalogStatus = "eligible";
+        }
+      }
+
+      return result;
     },
     cancelTargetPrepare: () => {
       controlState.targetPrepareCancelCalls += 1;
@@ -1484,7 +1500,15 @@ const createController = (options: ControllerOptions = {}) => {
         return {
           status: "not-found" as const,
           projectName,
-          availableProjects: mutableSnapshot.projects.map(cloneProject),
+          availableProjects: mutableSnapshot.projects.map(cloneCatalogProject),
+          activeProject: cloneProject(mutableSnapshot.activeProject),
+        };
+      }
+
+      if (selected.catalogStatus === "pending_prepare") {
+        return {
+          status: "pending-prepare" as const,
+          project: cloneCatalogProject(selected),
           activeProject: cloneProject(mutableSnapshot.activeProject),
         };
       }
@@ -2381,6 +2405,7 @@ const callHandleProjectsCallbackQuery = async (
     callbackQuery: { data?: string; from?: { id: number } };
     answerCbQuery: (text?: string) => Promise<unknown>;
     editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+    reply?: (text: string, extra?: unknown) => Promise<unknown>;
   },
 ): Promise<void> => {
   const internalController = controller as unknown as {
@@ -2389,6 +2414,7 @@ const callHandleProjectsCallbackQuery = async (
       callbackQuery: { data?: string; from?: { id: number } };
       answerCbQuery: (text?: string) => Promise<unknown>;
       editMessageText: (text: string, extra?: unknown) => Promise<unknown>;
+      reply?: (text: string, extra?: unknown) => Promise<unknown>;
     }) => Promise<void>;
   };
 
@@ -5763,9 +5789,61 @@ test("/projects responde lista paginada com marcador de projeto ativo", async ()
 
   assert.equal(controlState.listProjectsCalls, 1);
   assert.equal(replies.length, 1);
-  assert.match(replies[0]?.text ?? "", /Projetos elegíveis/u);
+  assert.match(replies[0]?.text ?? "", /Catálogo de projetos/u);
   assert.match(replies[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
   assert.match(replies[0]?.text ?? "", /✅ codex-flow-runner/u);
+});
+
+test("/projects renderiza item pending_prepare com CTA dedicado", async () => {
+  const { controller } = createController({
+    projectSnapshot: {
+      projects: [
+        {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+          catalogStatus: "eligible",
+        },
+        {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+          catalogStatus: "pending_prepare",
+        },
+        {
+          name: "codex-flow-runner",
+          path: "/home/mapita/projetos/codex-flow-runner",
+          catalogStatus: "eligible",
+        },
+      ],
+      activeProject: cloneProject(defaultActiveProject),
+    },
+  });
+  const replies: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleProjectsCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0]?.text ?? "", /🛠 beta-project/u);
+  assert.match(replies[0]?.text ?? "", /pendente de prepare/u);
+  assert.match(replies[0]?.text ?? "", /Use os botões “Preparar”/u);
+
+  const inlineKeyboard = (
+    replies[0]?.extra as {
+      reply_markup?: {
+        inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+      };
+    }
+  ).reply_markup?.inline_keyboard ?? [];
+  const prepareButton = inlineKeyboard.flat().find((button) => button.callback_data === "projects:prepare:1");
+  assert.deepEqual(prepareButton, {
+    text: "🛠 Preparar beta-project",
+    callback_data: "projects:prepare:1",
+  });
 });
 
 test("/projects lida com erro de listagem de projetos", async () => {
@@ -5781,7 +5859,7 @@ test("/projects lida com erro de listagem de projetos", async () => {
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0] ?? "", /Falha ao listar projetos elegíveis/u);
+  assert.match(replies[0] ?? "", /Falha ao listar o catálogo de projetos/u);
 });
 
 test("/models responde lista paginada com marcador do modelo atual", async () => {
@@ -6023,12 +6101,12 @@ test("/speed informa quando fast mode nao esta disponivel para o modelo atual", 
 test("callback de paginacao atualiza mensagem para pagina solicitada", async () => {
   const pagedSnapshot: ProjectSelectionSnapshot = {
     projects: [
-      { name: "alpha", path: "/home/mapita/projetos/alpha" },
-      { name: "beta", path: "/home/mapita/projetos/beta" },
-      { name: "gamma", path: "/home/mapita/projetos/gamma" },
-      { name: "delta", path: "/home/mapita/projetos/delta" },
-      { name: "epsilon", path: "/home/mapita/projetos/epsilon" },
-      { name: "zeta", path: "/home/mapita/projetos/zeta" },
+      { name: "alpha", path: "/home/mapita/projetos/alpha", catalogStatus: "eligible" },
+      { name: "beta", path: "/home/mapita/projetos/beta", catalogStatus: "eligible" },
+      { name: "gamma", path: "/home/mapita/projetos/gamma", catalogStatus: "eligible" },
+      { name: "delta", path: "/home/mapita/projetos/delta", catalogStatus: "eligible" },
+      { name: "epsilon", path: "/home/mapita/projetos/epsilon", catalogStatus: "eligible" },
+      { name: "zeta", path: "/home/mapita/projetos/zeta", catalogStatus: "eligible" },
     ],
     activeProject: {
       name: "alpha",
@@ -6109,6 +6187,106 @@ test("callback de selecao permite troca durante execucao em outro projeto", asyn
   assert.match(edits[0]?.text ?? "", /Projeto ativo: beta-project/u);
   assert.equal(answers.length, 1);
   assert.match(answers[0] ?? "", /Projeto ativo alterado para beta-project/u);
+});
+
+test("callback de selecao em item pending_prepare preserva projeto ativo e orienta prepare", async () => {
+  const { controller, controlState } = createController({
+    projectSnapshot: {
+      projects: [
+        {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+          catalogStatus: "eligible",
+        },
+        {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+          catalogStatus: "pending_prepare",
+        },
+        {
+          name: "codex-flow-runner",
+          path: "/home/mapita/projetos/codex-flow-runner",
+          catalogStatus: "eligible",
+        },
+      ],
+      activeProject: cloneProject(defaultActiveProject),
+    },
+  });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:select:1" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
+  assert.equal(controlState.targetPrepareCalls, 0);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /Projeto ativo: codex-flow-runner/u);
+  assert.match(edits[0]?.text ?? "", /🛠 beta-project/u);
+  assert.deepEqual(answers, ["Projeto beta-project ainda está pendente de /target_prepare."]);
+});
+
+test("callback de prepare em /projects executa target_prepare e atualiza o catálogo", async () => {
+  const { controller, controlState } = createController({
+    projectSnapshot: {
+      projects: [
+        {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+          catalogStatus: "eligible",
+        },
+        {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+          catalogStatus: "pending_prepare",
+        },
+        {
+          name: "codex-flow-runner",
+          path: "/home/mapita/projetos/codex-flow-runner",
+          catalogStatus: "eligible",
+        },
+      ],
+      activeProject: cloneProject(defaultActiveProject),
+    },
+  });
+  const answers: string[] = [];
+  const edits: Array<{ text: string; extra?: unknown }> = [];
+  const replies: string[] = [];
+
+  await callHandleProjectsCallbackQuery(controller, {
+    chat: { id: 42 },
+    callbackQuery: { data: "projects:prepare:1" },
+    answerCbQuery: async (text) => {
+      answers.push(text ?? "");
+      return Promise.resolve();
+    },
+    editMessageText: async (text, extra) => {
+      edits.push({ text, extra });
+      return Promise.resolve();
+    },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.equal(controlState.targetPrepareCalls, 1);
+  assert.deepEqual(controlState.targetPrepareArgs, ["beta-project"]);
+  assert.equal(controlState.listProjectsCalls, 2);
+  assert.equal(edits.length, 1);
+  assert.match(edits[0]?.text ?? "", /▫️ beta-project — elegível/u);
+  assert.equal(answers[0], "/target_prepare concluído para beta-project.");
+  assert.match(replies[0] ?? "", /✅ \/target_prepare concluido para beta-project\./u);
 });
 
 test("pergunta parseada gera teclado inline com opcoes clicaveis (CA-07)", () => {
@@ -6809,6 +6987,48 @@ test("/select-project confirma troca quando projeto existe", async () => {
   assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Projeto ativo alterado para beta-project/u);
+});
+
+test("/select-project bloqueia item pending_prepare e informa proxima acao", async () => {
+  const { controller, controlState } = createController({
+    projectSnapshot: {
+      projects: [
+        {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+          catalogStatus: "eligible",
+        },
+        {
+          name: "beta-project",
+          path: "/home/mapita/projetos/beta-project",
+          catalogStatus: "pending_prepare",
+        },
+        {
+          name: "codex-flow-runner",
+          path: "/home/mapita/projetos/codex-flow-runner",
+          catalogStatus: "eligible",
+        },
+      ],
+      activeProject: cloneProject(defaultActiveProject),
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleSelectProjectCommand(controller, {
+    chat: { id: 42 },
+    message: { text: "/select-project beta-project" },
+    reply: async (text) => {
+      replies.push(text);
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(controlState.selectedProjectNames, ["beta-project"]);
+  assert.equal(controlState.targetPrepareCalls, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0] ?? "", /Projeto beta-project ainda está pendente de \/target_prepare/u);
+  assert.match(replies[0] ?? "", /Projeto ativo atual: codex-flow-runner/u);
+  assert.match(replies[0] ?? "", /Use \/target_prepare beta-project/u);
 });
 
 test("/select-project responde erro quando projeto nao existe", async () => {

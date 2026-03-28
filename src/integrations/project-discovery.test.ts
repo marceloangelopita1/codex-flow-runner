@@ -56,6 +56,32 @@ test("listEligibleProjects retorna apenas projetos validos em ordem alfabetica",
   }
 });
 
+test("listProjectCatalog inclui elegiveis e repositorios Git pendentes de prepare", async () => {
+  const rootPath = await createTempRoot();
+
+  try {
+    await createProject(rootPath, "beta", { hasGit: true, hasOpenTickets: true });
+    await createProject(rootPath, "alpha", { hasGit: true, hasOpenTickets: false });
+    await createProject(rootPath, "sem-git", { hasGit: false, hasOpenTickets: true });
+
+    const discovery = new FileSystemProjectDiscovery();
+    const catalog = await discovery.listProjectCatalog(rootPath);
+
+    assert.deepEqual(
+      catalog.map((value) => ({
+        name: value.name,
+        catalogStatus: value.catalogStatus,
+      })),
+      [
+        { name: "alpha", catalogStatus: "pending_prepare" },
+        { name: "beta", catalogStatus: "eligible" },
+      ],
+    );
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});
+
 test("listEligibleProjects considera apenas o primeiro nivel de PROJECTS_ROOT_PATH", async () => {
   const rootPath = await createTempRoot();
 
@@ -80,6 +106,15 @@ test("listEligibleProjects falha com erro claro quando raiz nao existe", async (
 
   await assert.rejects(
     () => discovery.listEligibleProjects("/tmp/nao-existe-project-discovery"),
+    /PROJECTS_ROOT_PATH/u,
+  );
+});
+
+test("listProjectCatalog falha com erro claro quando raiz nao existe", async () => {
+  const discovery = new FileSystemProjectDiscovery();
+
+  await assert.rejects(
+    () => discovery.listProjectCatalog("/tmp/nao-existe-project-discovery"),
     /PROJECTS_ROOT_PATH/u,
   );
 });

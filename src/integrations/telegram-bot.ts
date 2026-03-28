@@ -28,7 +28,7 @@ import type {
   RunSelectedTicketRequestResult,
   RunSpecsRequestResult,
 } from "../core/runner.js";
-import { ProjectRef } from "../types/project.js";
+import { ProjectCatalogEntry, ProjectRef } from "../types/project.js";
 import {
   CodexModelSelectionResult,
   CodexModelSelectionSnapshot,
@@ -262,6 +262,7 @@ interface CallbackContext {
   };
   answerCbQuery: (text?: string) => Promise<unknown>;
   editMessageText: (text: string, extra?: ReplyOptions) => Promise<unknown>;
+  reply?: (text: string, extra?: ReplyOptions) => Promise<unknown>;
 }
 
 interface IncomingUpdateContext {
@@ -295,6 +296,10 @@ type ParsedProjectsCallbackData =
     }
   | {
       status: "select";
+      projectIndex: number;
+    }
+  | {
+      status: "prepare";
       projectIndex: number;
     }
   | {
@@ -615,6 +620,7 @@ const PROJECTS_PAGE_SIZE = 5;
 const PROJECTS_CALLBACK_PREFIX = "projects:";
 const PROJECTS_CALLBACK_PAGE_PREFIX = "projects:page:";
 const PROJECTS_CALLBACK_SELECT_PREFIX = "projects:select:";
+const PROJECTS_CALLBACK_PREPARE_PREFIX = "projects:prepare:";
 const MODELS_PAGE_SIZE = 5;
 const MODELS_CALLBACK_PREFIX = "models:";
 const MODELS_CALLBACK_PAGE_PREFIX = "models:page:";
@@ -696,7 +702,7 @@ const CODEX_CHAT_FLOW_FAILED_REPLY_PREFIX = "❌ Falha na sessão interativa /co
 const CODEX_CHAT_FLOW_FAILED_RETRY_SUFFIX = "Use /codex_chat para tentar novamente.";
 const CODEX_CHAT_EMPTY_OUTPUT_REPLY = "ℹ️ O Codex não retornou conteúdo nesta resposta.";
 const SELECT_PROJECT_USAGE_REPLY =
-  "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar os projetos elegíveis.";
+  "ℹ️ Uso: /select_project <nome-do-projeto>. Alias legado: /select-project. Use /projects para listar o catálogo de projetos.";
 const SELECT_PROJECT_BLOCKED_DISCOVER_SPEC_REPLY =
   "❌ Não é possível trocar o projeto ativo durante uma sessão /discover_spec ativa.";
 const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
@@ -704,12 +710,12 @@ const SELECT_PROJECT_BLOCKED_PLAN_SPEC_REPLY =
 const SELECT_PROJECT_BLOCKED_TARGET_FLOW_REPLY =
   "❌ Não é possível trocar o projeto ativo enquanto um fluxo target operacional estiver em andamento.";
 const LIST_PROJECTS_FAILED_REPLY =
-  "❌ Falha ao listar projetos elegíveis. Verifique logs do runner e tente novamente.";
+  "❌ Falha ao listar o catálogo de projetos. Verifique logs do runner e tente novamente.";
 const SELECT_PROJECT_FAILED_REPLY =
   "❌ Falha ao trocar projeto ativo. Verifique logs do runner e tente novamente.";
 const PROJECTS_CALLBACK_INVALID_REPLY = "Ação de projeto inválida.";
 const PROJECTS_CALLBACK_STALE_REPLY =
-  "A lista de projetos mudou. Atualize com /projects e tente novamente.";
+  "A lista do catálogo mudou. Atualize com /projects e tente novamente.";
 const PROJECTS_CALLBACK_UNAUTHORIZED_REPLY = "Acesso não autorizado.";
 const RUN_ALL_LEGACY_PATTERN = /^\/run-all(?:@[^\s]+)?(?:\s+.*)?$/u;
 const CODEX_CHAT_LEGACY_PATTERN = /^\/codex-chat(?:@[^\s]+)?(?:\s+.*)?$/u;
@@ -3424,6 +3430,11 @@ export class TelegramController {
       return;
     }
 
+    if (parsed.status === "prepare") {
+      await this.handlePrepareProjectFromCallback(ctx, parsed.projectIndex);
+      return;
+    }
+
     await this.handleSelectProjectFromCallback(ctx, parsed.projectIndex);
   }
 
@@ -3884,6 +3895,13 @@ export class TelegramController {
         return;
       }
 
+      if (selectionResult.status === "pending-prepare") {
+        const rendered = this.buildProjectsReply(snapshot, Math.floor(projectIndex / PROJECTS_PAGE_SIZE));
+        await ctx.editMessageText(rendered.text, rendered.extra);
+        await this.safeAnswerCallbackQuery(ctx, this.buildSelectProjectCallbackReply(selectionResult));
+        return;
+      }
+
       const refreshedSnapshot = await this.controls.listProjects();
       const activeProjectPage = this.resolveActiveProjectPage(refreshedSnapshot);
       const rendered = this.buildProjectsReply(refreshedSnapshot, activeProjectPage);
@@ -3895,6 +3913,49 @@ export class TelegramController {
         error: error instanceof Error ? error.message : String(error),
       });
       await this.safeAnswerCallbackQuery(ctx, SELECT_PROJECT_FAILED_REPLY);
+    }
+  }
+
+  private async handlePrepareProjectFromCallback(
+    ctx: CallbackContext,
+    projectIndex: number,
+  ): Promise<void> {
+    try {
+      const snapshot = await this.controls.listProjects();
+      const targetProject = snapshot.projects[projectIndex];
+      if (!targetProject) {
+        await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_STALE_REPLY);
+        const fallbackPage = this.buildProjectsReply(snapshot, 0);
+        await ctx.editMessageText(fallbackPage.text, fallbackPage.extra);
+        return;
+      }
+
+      if (targetProject.catalogStatus !== "pending_prepare") {
+        await this.safeAnswerCallbackQuery(ctx, PROJECTS_CALLBACK_STALE_REPLY);
+        const rendered = this.buildProjectsReply(snapshot, Math.floor(projectIndex / PROJECTS_PAGE_SIZE));
+        await ctx.editMessageText(rendered.text, rendered.extra);
+        return;
+      }
+
+      const chatId = this.resolveContextChatId(ctx.chat);
+      this.captureNotificationChat(chatId);
+      const result = await this.controls.targetPrepare(targetProject.name);
+      const refreshedSnapshot = await this.controls.listProjects();
+      const targetProjectPage = this.resolveProjectCatalogPageByName(
+        refreshedSnapshot,
+        targetProject.name,
+        projectIndex,
+      );
+      const rendered = this.buildProjectsReply(refreshedSnapshot, targetProjectPage);
+      await ctx.editMessageText(rendered.text, rendered.extra);
+      await this.safeAnswerCallbackQuery(ctx, this.buildTargetPrepareCallbackReply(result));
+      await this.safeReplyToCallbackContext(ctx, this.buildTargetPrepareReply(result));
+    } catch (error) {
+      this.logger.error("Falha ao iniciar /target_prepare via callback de /projects", {
+        projectIndex,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.safeAnswerCallbackQuery(ctx, "Falha ao processar /target_prepare.");
     }
   }
 
@@ -4254,6 +4315,14 @@ export class TelegramController {
       return `✅ Projeto ativo alterado para ${result.activeProject.name}.`;
     }
 
+    if (result.status === "pending-prepare") {
+      return [
+        `ℹ️ Projeto ${result.project.name} ainda está pendente de /target_prepare.`,
+        `Projeto ativo atual: ${result.activeProject.name}.`,
+        `Use /target_prepare ${result.project.name} ou o botão correspondente em /projects para preparar o repositório antes de selecioná-lo.`,
+      ].join(" ");
+    }
+
     const availableProjects = result.availableProjects.map((project) => project.name).join(", ");
     const availableSuffix = availableProjects
       ? ` Projetos disponíveis: ${availableProjects}.`
@@ -4262,7 +4331,7 @@ export class TelegramController {
     return [
       `❌ Projeto ${result.projectName} não encontrado.`,
       `Projeto ativo atual: ${result.activeProject.name}.`,
-      `Use /projects para listar projetos elegíveis.${availableSuffix}`,
+      `Use /projects para listar o catálogo de projetos.${availableSuffix}`,
     ].join(" ");
   }
 
@@ -4273,6 +4342,10 @@ export class TelegramController {
       }
 
       return `Projeto ativo alterado para ${result.activeProject.name}.`;
+    }
+
+    if (result.status === "pending-prepare") {
+      return `Projeto ${result.project.name} ainda está pendente de /target_prepare.`;
     }
 
     return PROJECTS_CALLBACK_STALE_REPLY;
@@ -4862,6 +4935,16 @@ export class TelegramController {
       }
 
       return { status: "select", projectIndex };
+    }
+
+    if (callbackData.startsWith(PROJECTS_CALLBACK_PREPARE_PREFIX)) {
+      const rawIndex = callbackData.slice(PROJECTS_CALLBACK_PREPARE_PREFIX.length);
+      const projectIndex = Number.parseInt(rawIndex, 10);
+      if (!Number.isFinite(projectIndex) || projectIndex < 0) {
+        return { status: "invalid" };
+      }
+
+      return { status: "prepare", projectIndex };
     }
 
     return { status: "invalid" };
@@ -5566,22 +5649,38 @@ export class TelegramController {
     const pageProjects = snapshot.projects.slice(start, start + PROJECTS_PAGE_SIZE);
 
     const lines = [
-      "📁 Projetos elegíveis",
+      "📁 Catálogo de projetos",
       `Página ${page + 1}/${totalPages}`,
       `Projeto ativo: ${snapshot.activeProject.name}`,
+      "",
+      "Legenda: ✅ ativo | ▫️ elegível | 🛠 pendente de prepare",
       "",
     ];
 
     for (const [index, project] of pageProjects.entries()) {
       const absoluteIndex = start + index;
-      const marker = this.isSameProject(project, snapshot.activeProject) ? "✅" : "▫️";
-      lines.push(`${absoluteIndex + 1}. ${marker} ${project.name}`);
+      lines.push(
+        `${absoluteIndex + 1}. ${this.buildProjectCatalogLine(project, snapshot.activeProject)}`,
+      );
     }
 
-    lines.push("", "Toque em um projeto para selecionar.");
+    lines.push(
+      "",
+      "Toque em um projeto elegível para selecionar.",
+      "Use os botões “Preparar” nos itens pendentes de prepare.",
+    );
 
     const inlineKeyboard: InlineKeyboardButton[][] = pageProjects.map((project, index) => {
       const absoluteIndex = start + index;
+      if (project.catalogStatus === "pending_prepare") {
+        return [
+          {
+            text: `🛠 Preparar ${project.name}`,
+            callback_data: `${PROJECTS_CALLBACK_PREPARE_PREFIX}${absoluteIndex}`,
+          },
+        ];
+      }
+
       const marker = this.isSameProject(project, snapshot.activeProject) ? "✅" : "▫️";
       return [
         {
@@ -5926,6 +6025,66 @@ export class TelegramController {
     }
 
     return Math.floor(activeProjectIndex / PROJECTS_PAGE_SIZE);
+  }
+
+  private resolveProjectCatalogPageByName(
+    snapshot: ProjectSelectionSnapshot,
+    projectName: string,
+    fallbackIndex: number,
+  ): number {
+    const projectIndex = snapshot.projects.findIndex((project) => project.name === projectName);
+    if (projectIndex >= 0) {
+      return Math.floor(projectIndex / PROJECTS_PAGE_SIZE);
+    }
+
+    return Math.floor(Math.max(fallbackIndex, 0) / PROJECTS_PAGE_SIZE);
+  }
+
+  private buildProjectCatalogLine(project: ProjectCatalogEntry, activeProject: ProjectRef): string {
+    if (project.catalogStatus === "pending_prepare") {
+      return `🛠 ${project.name} — pendente de prepare`;
+    }
+
+    const marker = this.isSameProject(project, activeProject) ? "✅" : "▫️";
+    return `${marker} ${project.name} — elegível`;
+  }
+
+  private buildTargetPrepareCallbackReply(result: TargetPrepareRequestResult): string {
+    if (result.status === "started") {
+      return "Execução de /target_prepare iniciada.";
+    }
+
+    if (result.status === "completed") {
+      return `/target_prepare concluído para ${result.summary.targetProject.name}.`;
+    }
+
+    if (result.status === "cancelled") {
+      return `/target_prepare cancelado para ${result.summary.targetProject.name}.`;
+    }
+
+    if (result.status === "blocked") {
+      return "Preparação bloqueada.";
+    }
+
+    return "Falha ao processar /target_prepare.";
+  }
+
+  private async safeReplyToCallbackContext(
+    ctx: CallbackContext,
+    text: string,
+    extra?: ReplyOptions,
+  ): Promise<void> {
+    if (!ctx.reply) {
+      return;
+    }
+
+    try {
+      await ctx.reply(text, extra);
+    } catch (error) {
+      this.logger.warn("Falha ao enviar mensagem complementar de callback", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private isSameProject(left: ProjectRef | null | undefined, right: ProjectRef): boolean {

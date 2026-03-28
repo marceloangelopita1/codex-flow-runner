@@ -133,7 +133,12 @@ Compatibilidade do projeto alvo com o workflow completo continua sendo pre-requi
 
 ## Onboarding controlado de projeto alvo
 
-Quando um repositório Git irmão ainda não aparece em `/projects`, agora existe uma etapa operacional explícita:
+O `/projects` agora funciona como um catálogo operacional:
+
+- projeto elegível = diretório irmão com `.git` e `tickets/open/`, selecionável como projeto ativo;
+- projeto pendente de `prepare` = diretório irmão com `.git`, mas ainda sem `tickets/open/`, visível no catálogo e elegível para `/target_prepare`.
+
+Quando um repositório Git irmão ainda está pendente de `prepare` em `/projects`, existe uma etapa operacional explícita:
 
 - `/target_prepare` usa o projeto ativo atual sem trocá-lo;
 - `/target_prepare <project-name>` resolve apenas o nome literal do diretório irmão em `PROJECTS_ROOT_PATH`;
@@ -142,7 +147,7 @@ Quando um repositório Git irmão ainda não aparece em `/projects`, agora exist
 - em sucesso, o próprio repositório alvo recebe `docs/workflows/target-prepare-manifest.json` e `docs/workflows/target-prepare-report.md`;
 - commit/push só acontecem depois do pos-check determinístico; em falha, o fluxo não marca o preparo como concluído.
 
-O `target_prepare` não troca implicitamente o projeto ativo do runner. Quando o preparo termina com sucesso e o repositório passa a atender `.git` + `tickets/open/`, ele pode aparecer em `/projects`.
+O `target_prepare` não troca implicitamente o projeto ativo do runner. Quando o preparo termina com sucesso e o repositório passa a atender `.git` + `tickets/open/`, ele deixa o estado pendente e passa a aparecer como elegível em `/projects`.
 
 ## Readiness audit canônico do projeto alvo
 
@@ -849,7 +854,7 @@ Observacoes:
 - `npm run dev` reclama de configuração invalida: quase sempre o problema esta no `.env`, principalmente em `PROJECTS_ROOT_PATH` apontando para a pasta do repositório em vez da pasta-pai.
 - o bot não responde a `/status`: confirme se você enviou `/start` para o bot, se `TELEGRAM_BOT_TOKEN` esta correto e se `TELEGRAM_ALLOWED_CHAT_ID` bate exatamente com o chat autorizado.
 - `/run_all` falha na hora do push: o Git do WSL ainda não esta autenticado para empurrar para o seu fork ou para o repositório alvo.
-- um projeto não aparece em `/projects`: ele precisa estar no primeiro nível de `PROJECTS_ROOT_PATH` e conter pelo menos `.git` e `tickets/open/`.
+- um projeto não aparece em `/projects`: ele precisa estar no primeiro nível de `PROJECTS_ROOT_PATH` e conter pelo menos `.git`; se tiver `.git` mas ainda não tiver `tickets/open/`, ele aparece no catálogo como pendente de `prepare` e deve ser promovido por `/target_prepare`.
 
 ## Exemplo prático: criar um segundo projeto "Hello World"
 
@@ -1050,8 +1055,8 @@ Confira estes pontos:
 
 - ele precisa estar dentro de `PROJECTS_ROOT_PATH`;
 - ele precisa ter um diretório `.git`;
-- ele precisa ter `tickets/open/`;
-- o nome do projeto deve aparecer em `/projects`;
+- se ainda não tiver `tickets/open/`, ele deve aparecer em `/projects` como pendente de `prepare`;
+- depois de `/target_prepare` bem-sucedido ou da criação da estrutura compatível, ele passa a ficar elegível para seleção ativa;
 - o runner precisa estar em execução no `codex-flow-runner`.
 
 ## Exemplo prático: criar um projeto a partir de uma spec
@@ -1139,10 +1144,11 @@ Neste fork, essas pastas já existem. Se você quiser que o runner gerencie outr
 
 Regras de descoberta:
 
-- o runner descobre projetos elegiveis no primeiro nível de `PROJECTS_ROOT_PATH`;
+- o runner monta o catálogo de `/projects` no primeiro nível de `PROJECTS_ROOT_PATH`;
 - projeto elegivel = diretório que possui `.git` e `tickets/open/`;
+- projeto pendente de `prepare` = diretório que possui `.git`, mas ainda não possui `tickets/open/`;
 - em outras palavras, o runner espera encontrar `codex-flow-runner` e os projetos alvo como pastas irmãs diretas dentro da mesma pasta-pai;
-- o projeto ativo global e restaurado de `PROJECTS_ROOT_PATH/.codex-flow-runner/active-project.json` quando valido;
+- o projeto ativo global continua sendo restaurado apenas entre os projetos elegiveis a partir de `PROJECTS_ROOT_PATH/.codex-flow-runner/active-project.json` quando valido;
 - se o estado persistido estiver ausente, invalido ou desatualizado, o bootstrap usa fallback para o primeiro projeto elegivel em ordem alfabetica e persiste a nova selecao;
 - não existe fallback de compatibilidade para `REPO_PATH`.
 
@@ -1242,7 +1248,7 @@ npm run dev
 - `/status` -> mostra estado atual
 - `/pause` -> pausa processamento
 - `/resume` -> retoma processamento
-- `/projects` -> lista projetos elegiveis com paginacao e marca o projeto ativo
+- `/projects` -> lista o catálogo de projetos com paginação, marca o projeto ativo e sinaliza itens pendentes de `prepare`
 - `/select_project <nome>` -> seleciona projeto ativo por nome (fallback textual)
 - `/select-project <nome>` -> alias legado compatível para `/select_project`
 - `/models` -> lista os modelos disponíveis no catalogo local do Codex para o projeto ativo e permite trocar o modelo atual

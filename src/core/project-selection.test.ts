@@ -2,11 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ActiveProjectStore, ActiveProjectStoreLoadResult } from "../integrations/active-project-store.js";
 import { ProjectDiscovery } from "../integrations/project-discovery.js";
-import { ProjectRef } from "../types/project.js";
+import { ProjectCatalogEntry, ProjectRef } from "../types/project.js";
 import { ActiveProjectSelectionService } from "./project-selection.js";
 
 class StubProjectDiscovery implements ProjectDiscovery {
-  constructor(private readonly projects: ProjectRef[]) {}
+  constructor(
+    private readonly projects: ProjectRef[],
+    private readonly catalogProjects: ProjectCatalogEntry[] = projects.map((project) => ({
+      ...project,
+      catalogStatus: "eligible",
+    })),
+  ) {}
+
+  async listProjectCatalog(_projectsRootPath: string): Promise<ProjectCatalogEntry[]> {
+    return this.catalogProjects.map((project) => ({ ...project }));
+  }
 
   async listEligibleProjects(_projectsRootPath: string): Promise<ProjectRef[]> {
     return this.projects.map((project) => ({ ...project }));
@@ -60,7 +70,13 @@ test("listProjects retorna projetos elegiveis e destaca projeto ativo restaurado
   const service = new ActiveProjectSelectionService("/home/mapita/projetos", { discovery, store });
   const snapshot = await service.listProjects();
 
-  assert.deepEqual(snapshot.projects, projects);
+  assert.deepEqual(
+    snapshot.projects,
+    projects.map((project) => ({
+      ...project,
+      catalogStatus: "eligible",
+    })),
+  );
   assert.equal(snapshot.activeProject.name, "beta-project");
   assert.equal(snapshot.activeProject.path, "/home/mapita/projetos/beta-project");
   assert.equal(store.savedProjects.length, 0);
@@ -139,6 +155,44 @@ test("selectProjectByName retorna not-found com lista disponivel quando nome nao
       result.availableProjects.map((project) => project.name),
       ["alpha-project", "beta-project", "codex-flow-runner"],
     );
+    assert.equal(result.activeProject.name, "alpha-project");
+  }
+
+  assert.equal(store.savedProjects.length, 0);
+});
+
+test("selectProjectByName retorna pending-prepare quando item existe no catalogo mas ainda nao e elegivel", async () => {
+  const catalogProjects: ProjectCatalogEntry[] = [
+    { name: "alpha-project", path: "/home/mapita/projetos/alpha-project", catalogStatus: "eligible" },
+    { name: "beta-project", path: "/home/mapita/projetos/beta-project", catalogStatus: "eligible" },
+    {
+      name: "guiadomus-enrich-matricula",
+      path: "/home/mapita/projetos/guiadomus-enrich-matricula",
+      catalogStatus: "pending_prepare",
+    },
+    {
+      name: "codex-flow-runner",
+      path: "/home/mapita/projetos/codex-flow-runner",
+      catalogStatus: "eligible",
+    },
+  ];
+  const discovery = new StubProjectDiscovery(projects, catalogProjects);
+  const store = new StubActiveProjectStore({
+    status: "loaded",
+    project: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+      updatedAt: "2026-02-19T18:00:00.000Z",
+    },
+  });
+
+  const service = new ActiveProjectSelectionService("/home/mapita/projetos", { discovery, store });
+  const result = await service.selectProjectByName("guiadomus-enrich-matricula");
+
+  assert.equal(result.status, "pending-prepare");
+  if (result.status === "pending-prepare") {
+    assert.equal(result.project.name, "guiadomus-enrich-matricula");
+    assert.equal(result.project.catalogStatus, "pending_prepare");
     assert.equal(result.activeProject.name, "alpha-project");
   }
 

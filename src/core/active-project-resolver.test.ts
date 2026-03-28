@@ -11,10 +11,17 @@ import {
   PersistedActiveProject,
 } from "../integrations/active-project-store.js";
 import { ProjectDiscovery } from "../integrations/project-discovery.js";
-import { ProjectRef } from "../types/project.js";
+import { ProjectCatalogEntry, ProjectRef } from "../types/project.js";
 
 class StubProjectDiscovery implements ProjectDiscovery {
   constructor(private readonly projects: ProjectRef[]) {}
+
+  async listProjectCatalog(_projectsRootPath: string): Promise<ProjectCatalogEntry[]> {
+    return this.projects.map((project) => ({
+      ...project,
+      catalogStatus: "eligible",
+    }));
+  }
 
   async listEligibleProjects(_projectsRootPath: string): Promise<ProjectRef[]> {
     return this.projects;
