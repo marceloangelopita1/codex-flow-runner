@@ -64,6 +64,7 @@
 - Affected workflow surfaces: documentacao, prompt, runner, testes
 - Path conventions: caminhos no formato `<projeto>/<path>` sao exibicoes humanas qualificadas por projeto; a chave canonica de dedupe continua em `Source spec canonical path`.
 - Input constraints: a publicacao deste ticket nao deve bloquear a rodada auditada; em projeto externo, o publish deve ocorrer apenas no repositorio do workflow.
+- Scope boundary with related tickets: este ticket define e valida a estrategia canonica entre `target_prepare`, `target_checkup`, contrato de compatibilidade e o contrato documental dos prompts; o rollout operacional amplo nos prompts, runner e testes consumidores do checklist segue rastreado em `tickets/open/2026-03-27-workflow-improvement-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-cb4850ca.md`.
 
 ## Problem statement
 No workflow completo em projeto externo, os prompts operacionais mandam aplicar `docs/workflows/codex-quality-gates.md` como se o arquivo existisse no repo alvo, mas `target_prepare` nao o propaga e `target_checkup` nao o exige. Isso permite que um projeto seja tratado como compativel com o workflow completo enquanto uma instrucao central do proprio workflow permanece inacessivel localmente, enfraquecendo a derivacao inicial de tickets.
@@ -114,9 +115,11 @@ Escolher e aplicar uma estrategia canonica unica para o checklist compartilhado 
 - `target_prepare` passa a propagar `docs/workflows/codex-quality-gates.md` para o projeto externo ou o runner/prompt passa a injetar a referencia externa correta de forma deterministica.
 - Prompts que hoje referenciam `docs/workflows/codex-quality-gates.md` deixam de depender de um caminho inexistente em projeto externo.
 - Testes cobrindo projeto externo preparado + prompt de `spec-triage` confirmam que o checklist compartilhado fica resolvivel antes da derivacao de tickets.
+- O fechamento deste ticket deixa explicita a regra canonica para projetos externos, sem depender de inferencia sobre como os demais prompts consumidores do checklist serao atualizados em lote.
 
 ## Decision log
 - 2026-03-28 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
+- 2026-03-31 - Revisao manual do backlog manteve este ticket como dono do alinhamento estrutural entre onboarding, checkup e contrato de compatibilidade; o ticket tatico de spec-triage sobreposto foi fechado como `duplicate`.
 
 ## Closure
 - Closed at (UTC):

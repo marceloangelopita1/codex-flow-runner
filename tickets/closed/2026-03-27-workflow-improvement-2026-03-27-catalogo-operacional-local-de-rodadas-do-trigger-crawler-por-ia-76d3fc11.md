@@ -1,7 +1,7 @@
 # [TICKET] Spec-triage externo nao resolve o checklist compartilhado do workflow
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-27 22:33Z
@@ -130,9 +130,10 @@ Ajustar a construcao do prompt de spec-triage para qualificar o caminho do check
 
 ## Decision log
 - 2026-03-27 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
+- 2026-03-31 - Revisao manual do backlog confirmou que este ticket e um subconjunto tatico do rollout operacional ja coberto pelo ticket `2026-03-27-workflow-improvement-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-cb4850ca.md`, sem criterio de fechamento independente; o alinhamento estrutural com onboarding/checkup segue no ticket `2026-03-28-workflow-improvement-2026-03-28-catalogo-operacional-local-da-function-enrich-amenities-por-ia-1c25bf37.md`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-31 00:30Z
+- Closure reason: duplicate
+- Related PR/commit/execplan: commit deste ciclo em `main` (mesmo commit que move este ticket para `tickets/closed/`); escopo absorvido por `tickets/open/2026-03-27-workflow-improvement-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-cb4850ca.md` e realinhado ao contrato estrutural em `tickets/open/2026-03-28-workflow-improvement-2026-03-28-catalogo-operacional-local-da-function-enrich-amenities-por-ia-1c25bf37.md`.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A

@@ -67,6 +67,7 @@
 - Affected workflow surfaces: prompt, runner, testes
 - Path conventions: caminhos no formato `<projeto>/<path>` sao exibicoes humanas qualificadas por projeto; a chave canonica de dedupe continua em `Source spec canonical path`.
 - Input constraints: a publicacao deste ticket nao deve bloquear a rodada auditada; em projeto externo, o publish deve ocorrer apenas no repositorio do workflow.
+- Scope boundary with related tickets: este ticket cobre o rollout operacional da estrategia canonica de acesso ao checklist nos prompts, no runner e nos testes que consomem `docs/workflows/codex-quality-gates.md`; alinhamento de `target_prepare`, `target_checkup` e contrato de compatibilidade fica rastreado separadamente em `tickets/open/2026-03-28-workflow-improvement-2026-03-28-catalogo-operacional-local-da-function-enrich-amenities-por-ia-1c25bf37.md`.
 
 ## Problem statement
 Os prompts do workflow pedem aplicacao do checklist compartilhado em docs/workflows/codex-quality-gates.md, mas as etapas de spec e backlog executam o Codex com cwd no projeto alvo. Em projeto externo, esse caminho resolve no repositório avaliado, não no codex-flow-runner, e o checklist prometido fica indisponível justamente quando a IA deveria reutilizar o contrato canônico.
@@ -123,6 +124,7 @@ Atualizar os prompt templates que citam docs/workflows/codex-quality-gates.md pa
 - Existe cobertura automatizada que falha se um prompt de projeto externo voltar a emitir o caminho não qualificado para o checklist.
 - Há teste de regressão cobrindo ao menos spec-triage em projeto externo e validando que o prompt final inclui artefatos canônicos qualificados do workflow.
 - Os prompts externos que exigem o checklist compartilhado não deixam mais o agente depender de docs/workflows/codex-quality-gates.md relativo ao repositório alvo.
+- Este ticket pode fechar sem alterar `target_prepare`, `target_checkup` ou o contrato de compatibilidade, desde que essas superficies permaneçam coerentes com a estrategia canonica rastreada no ticket estrutural de 2026-03-28.
 
 ## Decision log
 - 2026-03-27 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
