@@ -1,3 +1,4 @@
+import path from "node:path";
 import { CodexInvocationPreferences } from "./codex-preferences.js";
 import { ProjectRef } from "./project.js";
 import { TargetFlowLifecycleHooks, TargetPrepareMilestone } from "./target-flow.js";
@@ -6,6 +7,9 @@ export const TARGET_PREPARE_CONTRACT_VERSION = "1.0";
 export const TARGET_PREPARE_SCHEMA_VERSION = "1.0";
 export const TARGET_PREPARE_MANIFEST_PATH = "docs/workflows/target-prepare-manifest.json";
 export const TARGET_PREPARE_REPORT_PATH = "docs/workflows/target-prepare-report.md";
+export const TARGET_PREPARE_WORKFLOW_REPO_NAME = "codex-flow-runner";
+export const TARGET_PREPARE_WORKFLOW_QUALITY_GATES_SOURCE_RELATIVE_PATH =
+  "docs/workflows/codex-quality-gates.md";
 
 export const TARGET_PREPARE_ALLOWED_PATHS = [
   "tickets/open/",
@@ -95,11 +99,45 @@ export type TargetPrepareValidationStrategy =
   | "managed-block"
   | "runner-generated";
 
+export type TargetPrepareWorkflowDependencyAccessMode =
+  | "current-project"
+  | "workflow-repo-sibling";
+
+export interface TargetPrepareWorkflowDependency {
+  artifactId: "workflow-quality-gates";
+  requiredFor: "workflow-complete";
+  summary: string;
+  sourceRelativePath: string;
+  targetRelativePath: string;
+  accessMode: TargetPrepareWorkflowDependencyAccessMode;
+}
+
 export const renderTargetPrepareManagedBlockStart = (markerId: string): string =>
   `<!-- ${markerId}:start -->`;
 
 export const renderTargetPrepareManagedBlockEnd = (markerId: string): string =>
   `<!-- ${markerId}:end -->`;
+
+export const resolveTargetPrepareWorkflowCompleteDependencies = (
+  targetProjectPath: string,
+  runnerRepoPath: string,
+): TargetPrepareWorkflowDependency[] => {
+  const sourceRelativePath = TARGET_PREPARE_WORKFLOW_QUALITY_GATES_SOURCE_RELATIVE_PATH;
+  const isCurrentProject = path.resolve(targetProjectPath) === path.resolve(runnerRepoPath);
+
+  return [
+    {
+      artifactId: "workflow-quality-gates",
+      requiredFor: "workflow-complete",
+      summary: "Checklist compartilhado exigido pelos prompts operacionais do workflow completo.",
+      sourceRelativePath,
+      targetRelativePath: isCurrentProject
+        ? sourceRelativePath
+        : `../${TARGET_PREPARE_WORKFLOW_REPO_NAME}/${sourceRelativePath}`,
+      accessMode: isCurrentProject ? "current-project" : "workflow-repo-sibling",
+    },
+  ];
+};
 
 export const isTargetPreparePathAllowed = (relativePath: string): boolean => {
   const normalized = relativePath.replace(/\\/gu, "/");
@@ -142,6 +180,7 @@ export interface TargetPrepareManifest {
     headShaAtStart: string | null;
     headShaAtValidation: string | null;
   };
+  workflowCompleteDependencies: TargetPrepareWorkflowDependency[];
   artifacts: {
     manifestPath: string;
     reportPath: string;

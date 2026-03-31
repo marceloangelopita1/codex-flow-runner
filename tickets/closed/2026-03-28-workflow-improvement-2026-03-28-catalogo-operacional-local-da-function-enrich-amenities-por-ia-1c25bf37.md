@@ -1,7 +1,7 @@
 # [TICKET] Alinhar checklist compartilhado entre prompts e onboarding de projetos externos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-28 20:20Z
@@ -120,9 +120,28 @@ Escolher e aplicar uma estrategia canonica unica para o checklist compartilhado 
 ## Decision log
 - 2026-03-28 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
 - 2026-03-31 - Revisao manual do backlog manteve este ticket como dono do alinhamento estrutural entre onboarding, checkup e contrato de compatibilidade; o ticket tatico de spec-triage sobreposto foi fechado como `duplicate`.
+- 2026-03-31 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO` sem gap remanescente.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-31 01:16Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-03-28-workflow-improvement-2026-03-28-catalogo-operacional-local-da-function-enrich-amenities-por-ia-1c25bf37.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
+- Resultado final do fechamento: `GO`
+- Checklist aplicado: releitura do diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion antes da decisao final.
+- Evidencia objetiva por closure criterion:
+  - `target_checkup` e o contrato de compatibilidade validam a mesma estrategia canonica: `docs/workflows/target-project-compatibility-contract.md` agora explicita o caminho `../codex-flow-runner/docs/workflows/codex-quality-gates.md` para projeto externo, e `src/core/target-checkup.ts` passou a verificar `workflowCompleteDependencies` no manifesto, no relatorio e na resolubilidade real do checklist; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-prepare.test.ts src/core/target-checkup.test.ts src/core/runner.test.ts src/integrations/codex-client.test.ts` passou com `531` testes e `0` falhas, incluindo `execute registra gap quando o checklist compartilhado nao fica resolvivel pelo caminho canonico`.
+  - `target_prepare` torna observavel a estrategia escolhida sem copiar implicitamente o checklist para o target: `src/types/target-prepare.ts` centraliza `resolveTargetPrepareWorkflowCompleteDependencies`, e `src/core/target-prepare.ts` grava a dependencia no manifesto e no relatorio; a mesma suite verde inclui `resolveTargetPrepareWorkflowCompleteDependencies usa caminho externo canonico para projeto irmao`, `resolveTargetPrepareWorkflowCompleteDependencies usa caminho local no proprio runner` e `execute conclui target_prepare, versiona artefatos permitidos e preserva contexto preexistente`.
+  - Os prompts deixaram de depender de um caminho inexistente em projeto externo: `rg -n '<WORKFLOW_QUALITY_GATES_PATH>' prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` confirmou o placeholder comum nas sete superficies relevantes, `rg -n 'Aplicar( tambem)? o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`|Aplique o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`' prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md` nao retornou matches, e a mesma suite verde inclui `runStage(implement) resolve checklist compartilhado para projeto externo` e `runSpecStage(spec-triage) resolve checklist compartilhado para projeto externo`.
+  - Ha cobertura observavel para projeto externo preparado + `spec-triage` antes da derivacao: a regressao completa acima cobre `target_prepare`, `target_checkup`, `runner` e `codex-client` no mesmo estado final, provando ao mesmo tempo a declaracao da dependencia no onboarding e a resolucao do checklist no prompt de `spec-triage`.
+  - A regra canonica final ficou explicita sem depender de rollout implícito futuro: o diff final ficou restrito a `docs/workflows/target-project-compatibility-contract.md`, `src/types/target-prepare.ts`, `src/core/target-prepare.ts`, `src/core/target-prepare.test.ts`, `src/core/target-checkup.ts` e `src/core/target-checkup.test.ts`, enquanto a estrategia de prompts permanece coberta e verde por `src/integrations/codex-client.test.ts`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou com `tsc --noEmit`.
+- Entrega tecnica concluida:
+  - o contrato de compatibilidade, o `target_prepare` e o `target_checkup` convergem para a mesma regra canonica do checklist compartilhado em projeto externo;
+  - o onboarding deixou de afirmar compatibilidade com workflow completo sem tambem declarar a dependencia auditavel correspondente;
+  - o readiness audit agora acusa `gap` objetivo quando a resolubilidade do checklist compartilhado se perde.
+- Validacoes executadas:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-prepare.test.ts src/core/target-checkup.test.ts src/core/runner.test.ts src/integrations/codex-client.test.ts`
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check`
+  - `rg -n '<WORKFLOW_QUALITY_GATES_PATH>' prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`
+  - `rg -n 'Aplicar( tambem)? o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`|Aplique o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`' prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`
+- Validacao manual externa pendente: nao.

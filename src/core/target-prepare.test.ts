@@ -14,6 +14,7 @@ import {
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { TargetPrepareGitGuard } from "../integrations/target-prepare-git-guard.js";
 import {
+  resolveTargetPrepareWorkflowCompleteDependencies,
   TargetPrepareResolvedProject,
   TARGET_PREPARE_EXACT_COPY_SOURCES,
   TARGET_PREPARE_MANIFEST_PATH,
@@ -212,6 +213,42 @@ const syncManagedWorkflowArtifacts = async (
   }
 };
 
+test("resolveTargetPrepareWorkflowCompleteDependencies usa caminho externo canonico para projeto irmao", () => {
+  const dependencies = resolveTargetPrepareWorkflowCompleteDependencies(
+    "/home/mapita/projetos/alpha-project",
+    "/home/mapita/projetos/codex-flow-runner",
+  );
+
+  assert.deepEqual(dependencies, [
+    {
+      artifactId: "workflow-quality-gates",
+      requiredFor: "workflow-complete",
+      summary: "Checklist compartilhado exigido pelos prompts operacionais do workflow completo.",
+      sourceRelativePath: "docs/workflows/codex-quality-gates.md",
+      targetRelativePath: "../codex-flow-runner/docs/workflows/codex-quality-gates.md",
+      accessMode: "workflow-repo-sibling",
+    },
+  ]);
+});
+
+test("resolveTargetPrepareWorkflowCompleteDependencies usa caminho local no proprio runner", () => {
+  const dependencies = resolveTargetPrepareWorkflowCompleteDependencies(
+    "/home/mapita/projetos/codex-flow-runner",
+    "/home/mapita/projetos/codex-flow-runner",
+  );
+
+  assert.deepEqual(dependencies, [
+    {
+      artifactId: "workflow-quality-gates",
+      requiredFor: "workflow-complete",
+      summary: "Checklist compartilhado exigido pelos prompts operacionais do workflow completo.",
+      sourceRelativePath: "docs/workflows/codex-quality-gates.md",
+      targetRelativePath: "docs/workflows/codex-quality-gates.md",
+      accessMode: "current-project",
+    },
+  ]);
+});
+
 test("execute conclui target_prepare, versiona artefatos permitidos e preserva contexto preexistente", async () => {
   const { rootPath, project } = await createTempTargetRepo("prepared-project");
 
@@ -267,12 +304,27 @@ test("execute conclui target_prepare, versiona artefatos permitidos e preserva c
       prepareSchemaVersion: string;
       allowlistedPaths: string[];
       artifacts: { manifestPath: string; reportPath: string };
+      workflowCompleteDependencies: Array<{
+        artifactId: string;
+        targetRelativePath: string;
+        accessMode: string;
+      }>;
       surfaces: Array<{ path: string; validationStrategy: string }>;
     };
     assert.equal(manifest.contractVersion, "1.0");
     assert.equal(manifest.prepareSchemaVersion, "1.0");
     assert.equal(manifest.artifacts.manifestPath, TARGET_PREPARE_MANIFEST_PATH);
     assert.equal(manifest.artifacts.reportPath, TARGET_PREPARE_REPORT_PATH);
+    assert.deepEqual(manifest.workflowCompleteDependencies, [
+      {
+        artifactId: "workflow-quality-gates",
+        requiredFor: "workflow-complete",
+        summary: "Checklist compartilhado exigido pelos prompts operacionais do workflow completo.",
+        sourceRelativePath: "docs/workflows/codex-quality-gates.md",
+        targetRelativePath: "../codex-flow-runner/docs/workflows/codex-quality-gates.md",
+        accessMode: "workflow-repo-sibling",
+      },
+    ]);
     assert.ok(manifest.allowlistedPaths.includes("AGENTS.md"));
     assert.ok(
       manifest.surfaces.some(
@@ -287,6 +339,11 @@ test("execute conclui target_prepare, versiona artefatos permitidos e preserva c
     assert.match(report, /## Resumo/u);
     assert.match(report, /Elegível para \/projects: sim/u);
     assert.match(report, /Compatível com workflow completo: sim/u);
+    assert.match(
+      report,
+      /Checklist compartilhado do workflow: \.\.\/codex-flow-runner\/docs\/workflows\/codex-quality-gates\.md \(workflow-repo-sibling\)/u,
+    );
+    assert.match(report, /## Dependências do workflow completo/u);
     assert.match(
       report,
       /Próxima ação recomendada: Selecionar o projeto por \/select_project prepared-project ou pelo menu \/projects\./u,

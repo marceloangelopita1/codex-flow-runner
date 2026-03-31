@@ -18,6 +18,9 @@ import {
   TARGET_PREPARE_MANIFEST_PATH,
   TARGET_PREPARE_MERGED_FILE_SOURCES,
   TARGET_PREPARE_REPORT_PATH,
+  resolveTargetPrepareWorkflowCompleteDependencies,
+  TargetPrepareManifest,
+  TargetPrepareWorkflowDependency,
 } from "../types/target-prepare.js";
 import {
   TARGET_CHECKUP_MILESTONE_LABELS,
@@ -519,11 +522,16 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
     context: PrepareIntegrityContext,
   ): Promise<TargetCheckupDimensionResult> {
     const evidence: TargetCheckupEvidenceItem[] = [];
+    const expectedWorkflowDependencies = resolveTargetPrepareWorkflowCompleteDependencies(
+      context.targetProject.path,
+      context.runnerRepoPath,
+    );
 
     const manifestAbsolutePath = path.join(context.targetProject.path, TARGET_PREPARE_MANIFEST_PATH);
     const reportAbsolutePath = path.join(context.targetProject.path, TARGET_PREPARE_REPORT_PATH);
     const manifestRaw = await safeReadFile(manifestAbsolutePath);
     const prepareReportRaw = await safeReadFile(reportAbsolutePath);
+    let manifest: TargetPrepareManifest | null = null;
 
     if (!manifestRaw) {
       evidence.push({
@@ -541,10 +549,7 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
       });
 
       try {
-        const manifest = JSON.parse(manifestRaw) as {
-          targetProject?: { name?: string };
-          artifacts?: { manifestPath?: string; reportPath?: string };
-        };
+        manifest = JSON.parse(manifestRaw) as TargetPrepareManifest;
         if (manifest.targetProject?.name !== context.targetProject.name) {
           evidence.push({
             code: "prepare-manifest-target-mismatch",
@@ -572,6 +577,20 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
       }
     }
 
+    for (const dependency of expectedWorkflowDependencies) {
+      const declaredDependency = manifest?.workflowCompleteDependencies?.find(
+        (entry) => entry.artifactId === dependency.artifactId,
+      );
+      evidence.push({
+        code: `prepare-workflow-dependency-declared-${dependency.artifactId}`,
+        status: matchesWorkflowDependency(declaredDependency, dependency) ? "ok" : "gap",
+        summary: matchesWorkflowDependency(declaredDependency, dependency)
+          ? `Manifesto do target_prepare declara ${dependency.artifactId} pela estrategia ${dependency.accessMode}.`
+          : `Manifesto do target_prepare nao declara ${dependency.artifactId} pela estrategia canonica esperada.`,
+        paths: [TARGET_PREPARE_MANIFEST_PATH],
+      });
+    }
+
     if (!prepareReportRaw) {
       evidence.push({
         code: "prepare-report-missing",
@@ -585,6 +604,47 @@ export class ControlledTargetCheckupExecutor implements TargetCheckupExecutor {
         status: "ok",
         summary: "Relatorio canônico do target_prepare encontrado.",
         paths: [TARGET_PREPARE_REPORT_PATH],
+      });
+    }
+
+    for (const dependency of expectedWorkflowDependencies) {
+      const reportDeclaresDependency = Boolean(
+        prepareReportRaw?.includes(dependency.targetRelativePath) &&
+          prepareReportRaw.includes(dependency.accessMode),
+      );
+      evidence.push({
+        code: `prepare-report-workflow-dependency-${dependency.artifactId}`,
+        status: reportDeclaresDependency ? "ok" : "gap",
+        summary: reportDeclaresDependency
+          ? `Relatorio do target_prepare explicita ${dependency.artifactId} em ${dependency.targetRelativePath}.`
+          : `Relatorio do target_prepare nao explicita ${dependency.artifactId} pelo caminho canonico esperado.`,
+        paths: [TARGET_PREPARE_REPORT_PATH],
+      });
+
+      const resolvedDependencyAbsolutePath = path.resolve(
+        context.targetProject.path,
+        dependency.targetRelativePath,
+      );
+      const sourceDependencyAbsolutePath = path.join(
+        context.runnerRepoPath,
+        dependency.sourceRelativePath,
+      );
+      const [resolvedDependencyContent, sourceDependencyContent] = await Promise.all([
+        safeReadFile(resolvedDependencyAbsolutePath),
+        safeReadFile(sourceDependencyAbsolutePath),
+      ]);
+      const dependencyResolvable =
+        typeof resolvedDependencyContent === "string" &&
+        typeof sourceDependencyContent === "string" &&
+        resolvedDependencyContent === sourceDependencyContent;
+
+      evidence.push({
+        code: `prepare-workflow-dependency-resolved-${dependency.artifactId}`,
+        status: dependencyResolvable ? "ok" : "gap",
+        summary: dependencyResolvable
+          ? `${dependency.artifactId} permanece resolvivel pelo caminho canonico ${dependency.targetRelativePath}.`
+          : `${dependency.artifactId} nao esta resolvivel pelo caminho canonico ${dependency.targetRelativePath}.`,
+        paths: [dependency.targetRelativePath],
       });
     }
 
@@ -1563,6 +1623,20 @@ const readManagedBlock = (fileContent: string, markerId: string): string => {
 };
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+const matchesWorkflowDependency = (
+  actual: TargetPrepareWorkflowDependency | undefined,
+  expected: TargetPrepareWorkflowDependency,
+): boolean =>
+  Boolean(
+    actual &&
+      actual.artifactId === expected.artifactId &&
+      actual.requiredFor === expected.requiredFor &&
+      actual.summary === expected.summary &&
+      actual.sourceRelativePath === expected.sourceRelativePath &&
+      actual.targetRelativePath === expected.targetRelativePath &&
+      actual.accessMode === expected.accessMode,
+  );
 
 const cloneDimensionResult = (dimension: TargetCheckupDimensionResult): TargetCheckupDimensionResult => ({
   ...dimension,

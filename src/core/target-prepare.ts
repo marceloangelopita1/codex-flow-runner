@@ -26,11 +26,13 @@ import {
   TARGET_PREPARE_REPORT_PATH,
   TARGET_PREPARE_REQUIRED_DIRECTORIES,
   TARGET_PREPARE_SCHEMA_VERSION,
+  resolveTargetPrepareWorkflowCompleteDependencies,
   TargetPrepareExecutionResult,
   TargetPrepareLifecycleHooks,
   TargetPrepareManifest,
   TargetPrepareResolvedProject,
   TargetPrepareSurfaceEvidence,
+  TargetPrepareWorkflowDependency,
 } from "../types/target-prepare.js";
 
 interface TargetPrepareExecutorDependencies {
@@ -413,7 +415,14 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     const reportPath = path.join(params.targetProject.path, TARGET_PREPARE_REPORT_PATH);
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
 
-    const reportContent = this.renderReport(params);
+    const workflowCompleteDependencies = resolveTargetPrepareWorkflowCompleteDependencies(
+      params.targetProject.path,
+      this.dependencies.runnerRepoPath,
+    );
+    const reportContent = this.renderReport({
+      ...params,
+      workflowCompleteDependencies,
+    });
     await fs.writeFile(reportPath, reportContent, "utf8");
 
     const surfaces = [
@@ -454,6 +463,7 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
         headShaAtStart: params.gitHeadAtStart,
         headShaAtValidation: params.gitHeadAtValidation,
       },
+      workflowCompleteDependencies,
       artifacts: {
         manifestPath: TARGET_PREPARE_MANIFEST_PATH,
         reportPath: TARGET_PREPARE_REPORT_PATH,
@@ -474,9 +484,13 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
     gitBranch: string | null;
     gitHeadAtStart: string | null;
     gitHeadAtValidation: string | null;
+    workflowCompleteDependencies: TargetPrepareWorkflowDependency[];
   }): string {
     const generatedAtUtc = this.now().toISOString();
     const codexSummary = summarizeCodexOutput(params.codexOutput);
+    const qualityGatesDependency = params.workflowCompleteDependencies.find(
+      (dependency) => dependency.artifactId === "workflow-quality-gates",
+    );
 
     return [
       "# Relatório do target_prepare",
@@ -488,6 +502,9 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
       `- Caminho do projeto alvo: ${params.targetProject.path}`,
       `- Elegível para /projects: sim`,
       `- Compatível com workflow completo: sim`,
+      qualityGatesDependency
+        ? `- Checklist compartilhado do workflow: ${qualityGatesDependency.targetRelativePath} (${qualityGatesDependency.accessMode})`
+        : "- Checklist compartilhado do workflow: n/a",
       `- Próxima ação recomendada: Selecionar o projeto por /select_project ${params.targetProject.name} ou pelo menu /projects.`,
       "",
       "## Snapshot do Git",
@@ -497,6 +514,12 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
       "",
       "## Caminhos alterados",
       ...params.changedPaths.map((entry) => `- ${entry}`),
+      "",
+      "## Dependências do workflow completo",
+      ...params.workflowCompleteDependencies.map(
+        (dependency) =>
+          `- ${dependency.artifactId} | ${dependency.accessMode} | target=${dependency.targetRelativePath} | runner=${dependency.sourceRelativePath}`,
+      ),
       "",
       "## Superfícies gerenciadas",
       ...params.validatedSurfaces.map(
@@ -509,6 +532,7 @@ export class ControlledTargetPrepareExecutor implements TargetPrepareExecutor {
       "",
       "## Notas",
       "- Manifesto técnico e relatório humano foram gerados pelo runner após pós-check determinístico.",
+      "- Compatibilidade com workflow completo depende das resoluções acima continuarem acessíveis pelo caminho declarado.",
       "- Commit/push só são permitidos depois de este relatório existir e de os validadores estarem verdes.",
       "",
     ].join("\n");

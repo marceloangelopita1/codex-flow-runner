@@ -24,6 +24,7 @@ import { ProjectRef } from "../types/project.js";
 import {
   renderTargetPrepareManagedBlockEnd,
   renderTargetPrepareManagedBlockStart,
+  resolveTargetPrepareWorkflowCompleteDependencies,
   TARGET_PREPARE_EXACT_COPY_SOURCES,
   TARGET_PREPARE_MANIFEST_PATH,
   TARGET_PREPARE_MERGED_FILE_SOURCES,
@@ -192,16 +193,25 @@ class StubCommandRunner {
   }
 }
 
-const runnerRepoPath = fileURLToPath(new URL("../../", import.meta.url));
+const actualRunnerRepoPath = fileURLToPath(new URL("../../", import.meta.url));
 
 const createPreparedTargetRepo = async (
   projectName: string,
   options: {
     packageJson?: Record<string, unknown>;
+    provisionWorkflowRepoSibling?: boolean;
   } = {},
-): Promise<{ rootPath: string; project: ProjectRef }> => {
+): Promise<{ rootPath: string; project: ProjectRef; runnerRepoPath: string }> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-checkup-"));
   const projectPath = path.join(rootPath, projectName);
+  const runnerRepoPath =
+    options.provisionWorkflowRepoSibling === false
+      ? actualRunnerRepoPath
+      : path.join(rootPath, "codex-flow-runner");
+
+  if (options.provisionWorkflowRepoSibling !== false) {
+    await fs.symlink(actualRunnerRepoPath, runnerRepoPath, "dir");
+  }
 
   await fs.mkdir(path.join(projectPath, ".git"), { recursive: true });
   await fs.mkdir(path.join(projectPath, "tickets", "open"), { recursive: true });
@@ -232,15 +242,35 @@ const createPreparedTargetRepo = async (
           manifestPath: TARGET_PREPARE_MANIFEST_PATH,
           reportPath: TARGET_PREPARE_REPORT_PATH,
         },
+        workflowCompleteDependencies: resolveTargetPrepareWorkflowCompleteDependencies(
+          projectPath,
+          runnerRepoPath,
+        ),
       },
       null,
       2,
     )}\n`,
     "utf8",
   );
+  const qualityGatesDependency = resolveTargetPrepareWorkflowCompleteDependencies(
+    projectPath,
+    runnerRepoPath,
+  )[0];
   await fs.writeFile(
     path.join(projectPath, TARGET_PREPARE_REPORT_PATH),
-    "# target_prepare report\n\nok\n",
+    [
+      "# target_prepare report",
+      "",
+      "## Resumo",
+      `- Compatível com workflow completo: sim`,
+      `- Checklist compartilhado do workflow: ${qualityGatesDependency?.targetRelativePath ?? "n/a"} (${qualityGatesDependency?.accessMode ?? "n/a"})`,
+      "",
+      "## Dependências do workflow completo",
+      qualityGatesDependency
+        ? `- ${qualityGatesDependency.artifactId} | ${qualityGatesDependency.accessMode} | target=${qualityGatesDependency.targetRelativePath} | runner=${qualityGatesDependency.sourceRelativePath}`
+        : "- n/a",
+      "",
+    ].join("\n"),
     "utf8",
   );
 
@@ -275,6 +305,7 @@ const createPreparedTargetRepo = async (
       name: projectName,
       path: projectPath,
     },
+    runnerRepoPath,
   };
 };
 
@@ -283,7 +314,7 @@ const cleanupTempRoot = async (rootPath: string): Promise<void> => {
 };
 
 test("execute usa projeto ativo, gera md+json canonicos e versiona mesmo quando o veredito e invalido", async () => {
-  const { rootPath, project } = await createPreparedTargetRepo("active-target");
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo("active-target");
 
   try {
     const codexClient = new StubTargetCheckupCodexClient(
@@ -342,6 +373,10 @@ test("execute usa projeto ativo, gera md+json canonicos e versiona mesmo quando 
     assert.equal(report.overall_verdict, "invalid_for_gap_ticket_derivation");
     assert.equal(report.dimensions.length, 5);
     assert.equal(
+      report.dimensions.find((dimension) => dimension.key === "preparation_integrity")?.verdict,
+      "ok",
+    );
+    assert.equal(
       report.dimensions.find((dimension) => dimension.key === "local_operability")?.verdict,
       "gap",
     );
@@ -362,8 +397,89 @@ test("execute usa projeto ativo, gera md+json canonicos e versiona mesmo quando 
   }
 });
 
+test("execute registra gap quando o checklist compartilhado nao fica resolvivel pelo caminho canonico", async () => {
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo(
+    "missing-workflow-sibling",
+    {
+      packageJson: {
+        packageManager: "npm@10.0.0",
+        scripts: {
+          check: "echo check",
+        },
+      },
+      provisionWorkflowRepoSibling: false,
+    },
+  );
+
+  try {
+    const executor = new ControlledTargetCheckupExecutor({
+      logger: new SpyLogger(),
+      targetProjectResolver: {
+        resolveProject: async () => ({
+          ...project,
+          eligibleForProjects: true,
+        }),
+      },
+      createCodexClient: () => new StubTargetCheckupCodexClient(),
+      createGitVersioning: () =>
+        new StubGitVersioning(async (request) => {
+          await request.finalizePublishedArtifacts("report123");
+          return {
+            commitHash: "meta456",
+            metadataCommitHash: "meta456",
+            reportCommitHash: "report123",
+            upstream: "origin/main",
+            commitPushId: "meta456@origin/main",
+          };
+        }),
+      createGitGuard: () =>
+        new StubTargetCheckupGitGuard({
+          changedPathsByCall: [[]],
+        }),
+      commandRunner: new StubCommandRunner({
+        "npm run check": {
+          exitCode: 0,
+          stdout: "check ok\n",
+          stderr: "",
+          durationMs: 11,
+          failedToSpawn: false,
+        },
+      }),
+      runnerRepoPath,
+      now: () => new Date("2026-03-24T22:45:00.000Z"),
+    });
+
+    const result = await executor.execute({
+      activeProject: null,
+      projectName: project.name,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.summary.overallVerdict, "invalid_for_gap_ticket_derivation");
+
+    const reportRaw = await fs.readFile(
+      path.join(project.path, result.summary.reportJsonPath),
+      "utf8",
+    );
+    const report = JSON.parse(reportRaw) as TargetCheckupReport;
+    const preparationIntegrity = report.dimensions.find(
+      (dimension) => dimension.key === "preparation_integrity",
+    );
+    assert.equal(preparationIntegrity?.verdict, "gap");
+    assert.ok(
+      preparationIntegrity?.evidence.some(
+        (entry) =>
+          entry.code === "prepare-workflow-dependency-resolved-workflow-quality-gates" &&
+          entry.status === "gap",
+      ),
+    );
+  } finally {
+    await cleanupTempRoot(rootPath);
+  }
+});
+
 test("execute resolve alvo explicito, captura comandos declarados e pode concluir com veredito valido", async () => {
-  const { rootPath, project } = await createPreparedTargetRepo("explicit-target", {
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo("explicit-target", {
     packageJson: {
       packageManager: "npm@10.0.0",
       scripts: {
@@ -454,7 +570,7 @@ test("execute resolve alvo explicito, captura comandos declarados e pode conclui
 });
 
 test("execute bloqueia o target_checkup quando o working tree inicial esta sujo", async () => {
-  const { rootPath, project } = await createPreparedTargetRepo("dirty-target");
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo("dirty-target");
 
   try {
     const executor = new ControlledTargetCheckupExecutor({
@@ -494,7 +610,7 @@ test("execute bloqueia o target_checkup quando o working tree inicial esta sujo"
 });
 
 test("execute aborta sem publicacao quando um comando descoberto altera o working tree", async () => {
-  const { rootPath, project } = await createPreparedTargetRepo("mutating-target", {
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo("mutating-target", {
     packageJson: {
       packageManager: "npm@10.0.0",
       scripts: {
@@ -657,7 +773,7 @@ test("evaluateTargetCheckupDerivationReadiness valida idade, drift e cadeia do r
 });
 
 test("execute publica milestones canonicos e respeita cancelamento cooperativo antes do versionamento", async () => {
-  const { rootPath, project } = await createPreparedTargetRepo("checkup-cancelled", {
+  const { rootPath, project, runnerRepoPath } = await createPreparedTargetRepo("checkup-cancelled", {
     packageJson: {
       scripts: {
         test: "echo ok",
