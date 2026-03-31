@@ -435,6 +435,10 @@ const SPEC_STAGE_PROMPT_FILES: Record<SpecFlowStage, string> = {
 };
 
 const PROMPTS_DIR = fileURLToPath(new URL("../../prompts/", import.meta.url));
+const WORKFLOW_REPO_ROOT = path.resolve(PROMPTS_DIR, "..");
+const WORKFLOW_REPO_NAME = "codex-flow-runner";
+const WORKFLOW_QUALITY_GATES_PATH_PLACEHOLDER = /<WORKFLOW_QUALITY_GATES_PATH>/gu;
+const WORKFLOW_QUALITY_GATES_RELATIVE_PATH = "docs/workflows/codex-quality-gates.md";
 const PLAN_SPEC_INTERACTIVE_RETRY_HINT = "Use /plan_spec para tentar novamente.";
 const DISCOVER_SPEC_INTERACTIVE_RETRY_HINT = "Use /discover_spec para tentar novamente.";
 const CODEX_CHAT_INTERACTIVE_RETRY_HINT = "Use /codex_chat para tentar novamente.";
@@ -1383,10 +1387,11 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   ): string {
     const ticketPath = `tickets/open/${ticket.name}`;
 
-    const stageTemplate =
+    const stageTemplate = this.replaceWorkflowPromptPlaceholders(
       stage === "plan"
         ? this.buildPlanStageTemplate(promptTemplate, ticketPath, planDirectory)
-        : promptTemplate;
+        : promptTemplate,
+    );
 
     return [
       stageTemplate.trimEnd(),
@@ -1447,7 +1452,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       );
     }
 
-    const stageTemplate = promptTemplate
+    const stageTemplate = this.replaceWorkflowPromptPlaceholders(promptTemplate)
       .replace(/<SPEC_PATH>/gu, spec.path)
       .replace(/<SPEC_FILE_NAME>/gu, spec.fileName)
       .replace(/<COMMIT_MESSAGE>/gu, commitMessage)
@@ -1539,6 +1544,21 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         : []),
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
+  }
+
+  private replaceWorkflowPromptPlaceholders(promptTemplate: string): string {
+    return promptTemplate.replace(
+      WORKFLOW_QUALITY_GATES_PATH_PLACEHOLDER,
+      this.resolveWorkflowRepoArtifactPath(WORKFLOW_QUALITY_GATES_RELATIVE_PATH),
+    );
+  }
+
+  private resolveWorkflowRepoArtifactPath(relativePath: string): string {
+    if (path.resolve(this.repoPath) === WORKFLOW_REPO_ROOT) {
+      return relativePath;
+    }
+
+    return `../${WORKFLOW_REPO_NAME}/${relativePath}`;
   }
 
   private buildSpecTicketValidationAutoCorrectPrompt(

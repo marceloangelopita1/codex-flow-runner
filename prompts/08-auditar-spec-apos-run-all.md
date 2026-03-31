@@ -13,7 +13,7 @@ Commit obrigatório:
 
 Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Reler a spec, os tickets fechados relacionados, os execplans relacionados e o estado atual do código antes de concluir a auditoria.
 - Não reimplementar código nesta etapa.
 - Não fechar ticket interno já existente nesta etapa.

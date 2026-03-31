@@ -6,7 +6,7 @@ Importante: nesta etapa, o versionamento git é responsabilidade exclusiva do ru
 
 Regras obrigatórias:
 - Reler o diff, o ticket, o ExecPlan e as referências de spec/documentação antes de decidir `GO` ou `NO_GO`.
-- Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Avalie `GO` vs `NO_GO` apenas por critérios técnicos/funcionais da entrega atual.
 - Não use falha de git/versionamento como motivo para `NO_GO`; isso será tratado pelo runner fora desta etapa.
 - Deixe o repositório em estado consistente para versionamento: apenas alterações intencionais deste ticket/follow-up, sem artefatos temporários ou lixo local.

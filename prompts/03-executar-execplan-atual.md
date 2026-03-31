@@ -4,7 +4,7 @@ Execute o ExecPlan atual como contrato de execução. Implemente, valide e atual
 
 Regras obrigatórias:
 - Reler o ticket, a spec referenciada (quando existir) e o ExecPlan antes de alterar código.
-- Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Não criar um novo plano. Se descobrir fatos que mudam o entendimento, atualize o ExecPlan atual em:
   - `Progress`
   - `Surprises & Discoveries`

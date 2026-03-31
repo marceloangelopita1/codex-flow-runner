@@ -10,14 +10,14 @@ Arquivo da spec:
 
 Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Confirmar que esta rodada só chegou aqui porque o `spec-audit` encontrou gaps residuais reais.
 - Reler a spec, o resultado do `spec-audit`, os follow-up tickets funcionais quando existirem e o estado atual do repositório antes de concluir.
 - Reler também o contexto causal pre-run-all recebido; a mesma frente causal já tratada antes do `/run-all` não pode ser promovida novamente como backlog automático.
 - Priorizar, no `codex-flow-runner`, a leitura inicial em:
   - `AGENTS.md`;
   - `DOCUMENTATION.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`;
-  - `docs/workflows/codex-quality-gates.md`;
+  - `<WORKFLOW_QUALITY_GATES_PATH>`;
   - `prompts/`;
   - trechos de runner/orquestração apenas quando isso for necessário para sustentar a causa plausível.
 - Quando o projeto auditado for externo, considerar dois contextos:

@@ -132,6 +132,25 @@ test("runStage(plan) substitui placeholder e nao injeta api key no ambiente", as
   }
 });
 
+test("runStage(implement) resolve checklist compartilhado para projeto externo", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/alpha-project", new SpyLogger(), {
+    loadPromptTemplate: async () => "Checklist: <WORKFLOW_QUALITY_GATES_PATH>",
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+    resolvePlanDirectoryName: async () => "execplans",
+  });
+
+  const result = await client.runStage("implement", ticket);
+
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(capturedPrompt, /Checklist: \.\.\/codex-flow-runner\/docs\/workflows\/codex-quality-gates\.md/u);
+  assert.doesNotMatch(capturedPrompt, /Checklist: docs\/workflows\/codex-quality-gates\.md/u);
+});
+
 test("runTargetPrepare injeta allowlist, fontes gerenciadas e contexto do runner", async () => {
   let capturedPrompt = "";
 
@@ -520,6 +539,30 @@ test("runSpecStage(spec-triage) substitui placeholder <SPEC_PATH>", async () => 
   assert.equal(result.promptText, capturedPrompt);
   assert.match(capturedPrompt, /docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.doesNotMatch(capturedPrompt, /<SPEC_PATH>/u);
+});
+
+test("runSpecStage(spec-triage) resolve checklist compartilhado para projeto externo", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/alpha-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Checklist: <WORKFLOW_QUALITY_GATES_PATH>",
+        "Spec alvo: <SPEC_PATH>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-triage", spec);
+
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(capturedPrompt, /Checklist: \.\.\/codex-flow-runner\/docs\/workflows\/codex-quality-gates\.md/u);
+  assert.doesNotMatch(capturedPrompt, /Checklist: docs\/workflows\/codex-quality-gates\.md/u);
+  assert.match(capturedPrompt, /Spec alvo: docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
 });
 
 test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Status attended", async () => {

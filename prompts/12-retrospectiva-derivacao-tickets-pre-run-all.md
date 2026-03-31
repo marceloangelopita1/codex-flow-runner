@@ -10,13 +10,13 @@ Arquivo da spec:
 
 Regras obrigatórias:
 - Fluxo sequencial; execute somente esta etapa.
-- Aplicar o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Confirmar que esta rodada só chegou aqui porque o gate funcional revisou ao menos 1 gap no histórico completo de `spec-ticket-validation`.
 - Reler a spec, o pacote final de tickets derivados, o histórico completo do gate funcional e o estado atual do repositório antes de concluir.
 - Priorizar, no `codex-flow-runner`, a leitura inicial em:
   - `AGENTS.md`;
   - `DOCUMENTATION.md`, `INTERNAL_TICKETS.md`, `PLANS.md`, `SPECS.md`;
-  - `docs/workflows/codex-quality-gates.md`;
+  - `<WORKFLOW_QUALITY_GATES_PATH>`;
   - `prompts/`;
   - trechos de runner/orquestração apenas quando isso for necessário para sustentar a causa plausível.
 - Quando o projeto avaliado for externo, considerar dois contextos:

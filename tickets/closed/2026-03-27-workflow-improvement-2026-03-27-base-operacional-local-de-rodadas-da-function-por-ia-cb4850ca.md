@@ -1,7 +1,7 @@
 # [TICKET] Qualificar referencias canonicas do checklist do workflow em prompts para projetos externos
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-27 22:33Z
@@ -28,7 +28,7 @@
   - Response file: caixa-crawler-v2/.codex-flow-runner/flow-traces/responses/20260327t223308z-run-specs-spec-spec-ticket-derivation-retrospective-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-response.md
   - Decision file: caixa-crawler-v2/.codex-flow-runner/flow-traces/decisions/20260327t223308z-run-specs-spec-spec-ticket-derivation-retrospective-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-decision.json
 - Related docs/execplans:
-  - caixa-crawler-v2/../codex-flow-runner/tickets/open/2026-03-27-qualificar-caminhos-canonicos-do-checklist-em-prompts-para-projetos-externos.md
+  - caixa-crawler-v2/../codex-flow-runner/tickets/closed/2026-03-27-workflow-improvement-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-cb4850ca.md
   - caixa-crawler-v2/docs/specs/2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia.md
   - codex-flow-runner/AGENTS.md
   - codex-flow-runner/docs/workflows/codex-quality-gates.md
@@ -128,9 +128,25 @@ Atualizar os prompt templates que citam docs/workflows/codex-quality-gates.md pa
 
 ## Decision log
 - 2026-03-27 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
+- 2026-03-31 00:51Z - Diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md` revalidados antes do fechamento; resultado final `GO` sem gap tecnico remanescente.
+
+## Closure validation
+- Criterio 1 (spec-triage externo referencia o checklist canonico qualificado): atendido.
+  Evidencia objetiva: `src/integrations/codex-client.ts` passou a resolver `<WORKFLOW_QUALITY_GATES_PATH>` via helper unico, emitindo `../codex-flow-runner/docs/workflows/codex-quality-gates.md` quando `repoPath` nao e o proprio workflow repo; `src/integrations/codex-client.test.ts` ganhou o teste `runSpecStage(spec-triage) resolve checklist compartilhado para projeto externo`, com assertiva positiva para o path qualificado no `promptText`. Revalidado com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/codex-client.test.ts` em 2026-03-31 00:51Z.
+- Criterio 2 (cobertura automatizada quebra se o caminho nao qualificado reaparecer): atendido.
+  Evidencia objetiva: os testes `runSpecStage(spec-triage) resolve checklist compartilhado para projeto externo` e `runStage(implement) resolve checklist compartilhado para projeto externo` em `src/integrations/codex-client.test.ts` fazem assertiva negativa explicita contra `docs/workflows/codex-quality-gates.md` sem qualificacao no contexto externo. A mesma suite passou verde em `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/codex-client.test.ts` em 2026-03-31 00:51Z.
+- Criterio 3 (teste de regressao cobre ao menos spec-triage externo e uma etapa da familia de ticket): atendido.
+  Evidencia objetiva: `src/integrations/codex-client.test.ts` cobre `runSpecStage("spec-triage")` e `runStage("implement")` com `repoPath` externo, validando o `promptText` final nas duas familias de prompt que consomem o checklist. Revalidado com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/integrations/codex-client.test.ts` em 2026-03-31 00:51Z, com `43` testes verdes.
+- Criterio 4 (prompts externos deixam de depender do caminho relativo ao repo alvo): atendido.
+  Evidencia objetiva: os prompts `01`, `02`, `03`, `04`, `08`, `11` e `12` migraram para o placeholder `<WORKFLOW_QUALITY_GATES_PATH>`, comprovado por `rg -n "<WORKFLOW_QUALITY_GATES_PATH>" prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md`; a busca negativa `rg -n 'Aplicar( tambem)? o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`|Aplique o checklist compartilhado em \`docs/workflows/codex-quality-gates.md\`' ...` nao retornou resultados nessas sete superficies em 2026-03-31 00:51Z.
+- Criterio 5 (fronteira com `target_prepare`, `target_checkup` e contrato de compatibilidade permanece intacta): atendido.
+  Evidencia objetiva: `git diff --name-only -- prompts/01-avaliar-spec-e-gerar-tickets.md prompts/02-criar-execplan-para-ticket.md prompts/03-executar-execplan-atual.md prompts/04-encerrar-ticket-commit-push.md prompts/08-auditar-spec-apos-run-all.md prompts/11-retrospectiva-workflow-apos-spec-audit.md prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md src/integrations/codex-client.ts src/integrations/codex-client.test.ts src/types/target-prepare.ts src/types/target-checkup.ts docs/workflows/target-project-compatibility-contract.md` listou apenas os sete prompts afetados e `src/integrations/codex-client.{ts,test.ts}`, sem hunks nas superficies do ticket estrutural, em 2026-03-31 00:51Z.
+
+## Manual validation pending
+- Nenhuma validacao manual externa pendente. O aceite tecnico deste ticket ficou coberto por diff, auditoria textual dos prompts, regressao dedicada em `src/integrations/codex-client.test.ts` e `npm run check`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-31 00:51Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-03-27-workflow-improvement-2026-03-27-base-operacional-local-de-rodadas-da-function-por-ia-cb4850ca.md; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a

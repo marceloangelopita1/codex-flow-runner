@@ -7,7 +7,7 @@ SPEC alvo:
 
 Regras do repositório (obrigatórias):
 - Seguir `SPECS.md`, `INTERNAL_TICKETS.md` e `tickets/templates/internal-ticket-template.md`.
-- Aplicar também o checklist compartilhado em `docs/workflows/codex-quality-gates.md`.
+- Aplicar também o checklist compartilhado em `<WORKFLOW_QUALITY_GATES_PATH>`.
 - Tickets novos devem ser criados em `tickets/open/` com nome `YYYY-MM-DD-<slug>.md`.
 - A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo estiver claro; `execplan` só pode surgir depois, a partir de ticket, quando necessário.
 - Não incluir segredos/dados sensíveis.
