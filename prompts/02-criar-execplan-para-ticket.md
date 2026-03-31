@@ -15,8 +15,9 @@ Instruções:
   - a spec de origem;
   - os RFs/CAs cobertos por este ticket;
   - assumptions/defaults escolhidos;
+  - quando houver allowlists/enumerações finitas relevantes, os membros explicitos herdados do ticket/spec e, se houver consolidacao, a justificativa objetiva com cobertura positiva dos aceitos e negativa fora do conjunto;
   - matriz `requisito -> validacao observavel`.
-- Toda validação deve nascer do closure criterion do ticket, não de checklist genérico.
+- Toda validação deve nascer do closure criterion do ticket, não de checklist genérico; quando houver allowlists/enumerações finitas, a matriz deve preservar os membros explicitos ou a justificativa objetiva para consolidacao.
 - Salve o plano em `execplans/<yyyy-mm-dd>-<slug>.md` (mesmo slug do ticket).
 
 No final, informe:

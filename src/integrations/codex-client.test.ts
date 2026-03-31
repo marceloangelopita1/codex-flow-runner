@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { Logger } from "../core/logger.js";
 import {
   buildNonInteractiveCodexArgs,
@@ -31,6 +32,7 @@ const spec = {
   fileName: "2026-02-19-approved-spec-triage-run-specs.md",
   path: "docs/specs/2026-02-19-approved-spec-triage-run-specs.md",
 };
+const workflowRepoPath = fileURLToPath(new URL("../../", import.meta.url));
 
 const plannedOutline = {
   objective: "Transformar a sessao /plan em uma spec rica e reutilizavel.",
@@ -563,6 +565,75 @@ test("runSpecStage(spec-triage) resolve checklist compartilhado para projeto ext
   assert.match(capturedPrompt, /Checklist: \.\.\/codex-flow-runner\/docs\/workflows\/codex-quality-gates\.md/u);
   assert.doesNotMatch(capturedPrompt, /Checklist: docs\/workflows\/codex-quality-gates\.md/u);
   assert.match(capturedPrompt, /Spec alvo: docs\/specs\/2026-02-19-approved-spec-triage-run-specs\.md/u);
+});
+
+test("prompts reais da cadeia relevante carregam o guardrail de allowlists finitas", async () => {
+  let capturedSpecPrompt = "";
+  const specClient = new CodexCliTicketFlowClient(workflowRepoPath, new SpyLogger(), {
+    runCodexCommand: async (request) => {
+      capturedSpecPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const specResult = await specClient.runSpecStage("spec-triage", spec);
+
+  assert.match(specResult.promptTemplatePath, /01-avaliar-spec-e-gerar-tickets\.md$/u);
+  assert.equal(specResult.promptText, capturedSpecPrompt);
+  assert.match(capturedSpecPrompt, /docs\/workflows\/codex-quality-gates\.md/u);
+  assert.match(capturedSpecPrompt, /allowlists\/enumerações finitas ou matrizes pequenas de valores aceitos/u);
+  assert.match(capturedSpecPrompt, /membros explicitos de allowlists\/enumerações finitas relevantes da spec/u);
+  assert.match(capturedSpecPrompt, /cobertura positiva dos membros aceitos e negativa fora do conjunto/u);
+
+  const ticketStages = [
+    {
+      stage: "plan" as const,
+      promptPath: /02-criar-execplan-para-ticket\.md$/u,
+      patterns: [
+        /allowlists\/enumerações finitas relevantes/u,
+        /membros explicitos herdados do ticket\/spec/u,
+        /cobertura positiva dos aceitos e negativa fora do conjunto/u,
+      ],
+    },
+    {
+      stage: "implement" as const,
+      promptPath: /03-executar-execplan-atual\.md$/u,
+      patterns: [
+        /allowlist\/enumeração finita/u,
+        /membros explicitos declarados na matriz/u,
+        /valor valido/u,
+      ],
+    },
+    {
+      stage: "close-and-version" as const,
+      promptPath: /04-encerrar-ticket-commit-push\.md$/u,
+      patterns: [
+        /allowlist\/enumeração finita/u,
+        /cada membro aceito tiver evidência positiva correspondente/u,
+        /justificativa objetiva já registrada/u,
+      ],
+    },
+  ];
+
+  for (const ticketStage of ticketStages) {
+    let capturedTicketPrompt = "";
+    const ticketClient = new CodexCliTicketFlowClient(workflowRepoPath, new SpyLogger(), {
+      runCodexCommand: async (request) => {
+        capturedTicketPrompt = request.prompt;
+        return { stdout: "ok", stderr: "" };
+      },
+      resolvePlanDirectoryName: async () => "execplans",
+    });
+
+    const ticketResult = await ticketClient.runStage(ticketStage.stage, ticket);
+
+    assert.match(ticketResult.promptTemplatePath, ticketStage.promptPath);
+    assert.equal(ticketResult.promptText, capturedTicketPrompt);
+    assert.match(capturedTicketPrompt, /docs\/workflows\/codex-quality-gates\.md/u);
+    for (const pattern of ticketStage.patterns) {
+      assert.match(capturedTicketPrompt, pattern);
+    }
+  }
 });
 
 test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Status attended", async () => {

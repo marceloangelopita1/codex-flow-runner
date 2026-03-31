@@ -15,6 +15,7 @@ Este documento é referência compartilhada para:
 - Usar a spec como source of truth final quando o trabalho vier de spec.
 - Todo handoff deve carregar contexto suficiente para outra IA executar sem inferências ocultas.
 - Validação observável vale mais que afirmação genérica de conclusão.
+- Quando a spec enumerar um conjunto finito de valores aceitos, um critério genérico como `valor valido` ou `loopback` não substitui, sozinho, a prova dos membros explicitamente aceitos.
 - Quando um gap permanecer, registrar a menor causa-raiz sistêmica plausível sem overfitting.
 - Este projeto deve maximizar a qualidade de cada token produzido pela IA/Codex, com foco explícito em reduzir retrabalho e promover a melhoria contínua do workflow.
 - O contrato canônico de derivação é `spec -> tickets` na triagem inicial e `ticket -> execplan` quando necessário.
@@ -29,13 +30,15 @@ Este documento é referência compartilhada para:
 - A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo parecer claro.
 - Quando a spec trouxer RNFs ou restricoes tecnicas/documentais que impactem implementacao, observabilidade, documentacao ou fechamento, decidir explicitamente quais tickets precisam herdar esses itens e como o aceite deles ficara observavel.
 - Quando a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente se cada item e relevante para cobertura ou aceite do pacote derivado; quando for, carregar esse contexto para o ticket e/ou para seus criterios de fechamento.
+- Quando a spec trouxer allowlists, enumerações finitas ou matrizes pequenas de valores aceitos, decidir explicitamente se o ticket vai preservar cada membro relevante ou se haverá consolidacao objetivamente justificada com cobertura observável correspondente.
 - Em todo ticket derivado, registrar:
   - spec de origem;
   - RFs/CAs e RNFs/restricoes tecnicas/documentais relevantes cobertos;
+  - membros explicitos de allowlists/enumerações finitas relevantes, ou justificativa objetiva para consolidacao quando ela for adotada;
   - assumptions/defaults relevantes herdados da spec;
   - RNFs e restricoes tecnicas/documentais relevantes herdados da spec, quando influenciarem implementacao, aceite, documentacao ou fechamento;
   - validacoes pendentes ou manuais relevantes herdadas da spec, quando influenciarem cobertura ou aceite;
-  - critérios de fechamento observáveis.
+  - critérios de fechamento observáveis, incluindo cobertura positiva dos membros aceitos e negativa fora do conjunto quando isso fizer parte do requisito.
 - Quando o ticket derivado for um ticket automático de retrospectiva sistêmica, conferir contra `INTERNAL_TICKETS.md` que o rascunho final ficou com título orientado ao problema, contexto filtrado, herança seletiva de contexto e fechamento observável por superfície.
 
 ## Checklist de ExecPlan
@@ -44,12 +47,14 @@ Este documento é referência compartilhada para:
 - Registrar assumptions/defaults escolhidos para eliminar ambiguidade remanescente.
 - Registrar RNFs e restricoes tecnicas/documentais herdados que precisem ser implementados, observados ou validados neste ticket.
 - Traduzir critérios de fechamento em matriz `requisito -> validacao observavel`.
+- Quando houver allowlists, enumerações finitas ou matrizes pequenas herdadas da spec/ticket, preservar os membros explicitos na matriz `requisito -> validacao observavel`, ou registrar justificativa objetiva para consolidacao com prova positiva dos aceitos e negativa fora do conjunto.
 - Explicitar riscos residuais e o que não será resolvido neste ticket.
 
 ## Checklist de execução
 - Reabrir ticket, spec referenciada e ExecPlan antes de alterar código.
 - Atualizar `Progress`, `Decision Log` e `Surprises & Discoveries` quando novos fatos surgirem.
 - Implementar apenas contra o subconjunto de RFs/CAs/RNFs/restricoes tecnicas declarado no plano.
+- Quando o plano trouxer allowlists, enumerações finitas ou matrizes pequenas, implementar e validar contra os membros explicitos da matriz; um critério agregado como `valor valido` não substitui essa prova.
 - Rodar a matriz de validação completa antes de considerar o ticket pronto.
 - Confirmar que RNFs, restricoes tecnicas/documentais e obrigacoes de documentacao herdadas ficaram observaveis quando fizerem parte do escopo do ticket.
 - Atualizar spec/documentação impactadas no mesmo changeset quando o comportamento descrito mudar.
@@ -58,6 +63,7 @@ Este documento é referência compartilhada para:
 ## Checklist de fechamento de ticket
 - Reler diff, ticket, ExecPlan e refs da spec antes de decidir `GO` ou `NO_GO`.
 - Verificar cada closure criterion com evidência objetiva.
+- Quando houver allowlists, enumerações finitas ou matrizes pequenas no escopo, só aprovar `GO` com evidência positiva para cada membro aceito e negativa fora do conjunto quando isso fizer parte do plano; consolidacao só vale com justificativa objetiva já registrada no ticket/ExecPlan.
 - Quando houver gap remanescente, registrar causa-raiz em uma destas categorias:
   - `spec`
   - `ticket`

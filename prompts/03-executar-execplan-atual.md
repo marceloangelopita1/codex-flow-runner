@@ -10,6 +10,7 @@ Regras obrigatórias:
   - `Surprises & Discoveries`
   - `Decision Log`
 - Implementar apenas contra o subconjunto de RFs/CAs declarado no ticket/ExecPlan.
+- Quando o ticket/ExecPlan trouxer allowlist/enumeração finita, implementar e validar contra os membros explicitos declarados na matriz; um criterio agregado como `valor valido` não substitui essa prova sozinho.
 - Executar a matriz de validação definida no ExecPlan antes de encerrar a etapa.
 - Atualizar spec/documentação impactadas no mesmo changeset quando o comportamento descrito mudar.
 - Se o plano ou o ticket não forem suficientes para uma execução segura, pare com blocker explícito e registre o motivo nos artefatos, em vez de completar por suposição silenciosa.

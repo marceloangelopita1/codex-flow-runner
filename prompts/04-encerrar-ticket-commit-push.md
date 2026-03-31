@@ -13,6 +13,7 @@ Regras obrigatórias:
 - Sempre registrar metadados de fechamento no ticket atual (`Status: closed`, `Closed at (UTC)`, `Closure reason`, `Related PR/commit/execplan`).
 - Em `Related PR/commit/execplan`, referencie o ExecPlan e descreva o commit como pertencente ao mesmo changeset de fechamento que será versionado pelo runner.
 - Validar cada closure criterion com evidência objetiva antes da decisão final.
+- Quando houver allowlist/enumeração finita no escopo, só classifique `GO` se cada membro aceito tiver evidência positiva correspondente e o fora do conjunto estiver coberto quando isso fizer parte do ticket/ExecPlan; consolidacao só vale com justificativa objetiva já registrada.
 - Quando houver gap remanescente, registrar a menor causa-raiz plausível em uma taxonomia fixa:
   - `spec`
   - `ticket`

@@ -1,7 +1,7 @@
 # [TICKET] Handoffs do workflow perdem membros explicitos de allowlists da spec
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-03-30 23:43Z
@@ -120,9 +120,17 @@ Atualizar ../codex-flow-runner/docs/workflows/codex-quality-gates.md e os prompt
 
 ## Decision log
 - 2026-03-30 - Ticket aberto automaticamente a partir da retrospectiva sistemica pos-spec-audit - follow-up sistemico reaproveitavel identificado com high confidence.
+- 2026-03-31 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e `docs/workflows/codex-quality-gates.md`; resultado final `GO`.
+
+## Closure validation
+- Checklist aplicado: releitura do diff, do ticket, do ExecPlan, da spec de origem `../guiadomus-caixa-trigger-crawler/docs/specs/2026-03-30-ponte-local-http-do-trigger-para-o-crawler-no-replay-do-scheduler.md` e de `docs/workflows/codex-quality-gates.md` antes da decisao final; `git diff --check` retornou limpo.
+- Criterion 1 atendido: `docs/workflows/codex-quality-gates.md` agora explicita que `valor valido`/`loopback` nao substituem a prova dos membros aceitos e exige preservacao de allowlists/enumerações finitas na triagem, no ExecPlan, na execucao e no fechamento; o comando `rg -n "allowlists|enumerações finitas|membros explicitos|justificativa objetiva|valor valido|fora do conjunto" docs/workflows/codex-quality-gates.md ...` confirmou os trechos em `docs/workflows/codex-quality-gates.md:18,33,37,41,50,57,66`.
+- Criterion 2 atendido: `src/integrations/codex-client.test.ts` adiciona o teste `prompts reais da cadeia relevante carregam o guardrail de allowlists finitas`, que carrega os prompts reais de `spec-triage`, `plan`, `implement` e `close-and-version`; `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/codex-client.test.ts` passou com `532` testes verdes e `0` falhas.
+- Criterion 3 atendido: `prompts/01-avaliar-spec-e-gerar-tickets.md`, `prompts/02-criar-execplan-para-ticket.md`, `prompts/03-executar-execplan-atual.md` e `prompts/04-encerrar-ticket-commit-push.md` passaram a exigir membros explicitos ou justificativa objetiva para consolidacao com cobertura positiva dos aceitos e negativa fora do conjunto; o `rg` acima confirmou o wording nas quatro etapas e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` concluiu sem erros de tipos.
+- Validacao manual pendente: nenhuma.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-03-31 01:34Z
+- Closure reason: fixed
+- Related PR/commit/execplan: `execplans/2026-03-30-workflow-improvement-2026-03-30-ponte-local-http-do-trigger-para-o-crawler-no-replay-do-scheduler-c5f3980b.md`; commit pertencente ao mesmo changeset de fechamento que sera versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
