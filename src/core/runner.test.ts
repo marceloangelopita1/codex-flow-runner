@@ -4035,6 +4035,97 @@ test("buildSpecTicketValidationPackageContext aceita metadata em portugues e lin
   }
 });
 
+test("buildSpecTicketValidationPackageContext preserva topologia hybrid com ticket historico aberto e ticket sucessor", async () => {
+  const projectRoot = await createTempProjectRoot();
+  const historicalTicketName = "2026-03-31-ticket-historico-open.md";
+  const successorTicketName = "2026-04-01-ticket-sucessor-open.md";
+  try {
+    const specPath = path.join(projectRoot, "docs", "specs", specFileName);
+    await fs.mkdir(path.dirname(specPath), { recursive: true });
+    await fs.writeFile(
+      specPath,
+      createSpecFileContent(
+        "Spec com backlog hybrid historico + sucessor",
+        "Garantir que o gate preserve a topologia de backlog aberto na mesma linhagem.",
+        createPlanSpecOutline(),
+        {
+          relatedTickets: [`tickets/open/${successorTicketName}`],
+          includeTicketValidationSection: true,
+        },
+      ),
+      "utf8",
+    );
+
+    await writeTicketMetadataFile(projectRoot, {
+      directory: "open",
+      ticketName: historicalTicketName,
+      status: "open",
+      sourceSpec: `docs/specs/${specFileName}`,
+      closureCriteria: ["Ticket historico preserva apenas rastreabilidade documental."],
+    });
+    await writeTicketMetadataFile(projectRoot, {
+      directory: "open",
+      ticketName: successorTicketName,
+      status: "open",
+      parentTicketPath: `tickets/open/${historicalTicketName}`,
+      closureCriteria: ["Ticket sucessor concentra a ownership atual desta linhagem."],
+    });
+
+    const roundDependencies = createRoundDependencies({
+      activeProject: {
+        name: "external-project",
+        path: projectRoot,
+      },
+      queue: {
+        ensureStructure: async () => undefined,
+        nextOpenTicket: async () => null,
+        closeTicket: async () => undefined,
+      },
+      codexClient: new StubCodexClient(),
+      gitVersioning: new StubGitVersioning(),
+    });
+    const runner = createRunner(new SpyLogger(), roundDependencies);
+
+    const packageContext = await callBuildSpecTicketValidationPackageContext(runner, projectRoot, {
+      fileName: specFileName,
+      path: `docs/specs/${specFileName}`,
+    });
+
+    assert.equal(packageContext.lineageSource, "hybrid");
+    assert.equal(packageContext.tickets.length, 2);
+    assert.deepEqual(
+      packageContext.tickets.map((ticket) => ({
+        relativePath: ticket.relativePath,
+        source: ticket.source,
+      })),
+      [
+        {
+          relativePath: `tickets/open/${historicalTicketName}`,
+          source: "source-spec",
+        },
+        {
+          relativePath: `tickets/open/${successorTicketName}`,
+          source: "spec-related",
+        },
+      ],
+    );
+    assert.match(packageContext.packageContext, /Linhagem resolvida por: hybrid/u);
+    assert.match(packageContext.packageContext, /Tickets abertos derivados: 2/u);
+    assert.match(
+      packageContext.packageContext,
+      new RegExp(`### 1\\. ${escapeRegExp(`tickets/open/${historicalTicketName}`)}`, "u"),
+    );
+    assert.match(
+      packageContext.packageContext,
+      new RegExp(`### 2\\. ${escapeRegExp(`tickets/open/${successorTicketName}`)}`, "u"),
+    );
+    assert.match(packageContext.packageContext, /Ticket historico preserva apenas rastreabilidade documental\./u);
+    assert.match(packageContext.packageContext, /Ticket sucessor concentra a ownership atual desta linhagem\./u);
+  } finally {
+    await cleanupTempProjectRoot(projectRoot);
+  }
+});
+
 test("buildSpecTicketValidationPackageContext preserva RNF e obrigacao documental herdados", async () => {
   const projectRoot = await createTempProjectRoot();
   try {

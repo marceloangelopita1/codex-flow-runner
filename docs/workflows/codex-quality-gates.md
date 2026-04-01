@@ -28,6 +28,9 @@ Este documento é referência compartilhada para:
 - Para cada gap, apontar evidência concreta e classificar `atendido | parcial | nao atendido`.
 - Criar tickets independentes o bastante para outra IA executar sem depender de ticket irmão.
 - A derivação inicial da spec cria apenas tickets em `tickets/open/`, mesmo quando o escopo parecer claro.
+- Quando já existir backlog aberto na mesma linhagem resolvida por `Source spec`, `Related tickets` ou `hybrid`, reler esses tickets antes de abrir sucessor e decidir explicitamente entre `reutilizar/atualizar ticket aberto`, `dividir ownership com fronteira observável` ou `justificar coexistência`.
+- Se um ticket sucessor absorver ownership de um ticket histórico aberto, normalizar o ticket histórico no mesmo ciclo para que ele não permaneça com `Closure criteria` ou aceite funcional duplicados.
+- Tratar como falha evitável de triagem qualquer `duplication-gap` ou `closure-criteria-gap` decorrente apenas de backlog histórico aberto ainda não reconciliado.
 - Quando a spec trouxer RNFs ou restricoes tecnicas/documentais que impactem implementacao, observabilidade, documentacao ou fechamento, decidir explicitamente quais tickets precisam herdar esses itens e como o aceite deles ficara observavel.
 - Quando a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente se cada item e relevante para cobertura ou aceite do pacote derivado; quando for, carregar esse contexto para o ticket e/ou para seus criterios de fechamento.
 - Quando a spec trouxer allowlists, enumerações finitas ou matrizes pequenas de valores aceitos, decidir explicitamente se o ticket vai preservar cada membro relevante ou se haverá consolidacao objetivamente justificada com cobertura observável correspondente.
@@ -48,6 +51,7 @@ Este documento é referência compartilhada para:
 - Registrar RNFs e restricoes tecnicas/documentais herdados que precisem ser implementados, observados ou validados neste ticket.
 - Traduzir critérios de fechamento em matriz `requisito -> validacao observavel`.
 - Quando houver allowlists, enumerações finitas ou matrizes pequenas herdadas da spec/ticket, preservar os membros explicitos na matriz `requisito -> validacao observavel`, ou registrar justificativa objetiva para consolidacao com prova positiva dos aceitos e negativa fora do conjunto.
+- Quando coexistirem ticket histórico aberto e ticket sucessor na mesma linhagem, explicitar no plano a fronteira de ownership, a distribuição de `Closure criteria` e como a coexistência evita `duplication-gap` e `closure-criteria-gap`.
 - Explicitar riscos residuais e o que não será resolvido neste ticket.
 
 ## Checklist de execução
@@ -55,6 +59,7 @@ Este documento é referência compartilhada para:
 - Atualizar `Progress`, `Decision Log` e `Surprises & Discoveries` quando novos fatos surgirem.
 - Implementar apenas contra o subconjunto de RFs/CAs/RNFs/restricoes tecnicas declarado no plano.
 - Quando o plano trouxer allowlists, enumerações finitas ou matrizes pequenas, implementar e validar contra os membros explicitos da matriz; um critério agregado como `valor valido` não substitui essa prova.
+- Quando houver ticket histórico aberto e ticket sucessor na mesma linhagem, preservar explicitamente a fronteira de ownership declarada no plano e confirmar que o histórico não ficou com `Closure criteria` duplicados por inércia editorial.
 - Rodar a matriz de validação completa antes de considerar o ticket pronto.
 - Confirmar que RNFs, restricoes tecnicas/documentais e obrigacoes de documentacao herdadas ficaram observaveis quando fizerem parte do escopo do ticket.
 - Atualizar spec/documentação impactadas no mesmo changeset quando o comportamento descrito mudar.
@@ -64,6 +69,7 @@ Este documento é referência compartilhada para:
 - Reler diff, ticket, ExecPlan e refs da spec antes de decidir `GO` ou `NO_GO`.
 - Verificar cada closure criterion com evidência objetiva.
 - Quando houver allowlists, enumerações finitas ou matrizes pequenas no escopo, só aprovar `GO` com evidência positiva para cada membro aceito e negativa fora do conjunto quando isso fizer parte do plano; consolidacao só vale com justificativa objetiva já registrada no ticket/ExecPlan.
+- Quando coexistirem ticket histórico aberto e ticket sucessor na mesma linhagem, só aprovar `GO` se a fronteira de ownership estiver explícita e se `duplication-gap`/`closure-criteria-gap` não dependerem apenas de backlog histórico ainda não reconciliado.
 - Quando houver gap remanescente, registrar causa-raiz em uma destas categorias:
   - `spec`
   - `ticket`

@@ -1,7 +1,7 @@
 # [TICKET] Explicitar reconciliacao de backlog aberto na triagem de tickets derivados de spec
 
 ## Metadata
-- Status: open
+- Status: closed
 - Priority: P1
 - Severity: S2
 - Created at (UTC): 2026-04-01 16:22Z
@@ -116,11 +116,26 @@ Atualizar `../codex-flow-runner/prompts/01-avaliar-spec-e-gerar-tickets.md` para
 - Ha teste automatizado cobrindo uma spec com backlog aberto `hybrid` em que a triagem abre ticket sucessor sem deixar o ticket historico carregando aceite funcional ou fechamento duplicado.
 - O checklist em `../codex-flow-runner/docs/workflows/codex-quality-gates.md` passa a tratar como verificacao obrigatoria a normalizacao de ownership e `Closure criteria` quando houver ticket historico aberto e ticket sucessor na mesma linhagem.
 
+## Closure validation
+- Criterio 1 (evidencia de teste contra `duplication-gap` / `closure-criteria-gap` por backlog historico nao reconciliado): atendido.
+  Evidencia objetiva: `src/integrations/codex-client.test.ts` agora trava o prompt real de `spec-triage` exigindo releitura da linhagem por `Source spec`, `Related tickets` ou `hybrid`, a decisao explicita entre `reutilizar/atualizar ticket aberto`, `dividir ownership com fronteira observavel` ou `justificar coexistencia`, e a normalizacao do ticket historico no mesmo ciclo; `src/core/runner.test.ts` agora ancora a topologia `hybrid` com `ticket historico aberto + ticket sucessor` e `Closure criteria` distintos para cada papel. Revalidado com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/integrations/codex-client.test.ts src/core/runner.test.ts` em 2026-04-01 16:50Z; o script expandiu para a suite `src/**/*.test.ts` e concluiu verde (`538/538`). A ausencia dos gaps citados aqui e inferencia tecnica sustentada por essas duas provas automatizadas complementares, nao por afirmacao manual.
+- Criterio 2 (prompt de triagem exige releitura e reconciliacao explicitas): atendido.
+  Evidencia objetiva: `prompts/01-avaliar-spec-e-gerar-tickets.md` agora exige releitura de tickets abertos da mesma linhagem resolvida por `Source spec`, `Related tickets` ou `hybrid`, enumera as tres decisoes aceitas de reconciliacao e obriga normalizacao do ticket historico quando o sucessor absorver ownership. Revalidado com `rg -n "reler tickets abertos|reutilizar/atualizar ticket aberto|dividir ownership com fronteira observável|justificar coexistência|normalizar o ticket histórico" prompts/01-avaliar-spec-e-gerar-tickets.md` em 2026-04-01 16:50Z.
+- Criterio 3 (teste automatizado cobre backlog aberto `hybrid` com ticket historico + sucessor): atendido.
+  Evidencia objetiva: `src/core/runner.test.ts` ganhou o teste `buildSpecTicketValidationPackageContext preserva topologia hybrid com ticket historico aberto e ticket sucessor`, assertando `lineageSource: "hybrid"`, a presenca dos dois tickets na ordem esperada e `Closure criteria` separados para historico e sucessor. Revalidado pelo mesmo comando de testes de 2026-04-01 16:50Z e por `rg -n "preserva topologia hybrid|Ticket historico preserva apenas rastreabilidade documental|Ticket sucessor concentra a ownership atual desta linhagem" src/core/runner.test.ts`.
+- Criterio 4 (checklist compartilhado trata normalizacao de ownership e `Closure criteria` como obrigatoria): atendido.
+  Evidencia objetiva: `docs/workflows/codex-quality-gates.md` agora carrega o guardrail de reconciliacao de backlog aberto na triagem, a obrigacao de explicitar fronteira de ownership no ExecPlan/execucao e a condicao de `GO` no fechamento quando coexistirem ticket historico e ticket sucessor. Revalidado com `rg -n "Source spec|Related tickets|hybrid|duplication-gap|closure-criteria-gap|ticket histórico|ticket sucessor|Closure criteria" docs/workflows/codex-quality-gates.md` em 2026-04-01 16:50Z.
+- Checklist aplicado (`docs/workflows/codex-quality-gates.md`): concluido.
+  Evidencia objetiva: releitura integral do diff, do ticket, do ExecPlan `execplans/2026-04-01-workflow-improvement-2026-03-30-evoluir-replay-local-da-pipeline-para-trigger-e-crawler-auxiliar-4bc986c1.md`, das specs internas `docs/specs/2026-03-19-spec-ticket-validation-e-melhoria-continua-do-workflow.md#RF-08` e `docs/specs/2026-03-24-retomada-do-run-specs-a-partir-da-validacao.md#RF-09`, do caso causal em `../guiadomus-scheduler` e do proprio checklist antes da decisao final; `npm run check` tambem concluiu sem erros em 2026-04-01 16:50Z.
+
 ## Decision log
 - 2026-04-01 - Ticket aberto automaticamente a partir da retrospectiva sistemica pre-run-all da derivacao - follow-up sistemico reaproveitavel identificado com high confidence.
+- 2026-04-01 - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, specs/RFs internas, caso causal em `../guiadomus-scheduler` e `docs/workflows/codex-quality-gates.md`; resultado final `GO`, sem follow-up, porque os quatro closure criteria foram atendidos integralmente por `prompt + checklist + testes`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-01 16:50Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplans/2026-04-01-workflow-improvement-2026-03-30-evoluir-replay-local-da-pipeline-para-trigger-e-crawler-auxiliar-4bc986c1.md (commit: mesmo changeset de fechamento versionado pelo runner)
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Resultado final do fechamento: `GO`
+- Validacao manual externa pendente: nao

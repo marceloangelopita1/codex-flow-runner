@@ -16,17 +16,22 @@ Regras do repositório (obrigatórias):
 
 Tarefa:
 1. Ler a spec alvo e extrair RFs, critérios de aceitação (CAs), RNFs, restricoes tecnicas/documentais relevantes, assumptions/defaults, validacoes pendentes ou manuais, nao-escopo e, quando existirem, allowlists/enumerações finitas ou matrizes pequenas de valores aceitos.
-2. Comparar com o estado atual do código e classificar cada item como:
+2. Antes de propor ticket novo, reler tickets abertos já ligados à mesma linhagem resolvida por `Source spec`, `Related tickets` ou `hybrid`, comparar ownership e `Closure criteria` com os gaps atuais e decidir explicitamente entre:
+   - `reutilizar/atualizar ticket aberto`
+   - `dividir ownership com fronteira observável`
+   - `justificar coexistência`
+3. Se um ticket sucessor novo absorver ownership de um ticket histórico aberto, normalizar o ticket histórico no mesmo ciclo para que ele não permaneça com `Closure criteria` ou aceite funcional duplicados.
+4. Comparar com o estado atual do código e classificar cada item como:
    - atendido
    - parcialmente atendido
    - não atendido
-3. Para cada gap, explicar evidência objetiva (arquivo/função/comportamento observado).
-4. Propor agrupamento de trabalho em 1 ou mais tickets, conforme escopo:
+5. Para cada gap, explicar evidência objetiva (arquivo/função/comportamento observado).
+6. Propor agrupamento de trabalho em 1 ou mais tickets, conforme escopo:
    - Mesmo contexto técnico e alta dependência: agrupar no mesmo ticket.
    - Contextos independentes ou risco diferente: separar em tickets distintos.
    - Gap grande: quebrar em tickets menores com entregáveis claros.
    - Se a spec trouxer `Validacoes pendentes ou manuais`, decidir explicitamente quais delas sao relevantes para cobertura ou aceite de cada ticket proposto.
-5. Criar os ticket(s) em `tickets/open/` usando o template oficial e preenchendo, quando aplicável:
+7. Criar os ticket(s) em `tickets/open/` usando o template oficial e preenchendo, quando aplicável:
    - `Source spec`;
    - `Source requirements (RFs/CAs/RNFs/restricoes tecnicas relevantes)`;
    - membros explicitos de allowlists/enumerações finitas relevantes da spec, ou justificativa objetiva para consolidacao;
@@ -34,8 +39,9 @@ Tarefa:
    - heranca explicita de RNFs e restricoes tecnicas/documentais relevantes da spec quando elas influenciarem implementacao, aceite, documentacao ou fechamento do ticket;
    - heranca explicita de `Validacoes pendentes ou manuais` da spec quando elas forem relevantes para o escopo, cobertura ou aceite do ticket;
    - closure criteria mapeados para evidências observáveis, inclusive quando a spec exigir revisao documental ou outra obrigacao tecnica verificavel, e com cobertura positiva dos membros aceitos e negativa fora do conjunto quando a spec enumerar allowlists/enumerações finitas.
+   - quando coexistirem ticket histórico aberto e ticket sucessor, registrar a decisão de reconciliação adotada e normalizar o ticket histórico no mesmo ciclo se o sucessor absorver a ownership;
    - Se alguma validacao pendente/manual presente na spec nao for herdada por nenhum ticket, justificar objetivamente por que ela nao e relevante ao pacote derivado atual.
-6. Atualizar a spec:
+8. Atualizar a spec:
    - `Last reviewed at (UTC)` com timestamp atual;
    - `Related tickets` com os novos tickets;
    - seção `Status de atendimento` com pendências objetivas.
@@ -47,6 +53,7 @@ Saída esperada no chat:
 - Assumptions/defaults relevantes herdados da spec.
 - RNFs e restricoes tecnicas/documentais relevantes herdados da spec e onde eles foram refletidos.
 - Validacoes pendentes/manuais relevantes herdadas da spec e onde elas foram refletidas.
+- Como o backlog aberto existente foi reconciliado (`reutilizar/atualizar ticket aberto`, `dividir ownership com fronteira observável` ou `justificar coexistência`).
 - Quais tickets foram criados e por quê.
 - Caminhos dos arquivos criados/atualizados.
 

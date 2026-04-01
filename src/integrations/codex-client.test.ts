@@ -636,6 +636,31 @@ test("prompts reais da cadeia relevante carregam o guardrail de allowlists finit
   }
 });
 
+test("prompt real de spec-triage exige reconciliacao de backlog aberto da linhagem", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient(workflowRepoPath, new SpyLogger(), {
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  const result = await client.runSpecStage("spec-triage", spec);
+
+  assert.match(result.promptTemplatePath, /01-avaliar-spec-e-gerar-tickets\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(
+    capturedPrompt,
+    /Source spec`, `Related tickets` ou `hybrid`/u,
+  );
+  assert.match(capturedPrompt, /`reutilizar\/atualizar ticket aberto`/u);
+  assert.match(capturedPrompt, /`dividir ownership com fronteira observável`/u);
+  assert.match(capturedPrompt, /`justificar coexistência`/u);
+  assert.match(capturedPrompt, /normalizar o ticket histórico no mesmo ciclo/u);
+  assert.match(capturedPrompt, /`Closure criteria` ou aceite funcional duplicados/u);
+});
+
 test("runSpecStage(spec-close-and-version) inclui commit padrao e regra de Status attended", async () => {
   let capturedPrompt = "";
 
