@@ -4,6 +4,9 @@ import path from "node:path";
 const SPEC_FILE_NAME_PATTERN = /^[A-Za-z0-9._-]+\.md$/u;
 const METADATA_HEADING_PATTERN = /^##\s+Metadata\s*$/imu;
 const TOP_LEVEL_HEADING_PATTERN = /^##\s+/mu;
+export const RUN_SPECS_ELIGIBLE_STATUSES = ["approved", "partially_attended"] as const;
+export const RUN_SPECS_ELIGIBILITY_DESCRIPTION =
+  "Status: approved ou partially_attended e Spec treatment: pending";
 
 export interface SpecMetadata {
   status: string | null;
@@ -225,5 +228,11 @@ const isEligibleMetadata = (metadata: SpecMetadata): boolean => {
   const status = metadata.status?.trim().toLowerCase();
   const specTreatment = metadata.specTreatment?.trim().toLowerCase();
 
-  return status === "approved" && specTreatment === "pending";
+  return (
+    status !== undefined &&
+    RUN_SPECS_ELIGIBLE_STATUSES.includes(
+      status as (typeof RUN_SPECS_ELIGIBLE_STATUSES)[number],
+    ) &&
+    specTreatment === "pending"
+  );
 };

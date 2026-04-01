@@ -4748,6 +4748,7 @@ test("/specs lista somente specs elegiveis com teclado inline paginado (CA-01)",
   assert.equal(controlState.listEligibleSpecsCalls, 1);
   assert.equal(replies.length, 1);
   assert.match(replies[0]?.text ?? "", /Specs elegíveis para \/run_specs/u);
+  assert.match(replies[0]?.text ?? "", /partially_attended/u);
   assert.match(replies[0]?.text ?? "", /Página 1\/1/u);
   assert.match(replies[0]?.text ?? "", /2026-02-19-approved-spec-triage-run-specs\.md/u);
   assert.match(replies[0]?.text ?? "", /2026-02-20-outra-spec-pending\.md/u);
@@ -4777,6 +4778,7 @@ test("/specs responde mensagem clara quando nao ha specs elegiveis", async () =>
 
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Nenhuma spec elegível/u);
+  assert.match(replies[0] ?? "", /partially_attended/u);
 });
 
 test("/tickets_open lista tickets abertos com teclado inline paginado", async () => {
@@ -5502,6 +5504,7 @@ test("/run_specs bloqueia spec nao elegivel sem iniciar runner (CA-03)", async (
   assert.equal(controlState.runSpecsCalls, 0);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Spec não elegível/u);
+  assert.match(replies[0] ?? "", /partially_attended/u);
   assert.match(replies[0] ?? "", /Spec treatment: \(ausente\)/u);
 });
 
@@ -5587,6 +5590,7 @@ test("/run_specs_from_validation bloqueia spec nao elegivel sem iniciar runner",
   assert.equal(controlState.runSpecsFromValidationCalls, 0);
   assert.equal(replies.length, 1);
   assert.match(replies[0] ?? "", /Spec não elegível para \/run_specs_from_validation/u);
+  assert.match(replies[0] ?? "", /partially_attended/u);
   assert.match(replies[0] ?? "", /Spec treatment: \(ausente\)/u);
 });
 

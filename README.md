@@ -1235,7 +1235,7 @@ npm run dev
 - `/run_all` -> inicia o loop sequencial de processamento de tickets
 - `/run-all` -> alias legado compatível para `/run_all`
 - `/tickets_open` -> lista os tickets abertos do projeto ativo
-- `/specs` -> lista specs elegiveis (`Status: approved` + `Spec treatment: pending`) do projeto ativo
+- `/specs` -> lista specs elegiveis (`Status: approved` ou `Status: partially_attended`, sempre com `Spec treatment: pending`) do projeto ativo
 - `/run_specs <arquivo>` -> em projeto compatível com o workflow completo, executa triagem da spec informada, encadeia a rodada de tickets e finaliza com `spec-audit`
 - `/codex_chat` -> inicia conversa livre com Codex no projeto ativo
 - `/codex-chat` -> alias legado compatível para `/codex_chat`

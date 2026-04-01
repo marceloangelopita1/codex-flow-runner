@@ -24,7 +24,9 @@ const writeSpecFile = async (
   await fs.writeFile(specPath, content, "utf8");
 };
 
-test("listEligibleSpecs retorna apenas specs approved com spec treatment pending", async () => {
+test(
+  "listEligibleSpecs retorna specs approved ou partially_attended com spec treatment pending",
+  async () => {
   const projectPath = await createTempProject();
   const discovery = new FileSystemSpecDiscovery();
 
@@ -43,9 +45,21 @@ test("listEligibleSpecs retorna apenas specs approved com spec treatment pending
 
     await writeSpecFile(
       projectPath,
-      "a-attended.md",
+      "a-partially-attended-pending.md",
       [
         "# Spec A",
+        "",
+        "## Metadata",
+        "- Status: partially_attended",
+        "- Spec treatment: pending",
+      ].join("\n"),
+    );
+
+    await writeSpecFile(
+      projectPath,
+      "c-attended.md",
+      [
+        "# Spec C",
         "",
         "## Metadata",
         "- Status: attended",
@@ -55,9 +69,9 @@ test("listEligibleSpecs retorna apenas specs approved com spec treatment pending
 
     await writeSpecFile(
       projectPath,
-      "c-approved-missing-treatment.md",
+      "d-approved-missing-treatment.md",
       [
-        "# Spec C",
+        "# Spec D",
         "",
         "## Metadata",
         "- Status: approved",
@@ -68,6 +82,10 @@ test("listEligibleSpecs retorna apenas specs approved com spec treatment pending
 
     assert.deepEqual(specs, [
       {
+        fileName: "a-partially-attended-pending.md",
+        specPath: "docs/specs/a-partially-attended-pending.md",
+      },
+      {
         fileName: "b-approved-pending.md",
         specPath: "docs/specs/b-approved-pending.md",
       },
@@ -75,7 +93,8 @@ test("listEligibleSpecs retorna apenas specs approved com spec treatment pending
   } finally {
     await cleanupTempProject(projectPath);
   }
-});
+},
+);
 
 test("validateSpecEligibility retorna eligible para caminho com e sem prefixo docs/specs", async () => {
   const projectPath = await createTempProject();
@@ -109,6 +128,38 @@ test("validateSpecEligibility retorna eligible para caminho com e sem prefixo do
     if (byPrefixedPath.status === "eligible") {
       assert.equal(byPrefixedPath.spec.fileName, "2026-02-19-approved.md");
       assert.equal(byPrefixedPath.spec.specPath, "docs/specs/2026-02-19-approved.md");
+    }
+  } finally {
+    await cleanupTempProject(projectPath);
+  }
+});
+
+test("validateSpecEligibility retorna eligible para spec partially_attended com treatment pending", async () => {
+  const projectPath = await createTempProject();
+  const discovery = new FileSystemSpecDiscovery();
+
+  try {
+    await writeSpecFile(
+      projectPath,
+      "2026-02-19-partially-attended.md",
+      [
+        "# Spec",
+        "",
+        "## Metadata",
+        "- Status: partially_attended",
+        "- Spec treatment: pending",
+      ].join("\n"),
+    );
+
+    const result = await discovery.validateSpecEligibility(
+      projectPath,
+      "2026-02-19-partially-attended.md",
+    );
+
+    assert.equal(result.status, "eligible");
+    if (result.status === "eligible") {
+      assert.equal(result.metadata.status, "partially_attended");
+      assert.equal(result.metadata.specTreatment, "pending");
     }
   } finally {
     await cleanupTempProject(projectPath);

@@ -75,7 +75,11 @@ import {
   PlanSpecQuestionBlock,
   sanitizePlanSpecRawOutput,
 } from "./plan-spec-parser.js";
-import { EligibleSpecRef, SpecEligibilityResult } from "./spec-discovery.js";
+import {
+  EligibleSpecRef,
+  RUN_SPECS_ELIGIBILITY_DESCRIPTION,
+  SpecEligibilityResult,
+} from "./spec-discovery.js";
 
 interface BotControls {
   targetPrepare: (
@@ -551,7 +555,7 @@ const RUN_SPECS_INVALID_SPEC_REPLY_PREFIX = "❌ Argumento inválido para /run_s
 const RUN_SPECS_NOT_FOUND_REPLY_PREFIX = "❌ Spec não encontrada para /run_specs:";
 const RUN_SPECS_NOT_ELIGIBLE_REPLY_PREFIX = "❌ Spec não elegível para /run_specs:";
 const RUN_SPECS_VALIDATION_CRITERIA_REPLY =
-  "Critério de elegibilidade: Status: approved e Spec treatment: pending.";
+  `Critério de elegibilidade: ${RUN_SPECS_ELIGIBILITY_DESCRIPTION}.`;
 const RUN_SPECS_VALIDATION_FAILED_REPLY =
   "❌ Falha ao validar spec para /run_specs. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
@@ -567,7 +571,7 @@ const RUN_SPECS_FROM_VALIDATION_AUTH_REQUIRED_REPLY_PREFIX = "❌ ";
 const UNKNOWN_COMMAND_REPLY = "ℹ️ Comando não reconhecido. Use /start para ver os comandos válidos.";
 const SPECS_EMPTY_REPLY =
   "ℹ️ Nenhuma spec elegível encontrada no projeto ativo. " +
-  "Critério: Status: approved e Spec treatment: pending.";
+  `Critério: ${RUN_SPECS_ELIGIBILITY_DESCRIPTION}.`;
 const SPECS_LIST_FAILED_REPLY =
   "❌ Falha ao listar specs elegíveis. Verifique logs do runner e tente novamente.";
 const SPECS_PAGE_SIZE = 5;
