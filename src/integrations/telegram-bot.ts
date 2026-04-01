@@ -57,6 +57,7 @@ import {
 } from "../types/flow-timing.js";
 import {
   CALLBACK_CHAT_DELIVERY_POLICY,
+  CODEX_CHAT_OUTPUT_DELIVERY_POLICY,
   DeliverTelegramTextMessageInput,
   INTERACTIVE_TELEGRAM_DELIVERY_POLICY,
   isTelegramMessageDeliveryDispatchError,
@@ -1404,16 +1405,17 @@ export class TelegramController {
     });
   }
 
-  async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<void> {
+  async sendCodexChatOutput(chatId: string, rawOutput: string): Promise<TelegramDeliveryResult> {
     const state = this.getState();
     const session = state.codexChatSession;
     const sessionId = session && session.chatId === chatId ? (session.sessionId ?? null) : null;
     const rendered = this.buildCodexChatOutputReply(rawOutput, sessionId);
-    await this.deliverInteractiveChatMessage({
+    return this.deliverInteractiveChatMessage({
       chatId,
       text: rendered.text,
       extra: rendered.extra,
       logicalMessageType: "codex-chat-output",
+      policy: CODEX_CHAT_OUTPUT_DELIVERY_POLICY,
       logMessages: {
         success: "Saida de /codex_chat enviada no Telegram",
         transientFailure: "Falha transitoria ao enviar saida de /codex_chat no Telegram",
@@ -6424,6 +6426,7 @@ export class TelegramController {
     text: string;
     logicalMessageType: string;
     logMessages: TelegramDeliveryLogMessages;
+    policy?: DeliverTelegramTextMessageInput["policy"];
     extra?: unknown;
     context?: Record<string, unknown>;
     formatChunk?: DeliverTelegramTextMessageInput["formatChunk"];
@@ -6431,7 +6434,7 @@ export class TelegramController {
     return this.telegramDelivery.deliverTextMessage({
       destinationChatId: input.chatId,
       text: input.text,
-      policy: INTERACTIVE_TELEGRAM_DELIVERY_POLICY,
+      policy: input.policy ?? INTERACTIVE_TELEGRAM_DELIVERY_POLICY,
       logicalMessageType: input.logicalMessageType,
       logMessages: input.logMessages,
       ...(input.extra ? { extra: input.extra } : {}),
@@ -8099,6 +8102,47 @@ export class TelegramController {
       );
       if (closure.triggeringCommand) {
         lines.push(`Comando que encerrou /codex_chat: /${closure.triggeringCommand}`);
+      }
+    }
+
+    if (!state.lastCodexChatOutputEvent) {
+      lines.push("Última saída /codex_chat entregue: nenhuma");
+    } else {
+      const { delivery } = state.lastCodexChatOutputEvent;
+      lines.push(
+        `Última saída /codex_chat entregue em: ${delivery.deliveredAtUtc}`,
+        `Chat da última saída /codex_chat: ${delivery.destinationChatId}`,
+      );
+      if (typeof delivery.attempts === "number") {
+        lines.push(
+          `Tentativas até entrega /codex_chat: ${delivery.attempts}/${delivery.maxAttempts ?? delivery.attempts}`,
+        );
+      }
+      if (typeof delivery.chunkCount === "number") {
+        lines.push(`Partes da última saída /codex_chat: ${delivery.chunkCount}`);
+      }
+    }
+
+    if (!state.lastCodexChatOutputFailure) {
+      lines.push("Última falha de entrega /codex_chat: nenhuma");
+    } else {
+      const { failure } = state.lastCodexChatOutputFailure;
+      lines.push(
+        `Última falha de entrega /codex_chat em: ${failure.failedAtUtc}`,
+        `Classe do erro de entrega /codex_chat: ${failure.errorClass}`,
+        `Erro de entrega /codex_chat: ${failure.errorMessage}`,
+        `Retentável em /codex_chat: ${failure.retryable ? "sim" : "nao"}`,
+      );
+      if (failure.destinationChatId) {
+        lines.push(`Chat da falha de entrega /codex_chat: ${failure.destinationChatId}`);
+      }
+      if (failure.errorCode) {
+        lines.push(`Código do erro de entrega /codex_chat: ${failure.errorCode}`);
+      }
+      if (typeof failure.failedChunkIndex === "number") {
+        lines.push(
+          `Parte da saída /codex_chat com falha: ${failure.failedChunkIndex}/${failure.chunkCount ?? failure.failedChunkIndex}`,
+        );
       }
     }
 

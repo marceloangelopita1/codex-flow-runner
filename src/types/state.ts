@@ -154,6 +154,47 @@ export interface CodexChatSessionLastClosureState {
   triggeringCommand: string | null;
 }
 
+export type CodexChatOutputNotificationErrorClass =
+  | "telegram-rate-limit"
+  | "telegram-server"
+  | "transport"
+  | "non-retryable";
+
+export interface CodexChatOutputDelivery {
+  channel: "telegram";
+  destinationChatId: string;
+  deliveredAtUtc: string;
+  attempts?: number;
+  maxAttempts?: number;
+  chunkCount?: number;
+}
+
+export interface CodexChatOutputFailure {
+  channel: "telegram";
+  destinationChatId?: string;
+  failedAtUtc: string;
+  attempts: number;
+  maxAttempts: number;
+  errorMessage: string;
+  errorCode?: string;
+  errorClass: CodexChatOutputNotificationErrorClass;
+  retryable: boolean;
+  failedChunkIndex?: number;
+  chunkCount?: number;
+}
+
+export interface RunnerLastCodexChatOutputEvent {
+  chatId: string;
+  sessionId: number | null;
+  delivery: CodexChatOutputDelivery;
+}
+
+export interface RunnerLastCodexChatOutputFailure {
+  chatId: string;
+  sessionId: number | null;
+  failure: CodexChatOutputFailure;
+}
+
 export interface RunnerLastNotifiedEvent {
   summary: TicketFinalSummary;
   delivery: TicketNotificationDelivery;
@@ -232,6 +273,8 @@ export interface RunnerState {
   planSpecSession: PlanSpecSessionState | null;
   codexChatSession: CodexChatSessionState | null;
   lastCodexChatSessionClosure: CodexChatSessionLastClosureState | null;
+  lastCodexChatOutputEvent: RunnerLastCodexChatOutputEvent | null;
+  lastCodexChatOutputFailure: RunnerLastCodexChatOutputFailure | null;
   phase: RunnerPhase;
   lastMessage: string;
   updatedAt: Date;
@@ -261,6 +304,8 @@ export const createInitialState = (
   planSpecSession: null,
   codexChatSession: null,
   lastCodexChatSessionClosure: null,
+  lastCodexChatOutputEvent: null,
+  lastCodexChatOutputFailure: null,
   phase: "idle",
   lastMessage: "Runner inicializado",
   updatedAt: new Date(),

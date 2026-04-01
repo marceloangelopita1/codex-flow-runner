@@ -306,7 +306,15 @@ const bootstrap = async () => {
             });
             return;
           }
-          await telegram.sendCodexChatOutput(chatId, event.text);
+          const delivery = await telegram.sendCodexChatOutput(chatId, event.text);
+          return {
+            channel: "telegram" as const,
+            destinationChatId: delivery.destinationChatId,
+            deliveredAtUtc: delivery.deliveredAtUtc,
+            attempts: delivery.attempts,
+            maxAttempts: delivery.maxAttempts,
+            chunkCount: delivery.chunkCount,
+          };
         },
         onFailure: async (chatId, details) => {
           if (!telegram) {

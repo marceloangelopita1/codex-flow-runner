@@ -35,6 +35,7 @@ import {
 } from "../integrations/codex-client.js";
 import { GitSyncEvidence, GitVersioning } from "../integrations/git-client.js";
 import { PlanSpecFinalBlock, PlanSpecQuestionBlock } from "../integrations/plan-spec-parser.js";
+import { TelegramMessageDeliveryDispatchError } from "../integrations/telegram-delivery.js";
 import { TicketBacklogSnapshot, TicketQueue, TicketRef } from "../integrations/ticket-queue.js";
 import {
   WorkflowStageTraceRecordRequest,
@@ -7897,6 +7898,63 @@ test("submitCodexChatInput encaminha mensagem e retorna para espera do operador 
     logger.infos.some((entry) => entry.message === "Lifecycle /codex_chat: output-forwarded"),
     true,
   );
+});
+
+test("falha de entrega da saida de /codex_chat fica rastreavel no estado", async () => {
+  const logger = new SpyLogger();
+  const codex = new StubCodexClient();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: codex,
+    gitVersioning: new StubGitVersioning(),
+  });
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      codexChatOutputFlushDelayMs: 1,
+      codexChatEventHandlers: {
+        onOutput: async () => {
+          throw new TelegramMessageDeliveryDispatchError("Falha definitiva ao enviar saida de /codex_chat no Telegram", {
+            destinationChatId: "42",
+            failedAtUtc: "2026-02-21T10:04:00.000Z",
+            attempts: 2,
+            maxAttempts: 2,
+            errorMessage: "message is too long",
+            errorCode: "400",
+            errorClass: "non-retryable",
+            retryable: false,
+            failedChunkIndex: 2,
+            chunkCount: 3,
+            policy: "codex-chat-output",
+            logicalMessageType: "codex-chat-output",
+          });
+        },
+        onFailure: () => undefined,
+      },
+    },
+  });
+  await runner.startCodexChatSession("42");
+
+  const inputResult = await runner.submitCodexChatInput("42", "responda com um diagnostico longo");
+  codex.lastFreeChatSession?.emitRawOutput("Resposta longa do Codex");
+  codex.lastFreeChatSession?.emitEvent({
+    type: "turn-complete",
+  });
+  await sleep(20);
+
+  assert.equal(inputResult.status, "accepted");
+  assert.equal(runner.getState().codexChatSession?.phase, "waiting-user");
+  assert.equal(runner.getState().lastCodexChatOutputEvent, null);
+  assert.equal(runner.getState().lastCodexChatOutputFailure?.failure.errorMessage, "message is too long");
+  assert.equal(runner.getState().lastCodexChatOutputFailure?.failure.errorCode, "400");
+  assert.equal(runner.getState().lastCodexChatOutputFailure?.failure.failedChunkIndex, 2);
+  assert.equal(runner.getState().lastCodexChatOutputFailure?.failure.chunkCount, 3);
+  const warning = logger.warnings.find(
+    (entry) => entry.message === "Falha ao encaminhar saida de /codex_chat para integracao",
+  );
+  assert.ok(warning);
+  assert.equal(warning?.context?.errorCode, "400");
+  assert.equal(warning?.context?.chunkIndex, 2);
 });
 
 test("submitCodexChatInput agrega chunks e encaminha uma unica resposta no /codex_chat", async () => {

@@ -99,6 +99,8 @@ const createState = (value: Partial<RunnerState> = {}): RunnerState => ({
   ...value,
   codexChatSession: value.codexChatSession ?? null,
   lastCodexChatSessionClosure: value.lastCodexChatSessionClosure ?? null,
+  lastCodexChatOutputEvent: value.lastCodexChatOutputEvent ?? null,
+  lastCodexChatOutputFailure: value.lastCodexChatOutputFailure ?? null,
   lastRunFlowSummary: value.lastRunFlowSummary ?? null,
   lastRunFlowNotificationEvent: value.lastRunFlowNotificationEvent ?? null,
   lastRunFlowNotificationFailure: value.lastRunFlowNotificationFailure ?? null,
@@ -3912,6 +3914,34 @@ test("saida de /codex_chat enviada ao Telegram inclui botao inline de encerramen
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0]?.chatId, "42");
   assert.equal(sentMessages[0]?.text, "Resposta saneada do Codex");
+  assert.deepEqual(sentMessages[0]?.extra, {
+    reply_markup: {
+      inline_keyboard: [[{
+        text: "🛑 Encerrar /codex_chat",
+        callback_data: "codex-chat:close:23",
+      }]],
+    },
+  });
+});
+
+test("saida longa de /codex_chat usa chunking e preserva CTA de encerramento", async () => {
+  const { controller } = createController({
+    getState: () =>
+      createState({
+        codexChatSession: createCodexChatSession({
+          sessionId: 23,
+          chatId: "42",
+        }),
+      }),
+  });
+  const sentMessages = mockSendMessage(controller);
+  const longOutput = `${"linha longa do codex\n".repeat(400)}`.trim();
+
+  const delivery = await controller.sendCodexChatOutput("42", longOutput);
+
+  assert.equal(sentMessages.length > 1, true);
+  assert.equal(delivery.chunkCount, sentMessages.length);
+  assert.match(sentMessages[0]?.text ?? "", /Parte 1\//u);
   assert.deepEqual(sentMessages[0]?.extra, {
     reply_markup: {
       inline_keyboard: [[{
@@ -8683,6 +8713,52 @@ test("status inclui ultimo encerramento de /codex_chat quando sessao esta inativ
   assert.match(reply, /Fase no encerramento \/codex_chat: waiting-user/u);
   assert.match(reply, /Projeto no encerramento \/codex_chat: codex-flow-runner/u);
   assert.match(reply, /Comando que encerrou \/codex_chat: \/run_all/u);
+});
+
+test("status inclui rastreabilidade de entrega e falha de saida de /codex_chat", () => {
+  const { controller } = createController();
+  const reply = callBuildStatusReply(
+    controller,
+    createState({
+      lastCodexChatOutputEvent: {
+        chatId: "42",
+        sessionId: 17,
+        delivery: {
+          channel: "telegram",
+          destinationChatId: "42",
+          deliveredAtUtc: "2026-02-21T10:06:00.000Z",
+          attempts: 2,
+          maxAttempts: 2,
+          chunkCount: 3,
+        },
+      },
+      lastCodexChatOutputFailure: {
+        chatId: "42",
+        sessionId: 17,
+        failure: {
+          channel: "telegram",
+          destinationChatId: "42",
+          failedAtUtc: "2026-02-21T10:07:00.000Z",
+          attempts: 2,
+          maxAttempts: 2,
+          errorMessage: "message is too long",
+          errorCode: "400",
+          errorClass: "non-retryable",
+          retryable: false,
+          failedChunkIndex: 2,
+          chunkCount: 3,
+        },
+      },
+    }),
+  );
+
+  assert.match(reply, /Última saída \/codex_chat entregue em: 2026-02-21T10:06:00\.000Z/u);
+  assert.match(reply, /Tentativas até entrega \/codex_chat: 2\/2/u);
+  assert.match(reply, /Partes da última saída \/codex_chat: 3/u);
+  assert.match(reply, /Última falha de entrega \/codex_chat em: 2026-02-21T10:07:00\.000Z/u);
+  assert.match(reply, /Classe do erro de entrega \/codex_chat: non-retryable/u);
+  assert.match(reply, /Código do erro de entrega \/codex_chat: 400/u);
+  assert.match(reply, /Parte da saída \/codex_chat com falha: 2\/3/u);
 });
 
 test("status informa ausencia de evento notificado", () => {

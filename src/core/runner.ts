@@ -4,6 +4,8 @@ import { AppEnv } from "../config/env.js";
 import { ProjectRef } from "../types/project.js";
 import {
   CodexChatSessionClosureReason,
+  CodexChatOutputDelivery,
+  CodexChatOutputFailure,
   CodexChatSessionPhase,
   DiscoverSpecSessionPhase,
   PlanSpecSessionPhase,
@@ -57,6 +59,7 @@ import {
   TargetPrepareFlowSummary,
 } from "../types/flow-timing.js";
 import { Logger } from "./logger.js";
+import { isTelegramMessageDeliveryDispatchError } from "../integrations/telegram-delivery.js";
 import {
   CodexAuthenticationError,
   CodexChatSession,
@@ -209,7 +212,7 @@ export interface CodexChatEventHandlers {
   onOutput: (
     chatId: string,
     event: Extract<CodexChatSessionEvent, { type: "raw-sanitized" }>,
-  ) => Promise<void> | void;
+  ) => Promise<CodexChatOutputDelivery | void> | CodexChatOutputDelivery | void;
   onFailure: (chatId: string, details: string) => Promise<void> | void;
   onLifecycleMessage?: (chatId: string, message: string) => Promise<void> | void;
 }
@@ -1115,6 +1118,22 @@ export class TicketRunner {
             activeProjectSnapshot: {
               ...this.state.lastCodexChatSessionClosure.activeProjectSnapshot,
             },
+          },
+        }
+      : {}),
+    ...(this.state.lastCodexChatOutputEvent
+      ? {
+          lastCodexChatOutputEvent: {
+            ...this.state.lastCodexChatOutputEvent,
+            delivery: { ...this.state.lastCodexChatOutputEvent.delivery },
+          },
+        }
+      : {}),
+    ...(this.state.lastCodexChatOutputFailure
+      ? {
+          lastCodexChatOutputFailure: {
+            ...this.state.lastCodexChatOutputFailure,
+            failure: { ...this.state.lastCodexChatOutputFailure.failure },
           },
         }
       : {}),
@@ -4341,12 +4360,79 @@ export class TicketRunner {
     }
 
     try {
-      await this.codexChatEventHandlers.onOutput(chatId, event);
+      const delivery = await this.codexChatEventHandlers.onOutput(chatId, event);
+      if (delivery) {
+        const sessionId =
+          this.state.codexChatSession?.chatId === chatId
+            ? (this.state.codexChatSession.sessionId ?? null)
+            : null;
+        this.state.lastCodexChatOutputEvent = {
+          chatId,
+          sessionId,
+          delivery,
+        };
+        this.state.lastCodexChatOutputFailure = null;
+      }
     } catch (error) {
+      const sessionId =
+        this.state.codexChatSession?.chatId === chatId
+          ? (this.state.codexChatSession.sessionId ?? null)
+          : null;
+      const failure = this.buildCodexChatOutputFailure(chatId, error);
+      this.state.lastCodexChatOutputFailure = {
+        chatId,
+        sessionId,
+        failure,
+      };
       this.logger.warn("Falha ao encaminhar saida de /codex_chat para integracao", {
-        error: error instanceof Error ? error.message : String(error),
+        chatId,
+        sessionId,
+        error: failure.errorMessage,
+        errorClass: failure.errorClass,
+        ...(failure.errorCode ? { errorCode: failure.errorCode } : {}),
+        ...(failure.destinationChatId ? { destinationChatId: failure.destinationChatId } : {}),
+        attempts: failure.attempts,
+        maxAttempts: failure.maxAttempts,
+        retryable: failure.retryable,
+        ...(failure.failedChunkIndex !== undefined
+          ? { chunkIndex: failure.failedChunkIndex, chunkCount: failure.chunkCount }
+          : failure.chunkCount !== undefined
+            ? { chunkCount: failure.chunkCount }
+            : {}),
       });
     }
+  }
+
+  private buildCodexChatOutputFailure(chatId: string, error: unknown): CodexChatOutputFailure {
+    if (isTelegramMessageDeliveryDispatchError(error)) {
+      return {
+        channel: "telegram",
+        destinationChatId: error.failure.destinationChatId,
+        failedAtUtc: error.failure.failedAtUtc,
+        attempts: error.failure.attempts,
+        maxAttempts: error.failure.maxAttempts,
+        errorMessage: error.failure.errorMessage,
+        ...(error.failure.errorCode ? { errorCode: error.failure.errorCode } : {}),
+        errorClass: error.failure.errorClass,
+        retryable: error.failure.retryable,
+        ...(error.failure.failedChunkIndex !== undefined
+          ? { failedChunkIndex: error.failure.failedChunkIndex }
+          : {}),
+        ...(error.failure.chunkCount !== undefined ? { chunkCount: error.failure.chunkCount } : {}),
+      };
+    }
+
+    const details = error instanceof Error ? error.message : String(error);
+    return {
+      channel: "telegram",
+      destinationChatId: chatId,
+      failedAtUtc: this.now().toISOString(),
+      attempts: 1,
+      maxAttempts: 1,
+      errorMessage: details,
+      errorClass: "non-retryable",
+      retryable: false,
+    };
   }
 
   private async emitCodexChatFailure(chatId: string, details: string): Promise<void> {

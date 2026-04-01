@@ -157,6 +157,17 @@ export const INTERACTIVE_TELEGRAM_DELIVERY_POLICY: TelegramDeliveryPolicy = {
   maxBackoffMs: 2_000,
 };
 
+export const CODEX_CHAT_OUTPUT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "codex-chat-output",
+  maxAttempts: 2,
+  baseBackoffMs: 500,
+  maxBackoffMs: 2_000,
+  chunking: {
+    maxChunkLength: 3500,
+    includePartHeader: true,
+  },
+};
+
 export const CALLBACK_CHAT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
   name: "callback-chat-message",
   maxAttempts: 2,
