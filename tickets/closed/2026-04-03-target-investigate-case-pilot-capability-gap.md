@@ -1,7 +1,7 @@
 # [TICKET] Preparar a capability investigativa e o ticket causal do piloto guiadomus-matricula
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -32,6 +32,7 @@
   - Decision file:
 - Related docs/execplans:
   - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
   - ../guiadomus-matricula/docs/workflows/target-prepare-manifest.json
   - ../guiadomus-matricula/tickets/templates/internal-ticket-template.md
   - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
@@ -102,12 +103,31 @@ O piloto deve expor uma capability `case-investigation` consumivel pelo runner, 
 - Requisito/RF/CA coberto: validacoes pendentes/manuais herdadas da spec
 - Evidencia observavel: o ticket ou seus artefatos de aceite registram explicitamente quais workflows internos alem dos publicos foram declarados como investigaveis, quais superfices historicas ainda fecham causalidade sem replay, qual caminho local de dossier por capability foi validado, qual politica real de retencao foi aceita para esse dossier e qual politica real de purge scoped foi validada no piloto.
 
+## Resultado do fechamento
+- Checklist aplicado: releitura do diff atual do ticket/ExecPlan neste repositorio, do changeset do piloto `../guiadomus-matricula`, da spec de origem e de `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion antes da decisao final.
+- Resultado final do fechamento: `GO`
+- Criterio 1 (`RF-05`, `RF-09`, `RF-45`): atendido.
+  Evidencia objetiva: `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json` foi criado com selectors aceitos `propertyId`, `requestId`, `workflow`, `window`, `runArtifact`; workflows investigaveis `extract_address`, `extract_condominium_info`, `extract_inscricao_municipal`, `extract_matricula_risks_v2`, `extract_unit_description_structured_v1`, `extract_value_timeline_v1`, `extract_construction_timeline_v1`; fases `preflight`, `case-resolution`, `evidence-collection`, `assessment`, `publication`; dossier canonico `output/case-investigation/<request-id>/`; referencias operacionais apenas em `docs/workflows/`, `README.md`, `docs/local-function-runbook.md` e scripts locais fora de `extractors/workflows/**` e `prompts/`. O teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou (`3/3`). A leitura de `../guiadomus-matricula/utils/extractor-registry.js` confirma cobertura positiva do inventario finito atual do piloto, com seis workflows `supported` e um `implemented_but_unsupported`, sem membros extras fora do conjunto declarado no manifesto.
+- Criterio 2 (`RF-24`, `RF-25`, `RF-26`, `CA-12`): atendido.
+  Evidencia objetiva: o manifesto registra `updateDb=false`, `dedicatedRequestId=true`, replay declarado, `includeWorkflowDebug` com policy `safe-only`, `globalPurgeAllowed=false`, identificadores aceitos `propertyId|pdfFileName|matriculaNumber|transcriptHint`, proibicao de mutacoes nao essenciais, proibicao de writes em `mongodb|tickets|docs|git`, `automaticRawArtifactVersioning=false` e namespace `output/case-investigation/<request-id>/`. `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md` consolida a policy de replay/purge e a retencao local. `../guiadomus-matricula/output/case-investigation/case_inv_pilot_20260403_183200/validation.summary.json` registra preview de purge com `dryRun=true`, `scope=identifiers`, `globalPurgeObserved=false`, warnings vazios e rodada controlada com `extract_address`, `updateDb=false`, `includeWorkflowDebug=false`, artefatos gravados no dossier dedicado.
+- Criterio 3 (`RF-43`, `RF-44`, `CA-17`): atendido.
+  Evidencia objetiva: `../guiadomus-matricula/tickets/templates/internal-ticket-template.md` manteve o template unico e agora contem `## Investigacao Causal` com os 10 subtitulos obrigatorios em ordem estavel para `Source: production-observation`. O teste dirigido passou e `rg -n "^## Investigacao Causal$|^### Resolved case$|^### Resolved attempt$|^### Investigation inputs$|^### Replay used$|^### Verdicts$|^### Confidence and evidence sufficiency$|^### Causal surface$|^### Generalization basis$|^### Overfit vetoes considered$|^### Publication decision$" ../guiadomus-matricula/tickets/templates/internal-ticket-template.md` confirmou o bloco nas linhas `70..110`. `tests/scripts/target-case-investigation-capability.test.js` tambem valida a ausencia de template paralelo em `tickets/templates/`.
+- Criterio 4 (validacoes pendentes/manuais herdadas da spec): atendido.
+  Evidencia objetiva: `execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md` e `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md` registram explicitamente que o unico workflow interno adicional aos publicos declarado como investigavel e `extract_construction_timeline_v1`; que as superficies historicas que fecham causalidade sem replay sao bundle local correlacionado por `requestId` e, quando seguro, `workflow_debug` ou sidecar local derivado; que o dossier aprovado fica em `output/case-investigation/<request-id>/` com limpeza manual apos revisao; que `cleanup:repo-hygiene` permanece fora desse namespace; e que a policy real de purge scoped validada no piloto usa apenas `POST /_meta/cache/purge-extractors` com `dryRun=true` e os quatro identificadores aceitos.
+- Validacoes executadas:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js`
+  - `rg -n "^## Investigacao Causal$|^### Resolved case$|^### Resolved attempt$|^### Investigation inputs$|^### Replay used$|^### Verdicts$|^### Confidence and evidence sufficiency$|^### Causal surface$|^### Generalization basis$|^### Overfit vetoes considered$|^### Publication decision$" ../guiadomus-matricula/tickets/templates/internal-ticket-template.md`
+  - Leitura dirigida de `../guiadomus-matricula/utils/extractor-registry.js`, `../guiadomus-matricula/index.js`, `../guiadomus-matricula/scripts/repo-hygiene-cleanup.js`, `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`, `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md` e `../guiadomus-matricula/output/case-investigation/case_inv_pilot_20260403_183200/validation.summary.json`
+- Validacao manual pendente registrada no ticket fechado: nenhuma. A validacao manual herdada da spec foi executada e consolidada no runbook da capability e no dossier local do piloto.
+
 ## Decision log
 - 2026-04-03 - Ticket aberto na triagem inicial da spec. Fronteira observavel: este ticket cobre somente a capability concreta do piloto e o template causal; o runner canonico e seus gates permanecem nos tickets irmaos do mesmo pacote.
+- 2026-04-03 - Execucao do piloto validou `case-investigation` em `../guiadomus-matricula` com manifesto, docs auxiliares fora do runtime, bloco `## Investigacao Causal` no template interno, dossier local em `output/case-investigation/<request-id>/` e preview manual de purge scoped/rodada controlada registrados no ExecPlan e no runbook da capability, sem fechar o ticket nesta etapa.
+- 2026-04-03 18:38Z - Fechamento tecnico revalidado contra diff, ticket, ExecPlan, spec de origem e quality gates compartilhados; resultado final `GO` sem follow-up.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-03 18:38Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
