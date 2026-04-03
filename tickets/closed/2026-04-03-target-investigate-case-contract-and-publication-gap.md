@@ -34,7 +34,7 @@
   - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
   - docs/workflows/codex-quality-gates.md
   - docs/workflows/target-project-compatibility-contract.md
-  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -121,7 +121,7 @@ O runner deve descobrir deterministicamente a capability `case-investigation`, v
 - Closed at (UTC): 2026-04-03 17:15Z
 - Closure reason: split-follow-up
 - Related PR/commit/execplan: ExecPlan `execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
-- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/open/2026-04-03-target-investigate-case-contract-package-wiring-gap.md
+- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
 - Resultado final do fechamento: `NO_GO`
 - Checklist aplicado: releitura do diff atual, do ticket, do ExecPlan, da spec de origem, de `docs/workflows/target-project-compatibility-contract.md` e de `docs/workflows/codex-quality-gates.md`, com validacao objetiva de cada closure criterion antes da decisao final.
@@ -138,4 +138,4 @@ O runner deve descobrir deterministicamente a capability `case-investigation`, v
   - `rg -n "targetInvestigateCase|target-investigate-case|target_investigate_case|case-investigation" src/core src/integrations src/types`
 - Causa-raiz registrada: `ticket`
 - Escopo da remediacao: `local`
-- Gatilho de desbloqueio do follow-up: aterragem do scaffold de `target-investigate-case` no ticket irmao `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`, para que o pacote contratual atual possa ser plugado sem criar superficie paralela.
+- Gatilho de desbloqueio do follow-up: aterragem do scaffold de `target-investigate-case` no ticket irmao `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`, para que o pacote contratual atual pudesse ser plugado sem criar superficie paralela; o wiring foi absorvido e o follow-up acabou reconciliado no mesmo changeset.

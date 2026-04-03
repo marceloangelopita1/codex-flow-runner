@@ -34,8 +34,8 @@
   - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
   - ../guiadomus-matricula/docs/workflows/target-prepare-manifest.json
   - ../guiadomus-matricula/tickets/templates/internal-ticket-template.md
-  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
-  - tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
 - Matriz aplicavel: nao

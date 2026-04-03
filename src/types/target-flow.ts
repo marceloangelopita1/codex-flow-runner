@@ -1,11 +1,16 @@
 import { ProjectRef } from "./project.js";
 
-export type TargetFlowKind = "target-prepare" | "target-checkup" | "target-derive";
+export type TargetFlowKind =
+  | "target-prepare"
+  | "target-checkup"
+  | "target-derive"
+  | "target-investigate-case";
 
 export type TargetFlowCommand =
   | "/target_prepare"
   | "/target_checkup"
-  | "/target_derive_gaps";
+  | "/target_derive_gaps"
+  | "/target_investigate_case";
 
 export type TargetFlowVersionBoundaryState = "before-versioning" | "after-versioning";
 
@@ -20,11 +25,18 @@ export type TargetDeriveMilestone =
   | "dedup-prioritization"
   | "materialization"
   | "versioning";
+export type TargetInvestigateCaseMilestone =
+  | "preflight"
+  | "case-resolution"
+  | "evidence-collection"
+  | "assessment"
+  | "publication";
 
 export type TargetFlowMilestone =
   | TargetPrepareMilestone
   | TargetCheckupMilestone
-  | TargetDeriveMilestone;
+  | TargetDeriveMilestone
+  | TargetInvestigateCaseMilestone;
 
 export interface TargetFlowAiExchange {
   stageLabel: string;
@@ -75,6 +87,17 @@ export const TARGET_DERIVE_MILESTONE_LABELS: Record<TargetDeriveMilestone, strin
   versioning: "versionamento",
 };
 
+export const TARGET_INVESTIGATE_CASE_MILESTONE_LABELS: Record<
+  TargetInvestigateCaseMilestone,
+  string
+> = {
+  preflight: "preflight",
+  "case-resolution": "case-resolution",
+  "evidence-collection": "evidence-collection",
+  assessment: "assessment",
+  publication: "publication",
+};
+
 export const targetFlowKindToCommand = (flow: TargetFlowKind): TargetFlowCommand => {
   if (flow === "target-prepare") {
     return "/target_prepare";
@@ -84,7 +107,11 @@ export const targetFlowKindToCommand = (flow: TargetFlowKind): TargetFlowCommand
     return "/target_checkup";
   }
 
-  return "/target_derive_gaps";
+  if (flow === "target-derive") {
+    return "/target_derive_gaps";
+  }
+
+  return "/target_investigate_case";
 };
 
 export const targetFlowCommandToKind = (command: TargetFlowCommand): TargetFlowKind => {
@@ -96,7 +123,11 @@ export const targetFlowCommandToKind = (command: TargetFlowCommand): TargetFlowK
     return "target-checkup";
   }
 
-  return "target-derive";
+  if (command === "/target_derive_gaps") {
+    return "target-derive";
+  }
+
+  return "target-investigate-case";
 };
 
 export const renderTargetFlowMilestoneLabel = (
@@ -111,5 +142,9 @@ export const renderTargetFlowMilestoneLabel = (
     return TARGET_CHECKUP_MILESTONE_LABELS[milestone as TargetCheckupMilestone];
   }
 
-  return TARGET_DERIVE_MILESTONE_LABELS[milestone as TargetDeriveMilestone];
+  if (flow === "target-derive") {
+    return TARGET_DERIVE_MILESTONE_LABELS[milestone as TargetDeriveMilestone];
+  }
+
+  return TARGET_INVESTIGATE_CASE_MILESTONE_LABELS[milestone as TargetInvestigateCaseMilestone];
 };

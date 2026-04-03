@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { ProjectRef } from "./project.js";
+import {
+  TargetFlowLifecycleHooks,
+  TargetFlowVersionBoundaryState,
+  TargetInvestigateCaseMilestone,
+} from "./target-flow.js";
 
 const trimmedString = z.string().trim().min(1);
 
@@ -53,6 +59,7 @@ export const TARGET_INVESTIGATE_CASE_MANIFEST_PATH =
   "docs/workflows/target-case-investigation-manifest.json";
 export const TARGET_INVESTIGATE_CASE_CAPABILITY = "case-investigation";
 export const TARGET_INVESTIGATE_CASE_COMMAND = "/target_investigate_case";
+export const TARGET_INVESTIGATE_CASE_ROUNDS_DIR = "investigations";
 
 export const TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS = uniqueValues(
   ["case-ref", "workflow", "request-id", "window", "symptom"] as const,
@@ -894,6 +901,69 @@ export type TargetInvestigateCaseTracePayload = z.infer<
 export type TargetInvestigateCaseFinalSummary = z.infer<
   typeof targetInvestigateCaseFinalSummarySchema
 >;
+
+export interface TargetInvestigateCaseArtifactSet {
+  caseResolutionPath: string;
+  evidenceBundlePath: string;
+  assessmentPath: string;
+  dossierPath: string;
+  publicationDecisionPath: string;
+}
+
+export interface TargetInvestigateCaseCompletedSummary {
+  targetProject: ProjectRef;
+  manifestPath: string;
+  roundId: string;
+  roundDirectory: string;
+  canonicalCommand: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  publicationDecision: TargetInvestigateCasePublicationDecision;
+  finalSummary: TargetInvestigateCaseFinalSummary;
+  tracePayload: TargetInvestigateCaseTracePayload;
+  nextAction: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+}
+
+export interface TargetInvestigateCaseCancelledSummary {
+  targetProject: ProjectRef;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: string[];
+  cancelledAtMilestone: TargetInvestigateCaseMilestone;
+  nextAction: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+}
+
+export type TargetInvestigateCaseBlockedReason =
+  | "invalid-project-name"
+  | "project-not-found"
+  | "git-repo-missing"
+  | "manifest-missing"
+  | "manifest-invalid"
+  | "round-preparer-unavailable"
+  | "artifact-preparation-blocked";
+
+export type TargetInvestigateCaseExecutionResult =
+  | {
+      status: "completed";
+      summary: TargetInvestigateCaseCompletedSummary;
+    }
+  | {
+      status: "cancelled";
+      summary: TargetInvestigateCaseCancelledSummary;
+    }
+  | {
+      status: "blocked";
+      reason: TargetInvestigateCaseBlockedReason;
+      message: string;
+    }
+  | {
+      status: "failed";
+      message: string;
+    };
+
+export type TargetInvestigateCaseLifecycleHooks =
+  TargetFlowLifecycleHooks<TargetInvestigateCaseMilestone>;
 
 const evidenceSufficiencyRank: Record<TargetInvestigateCaseEvidenceSufficiency, number> = {
   insufficient: 0,

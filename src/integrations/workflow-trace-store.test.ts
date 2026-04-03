@@ -435,3 +435,78 @@ test("recordTargetFlowTrace evita sobrescrita silenciosa quando o traceId colide
     await cleanupTempProjectRoot(projectPath);
   }
 });
+
+test("recordTargetFlowTrace aceita target-investigate-case com milestones e artefatos minimos explicitos", async () => {
+  const projectPath = await createTempProjectRoot();
+
+  try {
+    const store = new FileSystemWorkflowTraceStore(projectPath);
+    const record = await store.recordTargetFlowTrace({
+      flow: "target-investigate-case",
+      sourceCommand: "/target_investigate_case",
+      targetProjectName: "alpha-project",
+      targetProjectPath: "/home/mapita/projetos/alpha-project",
+      inputs: {
+        canonicalCommand:
+          "/target_investigate_case alpha-project case-001 --workflow billing-core --request-id req-001",
+      },
+      milestones: [
+        {
+          milestone: "preflight",
+          milestoneLabel: "preflight",
+          message: "Preflight concluido para alpha-project.",
+          versionBoundaryState: "before-versioning",
+          recordedAtUtc: "2026-04-03T19:00:00.000Z",
+        },
+        {
+          milestone: "publication",
+          milestoneLabel: "publication",
+          message: "Publication concluida como no-op local para case-001.",
+          versionBoundaryState: "before-versioning",
+          recordedAtUtc: "2026-04-03T19:05:00.000Z",
+        },
+      ],
+      aiExchanges: [],
+      artifactPaths: [
+        "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+        "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+        "investigations/2026-04-03T19-00-00Z/assessment.json",
+        "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+        "investigations/2026-04-03T19-00-00Z/dossier.md",
+      ],
+      versionedArtifactPaths: [],
+      outcome: {
+        status: "success",
+        summary: "target_investigate_case concluido para alpha-project",
+        metadata: {
+          overallOutcome: "no-real-gap",
+          dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+        },
+      },
+      recordedAt: new Date("2026-04-03T19:06:00.000Z"),
+    });
+
+    const payloadRaw = await fs.readFile(resolveTraceFile(projectPath, record.sessionPath), "utf8");
+    const payload = JSON.parse(payloadRaw) as {
+      flow: string;
+      sourceCommand: string;
+      milestones: Array<{ milestone: string }>;
+      artifactPaths: string[];
+      outcome: { metadata?: Record<string, unknown> };
+    };
+
+    assert.equal(payload.flow, "target-investigate-case");
+    assert.equal(payload.sourceCommand, "/target_investigate_case");
+    assert.equal(payload.milestones[1]?.milestone, "publication");
+    assert.deepEqual(payload.artifactPaths, [
+      "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+      "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+      "investigations/2026-04-03T19-00-00Z/assessment.json",
+      "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+      "investigations/2026-04-03T19-00-00Z/dossier.md",
+    ]);
+    assert.equal(payload.outcome.metadata?.overallOutcome, "no-real-gap");
+  } finally {
+    await cleanupTempProjectRoot(projectPath);
+  }
+});

@@ -55,6 +55,7 @@ import {
   RunSpecsTriageTimingStage,
   TargetCheckupFlowSummary,
   TargetDeriveFlowSummary,
+  TargetInvestigateCaseFlowSummary,
   TargetFlowMilestoneLifecycleEvent,
   TargetPrepareFlowSummary,
 } from "../types/flow-timing.js";
@@ -164,6 +165,10 @@ import {
 import { TargetDeriveExecutionResult } from "../types/target-derive.js";
 import { TargetDeriveLifecycleHooks } from "../types/target-derive.js";
 import {
+  parseTargetInvestigateCaseCommand,
+  TargetInvestigateCaseExecutor,
+} from "./target-investigate-case.js";
+import {
   TargetCheckupMilestone,
   TargetDeriveMilestone,
   TargetFlowAiExchange,
@@ -171,10 +176,15 @@ import {
   TargetFlowKind,
   TargetFlowMilestone,
   TargetFlowVersionBoundaryState,
+  TargetInvestigateCaseMilestone,
   TargetPrepareMilestone,
   renderTargetFlowMilestoneLabel,
   targetFlowKindToCommand,
 } from "../types/target-flow.js";
+import {
+  TargetInvestigateCaseExecutionResult,
+  TargetInvestigateCaseLifecycleHooks,
+} from "../types/target-investigate-case.js";
 
 type TicketFinalSummaryHandler = (
   summary: TicketFinalSummary,
@@ -267,6 +277,7 @@ export interface TicketRunnerOptions {
   targetPrepareExecutor?: TargetPrepareExecutor;
   targetCheckupExecutor?: TargetCheckupExecutor;
   targetDeriveExecutor?: TargetDeriveExecutor;
+  targetInvestigateCaseExecutor?: TargetInvestigateCaseExecutor;
 }
 
 interface ActiveDiscoverSpecSession {
@@ -738,6 +749,14 @@ export type TargetDeriveRequestResult =
   | TargetDeriveExecutionResult
   | RunnerRequestBlockedResult;
 
+export type TargetInvestigateCaseRequestResult =
+  | {
+      status: "started";
+      message: string;
+    }
+  | TargetInvestigateCaseExecutionResult
+  | RunnerRequestBlockedResult;
+
 export type TargetFlowCancelResult =
   | {
       status: "accepted";
@@ -931,6 +950,7 @@ export class TicketRunner {
   private readonly targetPrepareExecutor: TargetPrepareExecutor | null;
   private readonly targetCheckupExecutor: TargetCheckupExecutor | null;
   private readonly targetDeriveExecutor: TargetDeriveExecutor | null;
+  private readonly targetInvestigateCaseExecutor: TargetInvestigateCaseExecutor | null;
   private activeDiscoverSpecSession: ActiveDiscoverSpecSession | null = null;
   private activePlanSpecSession: ActivePlanSpecSession | null = null;
   private activeCodexChatSession: ActiveCodexChatSession | null = null;
@@ -986,6 +1006,7 @@ export class TicketRunner {
     this.targetPrepareExecutor = options.targetPrepareExecutor ?? null;
     this.targetCheckupExecutor = options.targetCheckupExecutor ?? null;
     this.targetDeriveExecutor = options.targetDeriveExecutor ?? null;
+    this.targetInvestigateCaseExecutor = options.targetInvestigateCaseExecutor ?? null;
     this.state.updatedAt = this.now();
     this.syncStateFromSlots();
   }
@@ -2997,6 +3018,47 @@ export class TicketRunner {
     return this.startTargetDeriveFlow(targetProjectResolution, reportPath);
   };
 
+  requestTargetInvestigateCase = async (
+    commandText: string,
+  ): Promise<TargetInvestigateCaseRequestResult> => {
+    const trimmedCommand = commandText.trim();
+    this.logger.info("Solicitacao de /target_investigate_case recebida", {
+      commandText: trimmedCommand,
+      phase: this.state.phase,
+      isRunning: this.state.isRunning,
+      hasActiveDiscoverSpecSession: this.isDiscoverSpecSessionActive(),
+      hasActivePlanSpecSession: this.isPlanSpecSessionActive(),
+      hasActiveCodexChatSession: this.isCodexChatSessionActive(),
+      activeProjectName: this.state.activeProject?.name,
+      activeProjectPath: this.state.activeProject?.path,
+      activeSlotsCount: this.activeSlots.size,
+      activeTargetFlowsCount: this.activeTargetFlows.size,
+    });
+
+    if (this.isShuttingDown) {
+      return this.buildShutdownBlockedResult("/target_investigate_case");
+    }
+
+    if (!this.targetInvestigateCaseExecutor) {
+      return {
+        status: "failed",
+        message: "Executor de /target_investigate_case nao configurado nesta instancia do runner.",
+      };
+    }
+
+    let normalizedInput;
+    try {
+      normalizedInput = parseTargetInvestigateCaseCommand(trimmedCommand);
+    } catch (error) {
+      return {
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    return this.startTargetInvestigateCaseFlow(normalizedInput);
+  };
+
   cancelTargetPrepare = async (): Promise<TargetFlowCancelResult> =>
     this.cancelTargetFlow("target-prepare");
 
@@ -3005,6 +3067,9 @@ export class TicketRunner {
 
   cancelTargetDerive = async (): Promise<TargetFlowCancelResult> =>
     this.cancelTargetFlow("target-derive");
+
+  cancelTargetInvestigateCase = async (): Promise<TargetFlowCancelResult> =>
+    this.cancelTargetFlow("target-investigate-case");
 
   private async startTargetPrepareFlow(params: {
     requestedProjectName: string | null;
@@ -3156,6 +3221,61 @@ export class TicketRunner {
     };
   }
 
+  private async startTargetInvestigateCaseFlow(
+    normalizedInput: ReturnType<typeof parseTargetInvestigateCaseCommand>,
+  ): Promise<TargetInvestigateCaseRequestResult> {
+    const startedAt = this.now();
+    const reservation = this.reserveTargetFlowProjectSlot({
+      command: "/target_investigate_case",
+      flow: "target-investigate-case",
+      projectName: normalizedInput.projectName,
+      projectPath: null,
+      startedAt,
+    });
+    if (reservation.status === "blocked") {
+      return reservation;
+    }
+
+    const outcome = await this.startTargetFlowRequest<
+      TargetInvestigateCaseMilestone,
+      TargetInvestigateCaseExecutionResult
+    >({
+      flow: "target-investigate-case",
+      startedAt,
+      reservation: reservation.reservation,
+      inputs: {
+        canonicalCommand: normalizedInput.canonicalCommand,
+        projectName: normalizedInput.projectName,
+        caseRef: normalizedInput.caseRef,
+        workflow: normalizedInput.workflow ?? null,
+        requestId: normalizedInput.requestId ?? null,
+        window: normalizedInput.window ?? null,
+        symptom: normalizedInput.symptom ?? null,
+      },
+      execute: (hooks: TargetInvestigateCaseLifecycleHooks) =>
+        this.targetInvestigateCaseExecutor!.execute(
+          {
+            input: normalizedInput,
+          },
+          hooks,
+        ),
+    });
+
+    if (outcome.kind === "terminal") {
+      return outcome.result;
+    }
+
+    const active = outcome.active;
+    void outcome.runPromise.then(async (result) => {
+      await this.finalizeTargetInvestigateCaseFlow(active, result);
+    });
+
+    return {
+      status: "started",
+      message: `Execucao /target_investigate_case iniciada para ${active.targetProject.name}.`,
+    };
+  }
+
   private normalizeRequestedTargetProjectName(projectName?: string | null): string | null {
     const normalizedName = projectName?.trim() ?? "";
     return normalizedName || null;
@@ -3202,7 +3322,11 @@ export class TicketRunner {
 
   private async startTargetFlowRequest<
     Stage extends TargetFlowMilestone,
-    Result extends TargetPrepareExecutionResult | TargetCheckupExecutionResult | TargetDeriveExecutionResult,
+    Result extends
+      | TargetPrepareExecutionResult
+      | TargetCheckupExecutionResult
+      | TargetDeriveExecutionResult
+      | TargetInvestigateCaseExecutionResult,
   >(params: {
     flow: TargetFlowKind;
     startedAt: Date;
@@ -3211,7 +3335,8 @@ export class TicketRunner {
     execute:
       | ((hooks: TargetPrepareLifecycleHooks) => Promise<Result>)
       | ((hooks: TargetCheckupLifecycleHooks) => Promise<Result>)
-      | ((hooks: TargetDeriveLifecycleHooks) => Promise<Result>);
+      | ((hooks: TargetDeriveLifecycleHooks) => Promise<Result>)
+      | ((hooks: TargetInvestigateCaseLifecycleHooks) => Promise<Result>);
   }):
     Promise<
       | {
@@ -3479,9 +3604,21 @@ export class TicketRunner {
     await this.completeTargetFlow(active, summary);
   }
 
+  private async finalizeTargetInvestigateCaseFlow(
+    active: ActiveTargetFlowExecution<TargetInvestigateCaseMilestone>,
+    result: TargetInvestigateCaseExecutionResult,
+  ): Promise<void> {
+    const summary = this.buildTargetInvestigateCaseFlowSummary(active, result);
+    await this.completeTargetFlow(active, summary);
+  }
+
   private async completeTargetFlow(
     active: ActiveTargetFlowExecution,
-    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+    summary:
+      | TargetPrepareFlowSummary
+      | TargetCheckupFlowSummary
+      | TargetDeriveFlowSummary
+      | TargetInvestigateCaseFlowSummary,
   ): Promise<void> {
     this.activeTargetFlows.delete(active.slotKey);
     this.pendingTargetFlows.delete(active.slotKey);
@@ -3723,6 +3860,82 @@ export class TicketRunner {
     };
   }
 
+  private buildTargetInvestigateCaseFlowSummary(
+    active: ActiveTargetFlowExecution<TargetInvestigateCaseMilestone>,
+    result: TargetInvestigateCaseExecutionResult,
+  ): TargetInvestigateCaseFlowSummary {
+    const finishedAt = this.now().getTime();
+    const timing =
+      result.status === "completed"
+        ? this.completeTargetFlowTiming(active, finishedAt)
+        : this.interruptTargetFlowTiming(active, finishedAt);
+
+    if (result.status === "completed") {
+      return {
+        flow: "target-investigate-case",
+        command: "/target_investigate_case",
+        outcome: "success",
+        finalStage: "publication",
+        completionReason: "completed",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: result.summary.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: uniqueSorted([
+          ...Object.values(result.summary.artifactPaths),
+          ...result.summary.publicationDecision.versioned_artifact_paths,
+        ]),
+        versionedArtifactPaths: [...result.summary.publicationDecision.versioned_artifact_paths],
+        details:
+          `Publication: ${result.summary.publicationDecision.publication_status}; ` +
+          `Outcome: ${result.summary.publicationDecision.overall_outcome}.`,
+        timing,
+        summary: result.summary.finalSummary,
+      };
+    }
+
+    if (result.status === "cancelled") {
+      return {
+        flow: "target-investigate-case",
+        command: "/target_investigate_case",
+        outcome: "cancelled",
+        finalStage: result.summary.cancelledAtMilestone,
+        completionReason: "cancelled",
+        timestampUtc: new Date(finishedAt).toISOString(),
+        targetProjectName: result.summary.targetProject.name,
+        targetProjectPath: result.summary.targetProject.path,
+        versionBoundaryState: result.summary.versionBoundaryState,
+        nextAction: result.summary.nextAction,
+        artifactPaths: [...result.summary.artifactPaths],
+        versionedArtifactPaths: [],
+        details:
+          `Cancelado em ${renderTargetFlowMilestoneLabel("target-investigate-case", result.summary.cancelledAtMilestone)}.`,
+        timing,
+      };
+    }
+
+    return {
+      flow: "target-investigate-case",
+      command: "/target_investigate_case",
+      outcome: result.status === "blocked" ? "blocked" : "failure",
+      finalStage: active.milestone,
+      completionReason: result.status === "blocked" ? "blocked" : "failed",
+      timestampUtc: new Date(finishedAt).toISOString(),
+      targetProjectName: active.targetProject.name,
+      targetProjectPath: active.targetProject.path,
+      versionBoundaryState: active.versionBoundaryState,
+      nextAction:
+        result.status === "blocked"
+          ? "Corrija o bloqueio objetivo reportado e rerode o fluxo."
+          : "Revise o namespace local de investigacao antes de rerodar.",
+      artifactPaths: [],
+      versionedArtifactPaths: [],
+      details: result.message,
+      timing,
+    };
+  }
+
   private completeTargetFlowTiming<Stage extends string>(
     active: ActiveTargetFlowExecution<Stage>,
     finishedAtMs: number,
@@ -3744,7 +3957,11 @@ export class TicketRunner {
   }
 
   private buildTargetFlowFinalMessage(
-    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+    summary:
+      | TargetPrepareFlowSummary
+      | TargetCheckupFlowSummary
+      | TargetDeriveFlowSummary
+      | TargetInvestigateCaseFlowSummary,
   ): string {
     if (summary.outcome === "success") {
       return `${summary.command.replace("/", "")} concluido para ${summary.targetProjectName}`;
@@ -3785,6 +4002,22 @@ export class TicketRunner {
         return "target-checkup-editorial-summary";
       }
       return "target-checkup-versioning";
+    }
+
+    if (flow === "target-investigate-case") {
+      if (milestone === "preflight") {
+        return "target-investigate-case-preflight";
+      }
+      if (milestone === "case-resolution") {
+        return "target-investigate-case-case-resolution";
+      }
+      if (milestone === "evidence-collection") {
+        return "target-investigate-case-evidence-collection";
+      }
+      if (milestone === "assessment") {
+        return "target-investigate-case-assessment";
+      }
+      return "target-investigate-case-publication";
     }
 
     if (milestone === "preflight") {
@@ -10834,7 +11067,11 @@ export class TicketRunner {
 
   private async recordTargetFlowTrace(
     active: ActiveTargetFlowExecution,
-    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+    summary:
+      | TargetPrepareFlowSummary
+      | TargetCheckupFlowSummary
+      | TargetDeriveFlowSummary
+      | TargetInvestigateCaseFlowSummary,
   ): Promise<void> {
     const traceRequest: TargetFlowTraceRecordRequest = {
       flow: active.flow,
@@ -10884,7 +11121,11 @@ export class TicketRunner {
   }
 
   private buildTargetFlowTraceMetadata(
-    summary: TargetPrepareFlowSummary | TargetCheckupFlowSummary | TargetDeriveFlowSummary,
+    summary:
+      | TargetPrepareFlowSummary
+      | TargetCheckupFlowSummary
+      | TargetDeriveFlowSummary
+      | TargetInvestigateCaseFlowSummary,
   ): Record<string, unknown> {
     return {
       completionReason: summary.completionReason,
@@ -12182,6 +12423,10 @@ export class TicketRunner {
       return "/target_derive_gaps";
     }
 
+    if (kind === "target-investigate-case") {
+      return "/target_investigate_case";
+    }
+
     return "/plan_spec";
   }
 
@@ -12200,7 +12445,7 @@ export class TicketRunner {
 
   private mapTargetFlowKindToSlotKind(flow: TargetFlowKind): Extract<
     RunnerSlotKind,
-    "target-prepare" | "target-checkup" | "target-derive"
+    "target-prepare" | "target-checkup" | "target-derive" | "target-investigate-case"
   > {
     if (flow === "target-prepare") {
       return "target-prepare";
@@ -12210,7 +12455,11 @@ export class TicketRunner {
       return "target-checkup";
     }
 
-    return "target-derive";
+    if (flow === "target-derive") {
+      return "target-derive";
+    }
+
+    return "target-investigate-case";
   }
 
   private buildTargetFlowStateSnapshot(active: ActiveTargetFlowExecution): RunnerTargetFlowState {

@@ -1,7 +1,7 @@
 # [TICKET] Plugar o pacote contratual de case-investigation ao flow real e ao trace minimizado
 
 ## Metadata
-- Status: blocked
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -21,7 +21,7 @@
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): subconjunto remanescente do ticket pai: RF-08, RF-19..RF-35, RF-37..RF-41; CA-03, CA-07, CA-08, CA-09, CA-10, CA-11, CA-15. Membros explicitos preservados: forma canonica `/target_investigate_case <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...]`; `publication_status=eligible|not_eligible|blocked_by_policy|not_applicable`; `overall_outcome=no-real-gap|real-gap-not-internally-avoidable|real-gap-not-generalizable|inconclusive-case|inconclusive-project-capability-gap|runner-limitation|ticket-published|ticket-eligible-but-blocked-by-policy`; ausencia de `workflow_debug`, `db_payload`, `transcript` e payload bruto no trace/resumo; `versioned_artifact_paths` restrito ao ticket quando houver publication.
 - Inherited assumptions/defaults (when applicable): `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` permanecem como source of truth do contrato; o runner continua sem reinterpretar o dominio; o wiring deve reutilizar o control-plane oficial do fluxo e nao criar handler paralelo; o artefato versionado padrao continua sendo apenas o ticket quando houver publication elegivel.
 - Inherited RNFs (when applicable): trace minimo sem material sensivel; rastreabilidade cross-project observavel; fluxo sequencial; cobertura positiva/negativa das allowlists finitas relevantes.
-- Inherited technical/documentary constraints (when applicable): este follow-up nao deve recriar comandos, status, cancelamento ou milestones fora do ticket irmao `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`; a capability concreta do piloto continua fora de escopo; a integracao deve ocorrer nas superficies reais `runner`/`telegram-bot`/`workflow-trace-store`.
+- Inherited technical/documentary constraints (when applicable): este follow-up nao deve recriar comandos, status, cancelamento ou milestones fora do ticket irmao `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`; a capability concreta do piloto continua fora de escopo; a integracao deve ocorrer nas superficies reais `runner`/`telegram-bot`/`workflow-trace-store`.
 - Inherited pending/manual validations (when applicable): registrar uma validacao redigida do trace minimizado em fixture ou rodada representativa apos o wiring real; a smoke manual de Telegram real do control-plane continua sob ownership do ticket irmao quando ela depender dos comandos/status/cancel ainda nao aterrados.
 - Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): ticket
 - Smallest plausible explanation (audit/review only): o ticket pai misturou contrato/publication runner-side com criterios de aceite que dependem de um flow real ainda inexistente no branch; a implementacao atual, por isso, ficou correta no modulo dedicado e incompleta no nivel de integracao exigido para `GO`.
@@ -35,7 +35,7 @@
   - docs/workflows/codex-quality-gates.md
   - docs/workflows/target-project-compatibility-contract.md
   - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
-  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -102,16 +102,23 @@ Assim que o control-plane oficial de `target-investigate-case` existir no branch
 - Requisito/RF/CA coberto: validacao manual herdada de rastreabilidade operacional do trace minimizado
 - Evidencia observavel: o aceite do ticket registra explicitamente uma validacao redigida feita sobre fixture ou rodada representativa apos o wiring, identificando a execucao avaliada, o resultado da auditoria do trace minimizado e quaisquer ajustes feitos antes do fechamento.
 - Requisito/RF/CA coberto: fronteira de ownership do pacote derivado
-- Evidencia observavel: o diff final reutiliza o scaffold do ticket `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`, sem criar novo control-plane paralelo e sem tocar `../guiadomus-matricula/**`.
+- Evidencia observavel: o diff final reutiliza o scaffold do ticket `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`, sem criar novo control-plane paralelo e sem tocar `../guiadomus-matricula/**`.
+
+## Resultado do fechamento
+- Checklist aplicado: releitura do diff atual, deste ticket bloqueado, do ticket absorvente `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`, do ExecPlan atual e de `docs/workflows/codex-quality-gates.md`.
+- Resultado final do fechamento: absorvido por `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`; encerrado como `duplicate`.
+- Evidencia objetiva: o changeset atual passou a plugar o pacote contratual no flow real via `src/core/runner.ts`, `src/main.ts` e `src/integrations/telegram-bot.ts`, preservando o reuso de `parseTargetInvestigateCaseCommand`, `evaluateTargetInvestigateCaseRound`, `buildTargetInvestigateCaseTracePayload` e `buildTargetInvestigateCaseFinalSummary` em `src/core/target-investigate-case.ts`; `src/core/runner.test.ts`, `src/core/target-investigate-case.test.ts`, `src/integrations/telegram-bot.test.ts` e `src/integrations/workflow-trace-store.test.ts` ficaram verdes em `npm test`; `npm run check` tambem ficou verde; o diff continuou sem tocar `../guiadomus-matricula/**`.
+- Motivo editorial/ownership: manter este follow-up aberto apos a absorcao do wiring real geraria `duplication-gap` e `closure-criteria-gap` na mesma linhagem, contrariando o checklist compartilhado de fechamento.
 
 ## Decision log
 - 2026-04-03 17:15Z - Ticket criado como follow-up `blocked` apos fechamento `NO_GO` do ticket pai.
   - Motivo: o branch atual ja contem o pacote contratual e sua cobertura local, mas nao o wiring observavel exigido para `GO`.
-  - Gatilho de desbloqueio: aterragem do scaffold oficial de `target-investigate-case` no ticket irmao `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`.
+  - Gatilho de desbloqueio: aterragem do scaffold oficial de `target-investigate-case` no ticket irmao `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`.
+- 2026-04-03 18:02Z - O scaffold e o wiring real foram absorvidos pelo ticket de control-plane no mesmo changeset; este ticket deixa de ter trabalho remanescente proprio e e encerrado como `duplicate`.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-03 18:02Z
+- Closure reason: duplicate
+- Related PR/commit/execplan: Absorvido por `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md` e pelo ExecPlan `execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

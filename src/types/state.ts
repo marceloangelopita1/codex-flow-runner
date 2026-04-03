@@ -56,6 +56,11 @@ export type RunnerPhase =
   | "target-derive-dedup-prioritization"
   | "target-derive-materialization"
   | "target-derive-versioning"
+  | "target-investigate-case-preflight"
+  | "target-investigate-case-case-resolution"
+  | "target-investigate-case-evidence-collection"
+  | "target-investigate-case-assessment"
+  | "target-investigate-case-publication"
   | "codex-chat-waiting-user"
   | "codex-chat-waiting-codex"
   | "paused"
@@ -224,7 +229,8 @@ export type RunnerSlotKind =
   | "codex-chat"
   | "target-prepare"
   | "target-checkup"
-  | "target-derive";
+  | "target-derive"
+  | "target-investigate-case";
 
 export interface RunnerActiveSlotState {
   project: ProjectRef;

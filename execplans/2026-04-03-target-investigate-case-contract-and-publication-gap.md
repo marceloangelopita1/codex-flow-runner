@@ -15,7 +15,7 @@
   - engine runner-side de publication/no-op, thresholds e vetos anti-overfit;
   - summary/traces minimizados e testes automatizados/manual-validation herdados do ticket.
 - Fora de escopo:
-  - comandos `/target_investigate_case`, `/_status`, `/_cancel`, milestones visiveis, slot por projeto e cancelamento cooperativo, que pertencem ao ticket `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`;
+  - comandos `/target_investigate_case`, `/_status`, `/_cancel`, milestones visiveis, slot por projeto e cancelamento cooperativo, que pertencem ao ticket `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`;
   - manifesto concreto, replay/purge do piloto e bloco `## Investigacao Causal` no `../guiadomus-matricula`, que pertencem ao ticket `tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md`;
   - qualquer reinterpretacao semantica do dominio do caso pelo runner;
   - versionamento de dossier, bundle bruto, transcript, `workflow_debug`, `db_payload` ou payloads sensiveis.
@@ -24,8 +24,8 @@
 - [x] 2026-04-03 16:41Z - Planejamento inicial concluido com leitura integral do ticket, da spec de origem, de `PLANS.md`, de `docs/workflows/codex-quality-gates.md`, do contrato de compatibilidade do projeto alvo, dos tickets irmaos e das superficies atuais de `target-flow`, `state`, `flow-timing`, `target-checkup`, `target-derive`, `runner`, `telegram-bot`, `codex-client` e `workflow-trace-store`.
 - [x] 2026-04-03 17:10Z - Contrato `case-investigation`, manifesto canonico e validadores dos artefatos foram implementados em `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts` e `docs/workflows/target-case-investigation-manifest.json`, com cobertura positiva/negativa dos enums finitos em `src/core/target-investigate-case.test.ts`.
 - [x] 2026-04-03 17:10Z - Engine runner-side de publication/no-op, thresholds, matriz canonica de combinacoes validas e helpers sanitizados de summary/trace ficaram implementados em modulo dedicado, sem criar um control-plane paralelo nem tocar `runner.ts`/`telegram-bot.ts` fora da fronteira declarada.
-- [ ] 2026-04-03 17:10Z - Wiring do fluxo novo em `runner.ts`/`telegram-bot.ts`/`workflow-trace-store.ts` e a validacao manual redigida do trace minimizado permanecem bloqueados neste branch porque o scaffold de `/target_investigate_case` ainda nao existe e pertence explicitamente ao ticket irmao `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`.
-- [x] 2026-04-03 17:15Z - Revisao final do plano concluiu `NO_GO` para este ticket: o contrato runner-side e a cobertura local do modulo novo foram entregues, mas os closure criteria de wiring real e validacao final permaneceram bloqueados e foram transferidos para o follow-up `tickets/open/2026-04-03-target-investigate-case-contract-package-wiring-gap.md`.
+- [ ] 2026-04-03 17:10Z - Wiring do fluxo novo em `runner.ts`/`telegram-bot.ts`/`workflow-trace-store.ts` e a validacao manual redigida do trace minimizado permanecem bloqueados neste branch porque o scaffold de `/target_investigate_case` ainda nao existe e pertence explicitamente ao ticket irmao `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`.
+- [x] 2026-04-03 17:15Z - Revisao final do plano concluiu `NO_GO` para este ticket: o contrato runner-side e a cobertura local do modulo novo foram entregues, mas os closure criteria de wiring real e validacao final permaneceram bloqueados e foram transferidos para o follow-up `tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md`.
 
 ## Surprises & Discoveries
 - 2026-04-03 16:41Z - A infraestrutura atual de target flows conhece apenas `target-prepare`, `target-checkup` e `target-derive`; este plano nao pode presumir que o scaffold de `target-investigate-case` ja exista em `src/types/target-flow.ts`, `src/types/state.ts`, `src/types/flow-timing.ts`, `src/core/runner.ts` ou `src/integrations/telegram-bot.ts`.
@@ -82,7 +82,7 @@
   - `PLANS.md`
   - `docs/workflows/codex-quality-gates.md`
   - `docs/workflows/target-project-compatibility-contract.md`
-  - `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`
+  - `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`
   - `tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md`
   - `execplans/2026-03-24-target-derive-gaps-idempotent-readiness-materialization-gap.md`
 - Superficies de codigo atuais mais relevantes:
@@ -136,7 +136,7 @@
   - `overall_outcome`: `no-real-gap | real-gap-not-internally-avoidable | real-gap-not-generalizable | inconclusive-case | inconclusive-project-capability-gap | runner-limitation | ticket-published | ticket-eligible-but-blocked-by-policy`
 - Fronteira de ownership com tickets irmaos:
   - este plano cobre contrato, validadores, tabelas de combinacao, gates mecanicos, publication, trace minimo e resumo final;
-  - `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md` cobre comandos, status/cancel, slot por projeto, milestones publicos e lifecycle do fluxo;
+  - `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md` cobre comandos, status/cancel, slot por projeto, milestones publicos e lifecycle do fluxo;
   - `tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md` cobre manifesto concreto do piloto, replay/purge do piloto e template `## Investigacao Causal` no repo alvo externo.
 - Fluxo atual relevante:
   - `src/core/target-checkup.ts` ja oferece precedente para manifesto em caminho canonico e artefato `.json + .md`;
@@ -290,5 +290,5 @@
 - Dependencias externas e mocks:
   - `zod` ja existe em `package.json` e deve ser reutilizado para schema/normalizacao;
   - a publication positiva pode reutilizar o template interno atual em `tickets/templates/internal-ticket-template.md`, sem introduzir template novo neste ticket;
-  - a validacao manual end-to-end do resumo final depende de o ticket `tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md` ja ter aterrado o comando/surface do fluxo no branch;
+  - a validacao manual end-to-end do resumo final depende de o ticket `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md` ja ter aterrado o comando/surface do fluxo no branch;
   - a validacao real em projeto externo depende do ticket `tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md` para disponibilizar a capability concreta no piloto.

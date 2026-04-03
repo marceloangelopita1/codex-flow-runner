@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildTargetInvestigateCaseFinalSummary,
   buildTargetInvestigateCaseTracePayload,
+  ControlledTargetInvestigateCaseExecutor,
   evaluateTargetInvestigateCaseRound,
   loadTargetInvestigateCaseManifest,
   normalizeTargetInvestigateCaseInput,
@@ -14,6 +15,7 @@ import {
   renderTargetInvestigateCaseFinalSummary,
   TargetInvestigateCaseTicketPublisher,
 } from "./target-investigate-case.js";
+import { FileSystemTargetProjectResolver } from "../integrations/target-project-resolver.js";
 import { ProjectRef } from "../types/project.js";
 import {
   targetInvestigateCaseAssessmentSchema,
@@ -499,6 +501,242 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
   assert.doesNotMatch(traceJson, /workflow_debug|db_payload|transcript/u);
 });
 
+test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com namespace local estavel em no-op", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateCaseResolution: (artifact) => {
+      artifact.attempt_resolution = {
+        status: "absent-explicitly",
+        attempt_ref: null,
+        reason: "Nao ha tentativa segura para desambiguar o caso.",
+      };
+      artifact.replay_decision = {
+        status: "not-required",
+        reason: "Base historica suficiente.",
+      };
+    },
+    mutateEvidenceBundle: (artifact) => {
+      artifact.replay = {
+        used: false,
+        mode: "historical-only",
+        request_id: null,
+        update_db: null,
+        include_workflow_debug: null,
+        cache_policy: null,
+        purge_policy: null,
+        namespace: null,
+      };
+    },
+    mutateAssessment: (artifact) => {
+      artifact.houve_gap_real = "no";
+      artifact.era_evitavel_internamente = "not_applicable";
+      artifact.merece_ticket_generalizavel = "not_applicable";
+      artifact.publication_recommendation.recommended_action = "do_not_publish";
+      artifact.causal_surface.kind = "expected-behavior";
+      artifact.generalization_basis = [];
+    },
+  });
+  const milestones: string[] = [];
+  const executor = new ControlledTargetInvestigateCaseExecutor({
+    targetProjectResolver: new FileSystemTargetProjectResolver(fixture.rootPath),
+    now: () => new Date("2026-04-03T18:00:00.000Z"),
+    roundPreparer: {
+      prepareRound: async (request) => {
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.caseResolutionPath,
+          request.targetProject.path,
+          request.artifactPaths.caseResolutionPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.evidenceBundlePath,
+          request.targetProject.path,
+          request.artifactPaths.evidenceBundlePath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.assessmentPath,
+          request.targetProject.path,
+          request.artifactPaths.assessmentPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.dossierPath,
+          request.targetProject.path,
+          request.artifactPaths.dossierPath,
+        );
+        return {
+          status: "prepared",
+        };
+      },
+    },
+  });
+
+  const result = await executor.execute(
+    {
+      input: {
+        projectName: fixture.project.name,
+        caseRef: "case-001",
+        workflow: "billing-core",
+        requestId: "req-001",
+        window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+        symptom: "timeout on save",
+      },
+    },
+    {
+      onMilestone: async (event) => {
+        milestones.push(`${event.milestone}:${event.versionBoundaryState}`);
+      },
+    },
+  );
+
+  assert.equal(result.status, "completed");
+  if (result.status !== "completed") {
+    return;
+  }
+
+  assert.deepEqual(milestones, [
+    "preflight:before-versioning",
+    "case-resolution:before-versioning",
+    "evidence-collection:before-versioning",
+    "assessment:before-versioning",
+    "publication:before-versioning",
+  ]);
+  assert.equal(result.summary.versionBoundaryState, "before-versioning");
+  assert.deepEqual(
+    result.summary.artifactPaths,
+    {
+      caseResolutionPath: "investigations/2026-04-03T18-00-00Z/case-resolution.json",
+      evidenceBundlePath: "investigations/2026-04-03T18-00-00Z/evidence-bundle.json",
+      assessmentPath: "investigations/2026-04-03T18-00-00Z/assessment.json",
+      dossierPath: "investigations/2026-04-03T18-00-00Z/dossier.md",
+      publicationDecisionPath: "investigations/2026-04-03T18-00-00Z/publication-decision.json",
+    },
+  );
+  assert.equal(result.summary.publicationDecision.publication_status, "not_applicable");
+  assert.equal(result.summary.publicationDecision.overall_outcome, "no-real-gap");
+  assert.ok(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        ...result.summary.artifactPaths.publicationDecisionPath.split("/"),
+      ),
+    ),
+  );
+});
+
+test("ControlledTargetInvestigateCaseExecutor cruza a fronteira de versionamento apenas dentro de publication e aceita dossier.json", async () => {
+  const fixture = await createTargetRepoFixture({
+    dossierFormat: "json",
+  });
+  const publisher = new StubTargetInvestigateCaseTicketPublisher(
+    "tickets/open/2026-04-03-case-investigation-executor.md",
+  );
+  const milestones: string[] = [];
+  const executor = new ControlledTargetInvestigateCaseExecutor({
+    targetProjectResolver: new FileSystemTargetProjectResolver(fixture.rootPath),
+    now: () => new Date("2026-04-03T19:00:00.000Z"),
+    roundPreparer: {
+      prepareRound: async (request) => {
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.caseResolutionPath,
+          request.targetProject.path,
+          request.artifactPaths.caseResolutionPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.evidenceBundlePath,
+          request.targetProject.path,
+          request.artifactPaths.evidenceBundlePath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.assessmentPath,
+          request.targetProject.path,
+          request.artifactPaths.assessmentPath,
+        );
+        const dossierPath = request.artifactPaths.dossierPath.replace(/\.md$/u, ".json");
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.dossierPath,
+          request.targetProject.path,
+          dossierPath,
+          { rewriteDossierLocalPath: dossierPath },
+        );
+        return {
+          status: "prepared",
+          dossierPath,
+          ticketPublisher: publisher,
+        };
+      },
+    },
+  });
+
+  const result = await executor.execute(
+    {
+      input: `${TARGET_INVESTIGATE_CASE_COMMAND} ${fixture.project.name} case-001 --workflow billing-core --request-id req-001 --window 2026-04-03T00:00Z/2026-04-03T01:00Z --symptom "timeout on save"`,
+    },
+    {
+      onMilestone: async (event) => {
+        milestones.push(`${event.milestone}:${event.versionBoundaryState}`);
+      },
+    },
+  );
+
+  assert.equal(result.status, "completed");
+  if (result.status !== "completed") {
+    return;
+  }
+
+  assert.deepEqual(milestones, [
+    "preflight:before-versioning",
+    "case-resolution:before-versioning",
+    "evidence-collection:before-versioning",
+    "assessment:before-versioning",
+    "publication:before-versioning",
+    "publication:after-versioning",
+  ]);
+  assert.equal(result.summary.versionBoundaryState, "after-versioning");
+  assert.equal(
+    result.summary.artifactPaths.dossierPath,
+    "investigations/2026-04-03T19-00-00Z/dossier.json",
+  );
+  assert.deepEqual(
+    result.summary.publicationDecision.versioned_artifact_paths,
+    [publisher.ticketPath],
+  );
+  assert.equal(result.summary.publicationDecision.ticket_path, publisher.ticketPath);
+});
+
+test("ControlledTargetInvestigateCaseExecutor bloqueia explicitamente quando o materializador oficial ainda nao foi ligado", async () => {
+  const fixture = await createTargetRepoFixture();
+  const milestones: string[] = [];
+  const executor = new ControlledTargetInvestigateCaseExecutor({
+    targetProjectResolver: new FileSystemTargetProjectResolver(fixture.rootPath),
+    now: () => new Date("2026-04-03T19:30:00.000Z"),
+  });
+
+  const result = await executor.execute(
+    {
+      input: `${TARGET_INVESTIGATE_CASE_COMMAND} ${fixture.project.name} case-001`,
+    },
+    {
+      onMilestone: async (event) => {
+        milestones.push(`${event.milestone}:${event.versionBoundaryState}`);
+      },
+    },
+  );
+
+  assert.deepEqual(milestones, ["preflight:before-versioning"]);
+  assert.deepEqual(result, {
+    status: "blocked",
+    reason: "round-preparer-unavailable",
+    message:
+      "O runner ainda nao recebeu materializador oficial para gerar os artefatos de case-investigation no projeto alvo.",
+  });
+});
+
 const createTargetRepoFixture = async (options: {
   mutateManifest?: (manifest: any) => void;
   mutateCaseResolution?: (artifact: any) => void;
@@ -712,6 +950,31 @@ const buildPublicationDecisionFixture = (
     ticket_path: null,
     next_action: "Revisar o dossier local.",
   };
+};
+
+const copyInvestigationArtifact = async (
+  sourceProjectPath: string,
+  sourceRelativePath: string,
+  targetProjectPath: string,
+  targetRelativePath: string,
+  options: {
+    rewriteDossierLocalPath?: string;
+  } = {},
+): Promise<void> => {
+  const sourcePath = path.join(sourceProjectPath, ...sourceRelativePath.split("/"));
+  const targetPath = path.join(targetProjectPath, ...targetRelativePath.split("/"));
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+  if (options.rewriteDossierLocalPath) {
+    const decoded = JSON.parse(await fs.readFile(sourcePath, "utf8")) as {
+      local_path?: string;
+    };
+    decoded.local_path = options.rewriteDossierLocalPath;
+    await fs.writeFile(targetPath, `${JSON.stringify(decoded, null, 2)}\n`, "utf8");
+    return;
+  }
+
+  await fs.copyFile(sourcePath, targetPath);
 };
 
 const fileExists = async (value: string): Promise<boolean> => {

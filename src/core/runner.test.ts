@@ -9663,3 +9663,603 @@ test("cancelTargetPrepare responde cancelamento tardio apos cruzar a fronteira d
   assert.equal(flowSummaries.length, 1);
   assert.equal(flowSummaries[0]?.outcome, "success");
 });
+
+test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e summary final do novo flow", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const milestoneEvents: string[] = [];
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetFlowEventHandlers: {
+        onMilestone: async (event) => {
+          milestoneEvents.push(`${event.command}:${event.milestone}:${event.versionBoundaryState}`);
+        },
+      },
+      targetInvestigateCaseExecutor: {
+        execute: async (_request, hooks) => {
+          const targetProject = {
+            name: "beta-target",
+            path: "/home/mapita/projetos/beta-target",
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: "Preflight concluido para beta-target.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:00:00.000Z",
+          });
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "case-resolution",
+            milestoneLabel: "case-resolution",
+            message: "Resolucao de caso pronta para case-001.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:00:05.000Z",
+          });
+          await release.promise;
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "evidence-collection",
+            milestoneLabel: "evidence-collection",
+            message: "Coleta de evidencias pronta para case-001.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:00:10.000Z",
+          });
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "assessment",
+            milestoneLabel: "assessment",
+            message: "Assessment pronto para case-001.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:00:15.000Z",
+          });
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "publication",
+            milestoneLabel: "publication",
+            message: "Publication concluida como no-op local para case-001.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:00:20.000Z",
+          });
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+              roundId: "2026-04-03T19-00-00Z",
+              roundDirectory: "investigations/2026-04-03T19-00-00Z",
+              canonicalCommand:
+                "/target_investigate_case beta-target case-001 --workflow billing-core --request-id req-001",
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+                evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+                dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+              },
+              publicationDecision: {
+                publication_status: "not_applicable",
+                overall_outcome: "no-real-gap",
+                outcome_reason: "Comportamento esperado confirmado com base suficiente.",
+                gates_applied: ["manifest-canonical-path"],
+                blocked_gates: [],
+                versioned_artifact_paths: [],
+                ticket_path: null,
+                next_action: "Encerrar a rodada como no-op local.",
+              },
+              finalSummary: {
+                case_ref: "case-001",
+                resolved_attempt_ref: null,
+                attempt_resolution_status: "absent-explicitly",
+                replay_used: false,
+                houve_gap_real: "no",
+                era_evitavel_internamente: "not_applicable",
+                merece_ticket_generalizavel: "not_applicable",
+                confidence: "high",
+                evidence_sufficiency: "sufficient",
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "expected-behavior",
+                  summary: "Caso sem gap real.",
+                  actionable: false,
+                  systems: ["billing-core"],
+                },
+                publication_status: "not_applicable",
+                overall_outcome: "no-real-gap",
+                outcome_reason: "Comportamento esperado confirmado com base suficiente.",
+                dossier_path: "investigations/2026-04-03T19-00-00Z/dossier.md",
+                ticket_path: null,
+                next_action: "Encerrar a rodada como no-op local.",
+              },
+              tracePayload: {
+                selectors: {
+                  caseRef: "case-001",
+                  workflow: "billing-core",
+                  requestId: "req-001",
+                  window: null,
+                  symptom: null,
+                },
+                resolved_case_ref: "case-001",
+                resolved_attempt_ref: null,
+                replay: {
+                  used: false,
+                  mode: "historical-only",
+                  requestId: null,
+                  namespace: null,
+                },
+                evidence_refs: [
+                  {
+                    ref: "evidence-log-001",
+                    path: "investigations/2026-04-03T19-00-00Z/evidence/log-001.json",
+                    sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    record_count: 1,
+                  },
+                ],
+                verdicts: {
+                  houve_gap_real: "no",
+                  era_evitavel_internamente: "not_applicable",
+                  merece_ticket_generalizavel: "not_applicable",
+                  confidence: "high",
+                  evidence_sufficiency: "sufficient",
+                },
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "expected-behavior",
+                  summary: "Caso sem gap real.",
+                  actionable: false,
+                  systems: ["billing-core"],
+                },
+                publication: {
+                  publication_status: "not_applicable",
+                  overall_outcome: "no-real-gap",
+                  outcome_reason: "Comportamento esperado confirmado com base suficiente.",
+                  gates_applied: ["manifest-canonical-path"],
+                  blocked_gates: [],
+                  ticket_path: null,
+                  next_action: "Encerrar a rodada como no-op local.",
+                },
+                dossier: {
+                  path: "investigations/2026-04-03T19-00-00Z/dossier.md",
+                  sensitivity: "restricted",
+                  retention: "30 days",
+                },
+              },
+              nextAction: "Encerrar a rodada como no-op local.",
+              versionBoundaryState: "before-versioning" as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case beta-target case-001 --workflow billing-core --request-id req-001",
+  );
+
+  assert.deepEqual(startResult, {
+    status: "started",
+    message: "Execucao /target_investigate_case iniciada para beta-target.",
+  });
+  assert.equal(runner.getState().targetFlow?.command, "/target_investigate_case");
+  assert.equal(runner.getState().targetFlow?.milestone, "case-resolution");
+  assert.equal(runner.getState().activeSlots[0]?.kind, "target-investigate-case");
+  assert.equal(runner.getState().phase, "target-investigate-case-case-resolution");
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.deepEqual(milestoneEvents, [
+    "/target_investigate_case:preflight:before-versioning",
+    "/target_investigate_case:case-resolution:before-versioning",
+    "/target_investigate_case:evidence-collection:before-versioning",
+    "/target_investigate_case:assessment:before-versioning",
+    "/target_investigate_case:publication:before-versioning",
+  ]);
+  assert.equal(flowSummaries[0]?.flow, "target-investigate-case");
+  assert.equal(flowSummaries[0]?.outcome, "success");
+  assert.equal(flowSummaries[0]?.finalStage, "publication");
+  assert.equal(flowSummaries[0]?.summary?.overall_outcome, "no-real-gap");
+});
+
+test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro projeto e exige escopo para cancelamento", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const releases = new Map<string, ReturnType<typeof createDeferred<void>>>();
+  const getRelease = (projectName: string) => {
+    let release = releases.get(projectName);
+    if (!release) {
+      release = createDeferred<void>();
+      releases.set(projectName, release);
+    }
+    return release;
+  };
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetInvestigateCaseExecutor: {
+        execute: async (request, hooks) => {
+          const normalized = "input" in request && typeof request.input !== "string"
+            ? request.input
+            : { projectName: "alpha-project", caseRef: "case-001" };
+          const targetProject = {
+            name: normalized.projectName,
+            path: `/home/mapita/projetos/${normalized.projectName}`,
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: `Preflight concluido para ${normalized.caseRef}.`,
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T20:00:00.000Z",
+          });
+          await getRelease(normalized.projectName).promise;
+          if (hooks?.isCancellationRequested?.()) {
+            return {
+              status: "cancelled" as const,
+              summary: {
+                targetProject,
+                roundId: "2026-04-03T20-00-00Z",
+                roundDirectory: "investigations/2026-04-03T20-00-00Z",
+                artifactPaths: [],
+                cancelledAtMilestone: "preflight" as const,
+                nextAction: "Reexecute quando quiser continuar a investigacao.",
+                versionBoundaryState: "before-versioning" as const,
+              },
+            };
+          }
+
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+              roundId: "2026-04-03T20-00-00Z",
+              roundDirectory: "investigations/2026-04-03T20-00-00Z",
+              canonicalCommand:
+                `/target_investigate_case ${normalized.projectName} ${normalized.caseRef}`,
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T20-00-00Z/case-resolution.json",
+                evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
+                dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
+              },
+              publicationDecision: {
+                publication_status: "not_applicable",
+                overall_outcome: "inconclusive-case",
+                outcome_reason: "Rodada encerrada para teste.",
+                gates_applied: [],
+                blocked_gates: [],
+                versioned_artifact_paths: [],
+                ticket_path: null,
+                next_action: "Revise a rodada.",
+              },
+              finalSummary: {
+                case_ref: normalized.caseRef,
+                resolved_attempt_ref: null,
+                attempt_resolution_status: "not-required",
+                replay_used: false,
+                houve_gap_real: "inconclusive",
+                era_evitavel_internamente: "not_applicable",
+                merece_ticket_generalizavel: "not_applicable",
+                confidence: "medium",
+                evidence_sufficiency: "partial",
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "unknown",
+                  summary: "Resumo de teste.",
+                  actionable: false,
+                  systems: ["billing-core"],
+                },
+                publication_status: "not_applicable",
+                overall_outcome: "inconclusive-case",
+                outcome_reason: "Rodada encerrada para teste.",
+                dossier_path: "investigations/2026-04-03T20-00-00Z/dossier.md",
+                ticket_path: null,
+                next_action: "Revise a rodada.",
+              },
+              tracePayload: {
+                selectors: {
+                  caseRef: normalized.caseRef,
+                  workflow: null,
+                  requestId: null,
+                  window: null,
+                  symptom: null,
+                },
+                resolved_case_ref: normalized.caseRef,
+                resolved_attempt_ref: null,
+                replay: {
+                  used: false,
+                  mode: "historical-only",
+                  requestId: null,
+                  namespace: null,
+                },
+                evidence_refs: [
+                  {
+                    ref: "evidence",
+                    path: null,
+                    sha256: null,
+                    record_count: 0,
+                  },
+                ],
+                verdicts: {
+                  houve_gap_real: "inconclusive",
+                  era_evitavel_internamente: "not_applicable",
+                  merece_ticket_generalizavel: "not_applicable",
+                  confidence: "medium",
+                  evidence_sufficiency: "partial",
+                },
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "unknown",
+                  summary: "Resumo de teste.",
+                  actionable: false,
+                  systems: ["billing-core"],
+                },
+                publication: {
+                  publication_status: "not_applicable",
+                  overall_outcome: "inconclusive-case",
+                  outcome_reason: "Rodada encerrada para teste.",
+                  gates_applied: [],
+                  blocked_gates: [],
+                  ticket_path: null,
+                  next_action: "Revise a rodada.",
+                },
+                dossier: {
+                  path: "investigations/2026-04-03T20-00-00Z/dossier.md",
+                  sensitivity: "restricted",
+                  retention: "30 days",
+                },
+              },
+              nextAction: "Revise a rodada.",
+              versionBoundaryState: "before-versioning" as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const firstStart = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case alpha-project case-001",
+  );
+  const sameProjectBlocked = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case alpha-project case-002",
+  );
+  const secondProjectStart = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case beta-project case-003",
+  );
+
+  assert.deepEqual(firstStart, {
+    status: "started",
+    message: "Execucao /target_investigate_case iniciada para alpha-project.",
+  });
+  assert.equal(sameProjectBlocked.status, "blocked");
+  if (sameProjectBlocked.status === "blocked") {
+    assert.equal(sameProjectBlocked.reason, "project-slot-busy");
+    assert.match(
+      sameProjectBlocked.message,
+      /slot do projeto alpha-project ja ocupado por \/target_investigate_case/u,
+    );
+  }
+  assert.deepEqual(secondProjectStart, {
+    status: "started",
+    message: "Execucao /target_investigate_case iniciada para beta-project.",
+  });
+
+  runner.syncActiveProject({
+    name: "gamma-project",
+    path: "/home/mapita/projetos/gamma-project",
+  });
+  const ambiguousCancel = await runner.cancelTargetInvestigateCase();
+  assert.equal(ambiguousCancel.status, "ambiguous");
+  assert.match(ambiguousCancel.message, /Existem 2 execucoes \/target_investigate_case ativas/u);
+
+  runner.syncActiveProject(activeProjectA);
+  const scopedCancel = await runner.cancelTargetInvestigateCase();
+  assert.equal(scopedCancel.status, "accepted");
+
+  getRelease("alpha-project").resolve();
+  getRelease("beta-project").resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+});
+
+test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publication cruzar a fronteira", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const afterVersioning = createDeferred<void>();
+  const release = createDeferred<void>();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      targetInvestigateCaseExecutor: {
+        execute: async (_request, hooks) => {
+          const targetProject = {
+            name: "alpha-project",
+            path: "/home/mapita/projetos/alpha-project",
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "publication",
+            milestoneLabel: "publication",
+            message: "Publication em avaliacao para case-001.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T21:00:00.000Z",
+          });
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "publication",
+            milestoneLabel: "publication",
+            message: "Publication cruzou a fronteira de versionamento para case-001.",
+            versionBoundaryState: "after-versioning",
+            recordedAtUtc: "2026-04-03T21:00:10.000Z",
+          });
+          afterVersioning.resolve();
+          await release.promise;
+          return {
+            status: "completed" as const,
+            summary: {
+              targetProject,
+              manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+              roundId: "2026-04-03T21-00-00Z",
+              roundDirectory: "investigations/2026-04-03T21-00-00Z",
+              canonicalCommand: "/target_investigate_case alpha-project case-001",
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T21-00-00Z/case-resolution.json",
+                evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
+                dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
+              },
+              publicationDecision: {
+                publication_status: "eligible",
+                overall_outcome: "ticket-published",
+                outcome_reason: "Ticket publicado.",
+                gates_applied: ["policy"],
+                blocked_gates: [],
+                versioned_artifact_paths: [
+                  "tickets/open/2026-04-03-case-investigation-alpha-project.md",
+                ],
+                ticket_path: "tickets/open/2026-04-03-case-investigation-alpha-project.md",
+                next_action: "Revisar o ticket publicado.",
+              },
+              finalSummary: {
+                case_ref: "case-001",
+                resolved_attempt_ref: "attempt-001",
+                attempt_resolution_status: "resolved",
+                replay_used: true,
+                houve_gap_real: "yes",
+                era_evitavel_internamente: "yes",
+                merece_ticket_generalizavel: "yes",
+                confidence: "high",
+                evidence_sufficiency: "strong",
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "bug",
+                  summary: "Guardrail local falhou.",
+                  actionable: true,
+                  systems: ["billing-core"],
+                },
+                publication_status: "eligible",
+                overall_outcome: "ticket-published",
+                outcome_reason: "Ticket publicado.",
+                dossier_path: "investigations/2026-04-03T21-00-00Z/dossier.md",
+                ticket_path: "tickets/open/2026-04-03-case-investigation-alpha-project.md",
+                next_action: "Revisar o ticket publicado.",
+              },
+              tracePayload: {
+                selectors: {
+                  caseRef: "case-001",
+                  workflow: "billing-core",
+                  requestId: "req-001",
+                  window: null,
+                  symptom: null,
+                },
+                resolved_case_ref: "case-001",
+                resolved_attempt_ref: "attempt-001",
+                replay: {
+                  used: true,
+                  mode: "safe-replay",
+                  requestId: "req-001",
+                  namespace: "investigations/2026-04-03T21-00-00Z",
+                },
+                evidence_refs: [
+                  {
+                    ref: "evidence",
+                    path: null,
+                    sha256: null,
+                    record_count: 1,
+                  },
+                ],
+                verdicts: {
+                  houve_gap_real: "yes",
+                  era_evitavel_internamente: "yes",
+                  merece_ticket_generalizavel: "yes",
+                  confidence: "high",
+                  evidence_sufficiency: "strong",
+                },
+                causal_surface: {
+                  owner: "target-project",
+                  kind: "bug",
+                  summary: "Guardrail local falhou.",
+                  actionable: true,
+                  systems: ["billing-core"],
+                },
+                publication: {
+                  publication_status: "eligible",
+                  overall_outcome: "ticket-published",
+                  outcome_reason: "Ticket publicado.",
+                  gates_applied: ["policy"],
+                  blocked_gates: [],
+                  ticket_path: "tickets/open/2026-04-03-case-investigation-alpha-project.md",
+                  next_action: "Revisar o ticket publicado.",
+                },
+                dossier: {
+                  path: "investigations/2026-04-03T21-00-00Z/dossier.md",
+                  sensitivity: "restricted",
+                  retention: "30 days",
+                },
+              },
+              nextAction: "Revisar o ticket publicado.",
+              versionBoundaryState: "after-versioning" as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case alpha-project case-001",
+  );
+  assert.equal(startResult.status, "started");
+
+  await afterVersioning.promise;
+  assert.equal(runner.getState().targetFlow?.versionBoundaryState, "after-versioning");
+
+  const cancelResult = await runner.cancelTargetInvestigateCase();
+  assert.equal(cancelResult.status, "late");
+  assert.match(cancelResult.message, /cancelamento tardio/u);
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+});

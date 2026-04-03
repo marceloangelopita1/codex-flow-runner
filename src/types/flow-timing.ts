@@ -6,6 +6,9 @@ import {
   TargetDeriveTicketSummary,
 } from "./target-derive.js";
 import {
+  TargetInvestigateCaseFinalSummary,
+} from "./target-investigate-case.js";
+import {
   TargetPrepareSummary,
 } from "./target-prepare.js";
 import {
@@ -15,6 +18,7 @@ import {
   TargetFlowKind,
   TargetFlowMilestone,
   TargetFlowVersionBoundaryState,
+  TargetInvestigateCaseMilestone,
   TargetPrepareMilestone,
 } from "./target-flow.js";
 import {
@@ -205,6 +209,11 @@ export type TargetFlowOutcome = "success" | "failure" | "blocked" | "cancelled";
 export type TargetPrepareFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
 export type TargetCheckupFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
 export type TargetDeriveFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
+export type TargetInvestigateCaseFlowCompletionReason =
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "cancelled";
 
 interface TargetFlowSummaryBase<Flow extends TargetFlowKind, Stage extends string, Summary> {
   flow: Flow;
@@ -249,12 +258,21 @@ export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
   completionReason: TargetDeriveFlowCompletionReason;
 };
 
+export type TargetInvestigateCaseFlowSummary = TargetFlowSummaryBase<
+  "target-investigate-case",
+  TargetInvestigateCaseMilestone,
+  TargetInvestigateCaseFinalSummary
+> & {
+  completionReason: TargetInvestigateCaseFlowCompletionReason;
+};
+
 export type RunnerFlowSummary =
   | RunAllFlowSummary
   | RunSpecsFlowSummary
   | TargetPrepareFlowSummary
   | TargetCheckupFlowSummary
-  | TargetDeriveFlowSummary;
+  | TargetDeriveFlowSummary
+  | TargetInvestigateCaseFlowSummary;
 
 export type FlowNotificationErrorClass =
   | "telegram-rate-limit"

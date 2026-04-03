@@ -14,6 +14,7 @@ import {
   TargetCheckupRequestResult,
   TargetDeriveRequestResult,
   TargetFlowCancelResult,
+  TargetInvestigateCaseRequestResult,
   TargetPrepareRequestResult,
   RunnerProjectControlResult,
 } from "../core/runner.js";
@@ -440,6 +441,9 @@ type ControlCommand =
   | "target_derive_gaps"
   | "target_derive_gaps_status"
   | "target_derive_gaps_cancel"
+  | "target_investigate_case"
+  | "target_investigate_case_status"
+  | "target_investigate_case_cancel"
   | "run_all"
   | "run-all"
   | "codex_chat"
@@ -497,9 +501,11 @@ interface ControllerOptions {
   targetPrepareResult?: TargetPrepareRequestResult;
   targetCheckupResult?: TargetCheckupRequestResult;
   targetDeriveResult?: TargetDeriveRequestResult;
+  targetInvestigateCaseResult?: TargetInvestigateCaseRequestResult;
   targetPrepareCancelResult?: TargetFlowCancelResult;
   targetCheckupCancelResult?: TargetFlowCancelResult;
   targetDeriveCancelResult?: TargetFlowCancelResult;
+  targetInvestigateCaseCancelResult?: TargetFlowCancelResult;
   runAllStatus?: "started" | "already-running" | "blocked";
   runAllMessage?: string;
   runSpecsStatus?: "started" | "already-running" | "blocked";
@@ -736,9 +742,12 @@ const createController = (options: ControllerOptions = {}) => {
     targetCheckupArgs: [] as Array<string | null | undefined>,
     targetDeriveCalls: 0,
     targetDeriveArgs: [] as Array<{ projectName: string | null | undefined; reportPath: string }>,
+    targetInvestigateCaseCalls: 0,
+    targetInvestigateCaseArgs: [] as string[],
     targetPrepareCancelCalls: 0,
     targetCheckupCancelCalls: 0,
     targetDeriveCancelCalls: 0,
+    targetInvestigateCaseCancelCalls: 0,
     runAllCalls: 0,
     runSpecsCalls: 0,
     runSpecsArgs: [] as string[],
@@ -956,6 +965,133 @@ const createController = (options: ControllerOptions = {}) => {
         options.targetDeriveCancelResult ?? {
           status: "inactive" as const,
           message: "Nenhuma execucao /target_derive_gaps ativa no momento.",
+        }
+      );
+    },
+    targetInvestigateCase: (commandText: string) => {
+      controlState.targetInvestigateCaseCalls += 1;
+      controlState.targetInvestigateCaseArgs.push(commandText);
+      if (options.targetInvestigateCaseResult) {
+        return options.targetInvestigateCaseResult;
+      }
+
+      return {
+        status: "completed" as const,
+        summary: {
+          targetProject: {
+            name: "alpha-project",
+            path: "/home/mapita/projetos/alpha-project",
+          },
+          manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+          roundId: "2026-04-03T19-00-00Z",
+          roundDirectory: "investigations/2026-04-03T19-00-00Z",
+          canonicalCommand: commandText,
+          artifactPaths: {
+            caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+            evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+            assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+            dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+            publicationDecisionPath:
+              "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+          },
+          publicationDecision: {
+            publication_status: "not_applicable" as const,
+            overall_outcome: "no-real-gap" as const,
+            outcome_reason: "Comportamento esperado confirmado.",
+            gates_applied: ["manifest-canonical-path"],
+            blocked_gates: [],
+            versioned_artifact_paths: [],
+            ticket_path: null,
+            next_action: "Encerrar a rodada como no-op local.",
+          },
+          finalSummary: {
+            case_ref: "case-001",
+            resolved_attempt_ref: null,
+            attempt_resolution_status: "absent-explicitly" as const,
+            replay_used: false,
+            houve_gap_real: "no" as const,
+            era_evitavel_internamente: "not_applicable" as const,
+            merece_ticket_generalizavel: "not_applicable" as const,
+            confidence: "high" as const,
+            evidence_sufficiency: "sufficient" as const,
+            causal_surface: {
+              owner: "target-project" as const,
+              kind: "expected-behavior" as const,
+              summary: "Caso sem gap real.",
+              actionable: false,
+              systems: ["billing-core"],
+            },
+            publication_status: "not_applicable" as const,
+            overall_outcome: "no-real-gap" as const,
+            outcome_reason: "Comportamento esperado confirmado.",
+            dossier_path: "investigations/2026-04-03T19-00-00Z/dossier.md",
+            ticket_path: null,
+            next_action: "Encerrar a rodada como no-op local.",
+          },
+          tracePayload: {
+            selectors: {
+              caseRef: "case-001",
+              workflow: "billing-core",
+              requestId: "req-001",
+              window: null,
+              symptom: null,
+            },
+            resolved_case_ref: "case-001",
+            resolved_attempt_ref: null,
+            replay: {
+              used: false,
+              mode: "historical-only" as const,
+              requestId: null,
+              namespace: null,
+            },
+            evidence_refs: [
+              {
+                ref: "evidence-log-001",
+                path: "investigations/2026-04-03T19-00-00Z/evidence/log-001.json",
+                sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                record_count: 1,
+              },
+            ],
+            verdicts: {
+              houve_gap_real: "no" as const,
+              era_evitavel_internamente: "not_applicable" as const,
+              merece_ticket_generalizavel: "not_applicable" as const,
+              confidence: "high" as const,
+              evidence_sufficiency: "sufficient" as const,
+            },
+            causal_surface: {
+              owner: "target-project" as const,
+              kind: "expected-behavior" as const,
+              summary: "Caso sem gap real.",
+              actionable: false,
+              systems: ["billing-core"],
+            },
+            publication: {
+              publication_status: "not_applicable" as const,
+              overall_outcome: "no-real-gap" as const,
+              outcome_reason: "Comportamento esperado confirmado.",
+              gates_applied: ["manifest-canonical-path"],
+              blocked_gates: [],
+              ticket_path: null,
+              next_action: "Encerrar a rodada como no-op local.",
+            },
+            dossier: {
+              path: "investigations/2026-04-03T19-00-00Z/dossier.md",
+              sensitivity: "restricted" as const,
+              retention: "30 days",
+            },
+          },
+          nextAction: "Encerrar a rodada como no-op local.",
+          versionBoundaryState: "before-versioning" as const,
+        },
+      };
+    },
+    cancelTargetInvestigateCase: () => {
+      controlState.targetInvestigateCaseCancelCalls += 1;
+      return (
+        options.targetInvestigateCaseCancelResult ?? {
+          status: "inactive" as const,
+          message: "Nenhuma execucao /target_investigate_case ativa no momento.",
         }
       );
     },
@@ -1718,6 +1854,27 @@ const callHandleTargetDeriveCommand = async (
   await internalController.handleTargetDeriveCommand(context);
 };
 
+const callHandleTargetInvestigateCaseCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    message?: { text?: string };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetInvestigateCaseCommand: (
+      value: {
+        chat: { id: number };
+        message?: { text?: string };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetInvestigateCaseCommand(context);
+};
+
 const callHandleTargetPrepareStatusCommand = async (
   controller: TelegramController,
   context: {
@@ -1773,6 +1930,44 @@ const callHandleTargetCheckupCancelCommand = async (
   };
 
   await internalController.handleTargetCheckupCancelCommand(context);
+};
+
+const callHandleTargetInvestigateCaseStatusCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetInvestigateCaseStatusCommand: (
+      value: {
+        chat: { id: number };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetInvestigateCaseStatusCommand(context);
+};
+
+const callHandleTargetInvestigateCaseCancelCommand = async (
+  controller: TelegramController,
+  context: {
+    chat: { id: number };
+    reply: (text: string, extra?: unknown) => Promise<unknown>;
+  },
+): Promise<void> => {
+  const internalController = controller as unknown as {
+    handleTargetInvestigateCaseCancelCommand: (
+      value: {
+        chat: { id: number };
+        reply: (text: string, extra?: unknown) => Promise<unknown>;
+      },
+    ) => Promise<void>;
+  };
+
+  await internalController.handleTargetInvestigateCaseCancelCommand(context);
 };
 
 const callBuildRunSpecsReply = async (
@@ -3423,6 +3618,124 @@ test("handleTargetDeriveCommand propaga bloqueio objetivo do executor", async ()
   ]);
 });
 
+test("handleTargetInvestigateCaseCommand encaminha o contrato canonico inteiro ao runner", async () => {
+  const { controller, controlState } = createController();
+  const replies: string[] = [];
+  const commandText =
+    "/target_investigate_case alpha-project case-001 --workflow billing-core --request-id req-001";
+
+  await callHandleTargetInvestigateCaseCommand(controller, {
+    chat: { id: 42 },
+    message: { text: commandText },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetInvestigateCaseCalls, 1);
+  assert.deepEqual(controlState.targetInvestigateCaseArgs, [commandText]);
+  assert.match(replies[0] ?? "", /\/target_investigate_case concluido para alpha-project/u);
+  assert.match(replies[0] ?? "", /Case-ref: case-001/u);
+  assert.match(replies[0] ?? "", /Dossier local: investigations\/2026-04-03T19-00-00Z\/dossier.md/u);
+});
+
+test("handleTargetInvestigateCaseCommand responde com CTA de acompanhamento quando o fluxo inicia", async () => {
+  const { controller, controlState } = createController({
+    targetInvestigateCaseResult: {
+      status: "started",
+      message: "Execucao /target_investigate_case iniciada para alpha-project.",
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetInvestigateCaseCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_investigate_case alpha-project case-001 --workflow billing-core",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetInvestigateCaseCalls, 1);
+  assert.match(replies[0] ?? "", /Execucao \/target_investigate_case iniciada para alpha-project/u);
+  assert.match(replies[0] ?? "", /\/target_investigate_case_status/u);
+  assert.match(replies[0] ?? "", /\/target_investigate_case_cancel/u);
+});
+
+test("handleTargetInvestigateCaseStatusCommand e cancel usam o flow dedicado", async () => {
+  const state = createState({
+    targetFlow: {
+      flow: "target-investigate-case",
+      command: "/target_investigate_case",
+      targetProject: {
+        name: "alpha-project",
+        path: "/home/mapita/projetos/alpha-project",
+      },
+      phase: "target-investigate-case-assessment",
+      milestone: "assessment",
+      milestoneLabel: "assessment",
+      versionBoundaryState: "before-versioning",
+      cancelRequestedAt: null,
+      startedAt: new Date("2026-04-03T19:00:00.000Z"),
+      updatedAt: new Date("2026-04-03T19:10:00.000Z"),
+      lastMessage: "Assessment pronto para case-001.",
+    },
+    activeSlots: [
+      {
+        project: {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+        },
+        kind: "target-investigate-case",
+        phase: "target-investigate-case-assessment",
+        currentTicket: null,
+        currentSpec: null,
+        targetFlowCommand: "/target_investigate_case",
+        targetFlowMilestone: "assessment",
+        targetFlowVersionBoundaryState: "before-versioning",
+        isPaused: false,
+        startedAt: new Date("2026-04-03T19:00:00.000Z"),
+      },
+    ],
+  });
+  const { controller, controlState } = createController({
+    getState: () => state,
+    targetInvestigateCaseCancelResult: {
+      status: "accepted",
+      message:
+        "Cancelamento de /target_investigate_case solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.",
+    },
+  });
+  const statusReplies: string[] = [];
+  const cancelReplies: string[] = [];
+
+  await callHandleTargetInvestigateCaseStatusCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      statusReplies.push(String(text));
+      return {};
+    },
+  });
+  await callHandleTargetInvestigateCaseCancelCommand(controller, {
+    chat: { id: 42 },
+    reply: async (text) => {
+      cancelReplies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.equal(controlState.targetInvestigateCaseCancelCalls, 1);
+  assert.match(statusReplies[0] ?? "", /Status de \/target_investigate_case/u);
+  assert.match(statusReplies[0] ?? "", /Milestone atual: assessment/u);
+  assert.deepEqual(cancelReplies, [
+    "✅ Cancelamento de /target_investigate_case solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.",
+  ]);
+});
+
 test("envia resumo final de fluxo target com fronteira de versionamento e proxima acao", async () => {
   const { controller } = createController({ allowedChatId: "42" });
   const sentMessages = mockSendMessage(controller);
@@ -3665,6 +3978,7 @@ test("mensagem de /start descreve o bot e os comandos aceitos", () => {
   assert.match(reply, /\/start/u);
   assert.match(reply, /\/target_prepare \[projeto\]/u);
   assert.match(reply, /\/target_derive_gaps \[projeto\] <report-path>/u);
+  assert.match(reply, /\/target_investigate_case <projeto> <case-ref>/u);
   assert.match(reply, /\/run_all/u);
   assert.match(reply, /\/run-all/u);
   assert.match(reply, /\/specs/u);

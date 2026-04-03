@@ -20,6 +20,7 @@ import type {
   TargetCheckupRequestResult,
   TargetDeriveRequestResult,
   TargetFlowCancelResult,
+  TargetInvestigateCaseRequestResult,
   TargetPrepareRequestResult,
   RunSpecsTriageLifecycleEvent,
   RunnerProjectControlResult,
@@ -93,9 +94,13 @@ interface BotControls {
     projectName: string | null | undefined,
     reportPath: string,
   ) => Promise<TargetDeriveRequestResult> | TargetDeriveRequestResult;
+  targetInvestigateCase: (
+    commandText: string,
+  ) => Promise<TargetInvestigateCaseRequestResult> | TargetInvestigateCaseRequestResult;
   cancelTargetPrepare: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
   cancelTargetCheckup: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
   cancelTargetDerive: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
+  cancelTargetInvestigateCase: () => Promise<TargetFlowCancelResult> | TargetFlowCancelResult;
   runAll: () => Promise<RunAllRequestResult> | RunAllRequestResult;
   runSpecs: (specFileName: string) => Promise<RunSpecsRequestResult> | RunSpecsRequestResult;
   runSpecsFromValidation: (
@@ -549,6 +554,8 @@ const TARGET_DERIVE_USAGE_REPLY =
   "ℹ️ Uso: /target_derive_gaps [nome-do-projeto] <report-path>.";
 const TARGET_DERIVE_FAILED_REPLY =
   "❌ Falha ao executar /target_derive_gaps. Verifique logs do runner e tente novamente.";
+const TARGET_INVESTIGATE_CASE_FAILED_REPLY =
+  "❌ Falha ao executar /target_investigate_case. Verifique logs do runner e tente novamente.";
 const RUN_SPECS_USAGE_REPLY = "ℹ️ Uso: /run_specs <arquivo-da-spec.md>.";
 const RUN_SPECS_FROM_VALIDATION_USAGE_REPLY =
   "ℹ️ Uso: /run_specs_from_validation <arquivo-da-spec.md>.";
@@ -769,6 +776,13 @@ const TARGET_DERIVE_TIMING_STAGE_ORDER = [
   "materialization",
   "versioning",
 ] as const;
+const TARGET_INVESTIGATE_CASE_TIMING_STAGE_ORDER = [
+  "preflight",
+  "case-resolution",
+  "evidence-collection",
+  "assessment",
+  "publication",
+] as const;
 
 const START_REPLY_LINES = [
   "🤖 Codex Flow Runner",
@@ -785,6 +799,9 @@ const START_REPLY_LINES = [
   "/target_derive_gaps [projeto] <report-path> - materializa gaps readiness elegiveis a partir do projeto ativo ou de um projeto explicito",
   "/target_derive_gaps_status - mostra status detalhado do /target_derive_gaps ativo",
   "/target_derive_gaps_cancel - solicita cancelamento cooperativo do /target_derive_gaps ativo",
+  "/target_investigate_case <projeto> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...] - inicia a investigacao causal canonica no projeto alvo",
+  "/target_investigate_case_status - mostra status detalhado do /target_investigate_case ativo",
+  "/target_investigate_case_cancel - solicita cancelamento cooperativo do /target_investigate_case ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
   "/tickets_open - lista tickets abertos para leitura e execução unitária",
@@ -1546,6 +1563,18 @@ export class TelegramController {
       await this.handleTargetDeriveCancelCommand(ctx as unknown as CommandContext);
     });
 
+    this.bot.command("target_investigate_case", async (ctx) => {
+      await this.handleTargetInvestigateCaseCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_investigate_case_status", async (ctx) => {
+      await this.handleTargetInvestigateCaseStatusCommand(ctx as unknown as CommandContext);
+    });
+
+    this.bot.command("target_investigate_case_cancel", async (ctx) => {
+      await this.handleTargetInvestigateCaseCancelCommand(ctx as unknown as CommandContext);
+    });
+
     this.bot.command("run_all", async (ctx) => {
       await this.handleRunAllCommand(ctx as unknown as CommandContext, "run_all");
     });
@@ -2204,6 +2233,76 @@ export class TelegramController {
     }
 
     const result = await this.controls.cancelTargetDerive();
+    await ctx.reply(this.buildTargetFlowCancelReply(result));
+  }
+
+  private async handleTargetInvestigateCaseCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    const commandText = (ctx.message?.text ?? "").trim();
+    this.logger.info("Comando /target_investigate_case recebido via Telegram", {
+      chatId,
+      commandText: this.limit(commandText),
+    });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_investigate_case",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    try {
+      this.captureNotificationChat(chatId);
+      const result = await this.controls.targetInvestigateCase(commandText);
+      await ctx.reply(this.buildTargetInvestigateCaseReply(result));
+    } catch (error) {
+      this.logger.error("Falha ao executar /target_investigate_case", {
+        chatId,
+        commandText: this.limit(commandText),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await ctx.reply(TARGET_INVESTIGATE_CASE_FAILED_REPLY);
+    }
+  }
+
+  private async handleTargetInvestigateCaseStatusCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_investigate_case_status recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_investigate_case_status",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    await ctx.reply(this.buildTargetFlowStatusReply("target-investigate-case", this.getState()));
+  }
+
+  private async handleTargetInvestigateCaseCancelCommand(ctx: CommandContext): Promise<void> {
+    const chatId = ctx.chat.id.toString();
+    this.logger.info("Comando /target_investigate_case_cancel recebido via Telegram", { chatId });
+
+    if (
+      !this.isAllowed({
+        chatId,
+        eventType: "command",
+        command: "target_investigate_case_cancel",
+      })
+    ) {
+      await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
+      return;
+    }
+
+    const result = await this.controls.cancelTargetInvestigateCase();
     await ctx.reply(this.buildTargetFlowCancelReply(result));
   }
 
@@ -6744,6 +6843,44 @@ export class TelegramController {
     return `❌ ${result.message}`;
   }
 
+  private buildTargetInvestigateCaseReply(result: TargetInvestigateCaseRequestResult): string {
+    if (result.status === "started") {
+      return [
+        `▶️ ${result.message}`,
+        "Use /target_investigate_case_status para acompanhar e /target_investigate_case_cancel para solicitar cancelamento antes de versionamento.",
+      ].join("\n");
+    }
+
+    if (result.status === "completed") {
+      return [
+        `✅ /target_investigate_case concluido para ${result.summary.targetProject.name}.`,
+        `Case-ref: ${result.summary.finalSummary.case_ref}`,
+        `Resolved attempt: ${
+          result.summary.finalSummary.resolved_attempt_ref ??
+          (result.summary.finalSummary.attempt_resolution_status === "absent-explicitly"
+            ? "ausencia explicita de tentativa"
+            : "nao aplicavel")
+        }`,
+        `Publication status: ${result.summary.publicationDecision.publication_status}`,
+        `Overall outcome: ${result.summary.publicationDecision.overall_outcome}`,
+        `Dossier local: ${result.summary.artifactPaths.dossierPath}`,
+        `Ticket path: ${result.summary.publicationDecision.ticket_path ?? "(nenhum)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
+    if (result.status === "cancelled") {
+      return [
+        `ℹ️ /target_investigate_case cancelado para ${result.summary.targetProject.name}.`,
+        `Cancelado em: ${result.summary.cancelledAtMilestone}`,
+        `Artefatos locais: ${result.summary.artifactPaths.join(", ") || "(nenhum)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+      ].join("\n");
+    }
+
+    return `❌ ${result.message}`;
+  }
+
   private buildTargetFlowStatusReply(flow: TargetFlowKind, state: RunnerState): string {
     if (!state.targetFlow || state.targetFlow.flow !== flow) {
       const activeFlowCount = state.activeSlots.filter(
@@ -7229,7 +7366,9 @@ export class TelegramController {
             ? TARGET_PREPARE_TIMING_STAGE_ORDER
             : summary.flow === "target-checkup"
               ? TARGET_CHECKUP_TIMING_STAGE_ORDER
-              : TARGET_DERIVE_TIMING_STAGE_ORDER,
+              : summary.flow === "target-derive"
+                ? TARGET_DERIVE_TIMING_STAGE_ORDER
+                : TARGET_INVESTIGATE_CASE_TIMING_STAGE_ORDER,
         ),
       });
 
@@ -8321,12 +8460,16 @@ export class TelegramController {
       return "/target_checkup";
     }
 
-    return "/target_derive_gaps";
+    if (flow === "target-derive") {
+      return "/target_derive_gaps";
+    }
+
+    return "/target_investigate_case";
   }
 
   private renderTargetFlowSlotKind(flow: TargetFlowKind): Extract<
     RunnerSlotKind,
-    "target-prepare" | "target-checkup" | "target-derive"
+    "target-prepare" | "target-checkup" | "target-derive" | "target-investigate-case"
   > {
     if (flow === "target-prepare") {
       return "target-prepare";
@@ -8336,7 +8479,11 @@ export class TelegramController {
       return "target-checkup";
     }
 
-    return "target-derive";
+    if (flow === "target-derive") {
+      return "target-derive";
+    }
+
+    return "target-investigate-case";
   }
 
   private renderRunnerSlotCommand(kind: RunnerSlotKind): string {
@@ -8370,6 +8517,10 @@ export class TelegramController {
 
     if (kind === "target-derive") {
       return "/target_derive_gaps";
+    }
+
+    if (kind === "target-investigate-case") {
+      return "/target_investigate_case";
     }
 
     return "/plan_spec";

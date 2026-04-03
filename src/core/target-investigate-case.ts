@@ -1,6 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import {
+  InvalidTargetProjectNameError,
+  TargetProjectGitMissingError,
+  TargetProjectNotFoundError,
+  TargetProjectResolver,
+} from "../integrations/target-project-resolver.js";
 import { ProjectRef } from "../types/project.js";
 import {
   compareTargetInvestigateCaseEvidenceSufficiency,
@@ -16,18 +22,29 @@ import {
   targetInvestigateCasePublicationDecisionSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
+  TargetInvestigateCaseArtifactSet,
   TARGET_INVESTIGATE_CASE_CAPABILITY,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
   TargetInvestigateCaseCaseResolution,
+  TargetInvestigateCaseCompletedSummary,
   TargetInvestigateCaseEvidenceBundle,
+  TargetInvestigateCaseExecutionResult,
   TargetInvestigateCaseFinalSummary,
+  TargetInvestigateCaseLifecycleHooks,
   TargetInvestigateCaseManifest,
   TargetInvestigateCaseNormalizedInput,
   TargetInvestigateCasePublicationDecision,
   TargetInvestigateCasePublicationStatus,
   TargetInvestigateCaseTracePayload,
 } from "../types/target-investigate-case.js";
+import {
+  TARGET_INVESTIGATE_CASE_MILESTONE_LABELS,
+  TargetFlowVersionBoundaryState,
+  TargetInvestigateCaseMilestone,
+  targetFlowKindToCommand,
+} from "../types/target-flow.js";
 
 export interface TargetInvestigateCaseInput {
   projectName: string;
@@ -100,6 +117,55 @@ export interface TargetInvestigateCaseEvaluationResult {
   publicationDecision: TargetInvestigateCasePublicationDecision;
   summary: TargetInvestigateCaseFinalSummary;
   tracePayload: TargetInvestigateCaseTracePayload;
+}
+
+export interface TargetInvestigateCaseExecuteRequest {
+  input: string | TargetInvestigateCaseInput | TargetInvestigateCaseNormalizedInput;
+}
+
+export interface TargetInvestigateCaseRoundPreparationRequest {
+  targetProject: ProjectRef;
+  normalizedInput: TargetInvestigateCaseNormalizedInput;
+  manifest: TargetInvestigateCaseManifest;
+  manifestPath: string;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  isCancellationRequested: () => boolean;
+}
+
+export type TargetInvestigateCaseRoundPreparationResult =
+  | {
+      status: "prepared";
+      dossierPath?: string;
+      ticketPublisher?: TargetInvestigateCaseTicketPublisher | null;
+    }
+  | {
+      status: "blocked";
+      message: string;
+    }
+  | {
+      status: "failed";
+      message: string;
+    };
+
+export interface TargetInvestigateCaseRoundPreparer {
+  prepareRound(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+  ): Promise<TargetInvestigateCaseRoundPreparationResult>;
+}
+
+interface TargetInvestigateCaseExecutorDependencies {
+  targetProjectResolver: TargetProjectResolver;
+  roundPreparer?: TargetInvestigateCaseRoundPreparer;
+  now?: () => Date;
+}
+
+export interface TargetInvestigateCaseExecutor {
+  execute(
+    request: TargetInvestigateCaseExecuteRequest,
+    hooks?: TargetInvestigateCaseLifecycleHooks,
+  ): Promise<TargetInvestigateCaseExecutionResult>;
 }
 
 interface ValidatedDossierArtifact {
@@ -475,6 +541,256 @@ export const renderTargetInvestigateCaseFinalSummary = (
 
   return rendered;
 };
+
+export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigateCaseExecutor {
+  private readonly now: () => Date;
+
+  constructor(private readonly dependencies: TargetInvestigateCaseExecutorDependencies) {
+    this.now = dependencies.now ?? (() => new Date());
+  }
+
+  async execute(
+    request: TargetInvestigateCaseExecuteRequest,
+    hooks?: TargetInvestigateCaseLifecycleHooks,
+  ): Promise<TargetInvestigateCaseExecutionResult> {
+    const normalizedInput = normalizeTargetInvestigateCaseExecuteInput(request.input);
+
+    let targetProject: ProjectRef;
+    try {
+      targetProject = await this.dependencies.targetProjectResolver.resolveProject(
+        normalizedInput.projectName,
+        {
+          commandLabel: TARGET_INVESTIGATE_CASE_COMMAND,
+        },
+      );
+    } catch (error) {
+      return mapTargetInvestigateCaseResolutionError(error);
+    }
+
+    const manifestLoad = await loadTargetInvestigateCaseManifest(targetProject.path);
+    if (manifestLoad.status === "missing") {
+      return {
+        status: "blocked",
+        reason: "manifest-missing",
+        message: manifestLoad.reason,
+      };
+    }
+
+    if (manifestLoad.status === "invalid") {
+      return {
+        status: "blocked",
+        reason: "manifest-invalid",
+        message: manifestLoad.reason,
+      };
+    }
+
+    const startedAt = this.now();
+    const roundId = buildTargetInvestigateCaseRoundId(startedAt);
+    const roundDirectory = normalizeTargetInvestigateCaseRelativePath(
+      path.join(TARGET_INVESTIGATE_CASE_ROUNDS_DIR, roundId),
+    );
+    let artifactPaths = buildTargetInvestigateCaseArtifactSet(roundDirectory);
+
+    await fs.mkdir(path.join(targetProject.path, ...roundDirectory.split("/")), {
+      recursive: true,
+    });
+
+    await emitTargetInvestigateCaseMilestone({
+      hooks,
+      targetProject,
+      milestone: "preflight",
+      message: `Preflight concluido para ${targetProject.name}.`,
+      versionBoundaryState: "before-versioning",
+      now: this.now,
+    });
+
+    if (hooks?.isCancellationRequested?.()) {
+      return buildCancelledTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: [],
+        cancelledAtMilestone: "preflight",
+        versionBoundaryState: "before-versioning",
+      });
+    }
+
+    if (!this.dependencies.roundPreparer) {
+      return {
+        status: "blocked",
+        reason: "round-preparer-unavailable",
+        message:
+          "O runner ainda nao recebeu materializador oficial para gerar os artefatos de case-investigation no projeto alvo.",
+      };
+    }
+
+    const preparation = await this.dependencies.roundPreparer.prepareRound({
+      targetProject,
+      normalizedInput,
+      manifest: manifestLoad.manifest,
+      manifestPath: manifestLoad.manifestPath,
+      roundId,
+      roundDirectory,
+      artifactPaths,
+      isCancellationRequested: () => Boolean(hooks?.isCancellationRequested?.()),
+    });
+
+    if (preparation.status === "blocked") {
+      return {
+        status: "blocked",
+        reason: "artifact-preparation-blocked",
+        message: preparation.message,
+      };
+    }
+
+    if (preparation.status === "failed") {
+      return {
+        status: "failed",
+        message: preparation.message,
+      };
+    }
+
+    if (preparation.dossierPath) {
+      artifactPaths = {
+        ...artifactPaths,
+        dossierPath: normalizeTargetInvestigateCaseRelativePath(preparation.dossierPath),
+      };
+    }
+
+    await emitTargetInvestigateCaseMilestone({
+      hooks,
+      targetProject,
+      milestone: "case-resolution",
+      message: `Resolucao de caso pronta para ${normalizedInput.caseRef}.`,
+      versionBoundaryState: "before-versioning",
+      now: this.now,
+    });
+    await assertRelativeArtifactExists(
+      targetProject.path,
+      artifactPaths.caseResolutionPath,
+      "case-resolution.json",
+    );
+    if (hooks?.isCancellationRequested?.()) {
+      return buildCancelledTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
+        cancelledAtMilestone: "case-resolution",
+        versionBoundaryState: "before-versioning",
+      });
+    }
+
+    await emitTargetInvestigateCaseMilestone({
+      hooks,
+      targetProject,
+      milestone: "evidence-collection",
+      message: `Coleta de evidencias pronta para ${normalizedInput.caseRef}.`,
+      versionBoundaryState: "before-versioning",
+      now: this.now,
+    });
+    await assertRelativeArtifactExists(
+      targetProject.path,
+      artifactPaths.evidenceBundlePath,
+      "evidence-bundle.json",
+    );
+    if (hooks?.isCancellationRequested?.()) {
+      return buildCancelledTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
+        cancelledAtMilestone: "evidence-collection",
+        versionBoundaryState: "before-versioning",
+      });
+    }
+
+    await emitTargetInvestigateCaseMilestone({
+      hooks,
+      targetProject,
+      milestone: "assessment",
+      message: `Assessment semantico pronto para ${normalizedInput.caseRef}.`,
+      versionBoundaryState: "before-versioning",
+      now: this.now,
+    });
+    await assertRelativeArtifactExists(targetProject.path, artifactPaths.assessmentPath, "assessment.json");
+    await assertRelativeArtifactExists(targetProject.path, artifactPaths.dossierPath, "dossier");
+    if (hooks?.isCancellationRequested?.()) {
+      return buildCancelledTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
+        cancelledAtMilestone: "assessment",
+        versionBoundaryState: "before-versioning",
+      });
+    }
+
+    await emitTargetInvestigateCaseMilestone({
+      hooks,
+      targetProject,
+      milestone: "publication",
+      message: `Publication runner-side em avaliacao para ${normalizedInput.caseRef}.`,
+      versionBoundaryState: "before-versioning",
+      now: this.now,
+    });
+    if (hooks?.isCancellationRequested?.()) {
+      return buildCancelledTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
+        cancelledAtMilestone: "publication",
+        versionBoundaryState: "before-versioning",
+      });
+    }
+
+    let finalVersionBoundaryState: TargetFlowVersionBoundaryState = "before-versioning";
+    const ticketPublisher = preparation.ticketPublisher
+      ? wrapTargetInvestigateCaseTicketPublisher(preparation.ticketPublisher, async () => {
+          finalVersionBoundaryState = "after-versioning";
+          await emitTargetInvestigateCaseMilestone({
+            hooks,
+            targetProject,
+            milestone: "publication",
+            message: `Publication cruzou a fronteira de versionamento para ${normalizedInput.caseRef}.`,
+            versionBoundaryState: "after-versioning",
+            now: this.now,
+          });
+        })
+      : undefined;
+
+    const evaluation = await evaluateTargetInvestigateCaseRound({
+      targetProject,
+      input: normalizedInput,
+      artifacts: artifactPaths,
+      ticketPublisher,
+    });
+
+    if (evaluation.publicationDecision.versioned_artifact_paths.length === 0) {
+      finalVersionBoundaryState = "before-versioning";
+    }
+
+    const summary: TargetInvestigateCaseCompletedSummary = {
+      targetProject,
+      manifestPath: evaluation.manifestPath,
+      roundId,
+      roundDirectory,
+      canonicalCommand: evaluation.normalizedInput.canonicalCommand,
+      artifactPaths,
+      publicationDecision: evaluation.publicationDecision,
+      finalSummary: evaluation.summary,
+      tracePayload: evaluation.tracePayload,
+      nextAction: evaluation.summary.next_action,
+      versionBoundaryState: finalVersionBoundaryState,
+    };
+
+    return {
+      status: "completed",
+      summary,
+    };
+  }
+}
 
 const buildPublicationDecision = async (params: {
   targetProject: ProjectRef;
@@ -1010,6 +1326,163 @@ const getSelectorValue = (
   }
 
   return input.symptom;
+};
+
+const normalizeTargetInvestigateCaseExecuteInput = (
+  input: string | TargetInvestigateCaseInput | TargetInvestigateCaseNormalizedInput,
+): TargetInvestigateCaseNormalizedInput => {
+  if (typeof input === "string") {
+    return parseTargetInvestigateCaseCommand(input);
+  }
+
+  if ("canonicalCommand" in input) {
+    return targetInvestigateCaseNormalizedInputSchema.parse(input);
+  }
+
+  return normalizeTargetInvestigateCaseInput(input);
+};
+
+const buildTargetInvestigateCaseRoundId = (value: Date): string =>
+  value.toISOString().replace(/\.\d{3}Z$/u, "Z").replace(/:/gu, "-");
+
+const buildTargetInvestigateCaseArtifactSet = (
+  roundDirectory: string,
+): TargetInvestigateCaseArtifactSet => ({
+  caseResolutionPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "case-resolution.json"),
+  ),
+  evidenceBundlePath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "evidence-bundle.json"),
+  ),
+  assessmentPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "assessment.json"),
+  ),
+  dossierPath: normalizeTargetInvestigateCaseRelativePath(path.join(roundDirectory, "dossier.md")),
+  publicationDecisionPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "publication-decision.json"),
+  ),
+});
+
+const emitTargetInvestigateCaseMilestone = async (params: {
+  hooks?: TargetInvestigateCaseLifecycleHooks;
+  targetProject: ProjectRef;
+  milestone: TargetInvestigateCaseMilestone;
+  message: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+  now: () => Date;
+}): Promise<void> => {
+  await params.hooks?.onMilestone?.({
+    flow: "target-investigate-case",
+    command: targetFlowKindToCommand("target-investigate-case"),
+    targetProject: params.targetProject,
+    milestone: params.milestone,
+    milestoneLabel: TARGET_INVESTIGATE_CASE_MILESTONE_LABELS[params.milestone],
+    message: params.message,
+    versionBoundaryState: params.versionBoundaryState,
+    recordedAtUtc: params.now().toISOString(),
+  });
+};
+
+const assertRelativeArtifactExists = async (
+  projectPath: string,
+  relativePath: string,
+  label: string,
+): Promise<void> => {
+  try {
+    await fs.access(path.join(projectPath, ...relativePath.split("/")));
+  } catch {
+    throw new Error(`Artefato obrigatorio ausente para ${label}: ${relativePath}.`);
+  }
+};
+
+const listExistingTargetInvestigateCaseArtifacts = async (
+  projectPath: string,
+  artifactPaths: TargetInvestigateCaseArtifactSet,
+): Promise<string[]> => {
+  const existing: string[] = [];
+  for (const artifactPath of Object.values(artifactPaths)) {
+    if (await relativePathExists(projectPath, artifactPath)) {
+      existing.push(artifactPath);
+    }
+  }
+
+  return existing.sort((left, right) => left.localeCompare(right, "pt-BR"));
+};
+
+const relativePathExists = async (projectPath: string, relativePath: string): Promise<boolean> => {
+  try {
+    await fs.access(path.join(projectPath, ...relativePath.split("/")));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const buildCancelledTargetInvestigateCaseResult = (params: {
+  targetProject: ProjectRef;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: string[];
+  cancelledAtMilestone: TargetInvestigateCaseMilestone;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+}): TargetInvestigateCaseExecutionResult => ({
+  status: "cancelled",
+  summary: {
+    targetProject: params.targetProject,
+    roundId: params.roundId,
+    roundDirectory: params.roundDirectory,
+    artifactPaths: params.artifactPaths,
+    cancelledAtMilestone: params.cancelledAtMilestone,
+    nextAction:
+      params.versionBoundaryState === "after-versioning"
+        ? "A publication ja cruzou a fronteira de versionamento; finalize a rodada antes de nova investigacao."
+        : "Revise o namespace local da rodada antes de decidir entre descartar ou retomar a investigacao.",
+    versionBoundaryState: params.versionBoundaryState,
+  },
+});
+
+const wrapTargetInvestigateCaseTicketPublisher = (
+  publisher: TargetInvestigateCaseTicketPublisher,
+  onVersionBoundary: () => Promise<void>,
+): TargetInvestigateCaseTicketPublisher => ({
+  publish: async (request) => {
+    await onVersionBoundary();
+    return publisher.publish(request);
+  },
+});
+
+const mapTargetInvestigateCaseResolutionError = (
+  error: unknown,
+): Extract<TargetInvestigateCaseExecutionResult, { status: "blocked" }> => {
+  if (error instanceof InvalidTargetProjectNameError) {
+    return {
+      status: "blocked",
+      reason: "invalid-project-name",
+      message: error.message,
+    };
+  }
+
+  if (error instanceof TargetProjectNotFoundError) {
+    return {
+      status: "blocked",
+      reason: "project-not-found",
+      message: error.message,
+    };
+  }
+
+  if (error instanceof TargetProjectGitMissingError) {
+    return {
+      status: "blocked",
+      reason: "git-repo-missing",
+      message: error.message,
+    };
+  }
+
+  return {
+    status: "blocked",
+    reason: "artifact-preparation-blocked",
+    message: error instanceof Error ? error.message : String(error),
+  };
 };
 
 const normalizeOptionalValue = (value?: string | null, label = "value"): string | undefined => {

@@ -6,6 +6,7 @@ import { Logger } from "./core/logger.js";
 import { ActiveProjectSelectionService } from "./core/project-selection.js";
 import { ControlledTargetCheckupExecutor } from "./core/target-checkup.js";
 import { ControlledTargetDeriveExecutor } from "./core/target-derive.js";
+import { ControlledTargetInvestigateCaseExecutor } from "./core/target-investigate-case.js";
 import { ControlledTargetPrepareExecutor } from "./core/target-prepare.js";
 import { RunnerRoundDependencies, TicketRunner } from "./core/runner.js";
 import { FileSystemActiveProjectStore } from "./integrations/active-project-store.js";
@@ -167,6 +168,9 @@ const bootstrap = async () => {
     createGitVersioning: (project) => new GitCliVersioning(project.path),
     createGitGuard: (project) => new GitCliTargetDeriveGuard(project.path),
     runnerRepoPath,
+  });
+  const targetInvestigateCaseExecutor = new ControlledTargetInvestigateCaseExecutor({
+    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
   });
   let telegram: TelegramController | null = null;
 
@@ -388,6 +392,7 @@ const bootstrap = async () => {
       targetPrepareExecutor,
       targetCheckupExecutor,
       targetDeriveExecutor,
+      targetInvestigateCaseExecutor,
     },
   );
 
@@ -408,9 +413,11 @@ const bootstrap = async () => {
       targetPrepare: runner.requestTargetPrepare,
       targetCheckup: runner.requestTargetCheckup,
       targetDerive: runner.requestTargetDerive,
+      targetInvestigateCase: runner.requestTargetInvestigateCase,
       cancelTargetPrepare: runner.cancelTargetPrepare,
       cancelTargetCheckup: runner.cancelTargetCheckup,
       cancelTargetDerive: runner.cancelTargetDerive,
+      cancelTargetInvestigateCase: runner.cancelTargetInvestigateCase,
       runAll: runner.requestRunAll,
       runSpecs: runner.requestRunSpecs,
       runSpecsFromValidation: runner.requestRunSpecsFromValidation,
