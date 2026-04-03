@@ -1,0 +1,92 @@
+{
+  "contractVersion": "1.0",
+  "schemaVersion": "1.0",
+  "capability": "case-investigation",
+  "selectors": {
+    "accepted": ["case-ref", "workflow", "request-id", "window", "symptom"],
+    "required": ["case-ref"]
+  },
+  "workflows": {
+    "investigable": ["workflow-canonicamente-declarado-pelo-projeto-alvo"]
+  },
+  "caseResolutionPolicy": {
+    "requireExplicitAttemptResolution": true,
+    "allowAttemptlessCases": true
+  },
+  "evidenceCollection": {
+    "surfaces": [
+      {
+        "id": "historical-evidence",
+        "kind": "manifest-guided-surface",
+        "description": "A coleta historica precisa ocorrer apenas por superficies declaradas pela capability."
+      }
+    ],
+    "strategies": [
+      {
+        "id": "canonical-manifest-guided-collection",
+        "kind": "query-template",
+        "reference": "docs/workflows/target-case-investigation-manifest.json"
+      }
+    ]
+  },
+  "outputs": {
+    "caseResolution": {
+      "artifactPath": "case-resolution.json",
+      "schemaVersion": "1.0"
+    },
+    "evidenceBundle": {
+      "artifactPath": "evidence-bundle.json",
+      "schemaVersion": "1.0"
+    },
+    "assessment": {
+      "artifactPath": "assessment.json",
+      "schemaVersion": "1.0"
+    },
+    "publicationDecision": {
+      "artifactPath": "publication-decision.json",
+      "schemaVersion": "1.0"
+    },
+    "dossier": {
+      "artifactPathPattern": "dossier.md|dossier.json",
+      "schemaVersion": "1.0"
+    }
+  },
+  "replayPolicy": {
+    "supported": true,
+    "safeModeRequired": true,
+    "requireUpdateDbFalse": true,
+    "requireDedicatedRequestId": true,
+    "allowWorkflowDebugWhenSafe": true,
+    "cachePurgePolicy": "Declarar cache e purge scoped de forma auditavel no projeto alvo."
+  },
+  "dossierPolicy": {
+    "localPathTemplate": "investigations/<case-ref>/dossier.{md,json}",
+    "sensitivity": "restricted",
+    "retention": "Definir politica de retencao local explicita por capability."
+  },
+  "supportingArtifacts": {
+    "docs": ["docs/workflows/target-case-investigation-manifest.json"],
+    "prompts": [],
+    "scripts": []
+  },
+  "precedence": {
+    "fixedLayers": [
+      "canonical-contract",
+      "structured-contracts",
+      "runtime-guardrails"
+    ],
+    "projectCustomizableLayers": [
+      "active-decisions",
+      "tests-and-goldens",
+      "historical-evidence-and-replay"
+    ]
+  },
+  "publicationPolicy": {
+    "allowAutomaticPublication": true,
+    "requireStrongEvidenceByDefault": true,
+    "allowSufficientWithNormativeConflict": true,
+    "requireGeneralizationBasis": true,
+    "requireZeroBlockingVetoes": true,
+    "blockedReason": null
+  }
+}
