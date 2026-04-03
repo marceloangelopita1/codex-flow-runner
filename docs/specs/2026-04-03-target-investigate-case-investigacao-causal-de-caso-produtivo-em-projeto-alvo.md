@@ -2,20 +2,27 @@
 
 ## Metadata
 - Spec ID: 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo
-- Status: approved
+- Status: partially_attended
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-03 16:00Z
-- Last reviewed at (UTC): 2026-04-03 16:34Z
+- Last reviewed at (UTC): 2026-04-03 18:44Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
-  - tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
-  - tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
 - Related execplans:
-  - nenhum ainda
+  - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
 - Related commits:
-  - chore(specs): triage 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md (este changeset)
+  - chore(specs): triage 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - chore(tickets): close 2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - chore(tickets): close 2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - chore(tickets): close 2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - chore(specs): audit 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -277,9 +284,9 @@
 - Contexto de triagem herdado: nao
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md [fonte=source-spec]
-  - tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md [fonte=source-spec]
-  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md [fonte=source-spec]
 
 #### Historico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
@@ -311,23 +318,23 @@
 
 #### Correcoes aplicadas
 - Ampliei os Closure criteria do ticket de contrato/publication para tornar observaveis a normalizacao do comando canonico e da UX guiada, o caminho positivo de publication com ticket elegivel e o conjunto minimo completo do resumo final exigido pela spec.
-  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 - Ampliei os Closure criteria do ticket de control-plane para tornar observaveis a exclusao de slot pesado por projeto, a resolucao de ambiguidade em status/cancel e as semanticas de cancelamento cooperativo antes da fronteira de versionamento e tardio depois dela.
-  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 - Herdei no ticket do piloto a validacao pendente sobre politica de retencao e caminho local do dossier por capability e tornei essa validacao observavel nos Closure criteria do manifesto/aceite do piloto.
-  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md
   - Gaps relacionados: spec-inheritance-gap
   - Resultado: applied
 - Adicionados aos Closure criteria do ticket de contrato/publication os requisitos de evidencia observavel para a validacao manual herdada de que o trace minimizado do runner permite auditoria operacional sem exigir abertura imediata do dossier local, com registro explicito da execucao avaliada, resultado e ajustes necessarios.
-  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 - Adicionados aos Closure criteria do ticket de control-plane os requisitos de evidencia observavel para a validacao manual herdada em ambiente real do resumo final do Telegram, exigindo registro explicito da execucao avaliada, conteudo redigido observado, resultado da validacao e ajustes aplicados antes do fechamento.
-  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 
@@ -364,49 +371,44 @@
 
 ## Validacoes pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
-  - definir o schema final versionado do `docs/workflows/target-case-investigation-manifest.json`;
-  - definir a tabela canônica de combinações válidas entre vereditos semânticos, `publication_status` e `overall_outcome`;
-  - validar a política de retenção e o caminho local do `dossier` por capability no projeto alvo;
-  - validar a política de replay seguro e de purge scoped no piloto `../guiadomus-matricula`;
-  - validar a evolução do template interno do piloto para suportar `## Investigação Causal` com ordem fixa.
+  - materializar no bootstrap do runner um `TargetInvestigateCaseRoundPreparer` oficial que consuma a capability do projeto alvo e permita ao fluxo gerar `case-resolution.json`, `evidence-bundle.json`, `assessment.json`, `publication-decision.json` e `dossier.md|dossier.json` em uma rodada real, em vez de bloquear em `round-preparer-unavailable`.
 - Validações manuais pendentes:
-  - confirmar no piloto quais superfícies históricas realmente permitem fechar causalidade sem replay em casos passados;
-  - confirmar no piloto quais workflows internos além dos workflows públicos devem ser declarados como investigáveis;
-  - validar em ambiente real se o resumo final do Telegram mantém sinal suficiente sem expor material sensível;
-  - validar se o trace minimizado do runner é suficiente para auditoria operacional sem exigir abertura imediata do dossier local do projeto alvo.
+  - após o follow-up funcional acima, executar uma rodada real de `/target_investigate_case` em ambiente com Telegram e projeto alvo elegível para confirmar o resumo final do Telegram e o trace minimizado sobre uma investigação não bloqueada.
+- Validações já consolidadas nesta linhagem:
+  - o contrato machine-readable do manifesto, as allowlists finitas, a política de replay/purge, o dossier local e o bloco `## Investigação Causal` do piloto foram validados em `../guiadomus-matricula`, inclusive pelo teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js`.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: partially_attended
 - Itens atendidos:
-  - o escopo funcional do novo fluxo foi delimitado como target flow separado, distinto de `/target_checkup`;
-  - a separação de autoridade entre projeto alvo e runner foi fechada: vereditos semânticos e recomendação estruturada no projeto alvo, `publication_status` e `overall_outcome` finais no runner;
-  - a regra de no-op sem ticket foi fechada: `publication` sempre existe como fase final, mas sem write-back versionado por default;
-  - a barra de anti-overfit, suficiência de evidência, precedência contratual e sensibilidade do trace foi explicitada;
-  - a ancoragem do piloto `../guiadomus-matricula` foi realizada com análise de identificador concreto do caso, logs, banco, storage, prompts, documentação, tickets e observabilidade.
-  - a triagem inicial desta spec foi concluida, com derivacao em tres tickets separados por fronteira observavel entre control-plane do runner, contrato/gates/publication e capability do piloto.
+  - o runner agora expõe `target-investigate-case` como fluxo target de primeira classe, com `/target_investigate_case`, `/_status`, `/_cancel`, milestones canônicos, resumo determinístico e integração ao trace store;
+  - o contrato runner-side de `case-investigation` foi entregue com manifesto canônico, schemas/allowlists explícitas, validações anti-overfit, `publication-decision.json`, `overall_outcome` e summary/trace sanitizados;
+  - o piloto `../guiadomus-matricula` passou a expor a capability `case-investigation`, com manifesto local, runbook dedicado, política de replay/purge, dossier em `output/case-investigation/<request-id>/` e template único com `## Investigação Causal`;
+  - as validações automatizadas atuais ficaram verdes no estado auditado: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts` (`557/557`), `npm run check` e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
 - Pendências em aberto:
-  - implementar a superficie operacional de `/target_investigate_case` no runner, incluindo slot dedicado, milestones, status/cancel, traces e ciclo local de artefatos (`tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`);
-  - introduzir manifesto canonico, validacoes de artefatos, tabela de combinacoes validas, regra anti-overfit, publication/no-op e trace minimizado no runner (`tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md`);
-  - preparar a capability investigativa do piloto `../guiadomus-matricula`, incluindo manifesto local, policy de replay/purge e o bloco `## Investigacao Causal` no template interno (`tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md`).
+  - ligar um `TargetInvestigateCaseRoundPreparer` oficial ao bootstrap do runner para que `/target_investigate_case` deixe de bloquear em `round-preparer-unavailable` e execute uma rodada real ponta a ponta (`tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`).
 - Evidências de validação:
-  - entrevista estruturada de `/discover_spec` conduzida em 2026-04-03, cobrindo unidade do caso, replay, capability, contrato do manifesto, precedência, anti-overfit, artefatos, desfechos finais, ticketing e rastreabilidade;
-  - leitura dos documentos canônicos do runner sobre `/discover_spec`, compatibilidade de projeto alvo, target flows, traces, status e Telegram;
-  - leitura do piloto `../guiadomus-matricula` sobre runbook local, `workflow_debug`, contratos de workflow, modelo de dados, governança de prompts e template de ticket;
-  - fechamento explícito das decisões de produto/contrato necessárias para derivação posterior em tickets.
-  - validacao final da triagem concluida em 2026-04-03 16:34Z, com releitura da spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` com `Spec treatment: pending` por ainda depender desses tickets abertos.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts` passou com `557/557`;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3/3` no piloto;
+  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts` e `rg -n "roundPreparer|TargetInvestigateCaseRoundPreparer" src` mostrou que o bootstrap atual sobe `ControlledTargetInvestigateCaseExecutor` sem `roundPreparer`, e que o executor bloqueia explicitamente com `round-preparer-unavailable` quando esse materializador oficial não é fornecido.
 
 ## Auditoria final de entrega
-- Auditoria executada em: n/a
-- Resultado: n/a - spec aprovada para derivação, ainda sem implementação entregue
+- Auditoria executada em: 2026-04-03 18:44Z
+- Resultado: pendente para nova rodada - gap funcional residual encontrado no bootstrap do `/target_investigate_case`
+- Evidências finais consideradas:
+  - o runner e o piloto passaram nas suítes automatizadas relevantes, preservando o contrato publicado desta linhagem;
+  - o estado atual do bootstrap em `src/main.ts` ainda instancia `ControlledTargetInvestigateCaseExecutor` apenas com `targetProjectResolver`, sem `roundPreparer`;
+  - o executor em `src/core/target-investigate-case.ts` retorna `status: "blocked"` com `reason: "round-preparer-unavailable"` antes de produzir os artefatos mínimos quando essa dependência não existe;
+  - `rg -n "roundPreparer|TargetInvestigateCaseRoundPreparer" src` mostrou apenas a interface e dublês de teste, sem implementação concreta ligada ao runtime.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum ainda
+  - tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
 - Causas-raiz sistêmicas identificadas:
-  - n/a
+  - `ticket` - a linhagem derivada fechou control-plane, contrato/publication e capability do piloto, mas não manteve ownership explícito do materializador oficial que transforma manifesto + capability em artefatos reais na execução do runner.
 - Ajustes genéricos promovidos ao workflow:
-  - n/a
+  - nenhum; o residual foi tratado apenas como follow-up funcional local desta spec, sem promover backlog transversal do workflow.
 
 ## Riscos e impacto
-- Risco funcional: sem manifesto suficientemente determinístico, o fluxo pode voltar a depender de descoberta livre por IA e produzir diagnósticos pouco auditáveis.
+- Risco funcional: o runner já expõe `/target_investigate_case`, mas o bootstrap atual ainda não materializa uma rodada real; o operador encontra um fluxo que bloqueia em `round-preparer-unavailable` antes de produzir os artefatos mínimos da investigação.
 - Risco operacional: no piloto `../guiadomus-matricula`, a investigação histórica sem replay seguro tende a produzir taxa alta de inconclusão se a capability não fechar bem suas superfícies.
 - Risco de backlog: sem `generalization_basis[]`, `overfit_vetoes[]` e gates conservadores, o fluxo pode gerar tickets elegantes, mas pobres em generalização e caros de executar.
 - Mitigação:
@@ -427,3 +429,4 @@
 - 2026-04-03 16:00Z - Versão inicial da spec.
 - 2026-04-03 16:11Z - Triagem inicial concluída: spec revisada contra o estado atual do runner/piloto e pacote derivado em três tickets abertos.
 - 2026-04-03 16:34Z - Validação final da triagem concluída com releitura da spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` com `Spec treatment: pending` por ainda depender dos tickets abertos.
+- 2026-04-03 18:44Z - Auditoria final pós-`/run_all` concluída com releitura da spec, dos tickets fechados, dos execplans, do código atual do runner e da capability do piloto; a spec avançou para `Status: partially_attended`, manteve `Spec treatment: pending` e abriu follow-up para ligar o `roundPreparer` oficial ao bootstrap do fluxo.
