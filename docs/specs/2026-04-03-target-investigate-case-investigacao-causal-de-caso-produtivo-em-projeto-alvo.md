@@ -6,14 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-03 16:00Z
-- Last reviewed at (UTC): 2026-04-03 16:00Z
+- Last reviewed at (UTC): 2026-04-03 16:34Z
 - Source: technical-evolution
 - Related tickets:
-  - nenhum ainda
+  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md
 - Related execplans:
   - nenhum ainda
 - Related commits:
-  - nenhum ainda
+  - chore(specs): triage 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -264,26 +266,101 @@
 - Nota de uso: esta spec nasceu de `/discover_spec` e ainda não foi executada por `/run_specs`; por isso, esta seção permanece `n/a` até existir uma rodada formal desse fluxo.
 - Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
+### Ultima execucao registrada
+- Executada em (UTC): 2026-04-03T16:29:55.535Z
+- Veredito: GO
+- Confianca final: high
+- Motivo final: go-with-high-confidence
+- Resumo: Houve progresso real nesta revalidacao: o total de gaps caiu de 2 para 0. Os dois `closure-criteria-gap` remanescentes do passe anterior foram resolvidos nos mesmos tickets do runner, sem surgir gap reancorado adicional, e o pacote derivado agora torna observaveis tanto os requisitos principais quanto as validacoes manuais herdadas relevantes para aceite.
+- Ciclos executados: 3
+- Thread da validacao: 019d5424-b449-7883-bfab-ec9d7a7d1f9f
+- Contexto de triagem herdado: nao
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md [fonte=source-spec]
+  - tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md [fonte=source-spec]
+  - tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md [fonte=source-spec]
+
+#### Historico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: O pacote derivado tem fronteiras de escopo coerentes e cobre a maior parte da spec, mas ainda nao fecha GO porque permanecem 3 gaps objetivos de aceite: o ticket de contrato/publication nao torna observaveis a normalizacao de entrada, o caminho positivo de publication e o conjunto minimo do resumo final; o ticket de control-plane nao torna observaveis concorrencia por projeto nem as semanticas de cancelamento na fronteira de versionamento; e o ticket do piloto nao herdou de forma aplicavel a validacao pendente sobre retencao/caminho local do dossier.
+  - Thread: 019d5424-b449-7883-bfab-ec9d7a7d1f9f
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md|ca-03&ca-09&ca-15&rf-08&rf-39, closure-criteria-gap|tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md|ca-16&rf-42, spec-inheritance-gap|tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md|rf-05
+  - Reducao real de gaps vs. ciclo anterior: n/a
+  - Correcoes deste ciclo: 0
+- Ciclo 1 [revalidation]: NO_GO (high)
+  - Resumo: Houve progresso real nesta revalidacao: o total de gaps caiu de 3 para 2. O `spec-inheritance-gap` do ticket do piloto foi resolvido, e os dois `closure-criteria-gap` anteriores nos tickets do runner nao permanecem com o mesmo escopo amplo; eles ficaram reancorados em validacoes manuais herdadas mais especificas. Ainda assim, o pacote segue `NO_GO` porque duas validacoes manuais relevantes para aceite continuam sem criterio de fechamento observavel.
+  - Thread: 019d5424-b449-7883-bfab-ec9d7a7d1f9f
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md|ca-11&rf-40&rf-41, closure-criteria-gap|tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md|ca-15&rf-39
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 3
+    - Ampliei os Closure criteria do ticket de contrato/publication para tornar observaveis a normalizacao do comando canonico e da UX guiada, o caminho positivo de publication com ticket elegivel e o conjunto minimo completo do resumo final exigido pela spec. [applied]
+    - Ampliei os Closure criteria do ticket de control-plane para tornar observaveis a exclusao de slot pesado por projeto, a resolucao de ambiguidade em status/cancel e as semanticas de cancelamento cooperativo antes da fronteira de versionamento e tardio depois dela. [applied]
+    - Herdei no ticket do piloto a validacao pendente sobre politica de retencao e caminho local do dossier por capability e tornei essa validacao observavel nos Closure criteria do manifesto/aceite do piloto. [applied]
+- Ciclo 2 [revalidation]: GO (high)
+  - Resumo: Houve progresso real nesta revalidacao: o total de gaps caiu de 2 para 0. Os dois `closure-criteria-gap` remanescentes do passe anterior foram resolvidos nos mesmos tickets do runner, sem surgir gap reancorado adicional, e o pacote derivado agora torna observaveis tanto os requisitos principais quanto as validacoes manuais herdadas relevantes para aceite.
+  - Thread: 019d5424-b449-7883-bfab-ec9d7a7d1f9f
+  - Fingerprints abertos: nenhum
+  - Reducao real de gaps vs. ciclo anterior: sim
+  - Correcoes deste ciclo: 2
+    - Adicionados aos Closure criteria do ticket de contrato/publication os requisitos de evidencia observavel para a validacao manual herdada de que o trace minimizado do runner permite auditoria operacional sem exigir abertura imediata do dossier local, com registro explicito da execucao avaliada, resultado e ajustes necessarios. [applied]
+    - Adicionados aos Closure criteria do ticket de control-plane os requisitos de evidencia observavel para a validacao manual herdada em ambiente real do resumo final do Telegram, exigindo registro explicito da execucao avaliada, conteudo redigido observado, resultado da validacao e ajustes aplicados antes do fechamento. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correcoes aplicadas
+- Ampliei os Closure criteria do ticket de contrato/publication para tornar observaveis a normalizacao do comando canonico e da UX guiada, o caminho positivo de publication com ticket elegivel e o conjunto minimo completo do resumo final exigido pela spec.
+  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+- Ampliei os Closure criteria do ticket de control-plane para tornar observaveis a exclusao de slot pesado por projeto, a resolucao de ambiguidade em status/cancel e as semanticas de cancelamento cooperativo antes da fronteira de versionamento e tardio depois dela.
+  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+- Herdei no ticket do piloto a validacao pendente sobre politica de retencao e caminho local do dossier por capability e tornei essa validacao observavel nos Closure criteria do manifesto/aceite do piloto.
+  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - Gaps relacionados: spec-inheritance-gap
+  - Resultado: applied
+- Adicionados aos Closure criteria do ticket de contrato/publication os requisitos de evidencia observavel para a validacao manual herdada de que o trace minimizado do runner permite auditoria operacional sem exigir abertura imediata do dossier local, com registro explicito da execucao avaliada, resultado e ajustes necessarios.
+  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+- Adicionados aos Closure criteria do ticket de control-plane os requisitos de evidencia observavel para a validacao manual herdada em ambiente real do resumo final do Telegram, exigindo registro explicito da execucao avaliada, conteudo redigido observado, resultado da validacao e ajustes aplicados antes do fechamento.
+  - Artefatos afetados: tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+
 ## Retrospectiva sistemica da derivacao dos tickets
-- Executada: n/a
-- Motivo de ativação ou skip:
-  - n/a
-- Classificação final:
-  - n/a
-- Confiança:
-  - n/a
-- Frente causal analisada:
-  - n/a
-- Achados sistêmicos:
-  - n/a
+- Executada: sim
+- Motivo de ativacao ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificacao final: not-systemic
+- Confianca: high
+- Frente causal analisada: As instruções, prompts e validações atuais já cobriam a herança de validações pendentes/manuais, a reconciliação de ownership e os closure criteria observáveis; a primeira derivação saiu incompleta localmente e o próprio spec-ticket-validation a trouxe para GO.
+- Achados sistemicos:
+  - nenhum
 - Artefatos do workflow consultados:
-  - n/a
-- Elegibilidade de publicação:
-  - n/a
-- Resultado do ticket transversal ou limitação operacional:
-  - n/a
-- Nota de uso: esta seção permanece `n/a` até que a spec participe de uma rodada de `/run_specs`; a fase descrita por esta própria spec é um novo fluxo target e não uma retrospectiva sistêmica já executada.
-- Política anti-duplicação: quando a spec for futuramente derivada em tickets, esta seção não deve duplicar a análise causal do próprio `/target_investigate_case`; ela só deve registrar retrospectiva sistêmica do fluxo de derivação de tickets quando isso realmente ocorrer.
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md
+  - src/core/runner.ts
+  - src/core/runner.test.ts
+  - src/core/spec-ticket-validation.ts
+  - src/core/spec-ticket-validation.test.ts
+  - src/types/spec-ticket-validation.ts
+  - tickets/closed/2026-03-21-triagem-de-spec-heranca-de-validacoes-pendentes-e-criterios-observaveis-gap.md
+- Elegibilidade de publicacao: nao
+- Resultado do ticket transversal ou limitacao operacional:
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta secao deve registrar a retrospectiva pre-run-all como superficie distinta do gate funcional. Se a execucao ocorrer no proprio `codex-flow-runner`, write-back nesta secao e permitido. Em projeto externo, a fonte observavel desta fase e trace/log/resumo, e nao a spec do projeto alvo.
+- Politica anti-duplicacao: a retrospectiva sistemica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto historico, mas nao deve reavaliar nem reticketar a mesma frente causal.
 
 ## Validacoes pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
@@ -306,17 +383,17 @@
   - a regra de no-op sem ticket foi fechada: `publication` sempre existe como fase final, mas sem write-back versionado por default;
   - a barra de anti-overfit, suficiência de evidência, precedência contratual e sensibilidade do trace foi explicitada;
   - a ancoragem do piloto `../guiadomus-matricula` foi realizada com análise de identificador concreto do caso, logs, banco, storage, prompts, documentação, tickets e observabilidade.
+  - a triagem inicial desta spec foi concluida, com derivacao em tres tickets separados por fronteira observavel entre control-plane do runner, contrato/gates/publication e capability do piloto.
 - Pendências em aberto:
-  - derivar tickets técnicos a partir desta spec;
-  - implementar o novo target flow no runner;
-  - introduzir schema e validação do capability manifest;
-  - preparar a capability investigativa no piloto `../guiadomus-matricula`;
-  - ajustar o template interno do piloto para o bloco `## Investigação Causal`.
+  - implementar a superficie operacional de `/target_investigate_case` no runner, incluindo slot dedicado, milestones, status/cancel, traces e ciclo local de artefatos (`tickets/open/2026-04-03-target-investigate-case-runner-control-plane-gap.md`);
+  - introduzir manifesto canonico, validacoes de artefatos, tabela de combinacoes validas, regra anti-overfit, publication/no-op e trace minimizado no runner (`tickets/open/2026-04-03-target-investigate-case-contract-and-publication-gap.md`);
+  - preparar a capability investigativa do piloto `../guiadomus-matricula`, incluindo manifesto local, policy de replay/purge e o bloco `## Investigacao Causal` no template interno (`tickets/open/2026-04-03-target-investigate-case-pilot-capability-gap.md`).
 - Evidências de validação:
   - entrevista estruturada de `/discover_spec` conduzida em 2026-04-03, cobrindo unidade do caso, replay, capability, contrato do manifesto, precedência, anti-overfit, artefatos, desfechos finais, ticketing e rastreabilidade;
   - leitura dos documentos canônicos do runner sobre `/discover_spec`, compatibilidade de projeto alvo, target flows, traces, status e Telegram;
   - leitura do piloto `../guiadomus-matricula` sobre runbook local, `workflow_debug`, contratos de workflow, modelo de dados, governança de prompts e template de ticket;
   - fechamento explícito das decisões de produto/contrato necessárias para derivação posterior em tickets.
+  - validacao final da triagem concluida em 2026-04-03 16:34Z, com releitura da spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` com `Spec treatment: pending` por ainda depender desses tickets abertos.
 
 ## Auditoria final de entrega
 - Auditoria executada em: n/a
@@ -348,3 +425,5 @@
 
 ## Historico de atualizacao
 - 2026-04-03 16:00Z - Versão inicial da spec.
+- 2026-04-03 16:11Z - Triagem inicial concluída: spec revisada contra o estado atual do runner/piloto e pacote derivado em três tickets abertos.
+- 2026-04-03 16:34Z - Validação final da triagem concluída com releitura da spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` com `Spec treatment: pending` por ainda depender dos tickets abertos.
