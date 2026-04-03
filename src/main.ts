@@ -20,6 +20,7 @@ import { FileSystemSpecDiscovery } from "./integrations/spec-discovery.js";
 import { FileSystemTicketQueue } from "./integrations/ticket-queue.js";
 import { GitCliTargetCheckupGuard } from "./integrations/target-checkup-git-guard.js";
 import { GitCliTargetDeriveGuard } from "./integrations/target-derive-git-guard.js";
+import { CodexCliTargetInvestigateCaseRoundPreparer } from "./integrations/target-investigate-case-round-preparer.js";
 import { GitCliTargetPrepareGuard } from "./integrations/target-prepare-git-guard.js";
 import { FileSystemTargetProjectResolver } from "./integrations/target-project-resolver.js";
 import { TelegramController } from "./integrations/telegram-bot.js";
@@ -46,6 +47,24 @@ const bootstrap = async () => {
     store: activeProjectStore,
   });
   const runnerRepoPath = path.resolve(process.cwd());
+  const targetProjectResolver = new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH);
+  const createTargetCodexClient = (project: { name: string; path: string }) =>
+    new CodexCliTicketFlowClient(
+      project.path,
+      logger,
+      {},
+      {
+        resolveInvocationPreferences: async () => {
+          const resolved = await codexPreferencesService.resolveProjectPreferences(project);
+          return {
+            model: resolved.model,
+            reasoningEffort: resolved.reasoningEffort,
+            speed: resolved.speed,
+          };
+        },
+      },
+    );
+  const createTargetGitVersioning = (project: { path: string }) => new GitCliVersioning(project.path);
   const codexPreferencesService = new DefaultCodexPreferencesService(
     {
       catalogReader: new FileSystemCodexModelCatalogReader(),
@@ -102,75 +121,36 @@ const bootstrap = async () => {
   const initialRoundDependencies = await resolveRunnerRoundDependencies("bootstrap");
   const targetPrepareExecutor = new ControlledTargetPrepareExecutor({
     logger,
-    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
-    createCodexClient: (project) =>
-      new CodexCliTicketFlowClient(
-        project.path,
-        logger,
-        {},
-        {
-          resolveInvocationPreferences: async () => {
-            const resolved = await codexPreferencesService.resolveProjectPreferences(project);
-            return {
-              model: resolved.model,
-              reasoningEffort: resolved.reasoningEffort,
-              speed: resolved.speed,
-            };
-          },
-        },
-      ),
-    createGitVersioning: (project) => new GitCliVersioning(project.path),
+    targetProjectResolver,
+    createCodexClient: createTargetCodexClient,
+    createGitVersioning: createTargetGitVersioning,
     createGitGuard: (project) => new GitCliTargetPrepareGuard(project.path),
     runnerRepoPath,
   });
   const targetCheckupExecutor = new ControlledTargetCheckupExecutor({
     logger,
-    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
-    createCodexClient: (project) =>
-      new CodexCliTicketFlowClient(
-        project.path,
-        logger,
-        {},
-        {
-          resolveInvocationPreferences: async () => {
-            const resolved = await codexPreferencesService.resolveProjectPreferences(project);
-            return {
-              model: resolved.model,
-              reasoningEffort: resolved.reasoningEffort,
-              speed: resolved.speed,
-            };
-          },
-        },
-      ),
-    createGitVersioning: (project) => new GitCliVersioning(project.path),
+    targetProjectResolver,
+    createCodexClient: createTargetCodexClient,
+    createGitVersioning: createTargetGitVersioning,
     createGitGuard: (project) => new GitCliTargetCheckupGuard(project.path),
     runnerRepoPath,
   });
   const targetDeriveExecutor = new ControlledTargetDeriveExecutor({
     logger,
-    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
-    createCodexClient: (project) =>
-      new CodexCliTicketFlowClient(
-        project.path,
-        logger,
-        {},
-        {
-          resolveInvocationPreferences: async () => {
-            const resolved = await codexPreferencesService.resolveProjectPreferences(project);
-            return {
-              model: resolved.model,
-              reasoningEffort: resolved.reasoningEffort,
-              speed: resolved.speed,
-            };
-          },
-        },
-      ),
-    createGitVersioning: (project) => new GitCliVersioning(project.path),
+    targetProjectResolver,
+    createCodexClient: createTargetCodexClient,
+    createGitVersioning: createTargetGitVersioning,
     createGitGuard: (project) => new GitCliTargetDeriveGuard(project.path),
     runnerRepoPath,
   });
   const targetInvestigateCaseExecutor = new ControlledTargetInvestigateCaseExecutor({
-    targetProjectResolver: new FileSystemTargetProjectResolver(env.PROJECTS_ROOT_PATH),
+    targetProjectResolver,
+    roundPreparer: new CodexCliTargetInvestigateCaseRoundPreparer({
+      logger,
+      runnerRepoPath,
+      createCodexClient: createTargetCodexClient,
+      createGitVersioning: createTargetGitVersioning,
+    }),
   });
   let telegram: TelegramController | null = null;
 

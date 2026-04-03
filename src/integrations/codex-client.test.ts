@@ -313,6 +313,85 @@ test("runTargetDeriveGapAnalysis injeta facts serializados do report e caminhos 
   assert.match(capturedPrompt, /"analyzed_head_sha": "abc123"/u);
 });
 
+test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e allowlists explicitas", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Runner path: <RUNNER_REPO_PATH>",
+        "Runner ref: <RUNNER_REFERENCE>",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+        "Manifest: <TARGET_INVESTIGATE_CASE_MANIFEST_PATH>",
+        "Runbook: <TARGET_INVESTIGATE_CASE_RUNBOOK_PATH>",
+        "Round ID: <TARGET_INVESTIGATE_CASE_ROUND_ID>",
+        "Round directory: <TARGET_INVESTIGATE_CASE_ROUND_DIRECTORY>",
+        "Artifacts:",
+        "<TARGET_INVESTIGATE_CASE_ARTIFACT_PATHS_JSON>",
+        "Facts:",
+        "<TARGET_INVESTIGATE_CASE_FACTS_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "materialized", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetInvestigateCaseRoundMaterialization({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+    runbookPath: "docs/workflows/target-case-investigation-runbook.md",
+    canonicalCommand:
+      "/target_investigate_case alpha-project case-001 --workflow extract_address --request-id req-001",
+    roundId: "2026-04-03T19-00-00Z",
+    roundDirectory: "investigations/2026-04-03T19-00-00Z",
+    artifactPaths: {
+      caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+      evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+      assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+      dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+      publicationDecisionPath:
+        "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+    },
+    caseRefAuthorities: ["propertyId", "requestId", "runArtifact"],
+    attemptRefAuthorities: ["requestId", "runArtifact", "workflow+window"],
+    targetProjectAcceptedSelectors: [
+      "propertyId",
+      "requestId",
+      "workflow",
+      "window",
+      "runArtifact",
+    ],
+    investigableWorkflows: ["extract_address", "extract_condominium_info"],
+    acceptedPurgeIdentifiers: [
+      "propertyId",
+      "pdfFileName",
+      "matriculaNumber",
+      "transcriptHint",
+    ],
+    dossierLocalPathTemplate: "output/case-investigation/<request-id>/",
+  });
+
+  assert.match(
+    result.promptTemplatePath,
+    /16-target-investigate-case-round-materialization\.md$/u,
+  );
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(capturedPrompt, /Manifest: docs\/workflows\/target-case-investigation-manifest\.json/u);
+  assert.match(capturedPrompt, /Runbook: docs\/workflows\/target-case-investigation-runbook\.md/u);
+  assert.match(capturedPrompt, /Round directory: investigations\/2026-04-03T19-00-00Z/u);
+  assert.match(capturedPrompt, /"attemptRefAuthorities": \[/u);
+  assert.match(capturedPrompt, /"acceptedPurgeIdentifiers": \[/u);
+  assert.match(capturedPrompt, /"extract_condominium_info"/u);
+});
+
 test("runStage injeta guia operacional de shell no prompt", async () => {
   let capturedPrompt = "";
 

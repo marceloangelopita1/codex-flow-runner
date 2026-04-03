@@ -6,14 +6,15 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-03 16:00Z
-- Last reviewed at (UTC): 2026-04-03 18:44Z
+- Last reviewed at (UTC): 2026-04-03 20:13Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md
-  - tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
+  - tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
 - Related execplans:
+  - execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
@@ -22,6 +23,7 @@
   - chore(tickets): close 2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - chore(tickets): close 2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - chore(tickets): close 2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - chore(tickets): close 2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md (este changeset)
   - chore(specs): audit 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md (este changeset)
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
@@ -371,11 +373,13 @@
 
 ## Validacoes pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
-  - materializar no bootstrap do runner um `TargetInvestigateCaseRoundPreparer` oficial que consuma a capability do projeto alvo e permita ao fluxo gerar `case-resolution.json`, `evidence-bundle.json`, `assessment.json`, `publication-decision.json` e `dossier.md|dossier.json` em uma rodada real, em vez de bloquear em `round-preparer-unavailable`.
+  - nenhuma pendência automatizável local adicional nesta linhagem; o bootstrap oficial, a normalização do manifesto rico do piloto, o materializador da rodada e o publisher opcional do ticket já foram implementados e cobertos na matriz automatizada.
 - Validações manuais pendentes:
-  - após o follow-up funcional acima, executar uma rodada real de `/target_investigate_case` em ambiente com Telegram e projeto alvo elegível para confirmar o resumo final do Telegram e o trace minimizado sobre uma investigação não bloqueada.
+  - executar uma rodada real de `/target_investigate_case` em ambiente com Telegram e projeto alvo elegível para confirmar o resumo final do Telegram e o trace minimizado sobre uma investigação não bloqueada, assim que houver operador autorizado e caso seguro aprovado para uma execução que não viole a restrição atual de não fazer commit/push.
 - Validações já consolidadas nesta linhagem:
-  - o contrato machine-readable do manifesto, as allowlists finitas, a política de replay/purge, o dossier local e o bloco `## Investigação Causal` do piloto foram validados em `../guiadomus-matricula`, inclusive pelo teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js`.
+  - o contrato machine-readable do manifesto, as allowlists finitas, a política de replay/purge, o dossier local e o bloco `## Investigação Causal` do piloto foram validados em `../guiadomus-matricula`, inclusive pelo teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`);
+  - o runner passou na matriz automatizada da etapa de bootstrap/materialização com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts`, que no estado atual expandiu para o repositório inteiro e terminou com `565` testes `pass`;
+  - o guardrail tipado `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` permaneceu verde.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: partially_attended
@@ -383,32 +387,34 @@
   - o runner agora expõe `target-investigate-case` como fluxo target de primeira classe, com `/target_investigate_case`, `/_status`, `/_cancel`, milestones canônicos, resumo determinístico e integração ao trace store;
   - o contrato runner-side de `case-investigation` foi entregue com manifesto canônico, schemas/allowlists explícitas, validações anti-overfit, `publication-decision.json`, `overall_outcome` e summary/trace sanitizados;
   - o piloto `../guiadomus-matricula` passou a expor a capability `case-investigation`, com manifesto local, runbook dedicado, política de replay/purge, dossier em `output/case-investigation/<request-id>/` e template único com `## Investigação Causal`;
-  - as validações automatizadas atuais ficaram verdes no estado auditado: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts` (`557/557`), `npm run check` e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
+  - o bootstrap do runner agora injeta um `TargetInvestigateCaseRoundPreparer` oficial, com normalização do manifesto rico do piloto, prompt/materialização dirigida da rodada, validação dos artefatos canônicos e publisher runner-side determinístico/idempotente quando houver publication elegível;
+  - as validações automatizadas atuais ficaram verdes no estado revisado: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` (`565` testes `pass` no script atual), `npm run check` e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
 - Pendências em aberto:
-  - ligar um `TargetInvestigateCaseRoundPreparer` oficial ao bootstrap do runner para que `/target_investigate_case` deixe de bloquear em `round-preparer-unavailable` e execute uma rodada real ponta a ponta (`tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`).
+  - executar a validação manual ponta a ponta via Telegram autorizado em um caso previamente aprovado e seguro, registrando o resumo final e o trace minimizado sem cruzar indevidamente a fronteira de publication; a entrega técnica já foi fechada em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, sem novo follow-up local.
 - Evidências de validação:
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts` passou com `557/557`;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` passou com `565` testes `pass` no script atual;
   - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou;
   - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3/3` no piloto;
-  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts` e `rg -n "roundPreparer|TargetInvestigateCaseRoundPreparer" src` mostrou que o bootstrap atual sobe `ControlledTargetInvestigateCaseExecutor` sem `roundPreparer`, e que o executor bloqueia explicitamente com `round-preparer-unavailable` quando esse materializador oficial não é fornecido.
+  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts`, `src/types/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts` confirmou o wiring do preparer oficial, a adaptação do manifesto real do piloto e a omissão deliberada de `onAiExchange` para evitar vazamento de payload sensível no trace do runner.
 
 ## Auditoria final de entrega
-- Auditoria executada em: 2026-04-03 18:44Z
-- Resultado: pendente para nova rodada - gap funcional residual encontrado no bootstrap do `/target_investigate_case`
+- Auditoria executada em: 2026-04-03 20:13Z
+- Resultado: parcialmente atendida - bootstrap funcional entregue localmente, ticket fechado com `GO` e validação manual externa ainda pendente
 - Evidências finais consideradas:
   - o runner e o piloto passaram nas suítes automatizadas relevantes, preservando o contrato publicado desta linhagem;
-  - o estado atual do bootstrap em `src/main.ts` ainda instancia `ControlledTargetInvestigateCaseExecutor` apenas com `targetProjectResolver`, sem `roundPreparer`;
-  - o executor em `src/core/target-investigate-case.ts` retorna `status: "blocked"` com `reason: "round-preparer-unavailable"` antes de produzir os artefatos mínimos quando essa dependência não existe;
-  - `rg -n "roundPreparer|TargetInvestigateCaseRoundPreparer" src` mostrou apenas a interface e dublês de teste, sem implementação concreta ligada ao runtime.
+  - `src/main.ts` passou a instanciar `ControlledTargetInvestigateCaseExecutor` com `CodexCliTargetInvestigateCaseRoundPreparer`, eliminando o gap de bootstrap local;
+  - `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` agora normalizam o manifesto rico real do piloto sem reabrir `../guiadomus-matricula/**`;
+  - `src/integrations/target-investigate-case-round-preparer.ts` valida os artefatos canônicos da rodada e omite `onAiExchange` para preservar o trace mínimo do runner;
+  - a validação manual externa via Telegram autorizado permaneceu pendente porque esta etapa explicitamente não permite commit/push e o shell não representa o operador humano autorizado.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - tickets/open/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
+  - nenhum no momento; o follow-up funcional foi concluído e fechado em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, com validação manual externa pendente registrada no próprio ticket fechado.
 - Causas-raiz sistêmicas identificadas:
   - `ticket` - a linhagem derivada fechou control-plane, contrato/publication e capability do piloto, mas não manteve ownership explícito do materializador oficial que transforma manifesto + capability em artefatos reais na execução do runner.
 - Ajustes genéricos promovidos ao workflow:
   - nenhum; o residual foi tratado apenas como follow-up funcional local desta spec, sem promover backlog transversal do workflow.
 
 ## Riscos e impacto
-- Risco funcional: o runner já expõe `/target_investigate_case`, mas o bootstrap atual ainda não materializa uma rodada real; o operador encontra um fluxo que bloqueia em `round-preparer-unavailable` antes de produzir os artefatos mínimos da investigação.
+- Risco funcional: a implementação local removeu o bloqueio `round-preparer-unavailable`, mas a ausência da rodada manual autorizada ainda deixa sem evidência ponta a ponta o comportamento do resumo final no Telegram e do trace real em uma investigação não bloqueada.
 - Risco operacional: no piloto `../guiadomus-matricula`, a investigação histórica sem replay seguro tende a produzir taxa alta de inconclusão se a capability não fechar bem suas superfícies.
 - Risco de backlog: sem `generalization_basis[]`, `overfit_vetoes[]` e gates conservadores, o fluxo pode gerar tickets elegantes, mas pobres em generalização e caros de executar.
 - Mitigação:
@@ -430,3 +436,5 @@
 - 2026-04-03 16:11Z - Triagem inicial concluída: spec revisada contra o estado atual do runner/piloto e pacote derivado em três tickets abertos.
 - 2026-04-03 16:34Z - Validação final da triagem concluída com releitura da spec, dos 3 tickets derivados, de `SPECS.md`, `DOCUMENTATION.md` e do diff atual; o documento permaneceu em `Status: approved` com `Spec treatment: pending` por ainda depender dos tickets abertos.
 - 2026-04-03 18:44Z - Auditoria final pós-`/run_all` concluída com releitura da spec, dos tickets fechados, dos execplans, do código atual do runner e da capability do piloto; a spec avançou para `Status: partially_attended`, manteve `Spec treatment: pending` e abriu follow-up para ligar o `roundPreparer` oficial ao bootstrap do fluxo.
+- 2026-04-03 20:05Z - Execução do follow-up concluída com wiring do `roundPreparer` oficial, normalização do manifesto rico do piloto, prompt/materialização da rodada e matriz automatizada verde; a spec permaneceu em `Status: partially_attended` apenas pela validação manual externa ainda pendente.
+- 2026-04-03 20:13Z - Fechamento técnico do follow-up revalidado como `GO`; o ticket foi movido para `tickets/closed/` e a spec permaneceu em `Status: partially_attended` apenas pela validação manual externa operacional ainda pendente.

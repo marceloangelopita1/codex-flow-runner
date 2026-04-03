@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case ainda sobe sem materializador oficial da rodada
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -10,7 +10,7 @@
 - Owner:
 - Source: local-run
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
 - Parent commit (optional):
 - Analysis stage (when applicable): spec-audit
 - Active project (when applicable): codex-flow-runner
@@ -33,6 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
   - docs/workflows/codex-quality-gates.md
+  - execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
@@ -106,7 +107,53 @@ O runner deve injetar um `TargetInvestigateCaseRoundPreparer` oficial no bootstr
 - Requisito/RF/CA coberto: fronteira de ownership do pacote derivado
 - Evidencia observavel: o diff final reutiliza o módulo `src/core/target-investigate-case.ts` como source of truth de parser/avaliação/summary/trace, sem reabrir os tickets fechados da capability do piloto e sem criar uma segunda implementação paralela de publication ou de control-plane.
 
+## Execution status
+- Estado desta etapa: implementação local concluída e revalidada; o fechamento técnico deste ticket é `GO`, com validação manual externa ainda pendente.
+- O que foi implementado:
+  - `src/main.ts` agora injeta um `CodexCliTargetInvestigateCaseRoundPreparer` oficial no bootstrap do `ControlledTargetInvestigateCaseExecutor`;
+  - `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` passaram a aceitar e normalizar o manifesto rico real do piloto, preservando as allowlists explícitas declaradas;
+  - `src/integrations/codex-client.ts`, `prompts/16-target-investigate-case-round-materialization.md`, `src/integrations/target-investigate-case-round-preparer.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts` materializam a rodada runner-side, validam artefatos obrigatórios e oferecem publication determinística e idempotente do ticket quando elegível.
+- Validações executadas nesta etapa:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` passou; por desenho do script atual, a suite expandiu para o repositório inteiro e terminou com `565` testes `pass`.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3` testes `pass` no piloto `../guiadomus-matricula`.
+- Validação manual externa pendente:
+  - a rodada manual real via Telegram autorizado ainda nao foi executada porque o shell nao representa o operador humano autorizado e uma execucao integrada sem caso previamente aprovado ainda pode cruzar a fronteira de publication do projeto alvo.
+
 ## Decision log
 - 2026-04-03 18:44Z - Ticket aberto a partir da auditoria final da spec.
   - Motivo: o estado atual do branch ainda bloqueia o flow real em `round-preparer-unavailable`, apesar de control-plane, contrato e capability do piloto já estarem fechados.
   - Fronteira observável: este ticket cobre o materializador oficial e a primeira rodada real não bloqueada; não reabre os artefatos já entregues nos tickets fechados da mesma linhagem.
+- 2026-04-03 20:05Z - Implementação local concluída com matriz automatizada verde; ticket mantido em `blocked` até a validação manual externa.
+  - Motivo: o gap de bootstrap foi resolvido no runner, mas a etapa atual não autoriza a rodada manual integrada que poderia publicar ticket no projeto alvo.
+  - Fronteira observável: permanecem pendentes apenas a rodada real via Telegram autorizado e o registro redigido dessa execução antes do fechamento administrativo.
+- 2026-04-03 20:13Z - Fechamento técnico revalidado contra diff, ticket, ExecPlan, spec de origem, tickets irmãos fechados e `docs/workflows/codex-quality-gates.md`; resultado final `GO` com validação manual externa pendente.
+  - Motivo: a entrega técnica atual satisfaz os critérios funcionais do ticket no branch, e o remanescente depende apenas de validação operacional externa ao agente.
+  - Fronteira observável: nenhum follow-up local novo foi aberto; o ticket é encerrado normalmente e a validação manual pendente permanece registrada aqui e na spec.
+
+## Resultado do fechamento
+- Checklist aplicado: releitura do diff atual, do ticket, do ExecPlan, da spec de origem, dos tickets fechados da mesma linhagem e de `docs/workflows/codex-quality-gates.md`, com validação objetiva de cada closure criterion antes da decisão final.
+- Resultado final do fechamento: `GO` (validação manual externa pendente).
+- Critério 1 (`RF-12`; `CA-05`): atendido tecnicamente.
+  Evidência objetiva: `src/main.ts` injeta `CodexCliTargetInvestigateCaseRoundPreparer` no bootstrap do executor; `src/integrations/target-investigate-case-round-preparer.ts` materializa e valida `case-resolution.json`, `evidence-bundle.json`, `assessment.json` e `dossier.md|dossier.json`; `src/core/target-investigate-case.ts` cria `investigations/<round-id>/` e emite `publication-decision.json`. Cobertura automatizada executada: `ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com namespace local estavel em no-op`, `ControlledTargetInvestigateCaseExecutor cruza a fronteira de versionamento apenas dentro de publication e aceita dossier.json` e `CodexCliTargetInvestigateCaseRoundPreparer materializa artefatos canonicos e escolhe dossier.json explicitamente`.
+- Critério 2 (`RF-36`, `RF-37`, `RF-38`, `RF-42`; `CA-07`, `CA-08`, `CA-09`, `CA-10`, `CA-11`, `CA-16`): atendido.
+  Evidência objetiva: `src/core/target-investigate-case.ts` continua sendo a source of truth de `evaluateTargetInvestigateCaseRound(...)`, `publication`, summary e trace; `src/integrations/target-investigate-case-ticket-publisher.ts` restringe `versionedArtifactsDefault` a `ticket`; `src/integrations/target-investigate-case-round-preparer.ts` nao emite `onAiExchange`, evitando persistencia de prompt/output brutos no trace do runner. Cobertura automatizada executada: `evaluateTargetInvestigateCaseRound grava publication-decision no caminho no-op para no-real-gap`, `evaluateTargetInvestigateCaseRound publica ticket quando o caso e elegivel com evidencia strong`, `evaluateTargetInvestigateCaseRound bloqueia publication por policy declarada no manifesto`, `evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/summary permanecem redigidos`, `requestTargetInvestigateCase inicia lifecycle com milestones canonicos e summary final do novo flow`, `cancelTargetInvestigateCase responde cancelamento tardio apenas apos publication cruzar a fronteira` e `recordTargetFlowTrace aceita target-investigate-case com milestones e artefatos minimos explicitos`.
+- Critério 3 (`RF-24`, `RF-25`, `RF-26`, `RF-39`; `CA-12`, `CA-15`): atendido tecnicamente; validação manual externa pendente.
+  Evidência objetiva: `prompts/16-target-investigate-case-round-materialization.md` força replay seguro, `updateDb=false`, `dryRun` antes de purge e bloqueio explícito em falta de insumo; `src/integrations/codex-client.ts` serializa as allowlists finitas do manifesto para a materialização; `src/core/target-investigate-case.ts` renderiza o resumo final com `case-ref`, tentativa, replay, três vereditos, `confidence`, `evidence_sufficiency`, `causal_surface`, decisão final, razão, `dossier_path`, `ticket_path` e `next_action`. Cobertura automatizada executada: `runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e allowlists explicitas`; `renderTargetInvestigateCaseFinalSummary(...)` permanece coberto pela suite de `target-investigate-case`; `node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3/3` no piloto `../guiadomus-matricula`. Remanescente: a rodada real via Telegram autorizado ainda precisa ser exercitada em ambiente externo.
+- Critério 4 (fronteira de ownership do pacote derivado): atendido.
+  Evidência objetiva: o diff final concentra o wiring em `src/main.ts`, `src/core/target-investigate-case.ts`, `src/types/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts`, sem reabrir `../guiadomus-matricula/**` nem criar parser/publication/control-plane paralelos aos módulos já fechados da linhagem.
+
+## Manual validation pending
+- Entrega técnica concluída: sim. O fechamento funcional deste ticket é `GO`.
+- Causa-raiz remanescente registrada: `external/manual`.
+- Validação manual ainda necessária: executar uma rodada real de `/target_investigate_case <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...]` em ambiente com Telegram funcional e projeto alvo elegível, preferencialmente em caso previamente aprovado e seguro para terminar em `no-op`, `not_eligible` ou outro desfecho que não force publication indevida.
+- Como executar: subir o changeset preparado pelo runner, acionar a rodada via Telegram autorizado, capturar o resumo final entregue ao operador, consultar o trace minimizado correspondente e registrar de forma redigida a presença dos campos mínimos obrigatórios e a ausência de material sensível bruto.
+- Responsável operacional: operador/maintainer do runner com acesso ao bot Telegram e a um projeto alvo elegível.
+- Motivo para não bloquear o aceite: o remanescente depende apenas de ambiente externo, operador humano autorizado e escolha de caso seguro; a implementação, as allowlists finitas e a matriz automatizada já estão objetivamente validadas no branch.
+
+## Closure
+- Closed at (UTC): 2026-04-03 20:13Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
+- Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.

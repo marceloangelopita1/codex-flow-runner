@@ -106,7 +106,80 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto canonico e rejeita au
   );
   const invalidCapability = await loadTargetInvestigateCaseManifest(invalidCapabilityFixture.project.path);
   assert.equal(invalidCapability.status, "invalid");
-  assert.match(invalidCapability.reason, /capability/u);
+  assert.match(invalidCapability.reason, /case-investigation/u);
+});
+
+test("loadTargetInvestigateCaseManifest adapta o manifesto rico do piloto e preserva as allowlists explicitas", async () => {
+  const fixture = await createTargetRepoFixture({
+    manifestDocument: buildPilotManifestFixture(),
+  });
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path);
+  assert.equal(loaded.status, "loaded");
+  if (loaded.status !== "loaded") {
+    return;
+  }
+
+  assert.deepEqual(loaded.manifest.selectors.targetProjectAccepted, [
+    "propertyId",
+    "requestId",
+    "workflow",
+    "window",
+    "runArtifact",
+  ]);
+  assert.deepEqual(loaded.manifest.caseResolutionPolicy.caseRefAuthorities, [
+    "propertyId",
+    "requestId",
+    "runArtifact",
+  ]);
+  assert.deepEqual(loaded.manifest.caseResolutionPolicy.attemptRefAuthorities, [
+    "requestId",
+    "runArtifact",
+    "workflow+window",
+  ]);
+  assert.deepEqual(loaded.manifest.replayPolicy.acceptedPurgeIdentifiers, [
+    "propertyId",
+    "pdfFileName",
+    "matriculaNumber",
+    "transcriptHint",
+  ]);
+  assert.deepEqual(loaded.manifest.workflows.investigable, [
+    "extract_address",
+    "extract_condominium_info",
+    "extract_inscricao_municipal",
+    "extract_matricula_risks_v2",
+    "extract_unit_description_structured_v1",
+    "extract_value_timeline_v1",
+    "extract_construction_timeline_v1",
+  ]);
+  assert.equal(loaded.manifest.outputs.dossier.preferredArtifact, "dossier.md");
+  assert.equal(loaded.manifest.ticketPublicationPolicy?.internalTicketTemplatePath, "tickets/templates/internal-ticket-template.md");
+});
+
+test("loadTargetInvestigateCaseManifest rejeita manifesto rico com members fora das allowlists declaradas", async () => {
+  const invalidSelectorFixture = await createTargetRepoFixture({
+    manifestDocument: buildPilotManifestFixture({
+      mutateManifest: (manifest) => {
+        manifest.selectors.accepted.push("unexpected-selector");
+      },
+    }),
+  });
+  const invalidSelector = await loadTargetInvestigateCaseManifest(invalidSelectorFixture.project.path);
+  assert.equal(invalidSelector.status, "invalid");
+  assert.match(invalidSelector.reason, /unexpected-selector/u);
+
+  const invalidPurgeFixture = await createTargetRepoFixture({
+    manifestDocument: buildPilotManifestFixture({
+      mutateManifest: (manifest) => {
+        manifest.replayPolicy.minimumSafeProfile.cacheAndPurge.acceptedIdentifiers.push(
+          "unexpected-id",
+        );
+      },
+    }),
+  });
+  const invalidPurge = await loadTargetInvestigateCaseManifest(invalidPurgeFixture.project.path);
+  assert.equal(invalidPurge.status, "invalid");
+  assert.match(invalidPurge.reason, /unexpected-id/u);
 });
 
 test("parseTargetInvestigateCaseCommand normaliza o contrato canonico e rejeita flags fora da allowlist", () => {
@@ -743,6 +816,7 @@ const createTargetRepoFixture = async (options: {
   mutateEvidenceBundle?: (artifact: any) => void;
   mutateAssessment?: (artifact: any) => void;
   dossierFormat?: "md" | "json";
+  manifestDocument?: any;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
   const projectName = "alpha-project";
@@ -761,14 +835,18 @@ const createTargetRepoFixture = async (options: {
   await fs.mkdir(path.join(projectPath, "docs", "workflows"), { recursive: true });
   await fs.mkdir(path.join(projectPath, roundDir), { recursive: true });
 
-  const manifest = JSON.parse(
-    await fs.readFile(path.join(runnerRepoPath, TARGET_INVESTIGATE_CASE_MANIFEST_PATH), "utf8"),
-  ) as any;
-  manifest.workflows = {
-    investigable: ["billing-core"],
-  };
-  options.mutateManifest?.(manifest);
-  targetInvestigateCaseManifestSchema.parse(manifest);
+  const manifest =
+    options.manifestDocument ??
+    (JSON.parse(
+      await fs.readFile(path.join(runnerRepoPath, TARGET_INVESTIGATE_CASE_MANIFEST_PATH), "utf8"),
+    ) as any);
+  if (!options.manifestDocument) {
+    manifest.workflows = {
+      investigable: ["billing-core"],
+    };
+    options.mutateManifest?.(manifest);
+    targetInvestigateCaseManifestSchema.parse(manifest);
+  }
   await fs.writeFile(
     path.join(projectPath, ...TARGET_INVESTIGATE_CASE_MANIFEST_PATH.split("/")),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -832,6 +910,172 @@ const createTargetRepoFixture = async (options: {
     },
     artifactPaths,
   };
+};
+
+const buildPilotManifestFixture = (options: {
+  mutateManifest?: (manifest: any) => void;
+} = {}): any => {
+  const manifest = {
+    contractVersion: "1.0",
+    capability: {
+      key: "case-investigation",
+      manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+      compatibleRunnerFlow: "target-investigate-case",
+    },
+    selectors: {
+      accepted: ["propertyId", "requestId", "workflow", "window", "runArtifact"],
+      runnerCaseRefRequired: true,
+      attemptResolution: {
+        strategy: "explicit-or-null",
+        runnerMustNotGuess: true,
+        requiredArtifacts: ["case-resolution.json", "assessment.json"],
+      },
+    },
+    investigableWorkflows: [
+      "extract_address",
+      "extract_condominium_info",
+      "extract_inscricao_municipal",
+      "extract_matricula_risks_v2",
+      "extract_unit_description_structured_v1",
+      "extract_value_timeline_v1",
+      "extract_construction_timeline_v1",
+    ].map((key) => ({
+      key,
+      supportStatus:
+        key === "extract_construction_timeline_v1"
+          ? "implemented_but_unsupported"
+          : "supported",
+      publicHttpSelectable: key !== "extract_construction_timeline_v1",
+      documentationPath: "docs/specs/example.md",
+    })),
+    caseResolution: {
+      caseRefAuthorities: ["propertyId", "requestId", "runArtifact"],
+      attemptRefAuthorities: ["requestId", "runArtifact", "workflow+window"],
+      noSilentAttemptSelection: true,
+    },
+    evidenceSurfaces: [
+      {
+        id: "local-run-bundle",
+        kind: "local-artifacts",
+        pathPatterns: ["output/local-runs/*.request.json"],
+        historicalClosureEligible: true,
+        notes: "Bundle local correlacionado por requestId.",
+      },
+    ],
+    collectionStrategies: {
+      allowedQueries: ["GET /_meta/extractors"],
+      allowedCommands: [
+        {
+          id: "purge-preview",
+          method: "POST",
+          path: "/_meta/cache/purge-extractors",
+          dryRunRequiredBeforeApply: true,
+        },
+      ],
+      allowedTemplates: [
+        "docs/workflows/target-case-investigation-causal-ticket-template.md",
+      ],
+    },
+    phaseOutputs: {
+      preflight: {
+        schemaVersion: "case_investigation_preflight_v1",
+        requiredFields: ["selected_selectors", "manifest_path"],
+      },
+      "case-resolution": {
+        artifact: "case-resolution.json",
+        schemaVersion: "case_resolution_v1",
+      },
+      "evidence-collection": {
+        artifact: "evidence-bundle.json",
+        schemaVersion: "evidence_bundle_v1",
+      },
+      assessment: {
+        artifact: "assessment.json",
+        schemaVersion: "assessment_v1",
+      },
+      publication: {
+        artifact: "publication-decision.json",
+        schemaVersion: "publication_decision_v1",
+        dossierArtifact: "dossier.md",
+      },
+    },
+    replayPolicy: {
+      explicitReplayRequired: true,
+      minimumSafeProfile: {
+        updateDb: false,
+        dedicatedRequestId: true,
+        replayMustBeDeclaredInArtifacts: true,
+        includeWorkflowDebug: {
+          default: false,
+          policy: "safe-only",
+          allowedOnlyWhen: ["redacted_or_synthetic_fixture"],
+        },
+        cacheAndPurge: {
+          endpoint: "/_meta/cache/purge-extractors",
+          acceptedIdentifiers: [
+            "propertyId",
+            "pdfFileName",
+            "matriculaNumber",
+            "transcriptHint",
+          ],
+          dryRunRequiredBeforeApply: true,
+          globalPurgeAllowed: false,
+        },
+        nonEssentialMutationsForbidden: true,
+        forbiddenWritesDuringReplay: ["mongodb", "tickets", "docs", "git"],
+        automaticRawArtifactVersioning: false,
+        localNamespace: "output/case-investigation/<request-id>/",
+        declaredSurfacesOnly: true,
+      },
+    },
+    dossier: {
+      localPathTemplate: "output/case-investigation/<request-id>/",
+      gitIgnoredBy: "output/",
+      retentionPolicy: "manual cleanup after investigator review",
+      sensitivity: "local-only; may contain workflow_debug, headers and replay artifacts",
+      automaticVersioning: false,
+      cleanupTool: {
+        scriptPath: "scripts/repo-hygiene-cleanup.js",
+        coversNamespace: false,
+      },
+    },
+    operationalReferences: {
+      docs: ["docs/workflows/target-case-investigation-runbook.md"],
+      templates: [
+        "docs/workflows/target-case-investigation-causal-ticket-template.md",
+        "tickets/templates/internal-ticket-template.md",
+      ],
+      scripts: ["scripts/build-golden-workflow-debug-sidecar.js"],
+    },
+    precedence: {
+      layers: [
+        { position: 1, name: "resolved case and attempt invariants", customizable: false },
+        { position: 2, name: "declared workflow contract", customizable: false },
+        { position: 3, name: "request artifacts", customizable: false },
+        { position: 4, name: "active decisions", customizable: true },
+        { position: 5, name: "goldens and tests", customizable: true },
+        { position: 6, name: "historical evidence and replay", customizable: true },
+      ],
+      customizablePositions: [4, 5, 6],
+    },
+    ticketPublicationPolicy: {
+      internalTicketTemplatePath: "tickets/templates/internal-ticket-template.md",
+      causalBlockSourcePath: "docs/workflows/target-case-investigation-causal-ticket-template.md",
+      mandatoryCausalBlockSources: ["production-observation"],
+      versionedArtifactsDefault: ["ticket"],
+      nonVersionedArtifactsDefault: [
+        "evidence-bundle.json",
+        "workflow_debug",
+        "db_payload",
+        "transcript",
+      ],
+      semanticAuthority: "target-project",
+      finalPublicationAuthority: "runner",
+    },
+  } as any;
+
+  options.mutateManifest?.(manifest);
+  return manifest;
 };
 
 const buildCaseResolutionFixture = (): any => ({

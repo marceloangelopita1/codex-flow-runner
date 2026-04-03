@@ -12,18 +12,17 @@ import {
   compareTargetInvestigateCaseEvidenceSufficiency,
   isTargetInvestigateCasePublicationCombinationValid,
   normalizeTargetInvestigateCaseRelativePath,
+  normalizeTargetInvestigateCaseManifestDocument,
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseFinalSummarySchema,
-  targetInvestigateCaseManifestSchema,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseArtifactSet,
-  TARGET_INVESTIGATE_CASE_CAPABILITY,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
@@ -218,26 +217,20 @@ export const loadTargetInvestigateCaseManifest = async (
     };
   }
 
-  const parsed = targetInvestigateCaseManifestSchema.safeParse(decoded);
-  if (!parsed.success) {
+  let manifest: TargetInvestigateCaseManifest;
+  try {
+    manifest = normalizeTargetInvestigateCaseManifestDocument(decoded);
+  } catch (error) {
     return {
       status: "invalid",
       manifestPath,
-      reason: renderZodIssues(parsed.error.issues),
-    };
-  }
-
-  if (parsed.data.capability !== TARGET_INVESTIGATE_CASE_CAPABILITY) {
-    return {
-      status: "invalid",
-      manifestPath,
-      reason: `Capability invalida em ${manifestPath}: esperado ${TARGET_INVESTIGATE_CASE_CAPABILITY}.`,
+      reason: error instanceof Error ? error.message : String(error),
     };
   }
 
   return {
     status: "loaded",
-    manifest: parsed.data,
+    manifest,
     manifestPath,
   };
 };

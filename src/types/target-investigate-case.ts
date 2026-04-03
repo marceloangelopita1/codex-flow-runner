@@ -38,20 +38,40 @@ const uniqueValues = <const Values extends readonly [string, ...string[]]>(
   return values;
 };
 
-const uniqueStringArray = (schema: z.ZodType<string>, label: string) =>
-  z.array(schema).min(1).superRefine((values, context) => {
+const uniqueArray = <Schema extends z.ZodTypeAny>(schema: Schema, label: string) =>
+  z.array(schema).superRefine((values, context) => {
     const seen = new Set<string>();
     values.forEach((value, index) => {
-      if (seen.has(value)) {
+      const fingerprint = JSON.stringify(value);
+      if (seen.has(fingerprint)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: [index],
           message: `${label} nao aceita duplicados.`,
         });
       }
-      seen.add(value);
+      seen.add(fingerprint);
     });
   });
+
+const uniqueNonEmptyArray = <Schema extends z.ZodTypeAny>(schema: Schema, label: string) =>
+  z.array(schema).min(1).superRefine((values, context) => {
+    const seen = new Set<string>();
+    values.forEach((value, index) => {
+      const fingerprint = JSON.stringify(value);
+      if (seen.has(fingerprint)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: `${label} nao aceita duplicados.`,
+        });
+      }
+      seen.add(fingerprint);
+    });
+  });
+
+const uniqueStringArray = <Schema extends z.ZodType<string>>(schema: Schema, label: string) =>
+  uniqueNonEmptyArray(schema, label);
 
 export const TARGET_INVESTIGATE_CASE_CONTRACT_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_SCHEMA_VERSION = "1.0";
@@ -156,6 +176,30 @@ export const TARGET_INVESTIGATE_CASE_PRECEDENCE_PROJECT_LAYERS = uniqueValues(
   ["active-decisions", "tests-and-goldens", "historical-evidence-and-replay"] as const,
   "precedence-project-layers",
 );
+export const TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES = uniqueValues(
+  ["propertyId", "requestId", "workflow", "window", "runArtifact"] as const,
+  "target-project-selectors",
+);
+export const TARGET_INVESTIGATE_CASE_CASE_REF_AUTHORITY_VALUES = uniqueValues(
+  ["propertyId", "requestId", "runArtifact"] as const,
+  "case-ref-authorities",
+);
+export const TARGET_INVESTIGATE_CASE_ATTEMPT_REF_AUTHORITY_VALUES = uniqueValues(
+  ["requestId", "runArtifact", "workflow+window"] as const,
+  "attempt-ref-authorities",
+);
+export const TARGET_INVESTIGATE_CASE_PURGE_IDENTIFIER_VALUES = uniqueValues(
+  ["propertyId", "pdfFileName", "matriculaNumber", "transcriptHint"] as const,
+  "purge-identifiers",
+);
+export const TARGET_INVESTIGATE_CASE_TICKET_SOURCE_VALUES = uniqueValues(
+  ["production-observation"] as const,
+  "ticket-sources",
+);
+export const TARGET_INVESTIGATE_CASE_VERSIONED_ARTIFACT_VALUES = uniqueValues(
+  ["ticket"] as const,
+  "versioned-artifacts",
+);
 
 export type TargetInvestigateCaseAllowedSelector =
   (typeof TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS)[number];
@@ -189,6 +233,14 @@ export type TargetInvestigateCaseReplayMode =
   (typeof TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES)[number];
 export type TargetInvestigateCaseDossierSensitivity =
   (typeof TARGET_INVESTIGATE_CASE_DOSSIER_SENSITIVITY_VALUES)[number];
+export type TargetInvestigateCaseTargetProjectSelector =
+  (typeof TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES)[number];
+export type TargetInvestigateCaseCaseRefAuthority =
+  (typeof TARGET_INVESTIGATE_CASE_CASE_REF_AUTHORITY_VALUES)[number];
+export type TargetInvestigateCaseAttemptRefAuthority =
+  (typeof TARGET_INVESTIGATE_CASE_ATTEMPT_REF_AUTHORITY_VALUES)[number];
+export type TargetInvestigateCasePurgeIdentifier =
+  (typeof TARGET_INVESTIGATE_CASE_PURGE_IDENTIFIER_VALUES)[number];
 
 const selectorEnumSchema = z.enum(TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS);
 const houveGapRealSchema = z.enum(TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES);
@@ -208,6 +260,12 @@ const attemptResolutionStatusSchema = z.enum(
 const replayDecisionStatusSchema = z.enum(TARGET_INVESTIGATE_CASE_REPLAY_DECISION_STATUS_VALUES);
 const replayModeSchema = z.enum(TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES);
 const dossierSensitivitySchema = z.enum(TARGET_INVESTIGATE_CASE_DOSSIER_SENSITIVITY_VALUES);
+const targetProjectSelectorSchema = z.enum(TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES);
+const caseRefAuthoritySchema = z.enum(TARGET_INVESTIGATE_CASE_CASE_REF_AUTHORITY_VALUES);
+const attemptRefAuthoritySchema = z.enum(TARGET_INVESTIGATE_CASE_ATTEMPT_REF_AUTHORITY_VALUES);
+const purgeIdentifierSchema = z.enum(TARGET_INVESTIGATE_CASE_PURGE_IDENTIFIER_VALUES);
+const ticketSourceSchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_SOURCE_VALUES);
+const versionedArtifactSchema = z.enum(TARGET_INVESTIGATE_CASE_VERSIONED_ARTIFACT_VALUES);
 
 const selectorValueSchema = trimmedString;
 
@@ -232,6 +290,10 @@ export const targetInvestigateCaseManifestSchema = z
       .object({
         accepted: uniqueStringArray(selectorEnumSchema, "selectors.accepted"),
         required: uniqueStringArray(selectorEnumSchema, "selectors.required"),
+        targetProjectAccepted: uniqueNonEmptyArray(
+          targetProjectSelectorSchema,
+          "selectors.targetProjectAccepted",
+        ).optional(),
       })
       .strict()
       .superRefine((value, context) => {
@@ -262,6 +324,14 @@ export const targetInvestigateCaseManifestSchema = z
       .object({
         requireExplicitAttemptResolution: z.boolean(),
         allowAttemptlessCases: z.boolean(),
+        caseRefAuthorities: uniqueNonEmptyArray(
+          caseRefAuthoritySchema,
+          "caseResolutionPolicy.caseRefAuthorities",
+        ).optional(),
+        attemptRefAuthorities: uniqueNonEmptyArray(
+          attemptRefAuthoritySchema,
+          "caseResolutionPolicy.attemptRefAuthorities",
+        ).optional(),
       })
       .strict(),
     evidenceCollection: z
@@ -283,7 +353,7 @@ export const targetInvestigateCaseManifestSchema = z
               .object({
                 id: trimmedString,
                 kind: trimmedString,
-                reference: relativePathSchema,
+                reference: trimmedString,
               })
               .strict(),
           )
@@ -320,6 +390,7 @@ export const targetInvestigateCaseManifestSchema = z
           .object({
             artifactPathPattern: z.literal("dossier.md|dossier.json"),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
+            preferredArtifact: z.enum(["dossier.md", "dossier.json"]).optional(),
           })
           .strict(),
       })
@@ -332,6 +403,10 @@ export const targetInvestigateCaseManifestSchema = z
         requireDedicatedRequestId: z.boolean(),
         allowWorkflowDebugWhenSafe: z.boolean(),
         cachePurgePolicy: trimmedString,
+        acceptedPurgeIdentifiers: uniqueNonEmptyArray(
+          purgeIdentifierSchema,
+          "replayPolicy.acceptedPurgeIdentifiers",
+        ).optional(),
       })
       .strict(),
     dossierPolicy: z
@@ -376,8 +451,481 @@ export const targetInvestigateCaseManifestSchema = z
         blockedReason: trimmedString.nullable(),
       })
       .strict(),
+    ticketPublicationPolicy: z
+      .object({
+        internalTicketTemplatePath: relativePathSchema,
+        causalBlockSourcePath: relativePathSchema,
+        mandatoryCausalBlockSources: uniqueNonEmptyArray(
+          ticketSourceSchema,
+          "ticketPublicationPolicy.mandatoryCausalBlockSources",
+        ),
+        versionedArtifactsDefault: uniqueNonEmptyArray(
+          versionedArtifactSchema,
+          "ticketPublicationPolicy.versionedArtifactsDefault",
+        ),
+        nonVersionedArtifactsDefault: uniqueStringArray(
+          trimmedString,
+          "ticketPublicationPolicy.nonVersionedArtifactsDefault",
+        ),
+        semanticAuthority: z.literal("target-project"),
+        finalPublicationAuthority: z.literal("runner"),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
+
+export const targetInvestigateCasePilotManifestSchema = z
+  .object({
+    contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
+    capability: z
+      .object({
+        key: z.literal(TARGET_INVESTIGATE_CASE_CAPABILITY),
+        manifestPath: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+        compatibleRunnerFlow: z.literal("target-investigate-case"),
+      })
+      .strict(),
+    selectors: z
+      .object({
+        accepted: uniqueNonEmptyArray(targetProjectSelectorSchema, "selectors.accepted"),
+        runnerCaseRefRequired: z.boolean(),
+        attemptResolution: z
+          .object({
+            strategy: z.literal("explicit-or-null"),
+            runnerMustNotGuess: z.boolean(),
+            requiredArtifacts: uniqueNonEmptyArray(
+              z.enum(["case-resolution.json", "assessment.json"]),
+              "selectors.attemptResolution.requiredArtifacts",
+            ),
+          })
+          .strict(),
+      })
+      .strict(),
+    investigableWorkflows: z
+      .array(
+        z
+          .object({
+            key: trimmedString,
+            supportStatus: z.enum(["supported", "implemented_but_unsupported"]),
+            publicHttpSelectable: z.boolean(),
+            documentationPath: relativePathSchema,
+          })
+          .strict(),
+      )
+      .min(1),
+    caseResolution: z
+      .object({
+        caseRefAuthorities: uniqueNonEmptyArray(
+          caseRefAuthoritySchema,
+          "caseResolution.caseRefAuthorities",
+        ),
+        attemptRefAuthorities: uniqueNonEmptyArray(
+          attemptRefAuthoritySchema,
+          "caseResolution.attemptRefAuthorities",
+        ),
+        noSilentAttemptSelection: z.boolean(),
+      })
+      .strict(),
+    evidenceSurfaces: z
+      .array(
+        z
+          .object({
+            id: trimmedString,
+            kind: trimmedString,
+            pathPatterns: z.array(trimmedString).optional(),
+            scriptPath: relativePathSchema.optional(),
+            source: trimmedString.optional(),
+            endpoint: trimmedString.optional(),
+            historicalClosureEligible: z.union([z.boolean(), trimmedString]).optional(),
+            notes: trimmedString,
+          })
+          .strict(),
+      )
+      .min(1),
+    collectionStrategies: z
+      .object({
+        allowedQueries: z.array(trimmedString),
+        allowedCommands: z.array(
+          z
+            .object({
+              id: trimmedString,
+              method: trimmedString.optional(),
+              path: trimmedString.optional(),
+              requiredPayload: z.record(z.string(), z.unknown()).optional(),
+              dryRunRequiredBeforeApply: z.boolean().optional(),
+              scriptPath: relativePathSchema.optional(),
+            })
+            .strict(),
+        ),
+        allowedTemplates: z.array(relativePathSchema),
+      })
+      .strict(),
+    phaseOutputs: z
+      .object({
+        preflight: z
+          .object({
+            schemaVersion: trimmedString,
+            requiredFields: z.array(trimmedString).min(1),
+          })
+          .strict(),
+        "case-resolution": z
+          .object({
+            artifact: z.literal("case-resolution.json"),
+            schemaVersion: trimmedString,
+          })
+          .strict(),
+        "evidence-collection": z
+          .object({
+            artifact: z.literal("evidence-bundle.json"),
+            schemaVersion: trimmedString,
+          })
+          .strict(),
+        assessment: z
+          .object({
+            artifact: z.literal("assessment.json"),
+            schemaVersion: trimmedString,
+          })
+          .strict(),
+        publication: z
+          .object({
+            artifact: z.literal("publication-decision.json"),
+            schemaVersion: trimmedString,
+            dossierArtifact: z.enum(["dossier.md", "dossier.json"]),
+          })
+          .strict(),
+      })
+      .strict(),
+    replayPolicy: z
+      .object({
+        explicitReplayRequired: z.boolean(),
+        minimumSafeProfile: z
+          .object({
+            updateDb: z.literal(false),
+            dedicatedRequestId: z.boolean(),
+            replayMustBeDeclaredInArtifacts: z.boolean(),
+            includeWorkflowDebug: z
+              .object({
+                default: z.boolean(),
+                policy: trimmedString,
+                allowedOnlyWhen: z.array(trimmedString),
+              })
+              .strict(),
+            cacheAndPurge: z
+              .object({
+                endpoint: trimmedString,
+                acceptedIdentifiers: uniqueNonEmptyArray(
+                  purgeIdentifierSchema,
+                  "replayPolicy.minimumSafeProfile.cacheAndPurge.acceptedIdentifiers",
+                ),
+                dryRunRequiredBeforeApply: z.boolean(),
+                globalPurgeAllowed: z.boolean(),
+              })
+              .strict(),
+            nonEssentialMutationsForbidden: z.boolean(),
+            forbiddenWritesDuringReplay: z.array(trimmedString),
+            automaticRawArtifactVersioning: z.boolean(),
+            localNamespace: trimmedString,
+            declaredSurfacesOnly: z.boolean(),
+          })
+          .strict(),
+      })
+      .strict(),
+    dossier: z
+      .object({
+        localPathTemplate: trimmedString,
+        gitIgnoredBy: trimmedString,
+        retentionPolicy: trimmedString,
+        sensitivity: trimmedString,
+        automaticVersioning: z.boolean(),
+        cleanupTool: z
+          .object({
+            scriptPath: relativePathSchema,
+            coversNamespace: z.boolean(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    operationalReferences: z
+      .object({
+        docs: z.array(relativePathSchema),
+        templates: z.array(relativePathSchema),
+        scripts: z.array(relativePathSchema),
+      })
+      .strict(),
+    precedence: z
+      .object({
+        layers: z
+          .array(
+            z
+              .object({
+                position: z.number().int().min(1).max(6),
+                name: trimmedString,
+                customizable: z.boolean(),
+              })
+              .strict(),
+          )
+          .min(1),
+        customizablePositions: z.tuple([z.literal(4), z.literal(5), z.literal(6)]).readonly(),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        const positions = value.layers.map((entry) => entry.position).sort((left, right) => left - right);
+        if (positions.length !== 6 || positions.some((entry, index) => entry !== index + 1)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["layers"],
+            message: "precedence.layers precisa declarar exatamente as posicoes 1..6.",
+          });
+        }
+
+        const customizablePositions = value.layers
+          .filter((entry) => entry.customizable)
+          .map((entry) => entry.position)
+          .sort((left, right) => left - right);
+        if (
+          customizablePositions.length !== value.customizablePositions.length ||
+          customizablePositions.some((entry, index) => entry !== value.customizablePositions[index])
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["customizablePositions"],
+            message:
+              "precedence.customizablePositions precisa coincidir com as camadas marcadas como customizaveis.",
+          });
+        }
+      }),
+    ticketPublicationPolicy: z
+      .object({
+        internalTicketTemplatePath: relativePathSchema,
+        causalBlockSourcePath: relativePathSchema,
+        mandatoryCausalBlockSources: uniqueNonEmptyArray(
+          ticketSourceSchema,
+          "ticketPublicationPolicy.mandatoryCausalBlockSources",
+        ),
+        versionedArtifactsDefault: uniqueNonEmptyArray(
+          versionedArtifactSchema,
+          "ticketPublicationPolicy.versionedArtifactsDefault",
+        ),
+        nonVersionedArtifactsDefault: uniqueStringArray(
+          trimmedString,
+          "ticketPublicationPolicy.nonVersionedArtifactsDefault",
+        ),
+        semanticAuthority: z.literal("target-project"),
+        finalPublicationAuthority: z.literal("runner"),
+      })
+      .strict(),
+  })
+  .strict();
+
+const dedupeStrings = (values: readonly string[]): string[] => {
+  const unique = new Set(values.filter((value) => value.trim().length > 0));
+  return [...unique];
+};
+
+const describePilotEvidenceSurface = (
+  surface: z.infer<typeof targetInvestigateCasePilotManifestSchema>["evidenceSurfaces"][number],
+): string => {
+  const parts = [surface.notes];
+  if (surface.pathPatterns?.length) {
+    parts.push(`paths: ${surface.pathPatterns.join(", ")}`);
+  }
+  if (surface.scriptPath) {
+    parts.push(`script: ${surface.scriptPath}`);
+  }
+  if (surface.source) {
+    parts.push(`source: ${surface.source}`);
+  }
+  if (surface.endpoint) {
+    parts.push(`endpoint: ${surface.endpoint}`);
+  }
+  return parts.join(" | ");
+};
+
+const normalizePilotDossierSensitivity = (
+  rawSensitivity: string,
+): TargetInvestigateCaseDossierSensitivity => {
+  const normalized = rawSensitivity.toLowerCase();
+  if (
+    normalized.includes("local-only") ||
+    normalized.includes("workflow_debug") ||
+    normalized.includes("db_payload") ||
+    normalized.includes("transcript")
+  ) {
+    return "confidential";
+  }
+
+  return "restricted";
+};
+
+const buildPilotEvidenceStrategies = (
+  manifest: z.infer<typeof targetInvestigateCasePilotManifestSchema>,
+): Array<{ id: string; kind: string; reference: string }> => {
+  const strategies: Array<{ id: string; kind: string; reference: string }> = [];
+
+  manifest.collectionStrategies.allowedQueries.forEach((entry, index) => {
+    strategies.push({
+      id: `allowed-query-${index + 1}`,
+      kind: "query",
+      reference: entry,
+    });
+  });
+
+  manifest.collectionStrategies.allowedCommands.forEach((entry) => {
+    strategies.push({
+      id: entry.id,
+      kind: entry.scriptPath ? "script" : "command",
+      reference: entry.scriptPath ?? `${entry.method ?? "COMMAND"} ${entry.path ?? entry.id}`,
+    });
+  });
+
+  manifest.collectionStrategies.allowedTemplates.forEach((entry, index) => {
+    strategies.push({
+      id: `template-${index + 1}`,
+      kind: "template",
+      reference: entry,
+    });
+  });
+
+  return strategies;
+};
+
+const normalizePilotManifestToInternal = (
+  manifest: z.infer<typeof targetInvestigateCasePilotManifestSchema>,
+): TargetInvestigateCaseManifest =>
+  targetInvestigateCaseManifestSchema.parse({
+    contractVersion: TARGET_INVESTIGATE_CASE_CONTRACT_VERSION,
+    schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+    capability: TARGET_INVESTIGATE_CASE_CAPABILITY,
+    selectors: {
+      accepted: [
+        "case-ref",
+        ...(manifest.selectors.accepted.includes("workflow") ? ["workflow" as const] : []),
+        ...(manifest.selectors.accepted.includes("requestId") ? ["request-id" as const] : []),
+        ...(manifest.selectors.accepted.includes("window") ? ["window" as const] : []),
+      ],
+      required: ["case-ref"],
+      targetProjectAccepted: [...manifest.selectors.accepted],
+    },
+    workflows: {
+      investigable: manifest.investigableWorkflows.map((entry) => entry.key),
+    },
+    caseResolutionPolicy: {
+      requireExplicitAttemptResolution:
+        manifest.selectors.attemptResolution.runnerMustNotGuess ||
+        manifest.caseResolution.noSilentAttemptSelection,
+      allowAttemptlessCases: manifest.selectors.attemptResolution.strategy === "explicit-or-null",
+      caseRefAuthorities: [...manifest.caseResolution.caseRefAuthorities],
+      attemptRefAuthorities: [...manifest.caseResolution.attemptRefAuthorities],
+    },
+    evidenceCollection: {
+      surfaces: manifest.evidenceSurfaces.map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        description: describePilotEvidenceSurface(entry),
+      })),
+      strategies: buildPilotEvidenceStrategies(manifest),
+    },
+    outputs: {
+      caseResolution: {
+        artifactPath: manifest.phaseOutputs["case-resolution"].artifact,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      },
+      evidenceBundle: {
+        artifactPath: manifest.phaseOutputs["evidence-collection"].artifact,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      },
+      assessment: {
+        artifactPath: manifest.phaseOutputs.assessment.artifact,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      },
+      publicationDecision: {
+        artifactPath: manifest.phaseOutputs.publication.artifact,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      },
+      dossier: {
+        artifactPathPattern: "dossier.md|dossier.json",
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+        preferredArtifact: manifest.phaseOutputs.publication.dossierArtifact,
+      },
+    },
+    replayPolicy: {
+      supported: true,
+      safeModeRequired: true,
+      requireUpdateDbFalse: manifest.replayPolicy.minimumSafeProfile.updateDb === false,
+      requireDedicatedRequestId: manifest.replayPolicy.minimumSafeProfile.dedicatedRequestId,
+      allowWorkflowDebugWhenSafe:
+        manifest.replayPolicy.minimumSafeProfile.includeWorkflowDebug.policy === "safe-only",
+      cachePurgePolicy: [
+        manifest.replayPolicy.minimumSafeProfile.cacheAndPurge.endpoint,
+        `dryRunRequiredBeforeApply=${manifest.replayPolicy.minimumSafeProfile.cacheAndPurge.dryRunRequiredBeforeApply}`,
+      ].join(" | "),
+      acceptedPurgeIdentifiers: [
+        ...manifest.replayPolicy.minimumSafeProfile.cacheAndPurge.acceptedIdentifiers,
+      ],
+    },
+    dossierPolicy: {
+      localPathTemplate: manifest.dossier.localPathTemplate,
+      sensitivity: normalizePilotDossierSensitivity(manifest.dossier.sensitivity),
+      retention: manifest.dossier.retentionPolicy,
+    },
+    supportingArtifacts: {
+      docs: dedupeStrings([
+        manifest.capability.manifestPath,
+        ...manifest.operationalReferences.docs,
+      ]),
+      prompts: dedupeStrings(manifest.collectionStrategies.allowedTemplates),
+      scripts: dedupeStrings(manifest.operationalReferences.scripts),
+    },
+    precedence: {
+      fixedLayers: [...TARGET_INVESTIGATE_CASE_PRECEDENCE_FIXED_LAYERS],
+      projectCustomizableLayers: [...TARGET_INVESTIGATE_CASE_PRECEDENCE_PROJECT_LAYERS],
+    },
+    publicationPolicy: {
+      allowAutomaticPublication:
+        manifest.ticketPublicationPolicy.finalPublicationAuthority === "runner" &&
+        manifest.ticketPublicationPolicy.versionedArtifactsDefault.includes("ticket"),
+      requireStrongEvidenceByDefault: true,
+      allowSufficientWithNormativeConflict: true,
+      requireGeneralizationBasis: true,
+      requireZeroBlockingVetoes: true,
+      blockedReason: null,
+    },
+    ticketPublicationPolicy: {
+      internalTicketTemplatePath: manifest.ticketPublicationPolicy.internalTicketTemplatePath,
+      causalBlockSourcePath: manifest.ticketPublicationPolicy.causalBlockSourcePath,
+      mandatoryCausalBlockSources: [
+        ...manifest.ticketPublicationPolicy.mandatoryCausalBlockSources,
+      ],
+      versionedArtifactsDefault: [
+        ...manifest.ticketPublicationPolicy.versionedArtifactsDefault,
+      ],
+      nonVersionedArtifactsDefault: [
+        ...manifest.ticketPublicationPolicy.nonVersionedArtifactsDefault,
+      ],
+      semanticAuthority: manifest.ticketPublicationPolicy.semanticAuthority,
+      finalPublicationAuthority: manifest.ticketPublicationPolicy.finalPublicationAuthority,
+    },
+  });
+
+export const normalizeTargetInvestigateCaseManifestDocument = (
+  decoded: unknown,
+): TargetInvestigateCaseManifest => {
+  const normalized = targetInvestigateCaseManifestSchema.safeParse(decoded);
+  if (normalized.success) {
+    return normalized.data;
+  }
+
+  const pilot = targetInvestigateCasePilotManifestSchema.safeParse(decoded);
+  if (pilot.success) {
+    return normalizePilotManifestToInternal(pilot.data);
+  }
+
+  const normalizedIssues = normalized.error.issues.map((issue) => `normalized: ${issue.message}`);
+  const pilotIssues = pilot.error.issues.map((issue) => `pilot: ${issue.message}`);
+  throw new Error([...normalizedIssues, ...pilotIssues].join(" | "));
+};
 
 export const targetInvestigateCaseCausalSurfaceSchema = z
   .object({

@@ -46,6 +46,13 @@ import type {
   TargetDeriveGapAnalysisCodexRequest,
   TargetDeriveGapAnalysisCodexResult,
 } from "../types/target-derive.js";
+import type {
+  TargetInvestigateCaseArtifactSet,
+  TargetInvestigateCaseAttemptRefAuthority,
+  TargetInvestigateCaseCaseRefAuthority,
+  TargetInvestigateCasePurgeIdentifier,
+  TargetInvestigateCaseTargetProjectSelector,
+} from "../types/target-investigate-case.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
 export type SpecFlowStage =
@@ -359,6 +366,42 @@ export interface TargetDeriveGapAnalysisCodexClient {
   ): Promise<TargetDeriveGapAnalysisCodexResult>;
 }
 
+export interface TargetInvestigateCaseRoundMaterializationCodexRequest {
+  targetProject: ProjectRef;
+  runnerRepoPath: string;
+  runnerReference: string;
+  manifestPath: string;
+  runbookPath?: string | null;
+  canonicalCommand: string;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  caseRefAuthorities: TargetInvestigateCaseCaseRefAuthority[];
+  attemptRefAuthorities: TargetInvestigateCaseAttemptRefAuthority[];
+  targetProjectAcceptedSelectors: TargetInvestigateCaseTargetProjectSelector[];
+  investigableWorkflows: string[];
+  acceptedPurgeIdentifiers: TargetInvestigateCasePurgeIdentifier[];
+  dossierLocalPathTemplate: string;
+}
+
+export interface TargetInvestigateCaseRoundMaterializationCodexResult {
+  output: string;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface TargetInvestigateCaseRoundMaterializationCodexClient {
+  ensureAuthenticated(): Promise<void>;
+  snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
+  forkWithFixedInvocationPreferences(
+    preferences: CodexInvocationPreferences | null,
+  ): TargetInvestigateCaseRoundMaterializationCodexClient;
+  runTargetInvestigateCaseRoundMaterialization(
+    request: TargetInvestigateCaseRoundMaterializationCodexRequest,
+  ): Promise<TargetInvestigateCaseRoundMaterializationCodexResult>;
+}
+
 export interface CodexTicketFlowClient {
   ensureAuthenticated(): Promise<void>;
   snapshotInvocationPreferences(): Promise<CodexInvocationPreferences | null>;
@@ -451,6 +494,8 @@ const TARGET_PREPARE_PROMPT_FILE = "13-target-prepare-controlled-onboarding.md";
 const TARGET_CHECKUP_PROMPT_FILE = "14-target-checkup-readiness-audit.md";
 const TARGET_DERIVE_GAPS_PROMPT_FILE =
   "15-target-derive-gaps-idempotent-readiness-materialization.md";
+const TARGET_INVESTIGATE_CASE_ROUND_MATERIALIZATION_PROMPT_FILE =
+  "16-target-investigate-case-round-materialization.md";
 const PLAN_SPEC_PROTOCOL_PRIMER = [
   "Contexto: voce esta em uma ponte Telegram para planejamento de spec.",
   "Responda sempre em blocos parseaveis para automacao.",
@@ -1212,6 +1257,79 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async runTargetInvestigateCaseRoundMaterialization(
+    request: TargetInvestigateCaseRoundMaterializationCodexRequest,
+  ): Promise<TargetInvestigateCaseRoundMaterializationCodexResult> {
+    const promptTemplatePath = path.join(
+      PROMPTS_DIR,
+      TARGET_INVESTIGATE_CASE_ROUND_MATERIALIZATION_PROMPT_FILE,
+    );
+    let prompt = "";
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTargetInvestigateCaseRoundMaterializationPrompt(promptTemplate, request);
+
+      this.logger.info("Executando materializacao de rodada target-investigate-case via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        roundId: request.roundId,
+        promptTemplatePath,
+      });
+
+      const preferences = await this.snapshotInvocationPreferences();
+      const result = await this.dependencies.runCodexCommand({
+        cwd: this.repoPath,
+        prompt,
+        env: {
+          ...process.env,
+        },
+        preferences,
+      });
+
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
+        this.logger.warn(
+          "Codex CLI retornou diagnostico em stderr na materializacao de target-investigate-case",
+          {
+            targetProjectName: request.targetProject.name,
+            roundId: request.roundId,
+            codexCliTranscriptPreview: diagnostics.stderrPreview,
+            ...(diagnostics.stdoutPreview
+              ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+              : {}),
+          },
+        );
+      }
+
+      this.logger.info("Materializacao de rodada target-investigate-case concluida via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        roundId: request.roundId,
+      });
+
+      return {
+        output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
+      };
+    } catch (error) {
+      const details = errorMessage(error);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        request.targetProject.name,
+        "implement",
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
+    }
+  }
+
   async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
     this.logger.info("Iniciando sessao de planejamento via Codex CLI exec/resume", {
       repoPath: this.repoPath,
@@ -1709,6 +1827,64 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Artefato JSON do relatorio: \`${request.reportJsonPath}\``,
       `- Artefato Markdown do relatorio: \`${request.reportMarkdownPath}\``,
       "- Responda somente com o bloco estruturado solicitado no prompt.",
+      "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
+    ].join("\n");
+  }
+
+  private buildTargetInvestigateCaseRoundMaterializationPrompt(
+    promptTemplate: string,
+    request: TargetInvestigateCaseRoundMaterializationCodexRequest,
+  ): string {
+    const factsJson = JSON.stringify(
+      {
+        canonicalCommand: request.canonicalCommand,
+        manifestPath: request.manifestPath,
+        runbookPath: request.runbookPath ?? null,
+        roundId: request.roundId,
+        roundDirectory: request.roundDirectory,
+        artifactPaths: request.artifactPaths,
+        allowlists: {
+          targetProjectAcceptedSelectors: request.targetProjectAcceptedSelectors,
+          caseRefAuthorities: request.caseRefAuthorities,
+          attemptRefAuthorities: request.attemptRefAuthorities,
+          investigableWorkflows: request.investigableWorkflows,
+          acceptedPurgeIdentifiers: request.acceptedPurgeIdentifiers,
+        },
+        dossierLocalPathTemplate: request.dossierLocalPathTemplate,
+      },
+      null,
+      2,
+    );
+    const stageTemplate = promptTemplate
+      .replace(/<RUNNER_REPO_PATH>/gu, request.runnerRepoPath)
+      .replace(/<RUNNER_REFERENCE>/gu, request.runnerReference)
+      .replace(/<TARGET_PROJECT_NAME>/gu, request.targetProject.name)
+      .replace(/<TARGET_PROJECT_PATH>/gu, request.targetProject.path)
+      .replace(/<TARGET_INVESTIGATE_CASE_MANIFEST_PATH>/gu, request.manifestPath)
+      .replace(/<TARGET_INVESTIGATE_CASE_RUNBOOK_PATH>/gu, request.runbookPath ?? "(nao declarado)")
+      .replace(/<TARGET_INVESTIGATE_CASE_ROUND_ID>/gu, request.roundId)
+      .replace(/<TARGET_INVESTIGATE_CASE_ROUND_DIRECTORY>/gu, request.roundDirectory)
+      .replace(
+        /<TARGET_INVESTIGATE_CASE_ARTIFACT_PATHS_JSON>/gu,
+        JSON.stringify(request.artifactPaths, null, 2),
+      )
+      .replace(/<TARGET_INVESTIGATE_CASE_FACTS_JSON>/gu, factsJson);
+
+    return [
+      stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional do target-investigate-case:",
+      `- Projeto alvo: \`${request.targetProject.name}\``,
+      `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
+      `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
+      `- Referencia textual do runner: \`${request.runnerReference}\``,
+      `- Manifesto da capability: \`${request.manifestPath}\``,
+      ...(request.runbookPath ? [`- Runbook operacional: \`${request.runbookPath}\``] : []),
+      `- Round ID: \`${request.roundId}\``,
+      `- Round directory: \`${request.roundDirectory}\``,
+      "- Nao publique ticket; apenas materialize os artefatos da rodada para avaliacao runner-side.",
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");
   }
