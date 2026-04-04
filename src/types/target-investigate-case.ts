@@ -971,7 +971,73 @@ export const targetInvestigateCasePublicationRecommendationSchema = z
   })
   .strict();
 
-export const targetInvestigateCaseAssessmentSchema = z
+type ArtifactNormalizationResult<Output> =
+  | {
+      success: true;
+      data: Output;
+    }
+  | {
+      success: false;
+      issues: z.ZodIssue[];
+    };
+
+const buildArtifactNormalizationSchema = <Output>(
+  normalize: (decoded: unknown) => ArtifactNormalizationResult<Output>,
+): z.ZodType<Output, z.ZodTypeDef, unknown> =>
+  z.unknown().transform((decoded, context) => {
+    const result = normalize(decoded);
+    if (!result.success) {
+      for (const issue of result.issues) {
+        context.addIssue(issue);
+      }
+      return z.NEVER;
+    }
+
+    return result.data;
+  });
+
+const hasSchemaVersion = (decoded: unknown, schemaVersion: string): boolean =>
+  typeof decoded === "object" &&
+  decoded !== null &&
+  "schema_version" in decoded &&
+  (decoded as { schema_version?: unknown }).schema_version === schemaVersion;
+
+const firstTrimmedString = (...values: Array<unknown>): string | null => {
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const trimmed = value.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return null;
+};
+
+const collectUniqueTrimmedStrings = (values: Array<unknown>): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+
+  return result;
+};
+
+const targetInvestigateCaseLegacyAssessmentSchema = z
   .object({
     houve_gap_real: houveGapRealSchema,
     era_evitavel_internamente: evitabilidadeSchema,
@@ -986,57 +1052,307 @@ export const targetInvestigateCaseAssessmentSchema = z
   })
   .strict();
 
-export const targetInvestigateCaseCaseResolutionSchema = z
+const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAssessmentSchema
+  .extend({
+    schema_version: z.literal("assessment_v1"),
+    generated_at: trimmedString.optional(),
+  })
+  .passthrough();
+
+const normalizeTargetInvestigateCaseAssessmentDocument = (
+  decoded: unknown,
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseLegacyAssessmentSchema>> => {
+  const legacy = targetInvestigateCaseLegacyAssessmentSchema.safeParse(decoded);
+  if (legacy.success) {
+    return {
+      success: true,
+      data: legacy.data,
+    };
+  }
+
+  if (!hasSchemaVersion(decoded, "assessment_v1")) {
+    return {
+      success: false,
+      issues: legacy.error.issues,
+    };
+  }
+
+  const rich = targetInvestigateCaseRichAssessmentSchema.safeParse(decoded);
+  if (!rich.success) {
+    return {
+      success: false,
+      issues: rich.error.issues,
+    };
+  }
+
+  const normalized = targetInvestigateCaseLegacyAssessmentSchema.safeParse({
+    houve_gap_real: rich.data.houve_gap_real,
+    era_evitavel_internamente: rich.data.era_evitavel_internamente,
+    merece_ticket_generalizavel: rich.data.merece_ticket_generalizavel,
+    confidence: rich.data.confidence,
+    evidence_sufficiency: rich.data.evidence_sufficiency,
+    causal_surface: rich.data.causal_surface,
+    generalization_basis: rich.data.generalization_basis,
+    overfit_vetoes: rich.data.overfit_vetoes,
+    ticket_decision_reason: rich.data.ticket_decision_reason,
+    publication_recommendation: rich.data.publication_recommendation,
+  });
+
+  if (!normalized.success) {
+    return {
+      success: false,
+      issues: normalized.error.issues,
+    };
+  }
+
+  return {
+    success: true,
+    data: normalized.data,
+  };
+};
+
+export const targetInvestigateCaseAssessmentSchema: z.ZodType<
+  z.infer<typeof targetInvestigateCaseLegacyAssessmentSchema>,
+  z.ZodTypeDef,
+  unknown
+> = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseAssessmentDocument);
+
+const targetInvestigateCaseSelectorsSchema = z
+  .object({
+    workflow: selectorValueSchema.optional(),
+    request_id: selectorValueSchema.optional(),
+    window: selectorValueSchema.optional(),
+    symptom: selectorValueSchema.optional(),
+  })
+  .strict();
+
+const targetInvestigateCaseAttemptResolutionSchema = z
+  .object({
+    status: attemptResolutionStatusSchema,
+    attempt_ref: trimmedString.nullable(),
+    reason: trimmedString,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "resolved" && !value.attempt_ref) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["attempt_ref"],
+        message: "attempt_ref e obrigatorio quando status=resolved.",
+      });
+    }
+
+    if (value.status !== "resolved" && value.attempt_ref !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["attempt_ref"],
+        message: "attempt_ref deve ser null quando a tentativa nao foi resolvida.",
+      });
+    }
+  });
+
+const targetInvestigateCaseReplayDecisionSchema = z
+  .object({
+    status: replayDecisionStatusSchema,
+    reason: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseLegacyCaseResolutionSchema = z
   .object({
     case_ref: trimmedString,
-    selectors: z
-      .object({
-        workflow: selectorValueSchema.optional(),
-        request_id: selectorValueSchema.optional(),
-        window: selectorValueSchema.optional(),
-        symptom: selectorValueSchema.optional(),
-      })
-      .strict(),
+    selectors: targetInvestigateCaseSelectorsSchema,
     resolved_case: z
       .object({
         ref: trimmedString,
         summary: trimmedString,
       })
       .strict(),
-    attempt_resolution: z
-      .object({
-        status: attemptResolutionStatusSchema,
-        attempt_ref: trimmedString.nullable(),
-        reason: trimmedString,
-      })
-      .strict()
-      .superRefine((value, context) => {
-        if (value.status === "resolved" && !value.attempt_ref) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["attempt_ref"],
-            message: "attempt_ref e obrigatorio quando status=resolved.",
-          });
-        }
-
-        if (value.status !== "resolved" && value.attempt_ref !== null) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["attempt_ref"],
-            message: "attempt_ref deve ser null quando a tentativa nao foi resolvida.",
-          });
-        }
-      }),
-    relevant_workflows: uniqueStringArray(trimmedString, "case-resolution.relevant-workflows"),
-    replay_decision: z
-      .object({
-        status: replayDecisionStatusSchema,
-        reason: trimmedString,
-      })
-      .strict(),
+    attempt_resolution: targetInvestigateCaseAttemptResolutionSchema,
+    relevant_workflows: uniqueArray(trimmedString, "case-resolution.relevant-workflows"),
+    replay_decision: targetInvestigateCaseReplayDecisionSchema,
     resolution_reason: trimmedString,
   })
   .strict();
+
+const targetInvestigateCaseRichSelectedSelectorsSchema = z
+  .object({
+    propertyId: selectorValueSchema.optional(),
+    requestId: selectorValueSchema.optional(),
+    workflow: selectorValueSchema.optional(),
+    window: selectorValueSchema.optional(),
+    runArtifact: selectorValueSchema.optional(),
+  })
+  .passthrough();
+
+const targetInvestigateCaseRichCaseResolutionSchema = z
+  .object({
+    schema_version: z.literal("case_resolution_v1"),
+    selected_selectors: targetInvestigateCaseRichSelectedSelectorsSchema,
+    resolved_case: z
+      .object({
+        status: trimmedString,
+        authority: trimmedString.nullable().optional(),
+        value: trimmedString.nullable().optional(),
+        request_id: trimmedString.nullable().optional(),
+        run_artifact: trimmedString.nullable().optional(),
+        resolution_reason: trimmedString.optional(),
+      })
+      .passthrough(),
+    resolved_attempt: z
+      .object({
+        status: attemptResolutionStatusSchema,
+        request_id: trimmedString.nullable().optional(),
+        run_artifact: trimmedString.nullable().optional(),
+        workflow: trimmedString.nullable().optional(),
+        window: trimmedString.nullable().optional(),
+        resolution_reason: trimmedString.optional(),
+      })
+      .passthrough()
+      .optional(),
+    historical_evidence: z
+      .object({
+        factual_sufficiency_reason: trimmedString.optional(),
+      })
+      .passthrough()
+      .optional(),
+    replay_decision: z
+      .object({
+        status: replayDecisionStatusSchema,
+        reason_code: trimmedString.optional(),
+        resolution_reason: trimmedString.optional(),
+        factual_sufficiency_reason: trimmedString.optional(),
+        replay_mode: replayModeSchema.optional(),
+        request_id: trimmedString.nullable().optional(),
+        local_namespace: trimmedString.nullable().optional(),
+        update_db: z.boolean().nullable().optional(),
+        include_workflow_debug: z.boolean().nullable().optional(),
+        workflow: trimmedString.nullable().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+const normalizeTargetInvestigateCaseCaseResolutionDocument = (
+  decoded: unknown,
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseLegacyCaseResolutionSchema>> => {
+  const legacy = targetInvestigateCaseLegacyCaseResolutionSchema.safeParse(decoded);
+  if (legacy.success) {
+    return {
+      success: true,
+      data: legacy.data,
+    };
+  }
+
+  if (!hasSchemaVersion(decoded, "case_resolution_v1")) {
+    return {
+      success: false,
+      issues: legacy.error.issues,
+    };
+  }
+
+  const rich = targetInvestigateCaseRichCaseResolutionSchema.safeParse(decoded);
+  if (!rich.success) {
+    return {
+      success: false,
+      issues: rich.error.issues,
+    };
+  }
+
+  const caseRef = firstTrimmedString(
+    rich.data.resolved_case.value,
+    rich.data.selected_selectors.requestId,
+    rich.data.selected_selectors.propertyId,
+    rich.data.selected_selectors.runArtifact,
+    rich.data.resolved_case.request_id,
+    rich.data.resolved_case.run_artifact,
+  );
+  const resolvedCaseRef = firstTrimmedString(rich.data.resolved_case.value, caseRef);
+  const attemptStatus = rich.data.resolved_attempt?.status ?? "not-required";
+  const attemptRef =
+    attemptStatus === "resolved"
+      ? firstTrimmedString(
+          rich.data.resolved_attempt?.request_id,
+          rich.data.resolved_attempt?.run_artifact,
+        )
+      : null;
+
+  const normalized = targetInvestigateCaseLegacyCaseResolutionSchema.safeParse({
+    case_ref: caseRef,
+    selectors: {
+      workflow: rich.data.selected_selectors.workflow,
+      request_id:
+        rich.data.selected_selectors.requestId === caseRef
+          ? undefined
+          : rich.data.selected_selectors.requestId,
+      window: rich.data.selected_selectors.window,
+      symptom: undefined,
+    },
+    resolved_case: {
+      ref: resolvedCaseRef,
+      summary:
+        firstTrimmedString(
+          rich.data.resolved_case.resolution_reason,
+          rich.data.replay_decision.resolution_reason,
+          rich.data.historical_evidence?.factual_sufficiency_reason,
+          resolvedCaseRef ? `Caso resolvido como ${resolvedCaseRef}.` : null,
+        ) ?? "",
+    },
+    attempt_resolution: {
+      status: attemptStatus,
+      attempt_ref: attemptRef,
+      reason:
+        firstTrimmedString(
+          rich.data.resolved_attempt?.resolution_reason,
+          attemptStatus === "not-required"
+            ? "Resolucao explicita de tentativa nao foi necessaria."
+            : attemptStatus === "absent-explicitly"
+              ? "A capability registrou ausencia explicita de tentativa."
+              : null,
+        ) ?? "",
+    },
+    relevant_workflows: collectUniqueTrimmedStrings([
+      rich.data.selected_selectors.workflow,
+      rich.data.resolved_attempt?.workflow,
+      rich.data.replay_decision.workflow,
+    ]),
+    replay_decision: {
+      status: rich.data.replay_decision.status,
+      reason:
+        firstTrimmedString(
+          rich.data.replay_decision.resolution_reason,
+          rich.data.replay_decision.factual_sufficiency_reason,
+          rich.data.replay_decision.reason_code,
+          "Decisao de replay registrada sem detalhamento adicional.",
+        ) ?? "",
+    },
+    resolution_reason:
+      firstTrimmedString(
+        rich.data.resolved_case.resolution_reason,
+        rich.data.replay_decision.resolution_reason,
+        rich.data.historical_evidence?.factual_sufficiency_reason,
+        "A capability registrou uma resolucao de caso sem rationale adicional.",
+      ) ?? "",
+  });
+
+  if (!normalized.success) {
+    return {
+      success: false,
+      issues: normalized.error.issues,
+    };
+  }
+
+  return {
+    success: true,
+    data: normalized.data,
+  };
+};
+
+export const targetInvestigateCaseCaseResolutionSchema: z.ZodType<
+  z.infer<typeof targetInvestigateCaseLegacyCaseResolutionSchema>,
+  z.ZodTypeDef,
+  unknown
+> = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseCaseResolutionDocument);
 
 const sha256Schema = z
   .string()
@@ -1050,7 +1366,65 @@ export const targetInvestigateCaseNormativeConflictSchema = z
   })
   .strict();
 
-export const targetInvestigateCaseEvidenceBundleSchema = z
+const targetInvestigateCaseLegacyReplaySchema = z
+  .object({
+    used: z.boolean(),
+    mode: replayModeSchema,
+    request_id: trimmedString.nullable(),
+    update_db: z.boolean().nullable(),
+    include_workflow_debug: z.boolean().nullable(),
+    cache_policy: trimmedString.nullable(),
+    purge_policy: trimmedString.nullable(),
+    namespace: trimmedString.nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.used) {
+      return;
+    }
+
+    if (!value.request_id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["request_id"],
+        message: "request_id dedicado e obrigatorio quando replay.used=true.",
+      });
+    }
+
+    if (value.update_db !== false) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["update_db"],
+        message: "update_db precisa ser false no replay seguro.",
+      });
+    }
+
+    if (!value.cache_policy) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cache_policy"],
+        message: "cache_policy e obrigatorio quando replay.used=true.",
+      });
+    }
+
+    if (!value.purge_policy) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["purge_policy"],
+        message: "purge_policy e obrigatorio quando replay.used=true.",
+      });
+    }
+
+    if (!value.namespace) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["namespace"],
+        message: "namespace local separado e obrigatorio quando replay.used=true.",
+      });
+    }
+  });
+
+const targetInvestigateCaseLegacyEvidenceBundleSchema = z
   .object({
     collection_plan: z
       .object({
@@ -1081,68 +1455,74 @@ export const targetInvestigateCaseEvidenceBundleSchema = z
           .strict(),
       )
       .min(1),
-    replay: z
-      .object({
-        used: z.boolean(),
-        mode: replayModeSchema,
-        request_id: trimmedString.nullable(),
-        update_db: z.boolean().nullable(),
-        include_workflow_debug: z.boolean().nullable(),
-        cache_policy: trimmedString.nullable(),
-        purge_policy: trimmedString.nullable(),
-        namespace: trimmedString.nullable(),
-      })
-      .strict()
-      .superRefine((value, context) => {
-        if (!value.used) {
-          return;
-        }
-
-        if (!value.request_id) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["request_id"],
-            message: "request_id dedicado e obrigatorio quando replay.used=true.",
-          });
-        }
-
-        if (value.update_db !== false) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["update_db"],
-            message: "update_db precisa ser false no replay seguro.",
-          });
-        }
-
-        if (!value.cache_policy) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["cache_policy"],
-            message: "cache_policy e obrigatorio quando replay.used=true.",
-          });
-        }
-
-        if (!value.purge_policy) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["purge_policy"],
-            message: "purge_policy e obrigatorio quando replay.used=true.",
-          });
-        }
-
-        if (!value.namespace) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["namespace"],
-            message: "namespace local separado e obrigatorio quando replay.used=true.",
-          });
-        }
-      }),
+    replay: targetInvestigateCaseLegacyReplaySchema,
     collection_sufficiency: evidenceSufficiencySchema,
     normative_conflicts: z.array(targetInvestigateCaseNormativeConflictSchema),
     factual_sufficiency_reason: trimmedString,
   })
   .strict();
+
+const targetInvestigateCaseRichEvidenceBundleSchema = targetInvestigateCaseLegacyEvidenceBundleSchema
+  .extend({
+    schema_version: z.literal("evidence_bundle_v1"),
+    generated_at: trimmedString.optional(),
+  })
+  .passthrough();
+
+const normalizeTargetInvestigateCaseEvidenceBundleDocument = (
+  decoded: unknown,
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseLegacyEvidenceBundleSchema>> => {
+  const legacy = targetInvestigateCaseLegacyEvidenceBundleSchema.safeParse(decoded);
+  if (legacy.success) {
+    return {
+      success: true,
+      data: legacy.data,
+    };
+  }
+
+  if (!hasSchemaVersion(decoded, "evidence_bundle_v1")) {
+    return {
+      success: false,
+      issues: legacy.error.issues,
+    };
+  }
+
+  const rich = targetInvestigateCaseRichEvidenceBundleSchema.safeParse(decoded);
+  if (!rich.success) {
+    return {
+      success: false,
+      issues: rich.error.issues,
+    };
+  }
+
+  const normalized = targetInvestigateCaseLegacyEvidenceBundleSchema.safeParse({
+    collection_plan: rich.data.collection_plan,
+    historical_sources: rich.data.historical_sources,
+    sensitive_artifact_refs: rich.data.sensitive_artifact_refs,
+    replay: rich.data.replay,
+    collection_sufficiency: rich.data.collection_sufficiency,
+    normative_conflicts: rich.data.normative_conflicts,
+    factual_sufficiency_reason: rich.data.factual_sufficiency_reason,
+  });
+
+  if (!normalized.success) {
+    return {
+      success: false,
+      issues: normalized.error.issues,
+    };
+  }
+
+  return {
+    success: true,
+    data: normalized.data,
+  };
+};
+
+export const targetInvestigateCaseEvidenceBundleSchema: z.ZodType<
+  z.infer<typeof targetInvestigateCaseLegacyEvidenceBundleSchema>,
+  z.ZodTypeDef,
+  unknown
+> = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseEvidenceBundleDocument);
 
 export const targetInvestigateCaseDossierJsonSchema = z
   .object({

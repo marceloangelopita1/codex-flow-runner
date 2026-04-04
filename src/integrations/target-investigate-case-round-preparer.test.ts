@@ -115,6 +115,36 @@ test("CodexCliTargetInvestigateCaseRoundPreparer materializa artefatos canonicos
   ]);
 });
 
+test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos artefatos do piloto", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.normalizedInput = {
+    ...fixture.request.normalizedInput,
+    caseRef: "case_inv_pilot_20260403_183200",
+    requestId: "case_inv_pilot_20260403_183200",
+    canonicalCommand:
+      "/target_investigate_case alpha-project case_inv_pilot_20260403_183200 --workflow extract_address --request-id case_inv_pilot_20260403_183200",
+  };
+
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () =>
+      new StubCodexClient(async (request) => {
+        await materializeRichRoundArtifacts(request.targetProject.path, request.roundDirectory, "md");
+      }),
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  if (result.status !== "prepared") {
+    return;
+  }
+
+  assert.equal(result.dossierPath, "investigations/2026-04-03T19-00-00Z/dossier.md");
+  assert.ok(result.ticketPublisher);
+});
+
 test("CodexCliTargetInvestigateCaseRoundPreparer bloqueia quando o Codex CLI nao esta autenticado", async () => {
   const fixture = await createRoundPreparerFixture();
   const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
@@ -455,6 +485,211 @@ const materializeRoundArtifacts = async (
       ? JSON.stringify(
           {
             case_ref: "case-001",
+            local_path: `${roundDirectory}/dossier.json`,
+            retention: "manual cleanup after investigator review",
+            summary: "Resumo local e sensivel sob retencao controlada.",
+          },
+          null,
+          2,
+        ).concat("\n")
+      : "# dossier\n\nResumo local e sensivel sob retencao controlada.\n";
+  await fs.writeFile(dossierPath, dossierContent, "utf8");
+};
+
+const materializeRichRoundArtifacts = async (
+  projectPath: string,
+  roundDirectory: string,
+  dossierFormat: "md" | "json",
+): Promise<void> => {
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  await fs.mkdir(roundPath, { recursive: true });
+  await fs.writeFile(
+    path.join(roundPath, "case-resolution.json"),
+    JSON.stringify(
+      {
+        schema_version: "case_resolution_v1",
+        generated_at: "2026-04-04T18:38:30.743Z",
+        official_entrypoint: "npm run case-investigation --",
+        dossier_request_id: "2026-04-04T18-36-23Z",
+        selected_selectors: {
+          requestId: "case_inv_pilot_20260403_183200",
+          workflow: "extract_address",
+        },
+        case_ref_authorities: ["propertyId", "requestId", "runArtifact"],
+        attempt_ref_authorities: ["requestId", "runArtifact", "workflow+window"],
+        resolved_case: {
+          status: "resolved",
+          authority: "requestId",
+          value: "case_inv_pilot_20260403_183200",
+          request_id: "case_inv_pilot_20260403_183200",
+          run_artifact: null,
+          resolution_reason: "requestId resolved to a historical local bundle",
+        },
+        resolved_attempt: {
+          authority: "requestId",
+          status: "resolved",
+          request_id: "case_inv_pilot_20260403_183200",
+          run_artifact: null,
+          workflow: "extract_address",
+          window: null,
+          resolution_reason: "requestId is an explicit attempt authority",
+        },
+        historical_evidence: {
+          request_found: true,
+          response_found: true,
+          headers_found: true,
+          workflow_matches: true,
+          workflow_debug_available: false,
+          cache_observability_available: true,
+          sufficient: true,
+          factual_sufficiency_reason:
+            "historical bundle has request, response and headers correlated to the same case without silent inference",
+        },
+        replay_decision: {
+          status: "not-required",
+          reason_code: "HISTORICAL_BUNDLE_SUFFICIENT",
+          resolution_reason:
+            "historical request, response and headers already close the case without replay",
+          factual_sufficiency_reason:
+            "historical bundle has request, response and headers correlated to the same case without silent inference",
+          replay_mode: "historical-only",
+          request_id: "2026-04-04T18-36-23Z",
+          local_namespace: "output/case-investigation/2026-04-04T18-36-23Z",
+          update_db: false,
+          include_workflow_debug: false,
+          workflow: "extract_address",
+          purge_policy: {
+            accepted_identifiers: [
+              "propertyId",
+              "pdfFileName",
+              "matriculaNumber",
+              "transcriptHint",
+            ],
+            declared_identifiers: ["pdfFileName", "matriculaNumber"],
+            dry_run_required_before_apply: true,
+            dry_run_performed: false,
+            apply_performed: false,
+          },
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "evidence-bundle.json"),
+    JSON.stringify(
+      {
+        schema_version: "evidence_bundle_v1",
+        generated_at: "2026-04-04T18:38:30.743Z",
+        collection_plan: {
+          manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+          strategy_ids: ["case-investigation-round"],
+        },
+        historical_sources: [
+          {
+            source_id: "local-run-bundle",
+            surface: "local-run-bundle",
+            consulted: true,
+          },
+          {
+            source_id: "cache-observability",
+            surface: "cache-observability",
+            consulted: true,
+          },
+        ],
+        surface_catalog: [],
+        sensitive_artifact_refs: [
+          {
+            ref: "dossier-ref",
+            path: `${roundDirectory}/dossier.${dossierFormat}`,
+            sha256: "a".repeat(64),
+            record_count: 1,
+          },
+        ],
+        historical_sufficiency_class: "sufficient",
+        replay: {
+          used: false,
+          mode: "historical-only",
+          request_id: "2026-04-04T18-36-23Z",
+          update_db: null,
+          include_workflow_debug: null,
+          cache_policy: null,
+          purge_policy: null,
+          namespace: null,
+        },
+        collection_sufficiency: "sufficient",
+        normative_conflicts: [],
+        factual_sufficiency_reason:
+          "local request, response and headers stayed correlated to the same attempt without silent inference",
+        cache_summary: {
+          source: null,
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "assessment.json"),
+    JSON.stringify(
+      {
+        schema_version: "assessment_v1",
+        generated_at: "2026-04-04T18:38:30.743Z",
+        houve_gap_real: "no",
+        era_evitavel_internamente: "not_applicable",
+        merece_ticket_generalizavel: "not_applicable",
+        confidence: "medium",
+        evidence_sufficiency: "sufficient",
+        causal_surface: {
+          owner: "target-project",
+          kind: "expected-behavior",
+          summary:
+            "the local evidence does not show a reusable target-project gap beyond expected behavior",
+          actionable: false,
+          systems: ["case-investigation", "extract_address"],
+        },
+        generalization_basis: [],
+        overfit_vetoes: [
+          {
+            code: "no_generalization_basis",
+            reason:
+              "the case did not produce a reusable basis strong enough for ticket projection",
+            blocking: true,
+          },
+        ],
+        ticket_decision_reason:
+          "the current local evidence should not be projected into a generalizable ticket",
+        publication_recommendation: {
+          recommended_action: "do_not_publish",
+          reason:
+            "either the case is not a reusable gap or the current evidence would overfit the conclusion",
+          proposed_ticket_scope:
+            "hold publication and keep the local dossier as supporting evidence only",
+          suggested_title: "Do not publish extract_address ticket yet",
+        },
+        capability_limits: [
+          {
+            code: "compare_report_absent",
+            summary:
+              "no compare report was available for this round, so phase/step corroboration stayed limited to local runtime traces",
+          },
+        ],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+
+  const dossierPath = path.join(roundPath, `dossier.${dossierFormat}`);
+  const dossierContent =
+    dossierFormat === "json"
+      ? JSON.stringify(
+          {
+            case_ref: "case_inv_pilot_20260403_183200",
             local_path: `${roundDirectory}/dossier.json`,
             retention: "manual cleanup after investigator review",
             summary: "Resumo local e sensivel sob retencao controlada.",

@@ -1045,7 +1045,14 @@ const validateCaseResolution = (
   for (const [key, value] of Object.entries(inputSelectors) as Array<
     [keyof typeof inputSelectors, string | undefined]
   >) {
-    if ((caseResolution.selectors[key] ?? undefined) !== value) {
+    const resolvedValue = caseResolution.selectors[key] ?? undefined;
+    const matchesRedundantCaseRef =
+      key === "request_id" &&
+      resolvedValue === undefined &&
+      value === input.caseRef &&
+      caseResolution.case_ref === input.caseRef;
+
+    if (resolvedValue !== value && !matchesRedundantCaseRef) {
       throw new Error(`case-resolution.json diverge do seletor normalizado ${key}.`);
     }
   }
@@ -1261,7 +1268,7 @@ const normalizeRelativePath = (value: string, label: string): string => {
 const readJsonArtifact = async <SchemaOutput>(
   projectPath: string,
   relativePath: string,
-  schema: z.ZodType<SchemaOutput>,
+  schema: z.ZodType<SchemaOutput, z.ZodTypeDef, unknown>,
   label: string,
 ): Promise<SchemaOutput> => {
   const absolutePath = resolveProjectRelativePath(projectPath, relativePath, label);

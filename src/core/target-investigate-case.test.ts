@@ -19,6 +19,7 @@ import { FileSystemTargetProjectResolver } from "../integrations/target-project-
 import { ProjectRef } from "../types/project.js";
 import {
   targetInvestigateCaseAssessmentSchema,
+  targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
   targetInvestigateCasePublicationDecisionSchema,
@@ -369,6 +370,44 @@ test("evaluateTargetInvestigateCaseRound grava publication-decision no caminho n
   assert.doesNotMatch(traceJson, /workflow_debug/u);
   assert.doesNotMatch(traceJson, /db_payload/u);
   assert.doesNotMatch(traceJson, /transcript/u);
+});
+
+test("evaluateTargetInvestigateCaseRound aceita os artefatos ricos atuais do piloto e os normaliza para o contrato interno", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.workflows = {
+        investigable: ["extract_address"],
+      };
+    },
+    caseResolutionDocument: buildRichCaseResolutionFixture(),
+    evidenceBundleDocument: buildRichEvidenceBundleFixture(),
+    assessmentDocument: buildRichAssessmentFixture(),
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case_inv_pilot_20260403_183200",
+      workflow: "extract_address",
+      requestId: "case_inv_pilot_20260403_183200",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.caseResolution.case_ref, "case_inv_pilot_20260403_183200");
+  assert.equal(result.caseResolution.selectors.request_id, undefined);
+  assert.equal(result.caseResolution.attempt_resolution.status, "resolved");
+  assert.equal(
+    result.caseResolution.attempt_resolution.attempt_ref,
+    "case_inv_pilot_20260403_183200",
+  );
+  assert.deepEqual(result.caseResolution.relevant_workflows, ["extract_address"]);
+  assert.equal(result.evidenceBundle.replay.used, false);
+  assert.equal(result.assessment.houve_gap_real, "no");
+  assert.equal(result.assessment.evidence_sufficiency, "sufficient");
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+  assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
 });
 
 test("evaluateTargetInvestigateCaseRound publica ticket quando o caso e elegivel com evidencia strong", async () => {
@@ -831,6 +870,9 @@ const createTargetRepoFixture = async (options: {
   mutateAssessment?: (artifact: any) => void;
   dossierFormat?: "md" | "json";
   manifestDocument?: any;
+  caseResolutionDocument?: any;
+  evidenceBundleDocument?: any;
+  assessmentDocument?: any;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
   const projectName = "alpha-project";
@@ -867,15 +909,16 @@ const createTargetRepoFixture = async (options: {
     "utf8",
   );
 
-  const caseResolution = buildCaseResolutionFixture();
+  const caseResolution = options.caseResolutionDocument ?? buildCaseResolutionFixture();
   options.mutateCaseResolution?.(caseResolution);
+  targetInvestigateCaseCaseResolutionSchema.parse(caseResolution);
   await fs.writeFile(
     path.join(projectPath, ...artifactPaths.caseResolutionPath.split("/")),
     `${JSON.stringify(caseResolution, null, 2)}\n`,
     "utf8",
   );
 
-  const evidenceBundle = buildEvidenceBundleFixture();
+  const evidenceBundle = options.evidenceBundleDocument ?? buildEvidenceBundleFixture();
   options.mutateEvidenceBundle?.(evidenceBundle);
   targetInvestigateCaseEvidenceBundleSchema.parse(evidenceBundle);
   await fs.writeFile(
@@ -884,7 +927,7 @@ const createTargetRepoFixture = async (options: {
     "utf8",
   );
 
-  const assessment = buildAssessmentFixture();
+  const assessment = options.assessmentDocument ?? buildAssessmentFixture();
   options.mutateAssessment?.(assessment);
   targetInvestigateCaseAssessmentSchema.parse(assessment);
   await fs.writeFile(
@@ -1126,6 +1169,99 @@ const buildCaseResolutionFixture = (): any => ({
   resolution_reason: "A capability fechou o caso e os seletores sem escolher tentativa provavel por inferencia livre.",
 });
 
+const buildRichCaseResolutionFixture = (): any => ({
+  schema_version: "case_resolution_v1",
+  generated_at: "2026-04-04T18:38:30.743Z",
+  official_entrypoint: "npm run case-investigation --",
+  dossier_request_id: "2026-04-04T18-36-23Z",
+  selected_selectors: {
+    requestId: "case_inv_pilot_20260403_183200",
+    workflow: "extract_address",
+  },
+  case_ref_authorities: ["propertyId", "requestId", "runArtifact"],
+  attempt_ref_authorities: ["requestId", "runArtifact", "workflow+window"],
+  resolved_case: {
+    status: "resolved",
+    authority: "requestId",
+    value: "case_inv_pilot_20260403_183200",
+    request_id: "case_inv_pilot_20260403_183200",
+    run_artifact: null,
+    bundle_refs: {
+      request: "output/case-investigation/case_inv_pilot_20260403_183200/requests/main.request.json",
+      response: "output/case-investigation/case_inv_pilot_20260403_183200/main.response.json",
+      headers: "output/case-investigation/case_inv_pilot_20260403_183200/main.headers.txt",
+    },
+    resolution_reason: "requestId resolved to a historical local bundle",
+  },
+  resolved_attempt: {
+    authority: "requestId",
+    status: "resolved",
+    request_id: "case_inv_pilot_20260403_183200",
+    run_artifact: null,
+    workflow: "extract_address",
+    window: null,
+    bundle_refs: {
+      request: "output/case-investigation/case_inv_pilot_20260403_183200/requests/main.request.json",
+      response: "output/case-investigation/case_inv_pilot_20260403_183200/main.response.json",
+      headers: "output/case-investigation/case_inv_pilot_20260403_183200/main.headers.txt",
+    },
+    resolution_reason: "requestId is an explicit attempt authority",
+  },
+  historical_evidence: {
+    bundle_refs: {
+      request: "output/case-investigation/case_inv_pilot_20260403_183200/requests/main.request.json",
+      response: "output/case-investigation/case_inv_pilot_20260403_183200/main.response.json",
+      headers: "output/case-investigation/case_inv_pilot_20260403_183200/main.headers.txt",
+    },
+    request_found: true,
+    response_found: true,
+    headers_found: true,
+    workflow_matches: true,
+    workflow_debug_available: false,
+    cache_observability_available: true,
+    sufficient: true,
+    factual_sufficiency_reason:
+      "historical bundle has request, response and headers correlated to the same case without silent inference",
+  },
+  replay_decision: {
+    status: "not-required",
+    reason_code: "HISTORICAL_BUNDLE_SUFFICIENT",
+    resolution_reason:
+      "historical request, response and headers already close the case without replay",
+    factual_sufficiency_reason:
+      "historical bundle has request, response and headers correlated to the same case without silent inference",
+    replay_mode: "historical-only",
+    request_id: "2026-04-04T18-36-23Z",
+    local_namespace: "output/case-investigation/2026-04-04T18-36-23Z",
+    update_db: false,
+    include_workflow_debug: false,
+    workflow: "extract_address",
+    purge_policy: {
+      accepted_identifiers: [
+        "propertyId",
+        "pdfFileName",
+        "matriculaNumber",
+        "transcriptHint",
+      ],
+      declared_identifiers: ["pdfFileName", "matriculaNumber"],
+      dry_run_required_before_apply: true,
+      dry_run_performed: false,
+      apply_performed: false,
+    },
+  },
+  ownership_boundary: {
+    targetProject: ["official-round-entrypoint"],
+    siblingTicket: ["assessment.json"],
+    runner: ["publication-decision.json"],
+  },
+  handoff: {
+    preflight_path: "preflight.json",
+    pending_artifacts: ["evidence-bundle.json", "assessment.json", "dossier.md"],
+    sibling_ticket:
+      "tickets/closed/2026-04-03-case-investigation-evidence-assessment-and-causal-ticket-projection-gap.md",
+  },
+});
+
 const buildEvidenceBundleFixture = (): any => ({
   collection_plan: {
     manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
@@ -1161,6 +1297,61 @@ const buildEvidenceBundleFixture = (): any => ({
   factual_sufficiency_reason: "A coleta historica e o replay seguro forneceram evidencia suficiente.",
 });
 
+const buildRichEvidenceBundleFixture = (): any => ({
+  schema_version: "evidence_bundle_v1",
+  generated_at: "2026-04-04T18:38:30.743Z",
+  collection_plan: {
+    manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+    strategy_ids: ["case-investigation-round"],
+  },
+  historical_sources: [
+    {
+      source_id: "local-run-bundle",
+      surface: "local-run-bundle",
+      consulted: true,
+    },
+    {
+      source_id: "cache-observability",
+      surface: "cache-observability",
+      consulted: true,
+    },
+  ],
+  surface_catalog: [],
+  sensitive_artifact_refs: [
+    {
+      ref: "local-run-bundle:request",
+      path: "output/case-investigation/case_inv_pilot_20260403_183200/requests/main.request.json",
+      sha256: "2c9489e40d6d87254177ad73da30f21737619d75365dcaa16964497b8e8e52d9",
+      record_count: 1,
+    },
+    {
+      ref: "local-run-bundle:response",
+      path: "output/case-investigation/case_inv_pilot_20260403_183200/main.response.json",
+      sha256: "064ba4bbe79d2088180dedf9e4f7b1e5d520d0227806a0fe8cb9bf3147df7259",
+      record_count: 1,
+    },
+  ],
+  historical_sufficiency_class: "sufficient",
+  replay: {
+    used: false,
+    mode: "historical-only",
+    request_id: "2026-04-04T18-36-23Z",
+    update_db: null,
+    include_workflow_debug: null,
+    cache_policy: null,
+    purge_policy: null,
+    namespace: null,
+  },
+  collection_sufficiency: "sufficient",
+  normative_conflicts: [],
+  factual_sufficiency_reason:
+    "local request, response and headers stayed correlated to the same attempt without silent inference",
+  cache_summary: {
+    source: null,
+  },
+  warning_error_code_candidates: ["ADDRESS_CURRENT_INCOMPLETE"],
+});
+
 const buildAssessmentFixture = (): any => ({
   houve_gap_real: "yes",
   era_evitavel_internamente: "yes",
@@ -1188,6 +1379,47 @@ const buildAssessmentFixture = (): any => ({
     proposed_ticket_scope: "Corrigir o guardrail local no workflow billing-core.",
     suggested_title: "Corrigir guardrail local do billing-core em case-investigation",
   },
+});
+
+const buildRichAssessmentFixture = (): any => ({
+  schema_version: "assessment_v1",
+  generated_at: "2026-04-04T18:38:30.743Z",
+  houve_gap_real: "no",
+  era_evitavel_internamente: "not_applicable",
+  merece_ticket_generalizavel: "not_applicable",
+  confidence: "medium",
+  evidence_sufficiency: "sufficient",
+  causal_surface: {
+    owner: "target-project",
+    kind: "expected-behavior",
+    summary: "the local evidence does not show a reusable target-project gap beyond expected behavior",
+    actionable: false,
+    systems: ["case-investigation", "extract_address"],
+  },
+  generalization_basis: [],
+  overfit_vetoes: [
+    {
+      code: "no_generalization_basis",
+      reason: "the case did not produce a reusable basis strong enough for ticket projection",
+      blocking: true,
+    },
+  ],
+  ticket_decision_reason:
+    "the current local evidence should not be projected into a generalizable ticket",
+  publication_recommendation: {
+    recommended_action: "do_not_publish",
+    reason:
+      "either the case is not a reusable gap or the current evidence would overfit the conclusion",
+    proposed_ticket_scope: "hold publication and keep the local dossier as supporting evidence only",
+    suggested_title: "Do not publish extract_address ticket yet",
+  },
+  capability_limits: [
+    {
+      code: "compare_report_absent",
+      summary:
+        "no compare report was available for this round, so phase/step corroboration stayed limited to local runtime traces",
+    },
+  ],
 });
 
 const buildPublicationDecisionFixture = (
