@@ -486,6 +486,15 @@ export const targetInvestigateCasePilotManifestSchema = z
         compatibleRunnerFlow: z.literal("target-investigate-case"),
       })
       .strict(),
+    entrypoint: z
+      .object({
+        command: trimmedString,
+        scriptPath: relativePathSchema,
+        defaultReplayMode: replayModeSchema,
+        defaultIncludeWorkflowDebug: z.boolean(),
+      })
+      .strict()
+      .optional(),
     selectors: z
       .object({
         accepted: uniqueNonEmptyArray(targetProjectSelectorSchema, "selectors.accepted"),
@@ -565,6 +574,7 @@ export const targetInvestigateCasePilotManifestSchema = z
       .object({
         preflight: z
           .object({
+            artifact: z.literal("preflight.json").optional(),
             schemaVersion: trimmedString,
             requiredFields: z.array(trimmedString).min(1),
           })

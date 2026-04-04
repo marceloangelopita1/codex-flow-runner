@@ -109,7 +109,7 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto canonico e rejeita au
   assert.match(invalidCapability.reason, /case-investigation/u);
 });
 
-test("loadTargetInvestigateCaseManifest adapta o manifesto rico do piloto e preserva as allowlists explicitas", async () => {
+test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto e preserva as allowlists explicitas", async () => {
   const fixture = await createTargetRepoFixture({
     manifestDocument: buildPilotManifestFixture(),
   });
@@ -154,6 +154,20 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico do piloto e pres
   ]);
   assert.equal(loaded.manifest.outputs.dossier.preferredArtifact, "dossier.md");
   assert.equal(loaded.manifest.ticketPublicationPolicy?.internalTicketTemplatePath, "tickets/templates/internal-ticket-template.md");
+});
+
+test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
+  const fixture = await createTargetRepoFixture({
+    manifestDocument: buildPilotManifestFixture({
+      mutateManifest: (manifest) => {
+        delete manifest.entrypoint;
+        delete manifest.phaseOutputs.preflight.artifact;
+      },
+    }),
+  });
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path);
+  assert.equal(loaded.status, "loaded");
 });
 
 test("loadTargetInvestigateCaseManifest rejeita manifesto rico com members fora das allowlists declaradas", async () => {
@@ -922,6 +936,12 @@ const buildPilotManifestFixture = (options: {
       manifestPath: "docs/workflows/target-case-investigation-manifest.json",
       compatibleRunnerFlow: "target-investigate-case",
     },
+    entrypoint: {
+      command: "npm run case-investigation --",
+      scriptPath: "scripts/materialize-case-investigation-round.js",
+      defaultReplayMode: "historical-only",
+      defaultIncludeWorkflowDebug: false,
+    },
     selectors: {
       accepted: ["propertyId", "requestId", "workflow", "window", "runArtifact"],
       runnerCaseRefRequired: true,
@@ -941,11 +961,8 @@ const buildPilotManifestFixture = (options: {
       "extract_construction_timeline_v1",
     ].map((key) => ({
       key,
-      supportStatus:
-        key === "extract_construction_timeline_v1"
-          ? "implemented_but_unsupported"
-          : "supported",
-      publicHttpSelectable: key !== "extract_construction_timeline_v1",
+      supportStatus: "supported",
+      publicHttpSelectable: true,
       documentationPath: "docs/specs/example.md",
     })),
     caseResolution: {
@@ -978,8 +995,14 @@ const buildPilotManifestFixture = (options: {
     },
     phaseOutputs: {
       preflight: {
+        artifact: "preflight.json",
         schemaVersion: "case_investigation_preflight_v1",
-        requiredFields: ["selected_selectors", "manifest_path"],
+        requiredFields: [
+          "selected_selectors",
+          "manifest_path",
+          "dossier_local_path",
+          "replay_policy_reference",
+        ],
       },
       "case-resolution": {
         artifact: "case-resolution.json",
