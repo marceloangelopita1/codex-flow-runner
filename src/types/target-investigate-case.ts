@@ -80,6 +80,14 @@ export const TARGET_INVESTIGATE_CASE_MANIFEST_PATH =
 export const TARGET_INVESTIGATE_CASE_CAPABILITY = "case-investigation";
 export const TARGET_INVESTIGATE_CASE_COMMAND = "/target_investigate_case";
 export const TARGET_INVESTIGATE_CASE_ROUNDS_DIR = "investigations";
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT =
+  "semantic-review.request.json";
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT =
+  "semantic-review.result.json";
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION =
+  "semantic_review_request_v1";
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_SCHEMA_VERSION =
+  "semantic_review_result_v1";
 
 export const TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS = uniqueValues(
   ["case-ref", "workflow", "request-id", "window", "symptom"] as const,
@@ -177,7 +185,7 @@ export const TARGET_INVESTIGATE_CASE_PRECEDENCE_PROJECT_LAYERS = uniqueValues(
   "precedence-project-layers",
 );
 export const TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES = uniqueValues(
-  ["propertyId", "requestId", "workflow", "window", "runArtifact"] as const,
+  ["propertyId", "requestId", "workflow", "window", "runArtifact", "symptom"] as const,
   "target-project-selectors",
 );
 export const TARGET_INVESTIGATE_CASE_CASE_REF_AUTHORITY_VALUES = uniqueValues(
@@ -199,6 +207,37 @@ export const TARGET_INVESTIGATE_CASE_TICKET_SOURCE_VALUES = uniqueValues(
 export const TARGET_INVESTIGATE_CASE_VERSIONED_ARTIFACT_VALUES = uniqueValues(
   ["ticket"] as const,
   "versioned-artifacts",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES = uniqueValues(
+  ["ready", "blocked"] as const,
+  "semantic-review-readiness-status",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUES = uniqueValues(
+  ["READY", "WORKFLOW_UNRESOLVED", "WORKFLOW_RESPONSE_MISSING", "WORKFLOW_TARGETS_MISSING"] as const,
+  "semantic-review-readiness-reason-code",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES = uniqueValues(
+  ["confirmed_error", "expected_behavior", "inconclusive"] as const,
+  "semantic-review-verdict",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_ISSUE_TYPE_VALUES = uniqueValues(
+  [
+    "semantic_truncation",
+    "contract_mismatch",
+    "scope_confusion",
+    "data_anomaly",
+    "observability_limit",
+    "unknown",
+  ] as const,
+  "semantic-review-issue-type",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_FIELD_VERDICT_VALUES = uniqueValues(
+  ["supports_error", "supports_expected_behavior", "not_assessed"] as const,
+  "semantic-review-field-verdict",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES = uniqueValues(
+  ["missing", "blocked", "failed", "completed"] as const,
+  "semantic-review-trace-status",
 );
 
 export type TargetInvestigateCaseAllowedSelector =
@@ -241,6 +280,18 @@ export type TargetInvestigateCaseAttemptRefAuthority =
   (typeof TARGET_INVESTIGATE_CASE_ATTEMPT_REF_AUTHORITY_VALUES)[number];
 export type TargetInvestigateCasePurgeIdentifier =
   (typeof TARGET_INVESTIGATE_CASE_PURGE_IDENTIFIER_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewReadinessStatus =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewReadinessReasonCode =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewVerdict =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewIssueType =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_ISSUE_TYPE_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewFieldVerdict =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_FIELD_VERDICT_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewTraceStatus =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES)[number];
 
 const selectorEnumSchema = z.enum(TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS);
 const houveGapRealSchema = z.enum(TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES);
@@ -266,8 +317,29 @@ const attemptRefAuthoritySchema = z.enum(TARGET_INVESTIGATE_CASE_ATTEMPT_REF_AUT
 const purgeIdentifierSchema = z.enum(TARGET_INVESTIGATE_CASE_PURGE_IDENTIFIER_VALUES);
 const ticketSourceSchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_SOURCE_VALUES);
 const versionedArtifactSchema = z.enum(TARGET_INVESTIGATE_CASE_VERSIONED_ARTIFACT_VALUES);
+const semanticReviewReadinessStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES,
+);
+const semanticReviewReadinessReasonCodeSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUES,
+);
+const semanticReviewVerdictSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES,
+);
+const semanticReviewIssueTypeSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_ISSUE_TYPE_VALUES,
+);
+const semanticReviewFieldVerdictSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_FIELD_VERDICT_VALUES,
+);
+const semanticReviewTraceStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES,
+);
 
 const selectorValueSchema = trimmedString;
+const jsonPointerSchema = trimmedString.refine((value) => value.startsWith("/"), {
+  message: "JSON pointer deve comecar com `/`.",
+});
 
 export const targetInvestigateCaseNormalizedInputSchema = z
   .object({
@@ -278,6 +350,45 @@ export const targetInvestigateCaseNormalizedInputSchema = z
     window: selectorValueSchema.optional(),
     symptom: selectorValueSchema.optional(),
     canonicalCommand: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseManifestSemanticReviewSchema = z
+  .object({
+    owner: z.literal("target-project"),
+    runnerExecutor: z.literal("codex-flow-runner"),
+    artifacts: z
+      .object({
+        request: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION,
+            ),
+            requiredFields: uniqueNonEmptyArray(trimmedString, "semanticReview.artifacts.request.requiredFields"),
+          })
+          .strict(),
+        result: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_SCHEMA_VERSION,
+            ),
+            optionalUntilRunnerIntegration: z.boolean().optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    packetPolicy: z
+      .object({
+        declaredSurfacesOnly: z.literal(true),
+        newEvidenceDiscoveryAllowed: z.literal(false),
+        allowRawPayloadEmbedding: z.literal(false),
+        boundedByWorkflowContract: z.literal(true),
+        targetProjectRemainsAssessmentAuthority: z.literal(true),
+        runnerRemainsPublicationAuthority: z.literal(true),
+      })
+      .strict(),
   })
   .strict();
 
@@ -395,6 +506,7 @@ export const targetInvestigateCaseManifestSchema = z
           .strict(),
       })
       .strict(),
+    semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
     replayPolicy: z
       .object({
         supported: z.boolean(),
@@ -606,6 +718,7 @@ export const targetInvestigateCasePilotManifestSchema = z
           .strict(),
       })
       .strict(),
+    semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
     replayPolicy: z
       .object({
         explicitReplayRequired: z.boolean(),
@@ -814,6 +927,7 @@ const normalizePilotManifestToInternal = (
         ...(manifest.selectors.accepted.includes("workflow") ? ["workflow" as const] : []),
         ...(manifest.selectors.accepted.includes("requestId") ? ["request-id" as const] : []),
         ...(manifest.selectors.accepted.includes("window") ? ["window" as const] : []),
+        ...(manifest.selectors.accepted.includes("symptom") ? ["symptom" as const] : []),
       ],
       required: ["case-ref"],
       targetProjectAccepted: [...manifest.selectors.accepted],
@@ -860,6 +974,38 @@ const normalizePilotManifestToInternal = (
         preferredArtifact: manifest.phaseOutputs.publication.dossierArtifact,
       },
     },
+    semanticReview: manifest.semanticReview
+      ? {
+          owner: manifest.semanticReview.owner,
+          runnerExecutor: manifest.semanticReview.runnerExecutor,
+          artifacts: {
+            request: {
+              artifact: manifest.semanticReview.artifacts.request.artifact,
+              schemaVersion: manifest.semanticReview.artifacts.request.schemaVersion,
+              requiredFields: [...manifest.semanticReview.artifacts.request.requiredFields],
+            },
+            result: {
+              artifact: manifest.semanticReview.artifacts.result.artifact,
+              schemaVersion: manifest.semanticReview.artifacts.result.schemaVersion,
+              optionalUntilRunnerIntegration:
+                manifest.semanticReview.artifacts.result.optionalUntilRunnerIntegration,
+            },
+          },
+          packetPolicy: {
+            declaredSurfacesOnly: manifest.semanticReview.packetPolicy.declaredSurfacesOnly,
+            newEvidenceDiscoveryAllowed:
+              manifest.semanticReview.packetPolicy.newEvidenceDiscoveryAllowed,
+            allowRawPayloadEmbedding:
+              manifest.semanticReview.packetPolicy.allowRawPayloadEmbedding,
+            boundedByWorkflowContract:
+              manifest.semanticReview.packetPolicy.boundedByWorkflowContract,
+            targetProjectRemainsAssessmentAuthority:
+              manifest.semanticReview.packetPolicy.targetProjectRemainsAssessmentAuthority,
+            runnerRemainsPublicationAuthority:
+              manifest.semanticReview.packetPolicy.runnerRemainsPublicationAuthority,
+          },
+        }
+      : undefined,
     replayPolicy: {
       supported: true,
       safeModeRequired: true,
@@ -1533,6 +1679,196 @@ export const targetInvestigateCaseDossierJsonSchema = z
   })
   .strict();
 
+const targetInvestigateCaseSemanticReviewWorkflowSchema = z
+  .object({
+    key: trimmedString,
+    support_status: trimmedString.nullable(),
+    public_http_selectable: z.boolean(),
+    documentation_path: relativePathSchema.nullable(),
+  })
+  .strict();
+
+const targetInvestigateCaseSemanticReviewRefSchema = z
+  .object({
+    surface_id: trimmedString,
+    ref: trimmedString,
+    path: relativePathSchema,
+    sha256: sha256Schema,
+    record_count: z.number().int().nonnegative(),
+    selection_reason: trimmedString,
+    json_pointers: z.array(jsonPointerSchema),
+  })
+  .strict();
+
+const targetInvestigateCaseSemanticReviewTargetFieldSchema = z
+  .object({
+    field_path: trimmedString,
+    artifact_path: relativePathSchema,
+    json_pointer: jsonPointerSchema,
+    selection_reason: trimmedString,
+  })
+  .strict();
+
+export const targetInvestigateCaseSemanticReviewRequestSchema = z
+  .object({
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION),
+    generated_at: trimmedString,
+    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    dossier_local_path: relativePathSchema,
+    dossier_request_id: trimmedString.nullable(),
+    workflow: targetInvestigateCaseSemanticReviewWorkflowSchema.nullable(),
+    selected_selectors: z
+      .record(z.string(), trimmedString)
+      .superRefine((value, context) => {
+        for (const key of Object.keys(value)) {
+          if (!TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES.includes(key as any)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `selected_selectors contem chave fora da allowlist: ${key}.`,
+            });
+          }
+        }
+      }),
+    symptom: trimmedString.nullable(),
+    review_readiness: z
+      .object({
+        status: semanticReviewReadinessStatusSchema,
+        reason_code: semanticReviewReadinessReasonCodeSchema,
+        summary: trimmedString,
+      })
+      .strict(),
+    review_scope: z
+      .object({
+        resolved_case_authority: caseRefAuthoritySchema.nullable(),
+        resolved_attempt_authority: attemptRefAuthoritySchema.nullable(),
+        resolved_attempt_status: trimmedString.nullable(),
+        replay_status: replayDecisionStatusSchema.nullable(),
+        replay_mode: replayModeSchema.nullable(),
+        historical_sufficiency_class: evidenceSufficiencySchema.nullable(),
+        evidence_sufficiency: evidenceSufficiencySchema.nullable(),
+      })
+      .strict(),
+    prompt_contract: z
+      .object({
+        declared_surfaces_only: z.literal(true),
+        new_evidence_discovery_allowed: z.literal(false),
+        raw_payload_embedding_allowed: z.literal(false),
+        final_assessment_authority: z.literal("target-project"),
+        final_publication_authority: z.literal("runner"),
+      })
+      .strict(),
+    contract_refs: z
+      .object({
+        workflow_documentation_path: relativePathSchema.nullable(),
+      })
+      .strict(),
+    review_question: trimmedString,
+    target_fields: z.array(targetInvestigateCaseSemanticReviewTargetFieldSchema),
+    supporting_refs: z.array(targetInvestigateCaseSemanticReviewRefSchema),
+    declared_signals: z
+      .object({
+        consulted_surfaces: z.array(trimmedString),
+        warning_error_code_candidates: z.array(trimmedString),
+        compare_report_signals: z
+          .object({
+            recommended_actions: z.array(trimmedString),
+            transcript_parity_statuses: z.array(trimmedString),
+            phase_step_hints: z.number().int().nonnegative(),
+          })
+          .strict(),
+        cache_summary: z.unknown().nullable(),
+        normative_conflicts: z.array(
+          z
+            .object({
+              kind: trimmedString,
+              summary: trimmedString,
+              blocking: z.boolean(),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    expected_result_artifact: z
+      .object({
+        artifact: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
+        schema_version: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_SCHEMA_VERSION),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.review_readiness.status === "ready" &&
+      (value.workflow === null ||
+        value.target_fields.length === 0 ||
+        value.supporting_refs.length === 0)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["review_readiness", "status"],
+        message:
+          "Packets ready de semantic-review exigem workflow, target_fields e supporting_refs.",
+      });
+    }
+  });
+
+export const targetInvestigateCaseSemanticReviewResultSchema = z
+  .object({
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_SCHEMA_VERSION),
+    generated_at: trimmedString,
+    request_artifact: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT),
+    reviewer: z
+      .object({
+        orchestrator: trimmedString,
+        reviewer_label: trimmedString,
+      })
+      .strict(),
+    verdict: semanticReviewVerdictSchema,
+    issue_type: semanticReviewIssueTypeSchema,
+    confidence: confidenceSchema,
+    owner_hint: causalSurfaceOwnerSchema,
+    actionable: z.boolean(),
+    summary: trimmedString,
+    supporting_refs: z.array(targetInvestigateCaseSemanticReviewRefSchema),
+    field_verdicts: z.array(
+      z
+        .object({
+          field_path: trimmedString,
+          json_pointer: jsonPointerSchema,
+          verdict: semanticReviewFieldVerdictSchema,
+          summary: trimmedString,
+        })
+        .strict(),
+    ),
+    constraints_acknowledged: z
+      .object({
+        declared_surfaces_only: z.literal(true),
+        new_evidence_discovery_allowed: z.literal(false),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const targetInvestigateCaseSemanticReviewTraceSchema = z
+  .object({
+    status: semanticReviewTraceStatusSchema,
+    request_path: relativePathSchema.nullable(),
+    request_schema_version: z
+      .literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION)
+      .nullable(),
+    review_readiness_status: semanticReviewReadinessStatusSchema.nullable(),
+    review_readiness_reason_code: semanticReviewReadinessReasonCodeSchema.nullable(),
+    result_path: relativePathSchema.nullable(),
+    result_schema_version: z
+      .literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_SCHEMA_VERSION)
+      .nullable(),
+    verdict: semanticReviewVerdictSchema.nullable(),
+    issue_type: semanticReviewIssueTypeSchema.nullable(),
+    confidence: confidenceSchema.nullable(),
+    failure_reason: trimmedString.nullable(),
+  })
+  .strict();
+
 export interface TargetInvestigateCasePublicationCombination {
   houve_gap_real: TargetInvestigateCaseHouveGapReal;
   era_evitavel_internamente: TargetInvestigateCaseEvitabilidade;
@@ -1795,6 +2131,7 @@ export const targetInvestigateCaseTracePayloadSchema = z
         retention: trimmedString,
       })
       .strict(),
+    semantic_review: targetInvestigateCaseSemanticReviewTraceSchema,
   })
   .strict();
 
@@ -1830,6 +2167,15 @@ export type TargetInvestigateCaseEvidenceBundle = z.infer<
   typeof targetInvestigateCaseEvidenceBundleSchema
 >;
 export type TargetInvestigateCaseAssessment = z.infer<typeof targetInvestigateCaseAssessmentSchema>;
+export type TargetInvestigateCaseSemanticReviewRequest = z.infer<
+  typeof targetInvestigateCaseSemanticReviewRequestSchema
+>;
+export type TargetInvestigateCaseSemanticReviewResult = z.infer<
+  typeof targetInvestigateCaseSemanticReviewResultSchema
+>;
+export type TargetInvestigateCaseSemanticReviewTrace = z.infer<
+  typeof targetInvestigateCaseSemanticReviewTraceSchema
+>;
 export type TargetInvestigateCasePublicationDecision = z.infer<
   typeof targetInvestigateCasePublicationDecisionSchema
 >;
@@ -1845,6 +2191,8 @@ export interface TargetInvestigateCaseArtifactSet {
   evidenceBundlePath: string;
   assessmentPath: string;
   dossierPath: string;
+  semanticReviewRequestPath: string;
+  semanticReviewResultPath: string;
   publicationDecisionPath: string;
 }
 

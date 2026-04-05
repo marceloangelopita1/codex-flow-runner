@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-03 16:00Z
-- Last reviewed at (UTC): 2026-04-03 20:13Z
+- Last reviewed at (UTC): 2026-04-05 16:16Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
@@ -18,6 +18,7 @@
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
   - execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md
   - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
+  - execplans/2026-04-05-target-investigate-case-semantic-review-runner-milestone-3.md
 - Related commits:
   - chore(specs): triage 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
   - chore(tickets): close 2026-04-03-target-investigate-case-contract-and-publication-gap.md
@@ -378,7 +379,7 @@
   - executar uma rodada real de `/target_investigate_case` em ambiente com Telegram e projeto alvo elegível para confirmar o resumo final do Telegram e o trace minimizado sobre uma investigação não bloqueada, assim que houver operador autorizado e caso seguro aprovado para uma execução que não viole a restrição atual de não fazer commit/push.
 - Validações já consolidadas nesta linhagem:
   - o contrato machine-readable do manifesto, as allowlists finitas, a política de replay/purge, o dossier local e o bloco `## Investigação Causal` do piloto foram validados em `../guiadomus-matricula`, inclusive pelo teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`);
-  - o runner passou na matriz automatizada da etapa de bootstrap/materialização com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts`, que no estado atual expandiu para o repositório inteiro e terminou com `565` testes `pass`;
+  - o runner passou na matriz automatizada atualizada da linhagem, incluindo o subfluxo runner-side de `semantic-review`, com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts`, que no script atual expandiu para o repositório inteiro e terminou com `578` testes `pass`;
   - o guardrail tipado `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` permaneceu verde.
 
 ## Status de atendimento (documento vivo)
@@ -388,33 +389,38 @@
   - o contrato runner-side de `case-investigation` foi entregue com manifesto canônico, schemas/allowlists explícitas, validações anti-overfit, `publication-decision.json`, `overall_outcome` e summary/trace sanitizados;
   - o piloto `../guiadomus-matricula` passou a expor a capability `case-investigation`, com manifesto local, runbook dedicado, política de replay/purge, dossier em `output/case-investigation/<request-id>/` e template único com `## Investigação Causal`;
   - o bootstrap do runner agora injeta um `TargetInvestigateCaseRoundPreparer` oficial, com normalização do manifesto rico do piloto, prompt/materialização dirigida da rodada, validação dos artefatos canônicos e publisher runner-side determinístico/idempotente quando houver publication elegível;
-  - as validações automatizadas atuais ficaram verdes no estado revisado: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` (`565` testes `pass` no script atual), `npm run check` e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
+  - o runner agora reconhece `semanticReview` no manifesto do alvo, detecta `semantic-review.request.json`, chama o Codex apenas quando `review_readiness.status = "ready"`, persiste `semantic-review.result.json` no dossier local e registra somente metadados mínimos do subfluxo no trace;
+  - as validações automatizadas atuais ficaram verdes no estado revisado: `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` (`578` testes `pass` no script atual), `npm run check`, `npm test` (`578` testes `pass`) e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
 - Pendências em aberto:
   - executar a validação manual ponta a ponta via Telegram autorizado em um caso previamente aprovado e seguro, registrando o resumo final e o trace minimizado sem cruzar indevidamente a fronteira de publication; a entrega técnica já foi fechada em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, sem novo follow-up local.
+  - o Milestone 4 continua pendente no projeto alvo `../guiadomus-matricula`: `semantic-review.result.json` ainda não é consumido para recompor `assessment.json`, então o runner mantém degradação conservadora e não altera a semântica atual de publication.
 - Evidências de validação:
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/workflow-trace-store.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` passou com `565` testes `pass` no script atual;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` passou com `578` testes `pass` no script atual;
   - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` passou com `578` testes `pass`;
   - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3/3` no piloto;
-  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts`, `src/types/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts` confirmou o wiring do preparer oficial, a adaptação do manifesto real do piloto e a omissão deliberada de `onAiExchange` para evitar vazamento de payload sensível no trace do runner.
+  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts`, `src/types/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/target-investigate-case-semantic-review.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts` confirmou o wiring do preparer oficial, a adaptação do manifesto real do piloto, a orquestração bounded do `semantic-review` e a omissão deliberada de `onAiExchange` para evitar vazamento de payload sensível no trace do runner.
 
 ## Auditoria final de entrega
-- Auditoria executada em: 2026-04-03 20:13Z
-- Resultado: parcialmente atendida - bootstrap funcional entregue localmente, ticket fechado com `GO` e validação manual externa ainda pendente
+- Auditoria executada em: 2026-04-05 16:16Z
+- Resultado: parcialmente atendida - bootstrap funcional e Milestone 3 runner-side de `semantic-review` entregues localmente; validação manual externa e Milestone 4 no alvo ainda pendentes
 - Evidências finais consideradas:
   - o runner e o piloto passaram nas suítes automatizadas relevantes, preservando o contrato publicado desta linhagem;
   - `src/main.ts` passou a instanciar `ControlledTargetInvestigateCaseExecutor` com `CodexCliTargetInvestigateCaseRoundPreparer`, eliminando o gap de bootstrap local;
   - `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` agora normalizam o manifesto rico real do piloto sem reabrir `../guiadomus-matricula/**`;
-  - `src/integrations/target-investigate-case-round-preparer.ts` valida os artefatos canônicos da rodada e omite `onAiExchange` para preservar o trace mínimo do runner;
-  - a validação manual externa via Telegram autorizado permaneceu pendente porque esta etapa explicitamente não permite commit/push e o shell não representa o operador humano autorizado.
+  - `src/integrations/target-investigate-case-round-preparer.ts` agora valida os artefatos canônicos da rodada, executa o subfluxo bounded de `semantic-review` quando o packet está `ready`, persiste `semantic-review.result.json` e omite `onAiExchange` para preservar o trace mínimo do runner;
+  - `src/integrations/target-investigate-case-semantic-review.ts` limita o contexto do Codex a paths e `json_pointer`s declarados pelo packet, sem descoberta livre de evidência;
+  - a validação manual externa via Telegram autorizado permaneceu pendente porque esta etapa explicitamente não permite commit/push e o shell não representa o operador humano autorizado;
+  - o projeto alvo ainda não consome `semantic-review.result.json` em `assessment.json`, mantendo o Milestone 4 explicitamente fora do escopo deste changeset.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum no momento; o follow-up funcional foi concluído e fechado em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, com validação manual externa pendente registrada no próprio ticket fechado.
+  - nenhum local no runner; o follow-up funcional foi concluído e fechado em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, com validação manual externa pendente registrada no próprio ticket fechado e o Milestone 4 permanecendo no projeto alvo.
 - Causas-raiz sistêmicas identificadas:
   - `ticket` - a linhagem derivada fechou control-plane, contrato/publication e capability do piloto, mas não manteve ownership explícito do materializador oficial que transforma manifesto + capability em artefatos reais na execução do runner.
 - Ajustes genéricos promovidos ao workflow:
   - nenhum; o residual foi tratado apenas como follow-up funcional local desta spec, sem promover backlog transversal do workflow.
 
 ## Riscos e impacto
-- Risco funcional: a implementação local removeu o bloqueio `round-preparer-unavailable`, mas a ausência da rodada manual autorizada ainda deixa sem evidência ponta a ponta o comportamento do resumo final no Telegram e do trace real em uma investigação não bloqueada.
+- Risco funcional: a implementação local removeu o bloqueio `round-preparer-unavailable` e aterrissou o subfluxo runner-side de `semantic-review`, mas a ausência da rodada manual autorizada ainda deixa sem evidência ponta a ponta o comportamento do resumo final no Telegram e do trace real em uma investigação não bloqueada.
 - Risco operacional: no piloto `../guiadomus-matricula`, a investigação histórica sem replay seguro tende a produzir taxa alta de inconclusão se a capability não fechar bem suas superfícies.
 - Risco de backlog: sem `generalization_basis[]`, `overfit_vetoes[]` e gates conservadores, o fluxo pode gerar tickets elegantes, mas pobres em generalização e caros de executar.
 - Mitigação:
@@ -438,3 +444,4 @@
 - 2026-04-03 18:44Z - Auditoria final pós-`/run_all` concluída com releitura da spec, dos tickets fechados, dos execplans, do código atual do runner e da capability do piloto; a spec avançou para `Status: partially_attended`, manteve `Spec treatment: pending` e abriu follow-up para ligar o `roundPreparer` oficial ao bootstrap do fluxo.
 - 2026-04-03 20:05Z - Execução do follow-up concluída com wiring do `roundPreparer` oficial, normalização do manifesto rico do piloto, prompt/materialização da rodada e matriz automatizada verde; a spec permaneceu em `Status: partially_attended` apenas pela validação manual externa ainda pendente.
 - 2026-04-03 20:13Z - Fechamento técnico do follow-up revalidado como `GO`; o ticket foi movido para `tickets/closed/` e a spec permaneceu em `Status: partially_attended` apenas pela validação manual externa operacional ainda pendente.
+- 2026-04-05 16:16Z - Milestone 3 runner-side do `semantic-review` concluído no `codex-flow-runner`: manifesto/artefatos auxiliares suportados, prompt bounded dedicado, execução via Codex apenas para packet `ready`, persistência de `semantic-review.result.json`, trace minimizado e validações automatizadas (`npm run check`, `npm test` e matriz focada) verdes; a spec permaneceu em `Status: partially_attended` porque a validação manual externa ainda está pendente e o Milestone 4 segue no projeto alvo.

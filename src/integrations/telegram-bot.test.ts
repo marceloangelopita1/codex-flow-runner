@@ -991,6 +991,10 @@ const createController = (options: ControllerOptions = {}) => {
             evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
             assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
             dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+            semanticReviewRequestPath:
+              "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+            semanticReviewResultPath:
+              "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
             publicationDecisionPath:
               "investigations/2026-04-03T19-00-00Z/publication-decision.json",
           },
@@ -1079,6 +1083,19 @@ const createController = (options: ControllerOptions = {}) => {
               path: "investigations/2026-04-03T19-00-00Z/dossier.md",
               sensitivity: "restricted" as const,
               retention: "30 days",
+            },
+            semantic_review: {
+              status: "missing" as const,
+              request_path: null,
+              request_schema_version: null,
+              review_readiness_status: null,
+              review_readiness_reason_code: null,
+              result_path: null,
+              result_schema_version: null,
+              verdict: null,
+              issue_type: null,
+              confidence: null,
+              failure_reason: null,
             },
           },
           nextAction: "Encerrar a rodada como no-op local.",

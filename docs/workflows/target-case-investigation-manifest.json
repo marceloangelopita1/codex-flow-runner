@@ -51,6 +51,35 @@
       "schemaVersion": "1.0"
     }
   },
+  "semanticReview": {
+    "owner": "target-project",
+    "runnerExecutor": "codex-flow-runner",
+    "artifacts": {
+      "request": {
+        "artifact": "semantic-review.request.json",
+        "schemaVersion": "semantic_review_request_v1",
+        "requiredFields": [
+          "workflow",
+          "review_readiness",
+          "prompt_contract",
+          "target_fields",
+          "supporting_refs"
+        ]
+      },
+      "result": {
+        "artifact": "semantic-review.result.json",
+        "schemaVersion": "semantic_review_result_v1"
+      }
+    },
+    "packetPolicy": {
+      "declaredSurfacesOnly": true,
+      "newEvidenceDiscoveryAllowed": false,
+      "allowRawPayloadEmbedding": false,
+      "boundedByWorkflowContract": true,
+      "targetProjectRemainsAssessmentAuthority": true,
+      "runnerRemainsPublicationAuthority": true
+    }
+  },
   "replayPolicy": {
     "supported": true,
     "safeModeRequired": true,

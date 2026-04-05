@@ -357,6 +357,10 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
       evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
       assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
       dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+      semanticReviewRequestPath:
+        "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+      semanticReviewResultPath:
+        "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
       publicationDecisionPath:
         "investigations/2026-04-03T19-00-00Z/publication-decision.json",
     },
@@ -390,6 +394,89 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
   assert.match(capturedPrompt, /"attemptRefAuthorities": \[/u);
   assert.match(capturedPrompt, /"acceptedPurgeIdentifiers": \[/u);
   assert.match(capturedPrompt, /"extract_condominium_info"/u);
+});
+
+test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto minimo serializado", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Runner path: <RUNNER_REPO_PATH>",
+        "Runner ref: <RUNNER_REFERENCE>",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+        "Manifest: <TARGET_INVESTIGATE_CASE_MANIFEST_PATH>",
+        "Request path: <TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_PATH>",
+        "Result path: <TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_PATH>",
+        "Request:",
+        "<TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_JSON>",
+        "Context:",
+        "<TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_CONTEXT_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "{\"schema_version\":\"semantic_review_result_v1\"}", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetInvestigateCaseSemanticReview({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+    reviewRequestPath: "investigations/2026-04-05T15-47-00Z/semantic-review.request.json",
+    reviewResultPath: "investigations/2026-04-05T15-47-00Z/semantic-review.result.json",
+    reviewRequestJson: JSON.stringify(
+      {
+        schema_version: "semantic_review_request_v1",
+        review_readiness: {
+          status: "ready",
+          reason_code: "READY",
+          summary: "bounded review ready",
+        },
+        prompt_contract: {
+          declared_surfaces_only: true,
+          new_evidence_discovery_allowed: false,
+        },
+      },
+      null,
+      2,
+    ),
+    reviewContextJson: JSON.stringify(
+      {
+        target_fields: [
+          {
+            field_path: "extract_address.value.current.complemento",
+            extracted_value: "apartamento n",
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  });
+
+  assert.match(result.promptTemplatePath, /17-target-investigate-case-semantic-review\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(
+    capturedPrompt,
+    /Request path: investigations\/2026-04-05T15-47-00Z\/semantic-review\.request\.json/u,
+  );
+  assert.match(
+    capturedPrompt,
+    /Result path: investigations\/2026-04-05T15-47-00Z\/semantic-review\.result\.json/u,
+  );
+  assert.match(capturedPrompt, /"schema_version": "semantic_review_request_v1"/u);
+  assert.match(capturedPrompt, /"field_path": "extract_address\.value\.current\.complemento"/u);
+  assert.match(
+    capturedPrompt,
+    /Nao descubra novas evidencias nem leia arquivos fora do contexto serializado neste prompt\./u,
+  );
 });
 
 test("runStage injeta guia operacional de shell no prompt", async () => {

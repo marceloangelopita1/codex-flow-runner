@@ -13,6 +13,7 @@ import { targetInvestigateCaseManifestSchema } from "../types/target-investigate
 import {
   TargetInvestigateCaseRoundMaterializationCodexClient,
   TargetInvestigateCaseRoundMaterializationCodexRequest,
+  TargetInvestigateCaseSemanticReviewCodexRequest,
 } from "./codex-client.js";
 import { GitCheckupPublicationRequest, GitSyncEvidence, GitVersioning } from "./git-client.js";
 import { CodexCliTargetInvestigateCaseRoundPreparer } from "./target-investigate-case-round-preparer.js";
@@ -25,10 +26,14 @@ class SilentLogger extends Logger {
 
 class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexClient {
   public readonly calls: TargetInvestigateCaseRoundMaterializationCodexRequest[] = [];
+  public readonly semanticReviewCalls: TargetInvestigateCaseSemanticReviewCodexRequest[] = [];
 
   constructor(
     private readonly onRun: (request: TargetInvestigateCaseRoundMaterializationCodexRequest) => Promise<void>,
     private readonly authError?: Error,
+    private readonly onSemanticReview?: (
+      request: TargetInvestigateCaseSemanticReviewCodexRequest,
+    ) => Promise<string>,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -53,6 +58,62 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     return {
       output: "materialized",
       promptTemplatePath: "/repo/prompts/16-target-investigate-case-round-materialization.md",
+      promptText: "prompt",
+    };
+  }
+
+  async runTargetInvestigateCaseSemanticReview(
+    request: TargetInvestigateCaseSemanticReviewCodexRequest,
+  ) {
+    this.semanticReviewCalls.push(request);
+    const output =
+      (await this.onSemanticReview?.(request)) ??
+      JSON.stringify(
+        {
+          schema_version: "semantic_review_result_v1",
+          generated_at: "2026-04-05T15:50:00.000Z",
+          request_artifact: "semantic-review.request.json",
+          reviewer: {
+            orchestrator: "codex-flow-runner",
+            reviewer_label: "codex",
+          },
+          verdict: "confirmed_error",
+          issue_type: "semantic_truncation",
+          confidence: "high",
+          owner_hint: "target-project",
+          actionable: true,
+          summary: "bounded semantic review confirms the observed functional mismatch",
+          supporting_refs: [
+            {
+              surface_id: "local-run-bundle",
+              ref: "local-run-bundle:response",
+              path: "output/local-runs/hist-case/main.response.json",
+              sha256: "a".repeat(64),
+              record_count: 1,
+              selection_reason: "observed workflow response",
+              json_pointers: ["/extract_address/value/current/complemento"],
+            },
+          ],
+          field_verdicts: [
+            {
+              field_path: "extract_address.value.current.complemento",
+              json_pointer: "/extract_address/value/current/complemento",
+              verdict: "supports_error",
+              summary: "field preserves only a truncated fragment of the expected value",
+            },
+          ],
+          constraints_acknowledged: {
+            declared_surfaces_only: true,
+            new_evidence_discovery_allowed: false,
+          },
+        },
+        null,
+        2,
+      );
+
+    return {
+      output,
+      promptTemplatePath: "/repo/prompts/17-target-investigate-case-semantic-review.md",
       promptText: "prompt",
     };
   }
@@ -106,6 +167,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer materializa artefatos canonicos
     "workflow",
     "window",
     "runArtifact",
+    "symptom",
   ]);
   assert.deepEqual(codexClient.calls[0]?.acceptedPurgeIdentifiers, [
     "propertyId",
@@ -143,6 +205,167 @@ test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos a
 
   assert.equal(result.dossierPath, "investigations/2026-04-03T19-00-00Z/dossier.md");
   assert.ok(result.ticketPublisher);
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando semantic-review.request.json esta ausente", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(request.targetProject.path, request.roundDirectory, "json", null);
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 0);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+    ),
+    false,
+  );
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer nao chama o Codex quando o packet de semantic-review esta blocked", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      request.roundDirectory,
+      "json",
+      "blocked",
+    );
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 0);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+    ),
+    false,
+  );
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e persiste semantic-review.result.json", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      request.roundDirectory,
+      "json",
+      "ready",
+    );
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 1);
+  const persisted = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { schema_version?: string; verdict?: string };
+  assert.equal(persisted.schema_version, "semantic_review_result_v1");
+  assert.equal(persisted.verdict, "confirmed_error");
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando semantic-review.request.json esta invalido", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      request.roundDirectory,
+      "json",
+      "ready",
+    );
+    await fs.writeFile(
+      path.join(request.targetProject.path, ...request.artifactPaths.semanticReviewRequestPath.split("/")),
+      "{invalid-json\n",
+      "utf8",
+    );
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 0);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+    ),
+    false,
+  );
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando a resposta do Codex para semantic-review e invalida", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(
+    async (request) => {
+      await materializeRoundArtifacts(
+        request.targetProject.path,
+        request.roundDirectory,
+        "json",
+        "ready",
+      );
+    },
+    undefined,
+    async () => "nao-json",
+  );
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 1);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+    ),
+    false,
+  );
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer bloqueia quando o Codex CLI nao esta autenticado", async () => {
@@ -219,7 +442,14 @@ const createRoundPreparerFixture = async (): Promise<{
     selectors: {
       accepted: ["case-ref", "workflow", "request-id", "window"],
       required: ["case-ref"],
-      targetProjectAccepted: ["propertyId", "requestId", "workflow", "window", "runArtifact"],
+      targetProjectAccepted: [
+        "propertyId",
+        "requestId",
+        "workflow",
+        "window",
+        "runArtifact",
+        "symptom",
+      ],
     },
     workflows: {
       investigable: ["extract_address", "extract_condominium_info"],
@@ -267,6 +497,36 @@ const createRoundPreparerFixture = async (): Promise<{
         artifactPathPattern: "dossier.md|dossier.json",
         schemaVersion: "1.0",
         preferredArtifact: "dossier.json",
+      },
+    },
+    semanticReview: {
+      owner: "target-project",
+      runnerExecutor: "codex-flow-runner",
+      artifacts: {
+        request: {
+          artifact: "semantic-review.request.json",
+          schemaVersion: "semantic_review_request_v1",
+          requiredFields: [
+            "workflow",
+            "review_readiness",
+            "prompt_contract",
+            "target_fields",
+            "supporting_refs",
+          ],
+        },
+        result: {
+          artifact: "semantic-review.result.json",
+          schemaVersion: "semantic_review_result_v1",
+          optionalUntilRunnerIntegration: true,
+        },
+      },
+      packetPolicy: {
+        declaredSurfacesOnly: true,
+        newEvidenceDiscoveryAllowed: false,
+        allowRawPayloadEmbedding: false,
+        boundedByWorkflowContract: true,
+        targetProjectRemainsAssessmentAuthority: true,
+        runnerRemainsPublicationAuthority: true,
       },
     },
     replayPolicy: {
@@ -354,6 +614,10 @@ const createRoundPreparerFixture = async (): Promise<{
         evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
         assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
         dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+        semanticReviewRequestPath:
+          "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+        semanticReviewResultPath:
+          "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
         publicationDecisionPath:
           "investigations/2026-04-03T19-00-00Z/publication-decision.json",
       },
@@ -366,6 +630,7 @@ const materializeRoundArtifacts = async (
   projectPath: string,
   roundDirectory: string,
   dossierFormat: "md" | "json",
+  semanticReviewStatus: "ready" | "blocked" | null = null,
 ): Promise<void> => {
   const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
   await fs.mkdir(roundPath, { recursive: true });
@@ -494,12 +759,17 @@ const materializeRoundArtifacts = async (
         ).concat("\n")
       : "# dossier\n\nResumo local e sensivel sob retencao controlada.\n";
   await fs.writeFile(dossierPath, dossierContent, "utf8");
+
+  if (semanticReviewStatus) {
+    await writeSemanticReviewRequest(projectPath, roundDirectory, semanticReviewStatus);
+  }
 };
 
 const materializeRichRoundArtifacts = async (
   projectPath: string,
   roundDirectory: string,
   dossierFormat: "md" | "json",
+  semanticReviewStatus: "ready" | "blocked" | null = null,
 ): Promise<void> => {
   const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
   await fs.mkdir(roundPath, { recursive: true });
@@ -699,4 +969,144 @@ const materializeRichRoundArtifacts = async (
         ).concat("\n")
       : "# dossier\n\nResumo local e sensivel sob retencao controlada.\n";
   await fs.writeFile(dossierPath, dossierContent, "utf8");
+
+  if (semanticReviewStatus) {
+    await writeSemanticReviewRequest(projectPath, roundDirectory, semanticReviewStatus);
+  }
+};
+
+const writeSemanticReviewRequest = async (
+  projectPath: string,
+  roundDirectory: string,
+  status: "ready" | "blocked",
+): Promise<void> => {
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  await fs.writeFile(
+    path.join(roundPath, "semantic-review.request.json"),
+    JSON.stringify(
+      {
+        schema_version: "semantic_review_request_v1",
+        generated_at: "2026-04-05T15:49:00.000Z",
+        manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+        dossier_local_path: `${roundDirectory}/dossier.md`,
+        dossier_request_id: "case_inv_semantic_01",
+        workflow: {
+          key: "extract_address",
+          support_status: "supported",
+          public_http_selectable: true,
+          documentation_path: "docs/specs/example.md",
+        },
+        selected_selectors: {
+          requestId: "hist-case",
+          workflow: "extract_address",
+          symptom: "complemento truncado",
+        },
+        symptom: "complemento truncado",
+        review_readiness: {
+          status,
+          reason_code: status === "ready" ? "READY" : "WORKFLOW_RESPONSE_MISSING",
+          summary:
+            status === "ready"
+              ? "bounded semantic review ready"
+              : "semantic review blocked by missing observed workflow response",
+        },
+        review_scope: {
+          resolved_case_authority: "requestId",
+          resolved_attempt_authority: "requestId",
+          resolved_attempt_status: "resolved",
+          replay_status: "not-required",
+          replay_mode: "historical-only",
+          historical_sufficiency_class: "sufficient",
+          evidence_sufficiency: "sufficient",
+        },
+        prompt_contract: {
+          declared_surfaces_only: true,
+          new_evidence_discovery_allowed: false,
+          raw_payload_embedding_allowed: false,
+          final_assessment_authority: "target-project",
+          final_publication_authority: "runner",
+        },
+        contract_refs: {
+          workflow_documentation_path: "docs/specs/example.md",
+        },
+        review_question:
+          "Using only the declared refs, pointers and workflow contract, determine whether the observed output shows the symptom as a functional error.",
+        target_fields:
+          status === "ready"
+            ? [
+                {
+                  field_path: "extract_address.value.current.complemento",
+                  artifact_path: "output/local-runs/hist-case/main.response.json",
+                  json_pointer: "/extract_address/value/current/complemento",
+                  selection_reason: "bounded target field selected by the target project",
+                },
+              ]
+            : [],
+        supporting_refs:
+          status === "ready"
+            ? [
+                {
+                  surface_id: "local-run-bundle",
+                  ref: "local-run-bundle:response",
+                  path: "output/local-runs/hist-case/main.response.json",
+                  sha256: "a".repeat(64),
+                  record_count: 1,
+                  selection_reason: "observed workflow response",
+                  json_pointers: ["/extract_address/value/current/complemento"],
+                },
+              ]
+            : [],
+        declared_signals: {
+          consulted_surfaces: ["local-run-bundle"],
+          warning_error_code_candidates: ["LOW_EXTRACTOR_SUCCESS"],
+          compare_report_signals: {
+            recommended_actions: [],
+            transcript_parity_statuses: [],
+            phase_step_hints: 0,
+          },
+          cache_summary: null,
+          normative_conflicts: [],
+        },
+        expected_result_artifact: {
+          artifact: "semantic-review.result.json",
+          schema_version: "semantic_review_result_v1",
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+
+  if (status === "ready") {
+    await fs.mkdir(path.join(projectPath, "output", "local-runs", "hist-case"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(projectPath, "output", "local-runs", "hist-case", "main.response.json"),
+      JSON.stringify(
+        {
+          extract_address: {
+            value: {
+              current: {
+                complemento: "apartamento n",
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ).concat("\n"),
+      "utf8",
+    );
+  }
+};
+
+const fileExists = async (value: string): Promise<boolean> => {
+  try {
+    await fs.access(value);
+    return true;
+  } catch {
+    return false;
+  }
 };

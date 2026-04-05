@@ -6,6 +6,7 @@ Objetivo:
 - consumir somente a capability declarada pelo projeto alvo;
 - preparar a rodada em `investigations/<round-id>/`;
 - produzir exatamente os artefatos canônicos exigidos pelo runner;
+- quando a capability declarar `semanticReview`, emitir apenas o packet bounded `semantic-review.request.json` no mesmo diretório da rodada;
 - deixar a decisão final de publication para o runner.
 
 Regras obrigatórias:
@@ -20,6 +21,8 @@ Regras obrigatórias:
   - `evidence-bundle.json`
   - `assessment.json`
   - `dossier.md` ou `dossier.json`
+- Se a capability declarar `semanticReview`, grave também `semantic-review.request.json` no mesmo diretório da rodada quando houver packet bounded pronto ou bloqueado.
+- Não grave `semantic-review.result.json`; esse artefato pertence ao runner como executor mecânico do Codex.
 - Não crie `publication-decision.json`, não abra ticket e não faça commit/push.
 - Se faltar insumo objetivo para uma rodada segura, pare com blocker explícito em vez de improvisar.
 
@@ -28,7 +31,7 @@ Checklist de execução:
 2. Resolver o caso sem extrapolar as authorities declaradas.
 3. Coletar evidências apenas pelas superfícies/estratégias permitidas.
 4. Registrar replay/purge somente quando permitido e de forma auditável.
-5. Materializar os artefatos canônicos exatamente nos caminhos informados.
+5. Materializar os artefatos canônicos exatamente nos caminhos informados, incluindo o packet bounded de `semantic-review` quando a capability o declarar.
 6. Responder com um resumo curto dizendo o que foi materializado ou qual blocker impediu a rodada.
 
 ## Contexto adicional

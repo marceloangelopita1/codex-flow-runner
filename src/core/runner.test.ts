@@ -9754,6 +9754,10 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
                 evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
                 assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
                 dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
                 publicationDecisionPath:
                   "investigations/2026-04-03T19-00-00Z/publication-decision.json",
               },
@@ -9842,6 +9846,19 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
                   path: "investigations/2026-04-03T19-00-00Z/dossier.md",
                   sensitivity: "restricted",
                   retention: "30 days",
+                },
+                semantic_review: {
+                  status: "missing",
+                  request_path: null,
+                  request_schema_version: null,
+                  review_readiness_status: null,
+                  review_readiness_reason_code: null,
+                  result_path: null,
+                  result_schema_version: null,
+                  verdict: null,
+                  issue_type: null,
+                  confidence: null,
+                  failure_reason: null,
                 },
               },
               nextAction: "Encerrar a rodada como no-op local.",
@@ -9951,6 +9968,10 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
                 evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
                 assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
                 dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T20-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T20-00-00Z/semantic-review.result.json",
                 publicationDecisionPath:
                   "investigations/2026-04-03T20-00-00Z/publication-decision.json",
               },
@@ -10039,6 +10060,19 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
                   path: "investigations/2026-04-03T20-00-00Z/dossier.md",
                   sensitivity: "restricted",
                   retention: "30 days",
+                },
+                semantic_review: {
+                  status: "missing",
+                  request_path: null,
+                  request_schema_version: null,
+                  review_readiness_status: null,
+                  review_readiness_reason_code: null,
+                  result_path: null,
+                  result_schema_version: null,
+                  verdict: null,
+                  issue_type: null,
+                  confidence: null,
+                  failure_reason: null,
                 },
               },
               nextAction: "Revise a rodada.",
@@ -10147,6 +10181,10 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
                 evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
                 assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
                 dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T21-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T21-00-00Z/semantic-review.result.json",
                 publicationDecisionPath:
                   "investigations/2026-04-03T21-00-00Z/publication-decision.json",
               },
@@ -10237,6 +10275,19 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
                   path: "investigations/2026-04-03T21-00-00Z/dossier.md",
                   sensitivity: "restricted",
                   retention: "30 days",
+                },
+                semantic_review: {
+                  status: "missing",
+                  request_path: null,
+                  request_schema_version: null,
+                  review_readiness_status: null,
+                  review_readiness_reason_code: null,
+                  result_path: null,
+                  result_schema_version: null,
+                  verdict: null,
+                  issue_type: null,
+                  confidence: null,
+                  failure_reason: null,
                 },
               },
               nextAction: "Revisar o ticket publicado.",

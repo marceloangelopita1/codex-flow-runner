@@ -12,9 +12,15 @@ import {
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
+  targetInvestigateCaseSemanticReviewRequestSchema,
+  TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseRoundMaterializationCodexClient } from "./codex-client.js";
 import { GitVersioning } from "./git-client.js";
+import {
+  buildTargetInvestigateCaseSemanticReviewPromptContext,
+  parseTargetInvestigateCaseSemanticReviewOutput,
+} from "./target-investigate-case-semantic-review.js";
 import { FileSystemTargetInvestigateCaseTicketPublisher } from "./target-investigate-case-ticket-publisher.js";
 
 interface TargetInvestigateCaseRoundPreparerDependencies {
@@ -99,6 +105,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         "assessment.json",
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
+      await this.completeSemanticReviewIfSupported(request, fixedCodexClient);
     } catch (error) {
       return {
         status: "failed",
@@ -154,6 +161,140 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       request.targetProject.path,
       this.dependencies.createGitVersioning(request.targetProject),
     );
+  }
+
+  private async completeSemanticReviewIfSupported(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    codexClient: TargetInvestigateCaseRoundMaterializationCodexClient,
+  ): Promise<void> {
+    if (!request.manifest.semanticReview) {
+      return;
+    }
+
+    await removeRelativePathIfExists(
+      request.targetProject.path,
+      request.artifactPaths.semanticReviewResultPath,
+    );
+
+    if (
+      !(await relativePathExists(
+        request.targetProject.path,
+        request.artifactPaths.semanticReviewRequestPath,
+      ))
+    ) {
+      this.dependencies.logger.info(
+        "semantic-review ausente na rodada de target-investigate-case; fluxo segue sem regressao",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+        },
+      );
+      return;
+    }
+
+    let semanticReviewRequest: TargetInvestigateCaseSemanticReviewRequest;
+    try {
+      semanticReviewRequest = await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.semanticReviewRequestPath,
+        targetInvestigateCaseSemanticReviewRequestSchema,
+        "semantic-review.request.json",
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "semantic-review.request.json invalido; subfluxo sera degradado sem interromper a rodada",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return;
+    }
+
+    if (semanticReviewRequest.review_readiness.status === "blocked") {
+      this.dependencies.logger.info(
+        "semantic-review pulado por bloqueio explicito do projeto alvo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          reasonCode: semanticReviewRequest.review_readiness.reason_code,
+        },
+      );
+      return;
+    }
+
+    if (request.isCancellationRequested()) {
+      this.dependencies.logger.info(
+        "semantic-review nao sera executado porque a rodada recebeu cancelamento cooperativo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+        },
+      );
+      return;
+    }
+
+    let reviewContextJson = "";
+    try {
+      reviewContextJson = JSON.stringify(
+        await buildTargetInvestigateCaseSemanticReviewPromptContext(
+          request.targetProject.path,
+          semanticReviewRequest,
+        ),
+        null,
+        2,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "semantic-review nao conseguiu montar contexto bounded valido; subfluxo sera degradado",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return;
+    }
+
+    const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
+    try {
+      const result = await codexClient.runTargetInvestigateCaseSemanticReview({
+        targetProject: request.targetProject,
+        runnerRepoPath: this.dependencies.runnerRepoPath,
+        runnerReference,
+        manifestPath: request.manifestPath,
+        reviewRequestPath: request.artifactPaths.semanticReviewRequestPath,
+        reviewResultPath: request.artifactPaths.semanticReviewResultPath,
+        reviewRequestJson: JSON.stringify(semanticReviewRequest, null, 2),
+        reviewContextJson,
+      });
+      const parsedResult = parseTargetInvestigateCaseSemanticReviewOutput(result.output);
+      await fs.writeFile(
+        path.join(
+          request.targetProject.path,
+          ...request.artifactPaths.semanticReviewResultPath.split("/"),
+        ),
+        `${JSON.stringify(parsedResult, null, 2)}\n`,
+        "utf8",
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "semantic-review runner-side falhou; fluxo principal seguira sem resultado sintetico",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          resultPath: request.artifactPaths.semanticReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 }
 
@@ -235,6 +376,19 @@ const readJsonArtifact = async <SchemaOutput>(
   }
 
   return schema.parse(decoded);
+};
+
+const removeRelativePathIfExists = async (
+  projectPath: string,
+  relativePath: string,
+): Promise<void> => {
+  try {
+    await fs.unlink(path.join(projectPath, ...relativePath.split("/")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
 };
 
 const relativePathExists = async (projectPath: string, relativePath: string): Promise<boolean> => {

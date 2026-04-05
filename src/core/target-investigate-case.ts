@@ -20,12 +20,17 @@ import {
   targetInvestigateCaseFinalSummarySchema,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
+  targetInvestigateCaseSemanticReviewRequestSchema,
+  targetInvestigateCaseSemanticReviewResultSchema,
+  targetInvestigateCaseSemanticReviewTraceSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseArtifactSet,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
   TargetInvestigateCaseCaseResolution,
   TargetInvestigateCaseCompletedSummary,
   TargetInvestigateCaseEvidenceBundle,
@@ -36,6 +41,9 @@ import {
   TargetInvestigateCaseNormalizedInput,
   TargetInvestigateCasePublicationDecision,
   TargetInvestigateCasePublicationStatus,
+  TargetInvestigateCaseSemanticReviewRequest,
+  TargetInvestigateCaseSemanticReviewResult,
+  TargetInvestigateCaseSemanticReviewTrace,
   TargetInvestigateCaseTracePayload,
 } from "../types/target-investigate-case.js";
 import {
@@ -59,6 +67,8 @@ export interface TargetInvestigateCaseArtifactPaths {
   evidenceBundlePath: string;
   assessmentPath: string;
   dossierPath: string;
+  semanticReviewRequestPath?: string;
+  semanticReviewResultPath?: string;
   publicationDecisionPath?: string;
 }
 
@@ -170,6 +180,12 @@ export interface TargetInvestigateCaseExecutor {
 interface ValidatedDossierArtifact {
   path: string;
   format: "markdown" | "json";
+}
+
+interface DiscoveredSemanticReviewArtifacts {
+  trace: TargetInvestigateCaseSemanticReviewTrace;
+  request: TargetInvestigateCaseSemanticReviewRequest | null;
+  result: TargetInvestigateCaseSemanticReviewResult | null;
 }
 
 const OPTIONAL_FLAG_ORDER = [
@@ -363,6 +379,11 @@ export const evaluateTargetInvestigateCaseRound = async (
     "assessment.json",
   );
   const dossier = await validateDossierArtifact(request.targetProject.path, artifactPaths.dossierPath);
+  const semanticReview = await discoverTargetInvestigateCaseSemanticReviewArtifacts(
+    request.targetProject.path,
+    manifestLoad.manifest,
+    artifactPaths,
+  );
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
   validateAssessmentConsistency(assessment);
@@ -395,6 +416,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     assessment,
     publicationDecision: decision,
     dossierPath: artifactPaths.dossierPath,
+    semanticReview: semanticReview.trace,
   });
   await writeJsonArtifact(
     request.targetProject.path,
@@ -423,6 +445,7 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
   assessment: TargetInvestigateCaseAssessment;
   publicationDecision: TargetInvestigateCasePublicationDecision;
   dossierPath: string;
+  semanticReview: TargetInvestigateCaseSemanticReviewTrace;
 }): TargetInvestigateCaseTracePayload =>
   targetInvestigateCaseTracePayloadSchema.parse({
     selectors: {
@@ -468,6 +491,7 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
       sensitivity: params.manifest.dossierPolicy.sensitivity,
       retention: params.manifest.dossierPolicy.retention,
     },
+    semantic_review: params.semanticReview,
   });
 
 export const buildTargetInvestigateCaseFinalSummary = (params: {
@@ -1226,6 +1250,166 @@ const validateDossierArtifact = async (
   throw new Error("O dossier precisa usar apenas dossier.md ou dossier.json.");
 };
 
+const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
+  projectPath: string,
+  manifest: TargetInvestigateCaseManifest,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): Promise<DiscoveredSemanticReviewArtifacts> => {
+  if (!manifest.semanticReview) {
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "missing",
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  if (!(await relativePathExists(projectPath, artifactPaths.semanticReviewRequestPath))) {
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "missing",
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  let request: TargetInvestigateCaseSemanticReviewRequest;
+  try {
+    request = await readJsonArtifact(
+      projectPath,
+      artifactPaths.semanticReviewRequestPath,
+      targetInvestigateCaseSemanticReviewRequestSchema,
+      TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+    );
+  } catch {
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.semanticReviewRequestPath,
+        failureReason: "semantic-review.request.json invalido.",
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  if (request.review_readiness.status === "blocked") {
+    if (await relativePathExists(projectPath, artifactPaths.semanticReviewResultPath)) {
+      return {
+        trace: buildTargetInvestigateCaseSemanticReviewTrace({
+          status: "failed",
+          requestPath: artifactPaths.semanticReviewRequestPath,
+          requestSchemaVersion: request.schema_version,
+          reviewReadinessStatus: request.review_readiness.status,
+          reviewReadinessReasonCode: request.review_readiness.reason_code,
+          resultPath: artifactPaths.semanticReviewResultPath,
+          failureReason:
+            "semantic-review.result.json nao deveria existir para packet bloqueado.",
+        }),
+        request,
+        result: null,
+      };
+    }
+
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "blocked",
+        requestPath: artifactPaths.semanticReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  if (!(await relativePathExists(projectPath, artifactPaths.semanticReviewResultPath))) {
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.semanticReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+        failureReason: "semantic-review.result.json ausente para packet pronto.",
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  let result: TargetInvestigateCaseSemanticReviewResult;
+  try {
+    result = await readJsonArtifact(
+      projectPath,
+      artifactPaths.semanticReviewResultPath,
+      targetInvestigateCaseSemanticReviewResultSchema,
+      TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
+    );
+  } catch {
+    return {
+      trace: buildTargetInvestigateCaseSemanticReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.semanticReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+        resultPath: artifactPaths.semanticReviewResultPath,
+        failureReason: "semantic-review.result.json invalido.",
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  return {
+    trace: buildTargetInvestigateCaseSemanticReviewTrace({
+      status: "completed",
+      requestPath: artifactPaths.semanticReviewRequestPath,
+      requestSchemaVersion: request.schema_version,
+      reviewReadinessStatus: request.review_readiness.status,
+      reviewReadinessReasonCode: request.review_readiness.reason_code,
+      resultPath: artifactPaths.semanticReviewResultPath,
+      resultSchemaVersion: result.schema_version,
+      verdict: result.verdict,
+      issueType: result.issue_type,
+      confidence: result.confidence,
+    }),
+    request,
+    result,
+  };
+};
+
+const buildTargetInvestigateCaseSemanticReviewTrace = (params: {
+  status: TargetInvestigateCaseSemanticReviewTrace["status"];
+  requestPath?: string | null;
+  requestSchemaVersion?: TargetInvestigateCaseSemanticReviewRequest["schema_version"] | null;
+  reviewReadinessStatus?: TargetInvestigateCaseSemanticReviewRequest["review_readiness"]["status"] | null;
+  reviewReadinessReasonCode?: TargetInvestigateCaseSemanticReviewRequest["review_readiness"]["reason_code"] | null;
+  resultPath?: string | null;
+  resultSchemaVersion?: TargetInvestigateCaseSemanticReviewResult["schema_version"] | null;
+  verdict?: TargetInvestigateCaseSemanticReviewResult["verdict"] | null;
+  issueType?: TargetInvestigateCaseSemanticReviewResult["issue_type"] | null;
+  confidence?: TargetInvestigateCaseSemanticReviewResult["confidence"] | null;
+  failureReason?: string | null;
+}): TargetInvestigateCaseSemanticReviewTrace =>
+  targetInvestigateCaseSemanticReviewTraceSchema.parse({
+    status: params.status,
+    request_path: params.requestPath ?? null,
+    request_schema_version: params.requestSchemaVersion ?? null,
+    review_readiness_status: params.reviewReadinessStatus ?? null,
+    review_readiness_reason_code: params.reviewReadinessReasonCode ?? null,
+    result_path: params.resultPath ?? null,
+    result_schema_version: params.resultSchemaVersion ?? null,
+    verdict: params.verdict ?? null,
+    issue_type: params.issueType ?? null,
+    confidence: params.confidence ?? null,
+    failure_reason: params.failureReason ?? null,
+  });
+
 const normalizeArtifactPaths = (
   paths: TargetInvestigateCaseArtifactPaths,
 ): Required<TargetInvestigateCaseArtifactPaths> => {
@@ -1233,9 +1417,20 @@ const normalizeArtifactPaths = (
   const evidenceBundlePath = normalizeRelativePath(paths.evidenceBundlePath, "evidenceBundlePath");
   const assessmentPath = normalizeRelativePath(paths.assessmentPath, "assessmentPath");
   const dossierPath = normalizeRelativePath(paths.dossierPath, "dossierPath");
+  const roundDirectory = path.posix.dirname(caseResolutionPath);
+  const semanticReviewRequestPath = normalizeRelativePath(
+    paths.semanticReviewRequestPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT),
+    "semanticReviewRequestPath",
+  );
+  const semanticReviewResultPath = normalizeRelativePath(
+    paths.semanticReviewResultPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
+    "semanticReviewResultPath",
+  );
   const publicationDecisionPath = normalizeRelativePath(
     paths.publicationDecisionPath ??
-      path.posix.join(path.posix.dirname(caseResolutionPath), "publication-decision.json"),
+      path.posix.join(roundDirectory, "publication-decision.json"),
     "publicationDecisionPath",
   );
 
@@ -1244,6 +1439,8 @@ const normalizeArtifactPaths = (
     evidenceBundlePath,
     assessmentPath,
     dossierPath,
+    semanticReviewRequestPath,
+    semanticReviewResultPath,
     publicationDecisionPath,
   };
 };
@@ -1292,9 +1489,9 @@ const readJsonArtifact = async <SchemaOutput>(
 const writeJsonArtifact = async (
   projectPath: string,
   relativePath: string,
-  payload: TargetInvestigateCasePublicationDecision,
+  payload: unknown,
 ): Promise<void> => {
-  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, "publication-decision");
+  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, "json-artifact");
   await fs.mkdir(path.dirname(absolutePath), { recursive: true });
   await fs.writeFile(absolutePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 };
@@ -1358,6 +1555,12 @@ const buildTargetInvestigateCaseArtifactSet = (
     path.join(roundDirectory, "assessment.json"),
   ),
   dossierPath: normalizeTargetInvestigateCaseRelativePath(path.join(roundDirectory, "dossier.md")),
+  semanticReviewRequestPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT),
+  ),
+  semanticReviewResultPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
+  ),
   publicationDecisionPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, "publication-decision.json"),
   ),

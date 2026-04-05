@@ -23,6 +23,8 @@ import {
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
   targetInvestigateCasePublicationDecisionSchema,
+  targetInvestigateCaseSemanticReviewRequestSchema,
+  targetInvestigateCaseSemanticReviewResultSchema,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
@@ -33,6 +35,8 @@ import {
   TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES,
   TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES,
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_VALID_PUBLICATION_COMBINATIONS,
 } from "../types/target-investigate-case.js";
 
@@ -46,6 +50,8 @@ interface TargetRepoFixture {
     evidenceBundlePath: string;
     assessmentPath: string;
     dossierPath: string;
+    semanticReviewRequestPath: string;
+    semanticReviewResultPath: string;
     publicationDecisionPath: string;
   };
 }
@@ -127,6 +133,14 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     "workflow",
     "window",
     "runArtifact",
+    "symptom",
+  ]);
+  assert.deepEqual(loaded.manifest.selectors.accepted, [
+    "case-ref",
+    "workflow",
+    "request-id",
+    "window",
+    "symptom",
   ]);
   assert.deepEqual(loaded.manifest.caseResolutionPolicy.caseRefAuthorities, [
     "propertyId",
@@ -155,6 +169,12 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
   ]);
   assert.equal(loaded.manifest.outputs.dossier.preferredArtifact, "dossier.md");
   assert.equal(loaded.manifest.ticketPublicationPolicy?.internalTicketTemplatePath, "tickets/templates/internal-ticket-template.md");
+  assert.equal(loaded.manifest.semanticReview?.owner, "target-project");
+  assert.equal(loaded.manifest.semanticReview?.runnerExecutor, "codex-flow-runner");
+  assert.equal(
+    loaded.manifest.semanticReview?.artifacts.request.artifact,
+    "semantic-review.request.json",
+  );
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
@@ -353,6 +373,7 @@ test("evaluateTargetInvestigateCaseRound grava publication-decision no caminho n
   assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
   assert.deepEqual(result.publicationDecision.versioned_artifact_paths, []);
   assert.equal(result.publicationDecision.ticket_path, null);
+  assert.equal(result.tracePayload.semantic_review.status, "missing");
 
   const savedDecision = JSON.parse(
     await fs.readFile(
@@ -370,6 +391,138 @@ test("evaluateTargetInvestigateCaseRound grava publication-decision no caminho n
   assert.doesNotMatch(traceJson, /workflow_debug/u);
   assert.doesNotMatch(traceJson, /db_payload/u);
   assert.doesNotMatch(traceJson, /transcript/u);
+});
+
+test("evaluateTargetInvestigateCaseRound registra semantic-review blocked sem alterar a semantica atual de publication", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    semanticReviewRequestDocument: {
+      ...buildSemanticReviewRequestFixture(),
+      review_readiness: {
+        status: "blocked",
+        reason_code: "WORKFLOW_RESPONSE_MISSING",
+        summary: "semantic review blocked because the observed workflow response is unavailable",
+      },
+      target_fields: [],
+      supporting_refs: [],
+    },
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.tracePayload.semantic_review.status, "blocked");
+  assert.equal(result.tracePayload.semantic_review.request_path, fixture.artifactPaths.semanticReviewRequestPath);
+  assert.equal(result.tracePayload.semantic_review.result_path, null);
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+});
+
+test("evaluateTargetInvestigateCaseRound registra semantic-review completed com metadados minimos do resultado", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.tracePayload.semantic_review.status, "completed");
+  assert.equal(result.tracePayload.semantic_review.request_path, fixture.artifactPaths.semanticReviewRequestPath);
+  assert.equal(result.tracePayload.semantic_review.result_path, fixture.artifactPaths.semanticReviewResultPath);
+  assert.equal(result.tracePayload.semantic_review.verdict, "confirmed_error");
+  assert.equal(result.tracePayload.semantic_review.issue_type, "semantic_truncation");
+  assert.equal(result.tracePayload.semantic_review.confidence, "high");
+  const traceJson = JSON.stringify(result.tracePayload);
+  assert.doesNotMatch(traceJson, /billing-core\.value\.current\.status/u);
+  assert.doesNotMatch(traceJson, /semantic review confirms the functional mismatch/u);
+});
+
+test("evaluateTargetInvestigateCaseRound marca semantic-review como failed quando o request esta invalido", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+  });
+  await fs.writeFile(
+    path.join(fixture.project.path, ...fixture.artifactPaths.semanticReviewRequestPath.split("/")),
+    "{invalid-json\n",
+    "utf8",
+  );
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.tracePayload.semantic_review.status, "failed");
+  assert.equal(result.tracePayload.semantic_review.failure_reason, "semantic-review.request.json invalido.");
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+});
+
+test("evaluateTargetInvestigateCaseRound marca semantic-review como failed quando o result esta invalido", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+  await fs.writeFile(
+    path.join(fixture.project.path, ...fixture.artifactPaths.semanticReviewResultPath.split("/")),
+    "{invalid-json\n",
+    "utf8",
+  );
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.tracePayload.semantic_review.status, "failed");
+  assert.equal(result.tracePayload.semantic_review.failure_reason, "semantic-review.result.json invalido.");
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
 });
 
 test("evaluateTargetInvestigateCaseRound aceita os artefatos ricos atuais do piloto e os normaliza para o contrato interno", async () => {
@@ -619,6 +772,7 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
     assessment: result.assessment,
     publicationDecision: result.publicationDecision,
     dossierPath: result.artifactPaths.dossierPath,
+    semanticReview: result.tracePayload.semantic_review,
   });
 
   const renderedSummary = renderTargetInvestigateCaseFinalSummary(summary);
@@ -736,6 +890,10 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
       evidenceBundlePath: "investigations/2026-04-03T18-00-00Z/evidence-bundle.json",
       assessmentPath: "investigations/2026-04-03T18-00-00Z/assessment.json",
       dossierPath: "investigations/2026-04-03T18-00-00Z/dossier.md",
+      semanticReviewRequestPath:
+        "investigations/2026-04-03T18-00-00Z/semantic-review.request.json",
+      semanticReviewResultPath:
+        "investigations/2026-04-03T18-00-00Z/semantic-review.result.json",
       publicationDecisionPath: "investigations/2026-04-03T18-00-00Z/publication-decision.json",
     },
   );
@@ -868,11 +1026,15 @@ const createTargetRepoFixture = async (options: {
   mutateCaseResolution?: (artifact: any) => void;
   mutateEvidenceBundle?: (artifact: any) => void;
   mutateAssessment?: (artifact: any) => void;
+  mutateSemanticReviewRequest?: (artifact: any) => void;
+  mutateSemanticReviewResult?: (artifact: any) => void;
   dossierFormat?: "md" | "json";
   manifestDocument?: any;
   caseResolutionDocument?: any;
   evidenceBundleDocument?: any;
   assessmentDocument?: any;
+  semanticReviewRequestDocument?: any | null;
+  semanticReviewResultDocument?: any | null;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
   const projectName = "alpha-project";
@@ -883,6 +1045,8 @@ const createTargetRepoFixture = async (options: {
     evidenceBundlePath: `${roundDir}/evidence-bundle.json`,
     assessmentPath: `${roundDir}/assessment.json`,
     dossierPath: `${roundDir}/dossier.${options.dossierFormat === "json" ? "json" : "md"}`,
+    semanticReviewRequestPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT}`,
+    semanticReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT}`,
     publicationDecisionPath: `${roundDir}/publication-decision.json`,
   };
 
@@ -936,6 +1100,30 @@ const createTargetRepoFixture = async (options: {
     "utf8",
   );
 
+  if (options.semanticReviewRequestDocument !== null && options.semanticReviewRequestDocument !== undefined) {
+    const semanticReviewRequest =
+      options.semanticReviewRequestDocument ?? buildSemanticReviewRequestFixture();
+    options.mutateSemanticReviewRequest?.(semanticReviewRequest);
+    targetInvestigateCaseSemanticReviewRequestSchema.parse(semanticReviewRequest);
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.semanticReviewRequestPath.split("/")),
+      `${JSON.stringify(semanticReviewRequest, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  if (options.semanticReviewResultDocument !== null && options.semanticReviewResultDocument !== undefined) {
+    const semanticReviewResult =
+      options.semanticReviewResultDocument ?? buildSemanticReviewResultFixture();
+    options.mutateSemanticReviewResult?.(semanticReviewResult);
+    targetInvestigateCaseSemanticReviewResultSchema.parse(semanticReviewResult);
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.semanticReviewResultPath.split("/")),
+      `${JSON.stringify(semanticReviewResult, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
   if (options.dossierFormat === "json") {
     await fs.writeFile(
       path.join(projectPath, ...artifactPaths.dossierPath.split("/")),
@@ -986,7 +1174,7 @@ const buildPilotManifestFixture = (options: {
       defaultIncludeWorkflowDebug: false,
     },
     selectors: {
-      accepted: ["propertyId", "requestId", "workflow", "window", "runArtifact"],
+      accepted: ["propertyId", "requestId", "workflow", "window", "runArtifact", "symptom"],
       runnerCaseRefRequired: true,
       attemptResolution: {
         strategy: "explicit-or-null",
@@ -1063,6 +1251,36 @@ const buildPilotManifestFixture = (options: {
         artifact: "publication-decision.json",
         schemaVersion: "publication_decision_v1",
         dossierArtifact: "dossier.md",
+      },
+    },
+    semanticReview: {
+      owner: "target-project",
+      runnerExecutor: "codex-flow-runner",
+      artifacts: {
+        request: {
+          artifact: "semantic-review.request.json",
+          schemaVersion: "semantic_review_request_v1",
+          requiredFields: [
+            "workflow",
+            "review_readiness",
+            "prompt_contract",
+            "target_fields",
+            "supporting_refs",
+          ],
+        },
+        result: {
+          artifact: "semantic-review.result.json",
+          schemaVersion: "semantic_review_result_v1",
+          optionalUntilRunnerIntegration: true,
+        },
+      },
+      packetPolicy: {
+        declaredSurfacesOnly: true,
+        newEvidenceDiscoveryAllowed: false,
+        allowRawPayloadEmbedding: false,
+        boundedByWorkflowContract: true,
+        targetProjectRemainsAssessmentAuthority: true,
+        runnerRemainsPublicationAuthority: true,
       },
     },
     replayPolicy: {
@@ -1420,6 +1638,125 @@ const buildRichAssessmentFixture = (): any => ({
         "no compare report was available for this round, so phase/step corroboration stayed limited to local runtime traces",
     },
   ],
+});
+
+const buildSemanticReviewRequestFixture = (): any => ({
+  schema_version: "semantic_review_request_v1",
+  generated_at: "2026-04-05T15:48:00.000Z",
+  manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  dossier_local_path: "investigations/round-1/dossier.md",
+  dossier_request_id: "case_inv_semantic_01",
+  workflow: {
+    key: "billing-core",
+    support_status: "supported",
+    public_http_selectable: true,
+    documentation_path: "docs/specs/example.md",
+  },
+  selected_selectors: {
+    requestId: "req-001",
+    workflow: "billing-core",
+    symptom: "timeout on save",
+  },
+  symptom: "timeout on save",
+  review_readiness: {
+    status: "ready",
+    reason_code: "READY",
+    summary: "bounded semantic review ready",
+  },
+  review_scope: {
+    resolved_case_authority: "requestId",
+    resolved_attempt_authority: "requestId",
+    resolved_attempt_status: "resolved",
+    replay_status: "used",
+    replay_mode: "safe-replay",
+    historical_sufficiency_class: "sufficient",
+    evidence_sufficiency: "strong",
+  },
+  prompt_contract: {
+    declared_surfaces_only: true,
+    new_evidence_discovery_allowed: false,
+    raw_payload_embedding_allowed: false,
+    final_assessment_authority: "target-project",
+    final_publication_authority: "runner",
+  },
+  contract_refs: {
+    workflow_documentation_path: "docs/specs/example.md",
+  },
+  review_question:
+    "Using only the declared refs, pointers and workflow contract, determine whether the observed output shows a functional error.",
+  target_fields: [
+    {
+      field_path: "billing-core.value.current.status",
+      artifact_path: "investigations/round-1/semantic-source.json",
+      json_pointer: "/billing-core/value/current/status",
+      selection_reason: "bounded target field selected by the target project",
+    },
+  ],
+  supporting_refs: [
+    {
+      surface_id: "local-run-bundle",
+      ref: "local-run-bundle:response",
+      path: "investigations/round-1/semantic-source.json",
+      sha256: "a".repeat(64),
+      record_count: 1,
+      selection_reason: "observed workflow response",
+      json_pointers: ["/billing-core/value/current/status"],
+    },
+  ],
+  declared_signals: {
+    consulted_surfaces: ["local-run-bundle"],
+    warning_error_code_candidates: ["LOW_EXTRACTOR_SUCCESS"],
+    compare_report_signals: {
+      recommended_actions: [],
+      transcript_parity_statuses: [],
+      phase_step_hints: 0,
+    },
+    cache_summary: null,
+    normative_conflicts: [],
+  },
+  expected_result_artifact: {
+    artifact: TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
+    schema_version: "semantic_review_result_v1",
+  },
+});
+
+const buildSemanticReviewResultFixture = (): any => ({
+  schema_version: "semantic_review_result_v1",
+  generated_at: "2026-04-05T15:49:00.000Z",
+  request_artifact: TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+  reviewer: {
+    orchestrator: "codex-flow-runner",
+    reviewer_label: "codex",
+  },
+  verdict: "confirmed_error",
+  issue_type: "semantic_truncation",
+  confidence: "high",
+  owner_hint: "target-project",
+  actionable: true,
+  summary: "bounded semantic review confirms the functional mismatch",
+  supporting_refs: [
+    {
+      surface_id: "local-run-bundle",
+      ref: "local-run-bundle:response",
+      path: "investigations/round-1/semantic-source.json",
+      sha256: "a".repeat(64),
+      record_count: 1,
+      selection_reason: "observed workflow response",
+      json_pointers: ["/billing-core/value/current/status"],
+    },
+  ],
+  field_verdicts: [
+    {
+      field_path: "billing-core.value.current.status",
+      json_pointer: "/billing-core/value/current/status",
+      verdict: "supports_error",
+      summary: "field diverges from the expected target-project contract",
+    },
+  ],
+  constraints_acknowledged: {
+    declared_surfaces_only: true,
+    new_evidence_discovery_allowed: false,
+  },
 });
 
 const buildPublicationDecisionFixture = (
