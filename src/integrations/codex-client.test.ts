@@ -352,6 +352,8 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
       "/target_investigate_case alpha-project case-001 --workflow extract_address --request-id req-001",
     roundId: "2026-04-03T19-00-00Z",
     roundDirectory: "investigations/2026-04-03T19-00-00Z",
+    officialTargetEntrypointCommand: "npm run case-investigation --",
+    officialTargetEntrypointScriptPath: "scripts/materialize-case-investigation-round.js",
     artifactPaths: {
       caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
       evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
@@ -381,6 +383,7 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
       "transcriptHint",
     ],
     dossierLocalPathTemplate: "output/case-investigation/<request-id>/",
+    authoritativeDossierLocalPath: "output/case-investigation/2026-04-03T19-00-00Z",
   });
 
   assert.match(
@@ -391,9 +394,15 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
   assert.match(capturedPrompt, /Manifest: docs\/workflows\/target-case-investigation-manifest\.json/u);
   assert.match(capturedPrompt, /Runbook: docs\/workflows\/target-case-investigation-runbook\.md/u);
   assert.match(capturedPrompt, /Round directory: investigations\/2026-04-03T19-00-00Z/u);
+  assert.match(capturedPrompt, /Entrypoint oficial do alvo: `npm run case-investigation --`/u);
+  assert.match(
+    capturedPrompt,
+    /Dossier local autoritativo esperado: `output\/case-investigation\/2026-04-03T19-00-00Z`/u,
+  );
   assert.match(capturedPrompt, /"attemptRefAuthorities": \[/u);
   assert.match(capturedPrompt, /"acceptedPurgeIdentifiers": \[/u);
   assert.match(capturedPrompt, /"extract_condominium_info"/u);
+  assert.match(capturedPrompt, /"officialTargetEntrypointScriptPath": "scripts\/materialize-case-investigation-round\.js"/u);
 });
 
 test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto minimo serializado", async () => {

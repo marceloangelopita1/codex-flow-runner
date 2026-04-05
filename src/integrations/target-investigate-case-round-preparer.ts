@@ -8,11 +8,13 @@ import {
 } from "../core/target-investigate-case.js";
 import type { ProjectRef } from "../types/project.js";
 import {
+  normalizeTargetInvestigateCaseRelativePath,
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseRoundMaterializationCodexClient } from "./codex-client.js";
@@ -57,6 +59,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 
     const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
     const runbookPath = resolveRunbookPath(request.manifest.supportingArtifacts.docs);
+    const authoritativeDossierLocalPath = resolveAuthoritativeDossierLocalPath(
+      request.manifest.dossierPolicy.localPathTemplate,
+      request.roundId,
+    );
 
     try {
       await fixedCodexClient.runTargetInvestigateCaseRoundMaterialization({
@@ -75,6 +81,9 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         investigableWorkflows: request.manifest.workflows.investigable,
         acceptedPurgeIdentifiers: request.manifest.replayPolicy.acceptedPurgeIdentifiers ?? [],
         dossierLocalPathTemplate: request.manifest.dossierPolicy.localPathTemplate,
+        officialTargetEntrypointCommand: request.manifest.entrypoint?.command ?? null,
+        officialTargetEntrypointScriptPath: request.manifest.entrypoint?.scriptPath ?? null,
+        authoritativeDossierLocalPath,
       });
     } catch (error) {
       return {
@@ -85,6 +94,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 
     let dossierPath = "";
     try {
+      await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
       dossierPath = await resolvePreparedDossierPath(request);
       await readJsonArtifact(
         request.targetProject.path,
@@ -301,6 +311,90 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 const resolveRunbookPath = (docs: readonly string[]): string | null =>
   docs.find((entry) => entry.endsWith("target-case-investigation-runbook.md")) ?? null;
 
+const resolveAuthoritativeDossierLocalPath = (
+  localPathTemplate: string,
+  roundId: string,
+): string | null => {
+  const resolved = normalizeTargetInvestigateCaseRelativePath(
+    localPathTemplate
+      .trim()
+      .replace(/<request-id>/gu, roundId)
+      .replace(/<round-id>/gu, roundId),
+  ).replace(/\/+$/u, "");
+
+  if (!resolved || resolved === "." || path.posix.isAbsolute(resolved)) {
+    return null;
+  }
+
+  const normalized = path.posix.normalize(resolved);
+  if (normalized === ".." || normalized.startsWith("../")) {
+    return null;
+  }
+
+  return normalized;
+};
+
+const syncCanonicalArtifactsFromAuthoritativeDossier = async (
+  request: TargetInvestigateCaseRoundPreparationRequest,
+  authoritativeDossierLocalPath: string | null,
+): Promise<void> => {
+  if (!authoritativeDossierLocalPath) {
+    return;
+  }
+
+  if (!(await relativePathExists(request.targetProject.path, authoritativeDossierLocalPath))) {
+    return;
+  }
+
+  const artifactMirrors = [
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "case-resolution.json"),
+      destinationPath: request.artifactPaths.caseResolutionPath,
+    },
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "evidence-bundle.json"),
+      destinationPath: request.artifactPaths.evidenceBundlePath,
+    },
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
+      destinationPath: request.artifactPaths.assessmentPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.semanticReviewRequestPath,
+    },
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.md"),
+      destinationPath: path.posix.join(request.roundDirectory, "dossier.md"),
+    },
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.json"),
+      destinationPath: path.posix.join(request.roundDirectory, "dossier.json"),
+    },
+  ];
+
+  for (const destinationPath of uniquePaths(
+    artifactMirrors.map((artifactMirror) => artifactMirror.destinationPath),
+  )) {
+    await removeRelativePathIfExists(request.targetProject.path, destinationPath);
+  }
+
+  for (const artifactMirror of artifactMirrors) {
+    if (!(await relativePathExists(request.targetProject.path, artifactMirror.sourcePath))) {
+      continue;
+    }
+
+    await copyRelativePath(
+      request.targetProject.path,
+      artifactMirror.sourcePath,
+      artifactMirror.destinationPath,
+    );
+  }
+};
+
 const resolvePreparedDossierPath = async (
   request: TargetInvestigateCaseRoundPreparationRequest,
 ): Promise<string> => {
@@ -389,6 +483,30 @@ const removeRelativePathIfExists = async (
       throw error;
     }
   }
+};
+
+const copyRelativePath = async (
+  projectPath: string,
+  sourceRelativePath: string,
+  destinationRelativePath: string,
+): Promise<void> => {
+  const absoluteSourcePath = path.join(projectPath, ...sourceRelativePath.split("/"));
+  const absoluteDestinationPath = path.join(projectPath, ...destinationRelativePath.split("/"));
+  await fs.mkdir(path.dirname(absoluteDestinationPath), { recursive: true });
+
+  if (sourceRelativePath.endsWith("/dossier.json")) {
+    const raw = await fs.readFile(absoluteSourcePath, "utf8");
+    const decoded = JSON.parse(raw);
+    const parsed = targetInvestigateCaseDossierJsonSchema.parse(decoded);
+    await fs.writeFile(
+      absoluteDestinationPath,
+      `${JSON.stringify({ ...parsed, local_path: destinationRelativePath }, null, 2)}\n`,
+      "utf8",
+    );
+    return;
+  }
+
+  await fs.copyFile(absoluteSourcePath, absoluteDestinationPath);
 };
 
 const relativePathExists = async (projectPath: string, relativePath: string): Promise<boolean> => {

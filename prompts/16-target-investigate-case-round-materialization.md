@@ -4,7 +4,9 @@ Você está executando apenas a materialização da rodada real de `case-investi
 
 Objetivo:
 - consumir somente a capability declarada pelo projeto alvo;
-- preparar a rodada em `investigations/<round-id>/`;
+- acionar primeiro o entrypoint oficial do projeto alvo quando ele estiver declarado no manifesto;
+- tratar o dossier local oficial do alvo como fonte autoritativa dos artefatos da rodada;
+- preparar `investigations/<round-id>/` como um espelho runner-side desses artefatos autoritativos;
 - produzir exatamente os artefatos canônicos exigidos pelo runner;
 - quando a capability declarar `semanticReview`, emitir apenas o packet bounded `semantic-review.request.json` no mesmo diretório da rodada;
 - deixar a decisão final de publication para o runner.
@@ -15,6 +17,9 @@ Regras obrigatórias:
 - Não descubra logs, buckets, comandos, scripts ou superfícies fora do que estiver declarado nesses artefatos.
 - Não adivinhe tentativa específica: resolva-a explicitamente ou registre ausência explícita quando o caso não puder ser desambiguado com segurança.
 - Use apenas selectors, workflows, superfícies e identificadores de purge presentes nas allowlists serializadas neste prompt.
+- Quando houver entrypoint oficial e dossier local autoritativo declarados, execute esse entrypoint para materializar a rodada oficial do alvo antes de tocar `investigations/<round-id>/`.
+- Se o dossier local autoritativo do alvo existir, copie os artefatos canônicos dele para `investigations/<round-id>/` sem reescrever semântica, sem enriquecer enums e sem reinterpretar o conteúdo.
+- O diretório `investigations/<round-id>/` deve ser um espelho runner-side do pacote final do alvo, não uma segunda implementação criativa do `assessment`.
 - Se usar replay, mantenha `updateDb=false`, `x-request-id` dedicado, `dryRun` antes de qualquer purge efetivo e registre isso nos artefatos da rodada.
 - Grave exatamente estes artefatos canônicos no diretório informado:
   - `case-resolution.json`
@@ -31,7 +36,7 @@ Checklist de execução:
 2. Resolver o caso sem extrapolar as authorities declaradas.
 3. Coletar evidências apenas pelas superfícies/estratégias permitidas.
 4. Registrar replay/purge somente quando permitido e de forma auditável.
-5. Materializar os artefatos canônicos exatamente nos caminhos informados, incluindo o packet bounded de `semantic-review` quando a capability o declarar.
+5. Espelhar os artefatos canônicos exatamente nos caminhos informados, incluindo o packet bounded de `semantic-review` quando a capability o declarar.
 6. Responder com um resumo curto dizendo o que foi materializado ou qual blocker impediu a rodada.
 
 ## Contexto adicional

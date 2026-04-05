@@ -175,6 +175,15 @@ test("CodexCliTargetInvestigateCaseRoundPreparer materializa artefatos canonicos
     "matriculaNumber",
     "transcriptHint",
   ]);
+  assert.equal(codexClient.calls[0]?.officialTargetEntrypointCommand, "npm run case-investigation --");
+  assert.equal(
+    codexClient.calls[0]?.officialTargetEntrypointScriptPath,
+    "scripts/materialize-case-investigation-round.js",
+  );
+  assert.equal(
+    codexClient.calls[0]?.authoritativeDossierLocalPath,
+    "output/case-investigation/2026-04-03T19-00-00Z",
+  );
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos artefatos do piloto", async () => {
@@ -205,6 +214,106 @@ test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos a
 
   assert.equal(result.dossierPath, "investigations/2026-04-03T19-00-00Z/dossier.md");
   assert.ok(result.ticketPublisher);
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo antes da validacao e neutraliza drift runner-side", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      `output/case-investigation/${request.roundId}`,
+      "md",
+      "blocked",
+    );
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      request.roundDirectory,
+      "json",
+      "ready",
+    );
+    await fs.writeFile(
+      path.join(request.targetProject.path, ...request.artifactPaths.evidenceBundlePath.split("/")),
+      JSON.stringify(
+        {
+          collection_plan: {
+            manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+            strategy_ids: ["allowed-query-1"],
+          },
+          historical_sources: [],
+          sensitive_artifact_refs: [],
+          replay: {
+            used: false,
+            mode: "historical-only",
+            request_id: null,
+            update_db: null,
+            include_workflow_debug: null,
+            cache_policy: null,
+            purge_policy: null,
+            namespace: null,
+          },
+          collection_sufficiency: "partial",
+          normative_conflicts: [
+            {
+              kind: "runtime-surface-unavailable",
+              summary: "runner-side drift injected an enum outside the schema",
+            },
+          ],
+          factual_sufficiency_reason: "drifted artifact",
+        },
+        null,
+        2,
+      ).concat("\n"),
+      "utf8",
+    );
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  if (result.status !== "prepared") {
+    return;
+  }
+
+  assert.equal(result.dossierPath, "investigations/2026-04-03T19-00-00Z/dossier.md");
+  assert.equal(codexClient.semanticReviewCalls.length, 0);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "dossier.json",
+      ),
+    ),
+    false,
+  );
+
+  const mirroredEvidenceBundle = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.evidenceBundlePath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { normative_conflicts?: unknown[] };
+  assert.deepEqual(mirroredEvidenceBundle.normative_conflicts, []);
+
+  const mirroredSemanticReviewRequest = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewRequestPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { review_readiness?: { status?: string } };
+  assert.equal(mirroredSemanticReviewRequest.review_readiness?.status, "blocked");
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando semantic-review.request.json esta ausente", async () => {
@@ -439,6 +548,12 @@ const createRoundPreparerFixture = async (): Promise<{
     contractVersion: "1.0",
     schemaVersion: "1.0",
     capability: "case-investigation",
+    entrypoint: {
+      command: "npm run case-investigation --",
+      scriptPath: "scripts/materialize-case-investigation-round.js",
+      defaultReplayMode: "historical-only",
+      defaultIncludeWorkflowDebug: false,
+    },
     selectors: {
       accepted: ["case-ref", "workflow", "request-id", "window"],
       required: ["case-ref"],

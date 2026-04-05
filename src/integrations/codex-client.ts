@@ -372,6 +372,8 @@ export interface TargetInvestigateCaseRoundMaterializationCodexRequest {
   runnerReference: string;
   manifestPath: string;
   runbookPath?: string | null;
+  officialTargetEntrypointCommand?: string | null;
+  officialTargetEntrypointScriptPath?: string | null;
   canonicalCommand: string;
   roundId: string;
   roundDirectory: string;
@@ -382,6 +384,7 @@ export interface TargetInvestigateCaseRoundMaterializationCodexRequest {
   investigableWorkflows: string[];
   acceptedPurgeIdentifiers: TargetInvestigateCasePurgeIdentifier[];
   dossierLocalPathTemplate: string;
+  authoritativeDossierLocalPath?: string | null;
 }
 
 export interface TargetInvestigateCaseRoundMaterializationCodexResult {
@@ -1936,6 +1939,8 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
         canonicalCommand: request.canonicalCommand,
         manifestPath: request.manifestPath,
         runbookPath: request.runbookPath ?? null,
+        officialTargetEntrypointCommand: request.officialTargetEntrypointCommand ?? null,
+        officialTargetEntrypointScriptPath: request.officialTargetEntrypointScriptPath ?? null,
         roundId: request.roundId,
         roundDirectory: request.roundDirectory,
         artifactPaths: request.artifactPaths,
@@ -1947,6 +1952,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
           acceptedPurgeIdentifiers: request.acceptedPurgeIdentifiers,
         },
         dossierLocalPathTemplate: request.dossierLocalPathTemplate,
+        authoritativeDossierLocalPath: request.authoritativeDossierLocalPath ?? null,
       },
       null,
       2,
@@ -1978,8 +1984,19 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Referencia textual do runner: \`${request.runnerReference}\``,
       `- Manifesto da capability: \`${request.manifestPath}\``,
       ...(request.runbookPath ? [`- Runbook operacional: \`${request.runbookPath}\``] : []),
+      ...(request.officialTargetEntrypointCommand
+        ? [`- Entrypoint oficial do alvo: \`${request.officialTargetEntrypointCommand}\``]
+        : []),
+      ...(request.officialTargetEntrypointScriptPath
+        ? [`- Script oficial do alvo: \`${request.officialTargetEntrypointScriptPath}\``]
+        : []),
       `- Round ID: \`${request.roundId}\``,
       `- Round directory: \`${request.roundDirectory}\``,
+      ...(request.authoritativeDossierLocalPath
+        ? [
+            `- Dossier local autoritativo esperado: \`${request.authoritativeDossierLocalPath}\``,
+          ]
+        : []),
       "- Nao publique ticket; apenas materialize os artefatos da rodada para avaliacao runner-side.",
       "- Execute somente esta etapa no repositorio alvo e mantenha fluxo sequencial.",
     ].join("\n");

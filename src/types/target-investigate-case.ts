@@ -397,6 +397,15 @@ export const targetInvestigateCaseManifestSchema = z
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
     schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
     capability: z.literal(TARGET_INVESTIGATE_CASE_CAPABILITY),
+    entrypoint: z
+      .object({
+        command: trimmedString,
+        scriptPath: relativePathSchema,
+        defaultReplayMode: replayModeSchema,
+        defaultIncludeWorkflowDebug: z.boolean(),
+      })
+      .strict()
+      .optional(),
     selectors: z
       .object({
         accepted: uniqueStringArray(selectorEnumSchema, "selectors.accepted"),
@@ -921,6 +930,14 @@ const normalizePilotManifestToInternal = (
     contractVersion: TARGET_INVESTIGATE_CASE_CONTRACT_VERSION,
     schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
     capability: TARGET_INVESTIGATE_CASE_CAPABILITY,
+    entrypoint: manifest.entrypoint
+      ? {
+          command: manifest.entrypoint.command,
+          scriptPath: manifest.entrypoint.scriptPath,
+          defaultReplayMode: manifest.entrypoint.defaultReplayMode,
+          defaultIncludeWorkflowDebug: manifest.entrypoint.defaultIncludeWorkflowDebug,
+        }
+      : undefined,
     selectors: {
       accepted: [
         "case-ref",

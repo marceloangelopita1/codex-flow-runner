@@ -167,6 +167,13 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     "extract_value_timeline_v1",
     "extract_construction_timeline_v1",
   ]);
+  assert.equal(loaded.manifest.entrypoint?.command, "npm run case-investigation --");
+  assert.equal(
+    loaded.manifest.entrypoint?.scriptPath,
+    "scripts/materialize-case-investigation-round.js",
+  );
+  assert.equal(loaded.manifest.entrypoint?.defaultReplayMode, "historical-only");
+  assert.equal(loaded.manifest.entrypoint?.defaultIncludeWorkflowDebug, false);
   assert.equal(loaded.manifest.outputs.dossier.preferredArtifact, "dossier.md");
   assert.equal(loaded.manifest.ticketPublicationPolicy?.internalTicketTemplatePath, "tickets/templates/internal-ticket-template.md");
   assert.equal(loaded.manifest.semanticReview?.owner, "target-project");
