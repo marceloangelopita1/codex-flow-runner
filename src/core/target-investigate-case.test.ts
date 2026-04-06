@@ -207,6 +207,16 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     true,
   );
   assert.equal(loaded.manifest.semanticReview?.symptoms?.selectedField, "symptom");
+  assert.equal(loaded.manifest.causalDebug?.owner, "target-project");
+  assert.equal(
+    loaded.manifest.causalDebug?.artifacts.result.optionalFields?.[0],
+    "minimal_cause.root_cause_classification",
+  );
+  assert.equal(
+    loaded.manifest.causalDebug?.artifacts.ticketProposal.qualityGate,
+    "target-ticket-quality-v1",
+  );
+  assert.equal(loaded.manifest.causalDebug?.debugPolicy.narrativeLanguage, "pt-BR");
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
@@ -2267,7 +2277,9 @@ const buildPilotManifestFixture = (options: {
           "blockers",
           "causal_hypothesis",
           "semantic_confirmation",
+          "causal_debug",
           "causal_surface",
+          "ticket_projection",
           "publication_recommendation",
         ],
         primaryTaxonomyValues: [
@@ -2282,6 +2294,18 @@ const buildPilotManifestFixture = (options: {
           "runtime_surface_unavailable",
           "bug_likely_but_unconfirmed",
         ],
+      },
+      "causal-debug-request": {
+        artifact: "causal-debug.request.json",
+        schemaVersion: "causal_debug_request_v1",
+      },
+      "causal-debug-result": {
+        artifact: "causal-debug.result.json",
+        schemaVersion: "causal_debug_result_v1",
+      },
+      "ticket-projection": {
+        artifact: "ticket-proposal.json",
+        schemaVersion: "ticket_proposal_v1",
       },
       publication: {
         artifact: "publication-decision.json",
@@ -2346,6 +2370,53 @@ const buildPilotManifestFixture = (options: {
             strength: "strong",
           },
         ],
+      },
+    },
+    causalDebug: {
+      owner: "target-project",
+      runnerExecutor: "codex-flow-runner",
+      promptPath: "docs/workflows/target-case-investigation-causal-debug.md",
+      artifacts: {
+        request: {
+          artifact: "causal-debug.request.json",
+          schemaVersion: "causal_debug_request_v1",
+        },
+        result: {
+          artifact: "causal-debug.result.json",
+          schemaVersion: "causal_debug_result_v1",
+          optionalFields: [
+            "minimal_cause.root_cause_classification",
+            "minimal_cause.preventable_stage",
+            "minimal_cause.remediation_scope",
+            "ticket_seed.ticket_scope",
+          ],
+        },
+        ticketProposal: {
+          artifact: "ticket-proposal.json",
+          schemaVersion: "ticket_proposal_v1",
+          optionalFields: [
+            "publication_hints.ticket_scope",
+            "publication_hints.slug_strategy",
+            "publication_hints.quality_gate",
+          ],
+          qualityGate: "target-ticket-quality-v1",
+        },
+      },
+      debugPolicy: {
+        repoReadAllowed: true,
+        readableSurfaces: ["code", "prompts", "tests", "docs", "config"],
+        externalEvidenceDiscoveryAllowed: false,
+        boundedSemanticConfirmationRequired: true,
+        targetProjectOwnsMinimalCause: true,
+        runnerRemainsPublicationAuthority: true,
+        narrativeLanguage: "pt-BR",
+      },
+      recomposition: {
+        strategy: "rerun-entrypoint",
+        roundRequestIdFlag: "--round-request-id",
+        forceFlag: "--force",
+        replayMode: "historical-only",
+        preserveExistingDossier: true,
       },
     },
     replayPolicy: {

@@ -608,12 +608,21 @@ const targetInvestigateCaseManifestCausalDebugSchema = z
             schemaVersion: z.literal(
               TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_SCHEMA_VERSION,
             ),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "causalDebug.artifacts.result.optionalFields",
+            ).optional(),
           })
           .strict(),
         ticketProposal: z
           .object({
             artifact: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "causalDebug.artifacts.ticketProposal.optionalFields",
+            ).optional(),
+            qualityGate: ticketQualityGateSchema.optional(),
           })
           .strict(),
       })
@@ -626,6 +635,7 @@ const targetInvestigateCaseManifestCausalDebugSchema = z
         boundedSemanticConfirmationRequired: z.literal(true),
         targetProjectOwnsMinimalCause: z.literal(true),
         runnerRemainsPublicationAuthority: z.literal(true),
+        narrativeLanguage: trimmedString.optional(),
       })
       .strict(),
     recomposition: z
@@ -1378,10 +1388,17 @@ const normalizePilotManifestToInternal = (
             result: {
               artifact: manifest.causalDebug.artifacts.result.artifact,
               schemaVersion: manifest.causalDebug.artifacts.result.schemaVersion,
+              optionalFields: manifest.causalDebug.artifacts.result.optionalFields
+                ? [...manifest.causalDebug.artifacts.result.optionalFields]
+                : undefined,
             },
             ticketProposal: {
               artifact: manifest.causalDebug.artifacts.ticketProposal.artifact,
               schemaVersion: manifest.causalDebug.artifacts.ticketProposal.schemaVersion,
+              optionalFields: manifest.causalDebug.artifacts.ticketProposal.optionalFields
+                ? [...manifest.causalDebug.artifacts.ticketProposal.optionalFields]
+                : undefined,
+              qualityGate: manifest.causalDebug.artifacts.ticketProposal.qualityGate,
             },
           },
           debugPolicy: {
@@ -1395,6 +1412,7 @@ const normalizePilotManifestToInternal = (
               manifest.causalDebug.debugPolicy.targetProjectOwnsMinimalCause,
             runnerRemainsPublicationAuthority:
               manifest.causalDebug.debugPolicy.runnerRemainsPublicationAuthority,
+            narrativeLanguage: manifest.causalDebug.debugPolicy.narrativeLanguage,
           },
           recomposition: manifest.causalDebug.recomposition
             ? {
