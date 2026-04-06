@@ -382,6 +382,7 @@ const semanticReviewFieldVerdictSchema = z.enum(
 const semanticReviewTraceStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES,
 );
+const caseIdentityMemberSchema = z.union([targetProjectSelectorSchema, purgeIdentifierSchema]);
 
 const selectorValueSchema = trimmedString;
 const jsonPointerSchema = trimmedString.refine((value) => value.startsWith("/"), {
@@ -397,6 +398,32 @@ export const targetInvestigateCaseNormalizedInputSchema = z
     window: selectorValueSchema.optional(),
     symptom: selectorValueSchema.optional(),
     canonicalCommand: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseManifestSemanticReviewSymptomsSchema = z
+  .object({
+    selectedField: z.literal("symptom"),
+    selectionField: z.literal("symptom_selection"),
+    candidateField: z.literal("symptom_candidates"),
+    selectionPrecedence: uniqueNonEmptyArray(
+      trimmedString,
+      "semanticReview.symptoms.selectionPrecedence",
+    ),
+    minimumScopedCandidates: z
+      .array(
+        z
+          .object({
+            candidateId: trimmedString,
+            workflow: trimmedString,
+            fieldPath: trimmedString,
+            jsonPointer: jsonPointerSchema,
+            issueType: semanticReviewIssueTypeSchema,
+            strength: semanticReviewSymptomCandidateStrengthSchema,
+          })
+          .strict(),
+      )
+      .min(1),
   })
   .strict();
 
@@ -436,6 +463,7 @@ const targetInvestigateCaseManifestSemanticReviewSchema = z
         runnerRemainsPublicationAuthority: z.literal(true),
       })
       .strict(),
+    symptoms: targetInvestigateCaseManifestSemanticReviewSymptomsSchema.optional(),
   })
   .strict();
 
@@ -701,6 +729,28 @@ export const targetInvestigateCasePilotManifestSchema = z
           attemptRefAuthoritySchema,
           "caseResolution.attemptRefAuthorities",
         ),
+        canonicalIdentityMembers: uniqueNonEmptyArray(
+          caseIdentityMemberSchema,
+          "caseResolution.canonicalIdentityMembers",
+        ).optional(),
+        attemptCandidates: z
+          .object({
+            discoveryMode: z.literal("case-identity"),
+            selectionPolicy: z.literal("no-silent-selection-on-ambiguity"),
+            historicalEvidenceMayReuseSingleCandidate: z.boolean(),
+          })
+          .strict()
+          .optional(),
+        replayReadiness: z
+          .object({
+            states: uniqueNonEmptyArray(
+              replayReadinessStateSchema,
+              "caseResolution.replayReadiness.states",
+            ),
+            legacyCompatField: z.literal("replay_decision"),
+          })
+          .strict()
+          .optional(),
         noSilentAttemptSelection: z.boolean(),
       })
       .strict(),
@@ -763,6 +813,18 @@ export const targetInvestigateCasePilotManifestSchema = z
           .object({
             artifact: z.literal("assessment.json"),
             schemaVersion: trimmedString,
+            requiredFields: uniqueNonEmptyArray(
+              trimmedString,
+              "phaseOutputs.assessment.requiredFields",
+            ).optional(),
+            primaryTaxonomyValues: uniqueNonEmptyArray(
+              primaryTaxonomySchema,
+              "phaseOutputs.assessment.primaryTaxonomyValues",
+            ).optional(),
+            operationalClassValues: uniqueNonEmptyArray(
+              operationalClassSchema,
+              "phaseOutputs.assessment.operationalClassValues",
+            ).optional(),
           })
           .strict(),
         publication: z

@@ -1613,6 +1613,22 @@ const buildPilotManifestFixture = (options: {
     caseResolution: {
       caseRefAuthorities: ["propertyId", "requestId", "runArtifact"],
       attemptRefAuthorities: ["requestId", "runArtifact", "workflow+window"],
+      canonicalIdentityMembers: [
+        "propertyId",
+        "pdfFileName",
+        "matriculaNumber",
+        "workflow",
+        "window",
+      ],
+      attemptCandidates: {
+        discoveryMode: "case-identity",
+        selectionPolicy: "no-silent-selection-on-ambiguity",
+        historicalEvidenceMayReuseSingleCandidate: true,
+      },
+      replayReadiness: {
+        states: ["prohibited", "incomplete", "ready", "executed"],
+        legacyCompatField: "replay_decision",
+      },
       noSilentAttemptSelection: true,
     },
     evidenceSurfaces: [
@@ -1660,6 +1676,26 @@ const buildPilotManifestFixture = (options: {
       assessment: {
         artifact: "assessment.json",
         schemaVersion: "assessment_v1",
+        requiredFields: [
+          "primary_taxonomy",
+          "operational_class",
+          "next_action",
+          "blockers",
+          "causal_surface",
+          "publication_recommendation",
+        ],
+        primaryTaxonomyValues: [
+          "capability_gap",
+          "bug_likely",
+          "bug_confirmed",
+          "expected_behavior",
+          "evidence_missing_or_partial",
+        ],
+        operationalClassValues: [
+          "bundle_not_captured",
+          "runtime_surface_unavailable",
+          "bug_likely_but_unconfirmed",
+        ],
       },
       publication: {
         artifact: "publication-decision.json",
@@ -1676,6 +1712,8 @@ const buildPilotManifestFixture = (options: {
           schemaVersion: "semantic_review_request_v1",
           requiredFields: [
             "workflow",
+            "symptom_selection",
+            "symptom_candidates",
             "review_readiness",
             "prompt_contract",
             "target_fields",
@@ -1695,6 +1733,26 @@ const buildPilotManifestFixture = (options: {
         boundedByWorkflowContract: true,
         targetProjectRemainsAssessmentAuthority: true,
         runnerRemainsPublicationAuthority: true,
+      },
+      symptoms: {
+        selectedField: "symptom",
+        selectionField: "symptom_selection",
+        candidateField: "symptom_candidates",
+        selectionPrecedence: [
+          "selected_selectors.symptom",
+          "single-strong-bounded-candidate",
+        ],
+        minimumScopedCandidates: [
+          {
+            candidateId:
+              "extract_address_current_complemento_semantic_truncation_apartamento_n",
+            workflow: "extract_address",
+            fieldPath: "extract_address.value.current.complemento",
+            jsonPointer: "/extract_address/value/current/complemento",
+            issueType: "semantic_truncation",
+            strength: "strong",
+          },
+        ],
       },
     },
     replayPolicy: {
