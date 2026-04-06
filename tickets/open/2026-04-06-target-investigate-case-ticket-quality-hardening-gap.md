@@ -33,6 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
   - execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md
+  - tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - ../guiadomus-matricula/execplans/2026-04-06-case-investigation-ticket-quality-hardening.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -49,9 +50,10 @@
 - Workflow area: target-investigate-case / publication runner-side / ticket publisher
 - Scenario: o target project ja consegue produzir uma hipotese repo-aware melhor, mas o runner ainda aceita pouco contexto adicional, valida pouco o markdown target-owned e impõe naming de arquivo que mistura um identificador de caso com tickets pensados para backlog reutilizavel.
 - Input constraints: preservar a autoridade semantica target-owned, manter publication final no runner e permitir rollout gradual sem quebrar targets que ainda emitem `ticket_proposal_v1` no shape atual.
+- Ownership boundary: este ticket nao cobre `rootCauseReview`, gates causais nem rollout legado da nova etapa; essa frente ficou explicitamente no ticket `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`.
 
 ## Problem statement
-O runner precisa aceitar enriquecimento aditivo de `causal-debug.result.json` e `ticket-proposal.json`, endurecer a publication de `ticket_markdown` com guardrails editoriais minimos e deixar de impor naming runner-side que contradiga o escopo reutilizavel declarado pelo target.
+O runner precisa aceitar enriquecimento aditivo de `causal-debug.result.json` e `ticket-proposal.json`, endurecer a publication de `ticket_markdown` com guardrails editoriais minimos e deixar de impor naming runner-side que contradiga o escopo reutilizavel declarado pelo target, sem assumir a ownership do contrato futuro de confirmacao causal (`rootCauseReview`).
 
 ## Observed behavior
 - O que foi observado:
@@ -96,15 +98,16 @@ Nao obrigatorio. Preencher somente se houver direcao clara. Para ticket automati
 ## Closure criteria
 Defina evidencias objetivas para encerrar o ticket. Para ticket automatico de retrospectiva sistemica, prefira criterios por superficie afetada e evite usar "nao recorrencia" como criterio unico.
 - Requisito/RF/CA coberto: RF-06 / CA-01
-- Evidencia observavel: `src/types/target-investigate-case.ts` aceita shape legado e enriquecido para `causal-debug.result.json` e `ticket-proposal.json`.
+- Evidencia observavel: `src/types/target-investigate-case.ts` aceita shape legado e enriquecido para `causal-debug.result.json` e `ticket-proposal.json`, incluindo campos opcionais para hipoteses consideradas, motivo do escape de QA do extractor, oportunidades de prompt/exemplos/guardrails, `ticket_readiness`, gaps remanescentes e hints editoriais/naming sem quebrar backward compatibility.
 - Requisito/RF/CA coberto: RF-08 / CA-04
-- Evidencia observavel: `src/integrations/target-investigate-case-ticket-publisher.test.ts` cobre publication target-owned com guardrails editoriais minimos e naming coerente com o hint do target.
+- Evidencia observavel: `src/integrations/target-investigate-case-ticket-publisher.ts` e `src/integrations/target-investigate-case-ticket-publisher.test.ts` tornam observavel que, quando o contrato enriquecido for usado, a publication target-owned preserva ou exige exposicao explicita de hipoteses consideradas, do motivo de o QA do extractor nao ter capturado o erro, das oportunidades de prompt/exemplos/guardrails e de `ticket_readiness` com gaps remanescentes quando houver, alem de manter naming coerente com o hint do target.
 - Requisito/RF/CA coberto: RF-07 / CA-03
-- Evidencia observavel: `src/core/target-investigate-case.test.ts` e suites correlatas continuam verdes, mantendo gates explicitos quando `ticket-proposal.json` estiver ausente ou invalido.
+- Evidencia observavel: `src/core/target-investigate-case.test.ts` e suites correlatas continuam verdes, mantendo gates explicitos quando `ticket-proposal.json` estiver ausente ou invalido e quando a publication runner-side receber contrato enriquecido sem a trilha explicita exigida para o path novo.
 
 ## Decision log
 - 2026-04-06 - Ticket aberto a partir do diagnostico cross-repo do fluxo de `case-investigation` - a maior degradacao editorial nasce no target, mas o runner ainda precisa aceitar o contrato enriquecido e endurecer publication/naming para nao perpetuar o problema.
 - 2026-04-06 - Implementacao runner-side iniciada e validada localmente - o ticket permanece aberto ate o versionamento/fechamento formal no changeset final.
+- 2026-04-06 - Backlog reconciliado com `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` - este ticket segue apenas com contrato enriquecido de `causal-debug.result.json`/`ticket-proposal.json`, guardrails editoriais e naming; gates causais de `rootCauseReview` ficaram fora da sua ownership.
 
 ## Closure
 - Closed at (UTC):
