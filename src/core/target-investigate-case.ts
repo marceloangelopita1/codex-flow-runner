@@ -22,9 +22,12 @@ import {
   targetInvestigateCaseFinalSummarySchema,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
+  targetInvestigateCaseRootCauseReviewRequestSchema,
+  targetInvestigateCaseRootCauseReviewResultSchema,
   targetInvestigateCaseTicketProposalSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   targetInvestigateCaseSemanticReviewResultSchema,
+  targetInvestigateCaseRootCauseReviewTraceSchema,
   targetInvestigateCaseSemanticReviewTraceSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
@@ -33,6 +36,8 @@ import {
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
@@ -52,6 +57,9 @@ import {
   TargetInvestigateCaseNormalizedInput,
   TargetInvestigateCasePublicationDecision,
   TargetInvestigateCasePublicationStatus,
+  TargetInvestigateCaseRootCauseReviewRequest,
+  TargetInvestigateCaseRootCauseReviewResult,
+  TargetInvestigateCaseRootCauseReviewTrace,
   TargetInvestigateCaseSemanticReviewRequest,
   TargetInvestigateCaseSemanticReviewResult,
   TargetInvestigateCaseSemanticReviewTrace,
@@ -83,6 +91,8 @@ export interface TargetInvestigateCaseArtifactPaths {
   semanticReviewResultPath?: string;
   causalDebugRequestPath?: string;
   causalDebugResultPath?: string;
+  rootCauseReviewRequestPath?: string;
+  rootCauseReviewResultPath?: string;
   ticketProposalPath?: string;
   publicationDecisionPath?: string;
 }
@@ -212,6 +222,12 @@ interface DiscoveredCausalDebugArtifacts {
   request: TargetInvestigateCaseCausalDebugRequest | null;
   result: TargetInvestigateCaseCausalDebugResult | null;
   ticketProposal: TargetInvestigateCaseTicketProposal | null;
+}
+
+interface DiscoveredRootCauseReviewArtifacts {
+  trace: TargetInvestigateCaseRootCauseReviewTrace;
+  request: TargetInvestigateCaseRootCauseReviewRequest | null;
+  result: TargetInvestigateCaseRootCauseReviewResult | null;
 }
 
 class TargetInvestigateCaseOperationalFailureError extends Error {
@@ -439,10 +455,15 @@ export const evaluateTargetInvestigateCaseRound = async (
     manifestLoad.manifest,
     artifactPaths,
   );
+  const rootCauseReview = await discoverTargetInvestigateCaseRootCauseReviewArtifacts(
+    request.targetProject.path,
+    manifestLoad.manifest,
+    artifactPaths,
+  );
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
-  assertOperationalSubflowsReady(semanticReview, causalDebug, assessment);
-  validateAssessmentConsistency(assessment, semanticReview, causalDebug);
+  assertOperationalSubflowsReady(semanticReview, causalDebug, rootCauseReview, assessment);
+  validateAssessmentConsistency(assessment, semanticReview, causalDebug, rootCauseReview);
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
 
   const decision = await buildPublicationDecision({
@@ -453,6 +474,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     assessment,
+    rootCauseReview,
     dossier,
     ticketProposal: causalDebug.ticketProposal,
     ticketPublisher: request.ticketPublisher,
@@ -474,6 +496,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     publicationDecision: decision,
     dossierPath: artifactPaths.dossierPath,
     semanticReview: semanticReview.trace,
+    rootCauseReview: rootCauseReview.trace,
   });
   await writeJsonArtifact(
     request.targetProject.path,
@@ -503,6 +526,7 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
   publicationDecision: TargetInvestigateCasePublicationDecision;
   dossierPath: string;
   semanticReview: TargetInvestigateCaseSemanticReviewTrace;
+  rootCauseReview: TargetInvestigateCaseRootCauseReviewTrace;
 }): TargetInvestigateCaseTracePayload =>
   targetInvestigateCaseTracePayloadSchema.parse({
     selectors: {
@@ -564,6 +588,7 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
       retention: params.manifest.dossierPolicy.retention,
     },
     semantic_review: params.semanticReview,
+    root_cause_review: params.rootCauseReview,
   });
 
 export const buildTargetInvestigateCaseFinalSummary = (params: {
@@ -587,8 +612,13 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
     evidence_sufficiency: params.assessment.evidence_sufficiency,
     primary_taxonomy: params.assessment.primary_taxonomy,
     operational_class: params.assessment.operational_class,
+    root_cause_status: params.assessment.root_cause_review?.root_cause_status ?? null,
+    ticket_readiness_status:
+      params.assessment.root_cause_review?.ticket_readiness_status ?? null,
     assessment_next_action: params.assessment.next_action,
     blocker_codes: params.assessment.blockers.map((entry) => entry.code),
+    remaining_gap_codes:
+      params.assessment.root_cause_review?.remaining_gaps.map((entry) => entry.code) ?? [],
     causal_surface: params.assessment.causal_surface,
     publication_status: params.publicationDecision.publication_status,
     overall_outcome: params.publicationDecision.overall_outcome,
@@ -621,8 +651,11 @@ export const renderTargetInvestigateCaseFinalSummary = (
     `- Evidence sufficiency: ${summary.evidence_sufficiency}`,
     `- Primary taxonomy: ${summary.primary_taxonomy ?? "legacy-not-declared"}`,
     `- Operational class: ${summary.operational_class ?? "not_applicable"}`,
+    `- Root cause status: ${summary.root_cause_status ?? "legacy-not-declared"}`,
+    `- Ticket readiness status: ${summary.ticket_readiness_status ?? "legacy-not-declared"}`,
     `- Assessment next action: ${summary.assessment_next_action ? `${summary.assessment_next_action.code} (${summary.assessment_next_action.source}) - ${summary.assessment_next_action.summary}` : "N/A"}`,
     `- Blockers: ${summary.blocker_codes.length > 0 ? summary.blocker_codes.join(", ") : "none"}`,
+    `- Remaining gap codes: ${summary.remaining_gap_codes.length > 0 ? summary.remaining_gap_codes.join(", ") : "none"}`,
     `- Causal surface: ${summary.causal_surface.owner}/${summary.causal_surface.kind} - ${summary.causal_surface.summary}`,
     `- Publication status: ${summary.publication_status}`,
     `- Overall outcome: ${summary.overall_outcome}`,
@@ -981,6 +1014,7 @@ const buildPublicationDecision = async (params: {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  rootCauseReview: DiscoveredRootCauseReviewArtifacts;
   dossier: ValidatedDossierArtifact;
   ticketProposal?: TargetInvestigateCaseTicketProposal | null;
   ticketPublisher?: TargetInvestigateCaseTicketPublisher;
@@ -1024,8 +1058,20 @@ const buildPublicationDecision = async (params: {
       !hasBlockingVeto);
   const publicationRequested =
     params.assessment.publication_recommendation.recommended_action === "publish_ticket";
+  const rootCauseReviewContractDeclared = Boolean(params.manifest.rootCauseReview);
+  const rootCauseReviewResult = params.rootCauseReview.result;
+  const rootCauseStatus = rootCauseReviewResult?.root_cause_status ?? null;
+  const ticketReadinessStatus = rootCauseReviewResult?.ticket_readiness.status ?? null;
+  const rootCauseReviewConfirmedAndReady =
+    !rootCauseReviewContractDeclared ||
+    (rootCauseStatus === "root_cause_confirmed" && ticketReadinessStatus === "ready");
+  const hasContradictoryTicketProposal =
+    rootCauseReviewContractDeclared &&
+    Boolean(params.ticketProposal) &&
+    !rootCauseReviewConfirmedAndReady;
   const semanticallyEligible =
     publicationRequested &&
+    rootCauseReviewConfirmedAndReady &&
     (params.assessment.primary_taxonomy === "bug_confirmed" ||
       (params.assessment.houve_gap_real === "yes" &&
         params.assessment.era_evitavel_internamente === "yes" &&
@@ -1073,6 +1119,54 @@ const buildPublicationDecision = async (params: {
     outcome_reason =
       "O gap real e local, mas sem base explicita de generalizacao suficiente para ticket automatico.";
     next_action = "Tratar o caso localmente sem publication automatica.";
+  } else if (hasContradictoryTicketProposal) {
+    blockedGates.push("ticket-proposal-contradicts-root-cause-review");
+    if (!rootCauseReviewResult) {
+      blockedGates.push("root-cause-review-missing");
+    } else if (rootCauseStatus === "plausible_but_unfalsified") {
+      blockedGates.push("root-cause-review-plausible-but-unfalsified");
+    } else if (rootCauseStatus === "inconclusive") {
+      blockedGates.push("root-cause-review-inconclusive");
+    } else if (ticketReadinessStatus !== "ready") {
+      blockedGates.push("root-cause-review-ticket-not-ready");
+    }
+    publication_status = "not_eligible";
+    overall_outcome = hasProjectCapabilityGap
+      ? "inconclusive-project-capability-gap"
+      : "inconclusive-case";
+    outcome_reason =
+      "ticket-proposal.json contradiz o gate root-cause-review e nao pode ser publicado runner-side.";
+    next_action =
+      params.assessment.root_cause_review?.summary ??
+      params.assessment.next_action?.summary ??
+      "Recompor root-cause-review.result.json e os artefatos oficiais do target antes de nova publication.";
+  } else if (rootCauseReviewContractDeclared && publicationRequested && !rootCauseReviewConfirmedAndReady) {
+    if (!rootCauseReviewResult) {
+      blockedGates.push("root-cause-review-missing");
+      outcome_reason =
+        "O manifesto declarou rootCauseReview, mas a etapa ainda nao materializou root-cause-review.result.json valido para publication positiva.";
+    } else if (rootCauseStatus === "plausible_but_unfalsified") {
+      blockedGates.push("root-cause-review-plausible-but-unfalsified");
+      outcome_reason =
+        "A etapa root-cause-review concluiu que a causa continua apenas plausivel sem falsificacao suficiente.";
+    } else if (rootCauseStatus === "inconclusive") {
+      blockedGates.push("root-cause-review-inconclusive");
+      outcome_reason =
+        "A etapa root-cause-review permaneceu inconclusiva e nao liberou publication positiva.";
+    } else if (ticketReadinessStatus !== "ready") {
+      blockedGates.push("root-cause-review-ticket-not-ready");
+      outcome_reason =
+        "A etapa root-cause-review nao liberou ticket_readiness.status=ready para publication runner-side.";
+    }
+    publication_status = "not_eligible";
+    overall_outcome = hasProjectCapabilityGap
+      ? "inconclusive-project-capability-gap"
+      : "inconclusive-case";
+    next_action =
+      params.assessment.root_cause_review?.summary ??
+      rootCauseReviewResult?.ticket_readiness.summary ??
+      params.assessment.next_action?.summary ??
+      "Concluir root-cause-review com causa confirmada e ticket readiness explicito antes de nova publication.";
   } else if (semanticallyEligible) {
     if (hasBlockingVeto) {
       blockedGates.push("blocking-overfit-veto");
@@ -1309,6 +1403,7 @@ const validateCaseResolution = (
 const assertOperationalSubflowsReady = (
   semanticReview: DiscoveredSemanticReviewArtifacts,
   causalDebug: DiscoveredCausalDebugArtifacts,
+  rootCauseReview: DiscoveredRootCauseReviewArtifacts,
   assessment: TargetInvestigateCaseAssessment,
 ): void => {
   if (semanticReview.trace.status === "failed") {
@@ -1346,13 +1441,35 @@ const assertOperationalSubflowsReady = (
     assessment.publication_recommendation.recommended_action === "publish_ticket" &&
     !causalDebug.ticketProposal
   ) {
+    const failureSurface: TargetInvestigateCaseFailureSurface = rootCauseReview.request
+      ? "root-cause-review"
+      : "causal-debug";
     throw new TargetInvestigateCaseOperationalFailureError(
-      "causal-debug",
+      failureSurface,
       "artifact-validation-failed",
       "publication",
       "ticket-proposal.json ausente para packet repo-aware pronto com publication positiva.",
       assessment.next_action?.summary ??
         "Materialize ticket-proposal.json no projeto alvo antes de nova publication runner-side.",
+    );
+  }
+
+  if (!rootCauseReview.request) {
+    return;
+  }
+
+  if (rootCauseReview.request.review_readiness.status !== "ready") {
+    return;
+  }
+
+  if (!rootCauseReview.result) {
+    throw new TargetInvestigateCaseOperationalFailureError(
+      "root-cause-review",
+      "artifact-validation-failed",
+      "publication",
+      "root-cause-review.result.json ausente para packet repo-aware pronto.",
+      assessment.next_action?.summary ??
+        "Materialize root-cause-review.result.json no projeto alvo antes de nova publication runner-side.",
     );
   }
 };
@@ -1417,14 +1534,27 @@ const classifyTargetInvestigateCaseEvaluationFailure = (error: unknown): {
     };
   }
 
-  if (message.includes("causal-debug") || message.includes("ticket-proposal.json")) {
+  if (message.includes("root-cause-review")) {
     return {
       failedAtMilestone: "publication",
-      failureSurface: "causal-debug",
+      failureSurface: "root-cause-review",
       failureKind: "artifact-validation-failed",
       message,
       nextAction:
-        "Materialize causal-debug.result.json e ticket-proposal.json validos antes de nova publication runner-side.",
+        "Materialize root-cause-review.result.json valido antes de nova publication runner-side.",
+    };
+  }
+
+  if (message.includes("causal-debug") || message.includes("ticket-proposal.json")) {
+    return {
+      failedAtMilestone: "publication",
+      failureSurface: message.includes("ticket-proposal.json") ? "root-cause-review" : "causal-debug",
+      failureKind: "artifact-validation-failed",
+      message,
+      nextAction:
+        message.includes("ticket-proposal.json")
+          ? "Materialize root-cause-review.result.json e ticket-proposal.json coerentes antes de nova publication runner-side."
+          : "Materialize causal-debug.result.json e ticket-proposal.json validos antes de nova publication runner-side.",
     };
   }
 
@@ -1554,6 +1684,56 @@ const inferTargetInvestigateCaseFailureFromArtifacts = async (
     }
   }
 
+  if (await relativePathExists(projectPath, artifactPaths.rootCauseReviewRequestPath)) {
+    try {
+      const request = await readJsonArtifact(
+        projectPath,
+        artifactPaths.rootCauseReviewRequestPath,
+        targetInvestigateCaseRootCauseReviewRequestSchema,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+      );
+      if (request.review_readiness.status === "ready") {
+        if (!(await relativePathExists(projectPath, artifactPaths.rootCauseReviewResultPath))) {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "root-cause-review",
+            failureKind: "artifact-validation-failed",
+            message: "root-cause-review.result.json ausente para packet repo-aware pronto.",
+            nextAction:
+              "Materialize root-cause-review.result.json antes de nova publication runner-side.",
+          };
+        }
+
+        try {
+          await readJsonArtifact(
+            projectPath,
+            artifactPaths.rootCauseReviewResultPath,
+            targetInvestigateCaseRootCauseReviewResultSchema,
+            TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+          );
+        } catch {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "root-cause-review",
+            failureKind: "result-parse-failed",
+            message: "root-cause-review.result.json invalido.",
+            nextAction:
+              "Materialize root-cause-review.result.json valido antes de nova publication runner-side.",
+          };
+        }
+      }
+    } catch {
+      return {
+        failedAtMilestone: "publication",
+        failureSurface: "root-cause-review",
+        failureKind: "request-invalid",
+        message: "root-cause-review.request.json invalido.",
+        nextAction:
+          "Corrija root-cause-review.request.json no projeto alvo antes de rerodar a rodada.",
+      };
+    }
+  }
+
   return null;
 };
 
@@ -1561,6 +1741,7 @@ const validateAssessmentConsistency = (
   assessment: TargetInvestigateCaseAssessment,
   semanticReview?: DiscoveredSemanticReviewArtifacts,
   causalDebug?: DiscoveredCausalDebugArtifacts,
+  rootCauseReview?: DiscoveredRootCauseReviewArtifacts,
 ): void => {
   const hasRichTaxonomy =
     assessment.primary_taxonomy !== null || assessment.operational_class !== null;
@@ -1598,6 +1779,40 @@ const validateAssessmentConsistency = (
     throw new Error(
       "publication positiva runner-side exige ticket-proposal.json target-owned materializado.",
     );
+  }
+
+  if (rootCauseReview?.result) {
+    if (!assessment.root_cause_review) {
+      throw new Error(
+        "assessment.json precisa expor o bloco root_cause_review quando root-cause-review.result.json estiver materializado.",
+      );
+    }
+
+    if (
+      assessment.root_cause_review.root_cause_status !== rootCauseReview.result.root_cause_status
+    ) {
+      throw new Error(
+        "assessment.json diverge de root-cause-review.result.json em root_cause_status.",
+      );
+    }
+
+    if (
+      assessment.root_cause_review.ticket_readiness_status !==
+      rootCauseReview.result.ticket_readiness.status
+    ) {
+      throw new Error(
+        "assessment.json diverge de root-cause-review.result.json em ticket_readiness.status.",
+      );
+    }
+
+    if (
+      (rootCauseReview.result.remaining_gaps?.length ?? 0) > 0 &&
+      assessment.root_cause_review.remaining_gaps.length === 0
+    ) {
+      throw new Error(
+        "assessment.json precisa propagar remaining_gaps quando root-cause-review.result.json ainda declara lacunas remanescentes.",
+      );
+    }
   }
 
   if (
@@ -2044,6 +2259,172 @@ const discoverTargetInvestigateCaseCausalDebugArtifacts = async (
   };
 };
 
+const discoverTargetInvestigateCaseRootCauseReviewArtifacts = async (
+  projectPath: string,
+  manifest: TargetInvestigateCaseManifest,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): Promise<DiscoveredRootCauseReviewArtifacts> => {
+  if (!manifest.rootCauseReview) {
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "missing",
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  if (!(await relativePathExists(projectPath, artifactPaths.rootCauseReviewRequestPath))) {
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "missing",
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  let request: TargetInvestigateCaseRootCauseReviewRequest;
+  try {
+    request = await readJsonArtifact(
+      projectPath,
+      artifactPaths.rootCauseReviewRequestPath,
+      targetInvestigateCaseRootCauseReviewRequestSchema,
+      TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+    );
+  } catch (error) {
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.rootCauseReviewRequestPath,
+        failureReason: renderArtifactValidationFailure(
+          "root-cause-review.request.json invalido.",
+          error,
+        ),
+      }),
+      request: null,
+      result: null,
+    };
+  }
+
+  if (request.review_readiness.status === "blocked") {
+    if (await relativePathExists(projectPath, artifactPaths.rootCauseReviewResultPath)) {
+      return {
+        trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+          status: "failed",
+          requestPath: artifactPaths.rootCauseReviewRequestPath,
+          requestSchemaVersion: request.schema_version,
+          reviewReadinessStatus: request.review_readiness.status,
+          reviewReadinessReasonCode: request.review_readiness.reason_code,
+          resultPath: artifactPaths.rootCauseReviewResultPath,
+          failureReason:
+            "root-cause-review.result.json nao deveria existir para packet bloqueado.",
+        }),
+        request,
+        result: null,
+      };
+    }
+
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "blocked",
+        requestPath: artifactPaths.rootCauseReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  if (!(await relativePathExists(projectPath, artifactPaths.rootCauseReviewResultPath))) {
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.rootCauseReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+        failureReason: "root-cause-review.result.json ausente para packet pronto.",
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  let result: TargetInvestigateCaseRootCauseReviewResult;
+  try {
+    result = await readJsonArtifact(
+      projectPath,
+      artifactPaths.rootCauseReviewResultPath,
+      targetInvestigateCaseRootCauseReviewResultSchema,
+      TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+    );
+  } catch (error) {
+    return {
+      trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+        status: "failed",
+        requestPath: artifactPaths.rootCauseReviewRequestPath,
+        requestSchemaVersion: request.schema_version,
+        reviewReadinessStatus: request.review_readiness.status,
+        reviewReadinessReasonCode: request.review_readiness.reason_code,
+        resultPath: artifactPaths.rootCauseReviewResultPath,
+        failureReason: renderArtifactValidationFailure(
+          "root-cause-review.result.json invalido.",
+          error,
+        ),
+      }),
+      request,
+      result: null,
+    };
+  }
+
+  return {
+    trace: buildTargetInvestigateCaseRootCauseReviewTrace({
+      status: "completed",
+      requestPath: artifactPaths.rootCauseReviewRequestPath,
+      requestSchemaVersion: request.schema_version,
+      reviewReadinessStatus: request.review_readiness.status,
+      reviewReadinessReasonCode: request.review_readiness.reason_code,
+      resultPath: artifactPaths.rootCauseReviewResultPath,
+      resultSchemaVersion: result.schema_version,
+      rootCauseStatus: result.root_cause_status,
+      ticketReadinessStatus: result.ticket_readiness.status,
+      remainingGapCodes: (result.remaining_gaps ?? []).map((entry) => entry.code),
+    }),
+    request,
+    result,
+  };
+};
+
+const buildTargetInvestigateCaseRootCauseReviewTrace = (params: {
+  status: TargetInvestigateCaseRootCauseReviewTrace["status"];
+  requestPath?: string | null;
+  requestSchemaVersion?: TargetInvestigateCaseRootCauseReviewRequest["schema_version"] | null;
+  reviewReadinessStatus?: TargetInvestigateCaseRootCauseReviewRequest["review_readiness"]["status"] | null;
+  reviewReadinessReasonCode?: string | null;
+  resultPath?: string | null;
+  resultSchemaVersion?: TargetInvestigateCaseRootCauseReviewResult["schema_version"] | null;
+  rootCauseStatus?: TargetInvestigateCaseRootCauseReviewResult["root_cause_status"] | null;
+  ticketReadinessStatus?: string | null;
+  remainingGapCodes?: string[];
+  failureReason?: string | null;
+}): TargetInvestigateCaseRootCauseReviewTrace =>
+  targetInvestigateCaseRootCauseReviewTraceSchema.parse({
+    status: params.status,
+    request_path: params.requestPath ?? null,
+    request_schema_version: params.requestSchemaVersion ?? null,
+    review_readiness_status: params.reviewReadinessStatus ?? null,
+    review_readiness_reason_code: params.reviewReadinessReasonCode ?? null,
+    result_path: params.resultPath ?? null,
+    result_schema_version: params.resultSchemaVersion ?? null,
+    root_cause_status: params.rootCauseStatus ?? null,
+    ticket_readiness_status: params.ticketReadinessStatus ?? null,
+    remaining_gap_codes: params.remainingGapCodes ?? [],
+    failure_reason: params.failureReason ?? null,
+  });
+
 const normalizeArtifactPaths = (
   paths: TargetInvestigateCaseArtifactPaths,
 ): Required<TargetInvestigateCaseArtifactPaths> => {
@@ -2072,6 +2453,22 @@ const normalizeArtifactPaths = (
       path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
     "causalDebugResultPath",
   );
+  const rootCauseReviewRequestPath = normalizeRelativePath(
+    paths.rootCauseReviewRequestPath ??
+      path.posix.join(
+        roundDirectory,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+      ),
+    "rootCauseReviewRequestPath",
+  );
+  const rootCauseReviewResultPath = normalizeRelativePath(
+    paths.rootCauseReviewResultPath ??
+      path.posix.join(
+        roundDirectory,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+      ),
+    "rootCauseReviewResultPath",
+  );
   const ticketProposalPath = normalizeRelativePath(
     paths.ticketProposalPath ??
       path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
@@ -2092,6 +2489,8 @@ const normalizeArtifactPaths = (
     semanticReviewResultPath,
     causalDebugRequestPath,
     causalDebugResultPath,
+    rootCauseReviewRequestPath,
+    rootCauseReviewResultPath,
     ticketProposalPath,
     publicationDecisionPath,
   };
@@ -2218,6 +2617,12 @@ const buildTargetInvestigateCaseArtifactSet = (
   ),
   causalDebugResultPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+  ),
+  rootCauseReviewRequestPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT),
+  ),
+  rootCauseReviewResultPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
   ),
   ticketProposalPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),

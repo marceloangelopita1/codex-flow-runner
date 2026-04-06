@@ -409,6 +409,9 @@ export interface TargetInvestigateCaseRoundMaterializationCodexClient {
   runTargetInvestigateCaseCausalDebug(
     request: TargetInvestigateCaseCausalDebugCodexRequest,
   ): Promise<TargetInvestigateCaseCausalDebugCodexResult>;
+  runTargetInvestigateCaseRootCauseReview(
+    request: TargetInvestigateCaseRootCauseReviewCodexRequest,
+  ): Promise<TargetInvestigateCaseRootCauseReviewCodexResult>;
 }
 
 export interface TargetInvestigateCaseSemanticReviewCodexRequest {
@@ -441,6 +444,24 @@ export interface TargetInvestigateCaseCausalDebugCodexRequest {
 }
 
 export interface TargetInvestigateCaseCausalDebugCodexResult {
+  output: string;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface TargetInvestigateCaseRootCauseReviewCodexRequest {
+  targetProject: ProjectRef;
+  runnerRepoPath: string;
+  runnerReference: string;
+  manifestPath: string;
+  reviewPromptPath: string;
+  reviewRequestPath: string;
+  reviewResultPath: string;
+  reviewRequestJson: string;
+}
+
+export interface TargetInvestigateCaseRootCauseReviewCodexResult {
   output: string;
   diagnostics?: CodexStageDiagnostics;
   promptTemplatePath: string;
@@ -1523,6 +1544,85 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async runTargetInvestigateCaseRootCauseReview(
+    request: TargetInvestigateCaseRootCauseReviewCodexRequest,
+  ): Promise<TargetInvestigateCaseRootCauseReviewCodexResult> {
+    const promptTemplatePath = path.join(
+      request.targetProject.path,
+      ...request.reviewPromptPath.split("/"),
+    );
+    let prompt = "";
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTargetInvestigateCaseRootCauseReviewPrompt(promptTemplate, request);
+
+      this.logger.info(
+        "Executando root-cause-review de target-investigate-case via Codex CLI",
+        {
+          targetProjectName: request.targetProject.name,
+          targetProjectPath: request.targetProject.path,
+          reviewRequestPath: request.reviewRequestPath,
+          promptTemplatePath,
+        },
+      );
+
+      const preferences = await this.snapshotInvocationPreferences();
+      const result = await this.dependencies.runCodexCommand({
+        cwd: this.repoPath,
+        prompt,
+        env: {
+          ...process.env,
+        },
+        preferences,
+      });
+
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
+        this.logger.warn(
+          "Codex CLI retornou diagnostico em stderr no root-cause-review de target-investigate-case",
+          {
+            targetProjectName: request.targetProject.name,
+            reviewRequestPath: request.reviewRequestPath,
+            codexCliTranscriptPreview: diagnostics.stderrPreview,
+            ...(diagnostics.stdoutPreview
+              ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+              : {}),
+          },
+        );
+      }
+
+      this.logger.info(
+        "root-cause-review de target-investigate-case concluido via Codex CLI",
+        {
+          targetProjectName: request.targetProject.name,
+          targetProjectPath: request.targetProject.path,
+          reviewRequestPath: request.reviewRequestPath,
+        },
+      );
+
+      return {
+        output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
+      };
+    } catch (error) {
+      const details = errorMessage(error);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        request.targetProject.name,
+        "implement",
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
+    }
+  }
+
   async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
     this.logger.info("Iniciando sessao de planejamento via Codex CLI exec/resume", {
       repoPath: this.repoPath,
@@ -2170,6 +2270,50 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "- Trabalhe somente no repositorio alvo atual e responda apenas com JSON valido aderente ao schema solicitado.",
       "- Em `supporting_refs`, devolva apenas objetos estritos com `path` e `reason`; nao replique chaves do packet como `ref`, `sha256`, `record_count` ou equivalentes.",
       "- Quando a causa minima for plausivel, prefira apontar arquivos repo-relativos especificos em `suggested_fix_surface` e `suspected_components`, evitando diretorios amplos sem necessidade.",
+    ].join("\n");
+  }
+
+  private buildTargetInvestigateCaseRootCauseReviewPrompt(
+    promptTemplate: string,
+    request: TargetInvestigateCaseRootCauseReviewCodexRequest,
+  ): string {
+    const stageTemplate = promptTemplate
+      .replace(/<TARGET_PROJECT_NAME>/gu, request.targetProject.name)
+      .replace(/<TARGET_PROJECT_PATH>/gu, request.targetProject.path)
+      .replace(
+        /<CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_REQUEST_PATH>/gu,
+        request.reviewRequestPath,
+      )
+      .replace(
+        /<CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_RESULT_PATH>/gu,
+        request.reviewResultPath,
+      )
+      .replace(
+        /<CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_PROMPT_PATH>/gu,
+        request.reviewPromptPath,
+      )
+      .replace(
+        /<CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_REQUEST_JSON>/gu,
+        request.reviewRequestJson,
+      );
+
+    return [
+      stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional do root-cause-review repo-aware:",
+      `- Projeto alvo: \`${request.targetProject.name}\``,
+      `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
+      `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
+      `- Referencia textual do runner: \`${request.runnerReference}\``,
+      `- Manifesto da capability: \`${request.manifestPath}\``,
+      `- Prompt canonico do target: \`${request.reviewPromptPath}\``,
+      `- Packet de entrada: \`${request.reviewRequestPath}\``,
+      `- Artefato de saida esperado: \`${request.reviewResultPath}\``,
+      "- Trabalhe somente no repositorio alvo atual e responda apenas com JSON valido aderente ao schema solicitado.",
+      "- Preserve `ticket_readiness` como sinal separado de `root_cause_status`; nao infira `ready` a partir de causa plausivel.",
+      "- Quando houver `remaining_gaps`, devolva objetos estritos com `code` e `summary`, sem chaves livres adicionais.",
     ].join("\n");
   }
 

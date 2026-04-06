@@ -447,6 +447,7 @@ const createPublisherFixture = async (): Promise<{
         blockers: [],
         capability_limits: [],
         causal_debug: null,
+        root_cause_review: null,
         ticket_projection: null,
         causal_surface: {
           owner: "target-project",
@@ -484,8 +485,11 @@ const createPublisherFixture = async (): Promise<{
         evidence_sufficiency: "strong",
         primary_taxonomy: null,
         operational_class: null,
+        root_cause_status: null,
+        ticket_readiness_status: null,
         assessment_next_action: null,
         blocker_codes: [],
+        remaining_gap_codes: [],
         causal_surface: {
           owner: "target-project",
           kind: "bug",

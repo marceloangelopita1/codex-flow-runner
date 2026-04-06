@@ -24,6 +24,8 @@ import {
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
   targetInvestigateCasePublicationDecisionSchema,
+  targetInvestigateCaseRootCauseReviewRequestSchema,
+  targetInvestigateCaseRootCauseReviewResultSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   targetInvestigateCaseSemanticReviewResultSchema,
   targetInvestigateCaseTicketProposalSchema,
@@ -39,6 +41,9 @@ import {
   TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES,
   TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_VALID_PUBLICATION_COMBINATIONS,
@@ -58,6 +63,8 @@ interface TargetRepoFixture {
     semanticReviewResultPath: string;
     causalDebugRequestPath: string;
     causalDebugResultPath: string;
+    rootCauseReviewRequestPath: string;
+    rootCauseReviewResultPath: string;
     ticketProposalPath: string;
     publicationDecisionPath: string;
   };
@@ -217,6 +224,16 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     "target-ticket-quality-v1",
   );
   assert.equal(loaded.manifest.causalDebug?.debugPolicy.narrativeLanguage, "pt-BR");
+  assert.equal(loaded.manifest.rootCauseReview?.owner, "target-project");
+  assert.equal(
+    loaded.manifest.rootCauseReview?.artifacts.request.artifact,
+    "root-cause-review.request.json",
+  );
+  assert.equal(
+    loaded.manifest.rootCauseReview?.artifacts.result.optionalFields?.[0],
+    "competing_hypotheses",
+  );
+  assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.narrativeLanguage, "pt-BR");
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
@@ -361,7 +378,7 @@ test("parseTargetInvestigateCaseCommand normaliza o contrato canonico e rejeita 
   );
 });
 
-test("assessment.json e publication-decision.json cobrem todos os enums explicitos e rejeitam valores fora do conjunto", () => {
+test("assessment.json, publication-decision.json e root-cause-review.result.json cobrem todos os enums explicitos e rejeitam valores fora do conjunto", () => {
   const baseAssessment = buildAssessmentFixture();
   for (const value of TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES) {
     const nextAssessment = structuredClone(baseAssessment);
@@ -393,6 +410,12 @@ test("assessment.json e publication-decision.json cobrem todos os enums explicit
     nextAssessment.publication_recommendation.recommended_action = value;
     targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
   }
+  for (const value of TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES) {
+    const nextResult = buildRootCauseReviewResultFixture({
+      root_cause_status: value,
+    });
+    targetInvestigateCaseRootCauseReviewResultSchema.parse(nextResult);
+  }
 
   const richAssessment = buildCurrentAssessmentFixture();
   for (const value of TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES) {
@@ -411,6 +434,14 @@ test("assessment.json e publication-decision.json cobrem todos os enums explicit
       targetInvestigateCaseAssessmentSchema.parse({
         ...baseAssessment,
         confidence: "unexpected",
+      }),
+    /Invalid enum value/u,
+  );
+  assert.throws(
+    () =>
+      targetInvestigateCaseRootCauseReviewResultSchema.parse({
+        ...buildRootCauseReviewResultFixture(),
+        root_cause_status: "unexpected",
       }),
     /Invalid enum value/u,
   );
@@ -1350,6 +1381,75 @@ test("evaluateTargetInvestigateCaseRound rejeita assessment stale quando semanti
   );
 });
 
+test("evaluateTargetInvestigateCaseRound bloqueia publication quando ticket-proposal contradiz root-cause-review plausivel", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.rootCauseReview = buildPilotManifestFixture().rootCauseReview;
+    },
+    assessmentDocument: buildCurrentAssessmentFixture({
+      root_cause_review: {
+        status: "completed",
+        summary: "root-cause-review manteve a causa apenas plausivel sem falsificacao suficiente",
+        request_status: "ready",
+        request_reason_code: "READY",
+        result_status: "valid",
+        root_cause_status: "plausible_but_unfalsified",
+        ticket_readiness_status: "blocked",
+        publication_blocked: true,
+        remaining_gaps: [
+          {
+            code: "adversarial-proof-missing",
+            summary: "A hipotese principal ainda nao foi falsificada contra cenarios concorrentes.",
+          },
+        ],
+      },
+    }),
+    rootCauseReviewRequestDocument: buildRootCauseReviewRequestFixture(),
+    rootCauseReviewResultDocument: buildRootCauseReviewResultFixture({
+      root_cause_status: "plausible_but_unfalsified",
+      ticket_readiness: {
+        status: "blocked",
+        reason_code: "ADVERSARIAL_PROOF_MISSING",
+        summary: "Ainda faltam falsificacoes adversariais antes de liberar ticket.",
+      },
+      remaining_gaps: [
+        {
+          code: "adversarial-proof-missing",
+          summary: "A hipotese principal ainda nao foi falsificada contra cenarios concorrentes.",
+        },
+      ],
+    }),
+  });
+  const ticketPublisher = new StubTargetInvestigateCaseTicketPublisher();
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+    ticketPublisher,
+  });
+
+  assert.equal(result.publicationDecision.publication_status, "not_eligible");
+  assert.equal(result.publicationDecision.overall_outcome, "inconclusive-case");
+  assert.deepEqual(result.publicationDecision.blocked_gates, [
+    "ticket-proposal-contradicts-root-cause-review",
+    "root-cause-review-plausible-but-unfalsified",
+  ]);
+  assert.equal(result.tracePayload.root_cause_review.root_cause_status, "plausible_but_unfalsified");
+  assert.equal(result.tracePayload.root_cause_review.ticket_readiness_status, "blocked");
+  assert.deepEqual(result.tracePayload.root_cause_review.remaining_gap_codes, [
+    "adversarial-proof-missing",
+  ]);
+  assert.equal(ticketPublisher.calls.length, 0);
+});
+
 test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/summary permanecem redigidos", async () => {
   const invalidFixture = await createTargetRepoFixture({
     mutateAssessment: (artifact) => {
@@ -1413,6 +1513,7 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
     publicationDecision: result.publicationDecision,
     dossierPath: result.artifactPaths.dossierPath,
     semanticReview: result.tracePayload.semantic_review,
+    rootCauseReview: result.tracePayload.root_cause_review,
   });
 
   const renderedSummary = renderTargetInvestigateCaseFinalSummary(summary);
@@ -1538,6 +1639,10 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
         "investigations/2026-04-03T18-00-00Z/causal-debug.request.json",
       causalDebugResultPath:
         "investigations/2026-04-03T18-00-00Z/causal-debug.result.json",
+      rootCauseReviewRequestPath:
+        "investigations/2026-04-03T18-00-00Z/root-cause-review.request.json",
+      rootCauseReviewResultPath:
+        "investigations/2026-04-03T18-00-00Z/root-cause-review.result.json",
       ticketProposalPath:
         "investigations/2026-04-03T18-00-00Z/ticket-proposal.json",
       publicationDecisionPath: "investigations/2026-04-03T18-00-00Z/publication-decision.json",
@@ -2016,6 +2121,8 @@ const createTargetRepoFixture = async (options: {
   mutateAssessment?: (artifact: any) => void;
   mutateSemanticReviewRequest?: (artifact: any) => void;
   mutateSemanticReviewResult?: (artifact: any) => void;
+  mutateRootCauseReviewRequest?: (artifact: any) => void;
+  mutateRootCauseReviewResult?: (artifact: any) => void;
   dossierFormat?: "md" | "json";
   manifestDocument?: any;
   caseResolutionDocument?: any;
@@ -2023,6 +2130,8 @@ const createTargetRepoFixture = async (options: {
   assessmentDocument?: any;
   semanticReviewRequestDocument?: any | null;
   semanticReviewResultDocument?: any | null;
+  rootCauseReviewRequestDocument?: any | null;
+  rootCauseReviewResultDocument?: any | null;
   ticketProposalDocument?: any | null;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
@@ -2038,6 +2147,8 @@ const createTargetRepoFixture = async (options: {
     semanticReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT}`,
     causalDebugRequestPath: `${roundDir}/causal-debug.request.json`,
     causalDebugResultPath: `${roundDir}/causal-debug.result.json`,
+    rootCauseReviewRequestPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT}`,
+    rootCauseReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT}`,
     ticketProposalPath: `${roundDir}/ticket-proposal.json`,
     publicationDecisionPath: `${roundDir}/publication-decision.json`,
   };
@@ -2056,6 +2167,7 @@ const createTargetRepoFixture = async (options: {
     manifest.workflows = {
       investigable: ["billing-core"],
     };
+    delete manifest.rootCauseReview;
     options.mutateManifest?.(manifest);
     targetInvestigateCaseManifestSchema.parse(manifest);
   }
@@ -2128,6 +2240,30 @@ const createTargetRepoFixture = async (options: {
     await fs.writeFile(
       path.join(projectPath, ...artifactPaths.semanticReviewResultPath.split("/")),
       `${JSON.stringify(semanticReviewResult, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  if (options.rootCauseReviewRequestDocument !== null && options.rootCauseReviewRequestDocument !== undefined) {
+    const rootCauseReviewRequest =
+      options.rootCauseReviewRequestDocument ?? buildRootCauseReviewRequestFixture();
+    options.mutateRootCauseReviewRequest?.(rootCauseReviewRequest);
+    targetInvestigateCaseRootCauseReviewRequestSchema.parse(rootCauseReviewRequest);
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.rootCauseReviewRequestPath.split("/")),
+      `${JSON.stringify(rootCauseReviewRequest, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  if (options.rootCauseReviewResultDocument !== null && options.rootCauseReviewResultDocument !== undefined) {
+    const rootCauseReviewResult =
+      options.rootCauseReviewResultDocument ?? buildRootCauseReviewResultFixture();
+    options.mutateRootCauseReviewResult?.(rootCauseReviewResult);
+    targetInvestigateCaseRootCauseReviewResultSchema.parse(rootCauseReviewResult);
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.rootCauseReviewResultPath.split("/")),
+      `${JSON.stringify(rootCauseReviewResult, null, 2)}\n`,
       "utf8",
     );
   }
@@ -2303,6 +2439,14 @@ const buildPilotManifestFixture = (options: {
         artifact: "causal-debug.result.json",
         schemaVersion: "causal_debug_result_v1",
       },
+      "root-cause-review-request": {
+        artifact: "root-cause-review.request.json",
+        schemaVersion: "root_cause_review_request_v1",
+      },
+      "root-cause-review-result": {
+        artifact: "root-cause-review.result.json",
+        schemaVersion: "root_cause_review_result_v1",
+      },
       "ticket-projection": {
         artifact: "ticket-proposal.json",
         schemaVersion: "ticket_proposal_v1",
@@ -2408,6 +2552,42 @@ const buildPilotManifestFixture = (options: {
         externalEvidenceDiscoveryAllowed: false,
         boundedSemanticConfirmationRequired: true,
         targetProjectOwnsMinimalCause: true,
+        runnerRemainsPublicationAuthority: true,
+        narrativeLanguage: "pt-BR",
+      },
+      recomposition: {
+        strategy: "rerun-entrypoint",
+        roundRequestIdFlag: "--round-request-id",
+        forceFlag: "--force",
+        replayMode: "historical-only",
+        preserveExistingDossier: true,
+      },
+    },
+    rootCauseReview: {
+      owner: "target-project",
+      runnerExecutor: "codex-flow-runner",
+      promptPath: "docs/workflows/target-case-investigation-root-cause-review.md",
+      artifacts: {
+        request: {
+          artifact: "root-cause-review.request.json",
+          schemaVersion: "root_cause_review_request_v1",
+        },
+        result: {
+          artifact: "root-cause-review.result.json",
+          schemaVersion: "root_cause_review_result_v1",
+          optionalFields: [
+            "competing_hypotheses",
+            "qa_escape",
+            "prompt_guardrail_opportunities",
+            "remaining_gaps",
+          ],
+        },
+      },
+      reviewPolicy: {
+        repoReadAllowed: true,
+        readableSurfaces: ["code", "prompts", "tests", "docs", "config"],
+        externalEvidenceDiscoveryAllowed: false,
+        targetProjectOwnsRootCauseDecision: true,
         runnerRemainsPublicationAuthority: true,
         narrativeLanguage: "pt-BR",
       },
@@ -2775,6 +2955,7 @@ const buildRichAssessmentFixture = (): any => ({
     },
   ],
   causal_debug: null,
+  root_cause_review: null,
   ticket_projection: null,
 });
 
@@ -2896,6 +3077,7 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
     summary: "ticket projection is ready and stored in ticket-proposal.json for runner-side publication review",
     ticket_proposal_artifact: "ticket-proposal.json",
   },
+  root_cause_review: null,
   generalization_basis: [
     {
       code: "semantic_review_confirmed_error",
@@ -2911,6 +3093,96 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
     suggested_title: "Fix extract_address semantic truncation",
   },
   capability_limits: [],
+  ...overrides,
+});
+
+const buildRootCauseReviewRequestFixture = (overrides: Record<string, unknown> = {}): any => ({
+  schema_version: "root_cause_review_request_v1",
+  generated_at: "2026-04-06T17:20:00.000Z",
+  manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  dossier_local_path: "investigations/round-1/dossier.md",
+  workflow: {
+    key: "billing-core",
+    documentation_path: "docs/specs/example.md",
+  },
+  selected_selectors: {
+    requestId: "req-001",
+    workflow: "billing-core",
+    symptom: "timeout on save",
+  },
+  semantic_confirmation: {
+    status: "confirmed_error",
+    result_verdict: "confirmed_error",
+    result_issue_type: "semantic_truncation",
+    summary: "bounded semantic review confirmed the workflow error",
+  },
+  causal_debug: {
+    status: "minimal_cause_identified",
+    result_verdict: "minimal_cause_identified",
+    summary: "repo-aware causal debug isolated the minimum local cause",
+  },
+  causal_surface: {
+    owner: "target-project",
+    kind: "bug",
+    actionable: true,
+    summary: "guardrail local falhou de forma reproduzivel",
+  },
+  review_readiness: {
+    status: "ready",
+    reason_code: "READY",
+    summary: "root-cause-review repo-aware ready",
+  },
+  repo_context: {
+    prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
+    documentation_paths: ["docs/specs/example.md"],
+    code_paths: ["src/workflows/billing-core.ts"],
+    test_paths: ["src/workflows/billing-core.test.ts"],
+    ticket_guidance_paths: ["docs/workflows/target-case-investigation-causal-ticket-template.md"],
+  },
+  supporting_refs: [
+    {
+      ref: "src/workflows/billing-core.ts",
+      path: "src/workflows/billing-core.ts",
+      reason: "fixture",
+    },
+  ],
+  review_question:
+    "Given the bounded semantic and causal signals, determine whether the root cause is confirmed strongly enough to release ticket publication.",
+  expected_result_artifact: {
+    artifact: TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+    schema_version: "root_cause_review_result_v1",
+  },
+  ...overrides,
+});
+
+const buildRootCauseReviewResultFixture = (overrides: Record<string, unknown> = {}): any => ({
+  schema_version: "root_cause_review_result_v1",
+  generated_at: "2026-04-06T17:21:00.000Z",
+  request_artifact: TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+  reviewer: {
+    orchestrator: "codex-flow-runner",
+    prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
+    reviewer_label: "codex",
+  },
+  root_cause_status: "root_cause_confirmed",
+  confidence: "high",
+  summary: "root cause review confirmed the reusable local cause with enough adversarial evidence",
+  ticket_readiness: {
+    status: "ready",
+    reason_code: "READY",
+    summary: "ticket publication may proceed conservatively",
+  },
+  supporting_refs: [
+    {
+      path: "src/workflows/billing-core.ts",
+      reason: "fixture",
+    },
+  ],
+  constraints_acknowledged: {
+    repo_read_allowed: true,
+    external_evidence_discovery_allowed: false,
+    final_publication_authority: "runner",
+  },
   ...overrides,
 });
 

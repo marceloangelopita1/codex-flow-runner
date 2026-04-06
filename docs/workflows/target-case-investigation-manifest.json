@@ -114,6 +114,41 @@
       "runnerRemainsPublicationAuthority": true
     }
   },
+  "rootCauseReview": {
+    "owner": "target-project",
+    "runnerExecutor": "codex-flow-runner",
+    "promptPath": "docs/workflows/target-case-investigation-root-cause-review.md",
+    "artifacts": {
+      "request": {
+        "artifact": "root-cause-review.request.json",
+        "schemaVersion": "root_cause_review_request_v1"
+      },
+      "result": {
+        "artifact": "root-cause-review.result.json",
+        "schemaVersion": "root_cause_review_result_v1",
+        "optionalFields": [
+          "competing_hypotheses",
+          "qa_escape",
+          "prompt_guardrail_opportunities",
+          "remaining_gaps"
+        ]
+      }
+    },
+    "reviewPolicy": {
+      "repoReadAllowed": true,
+      "readableSurfaces": [
+        "source-code",
+        "tests",
+        "docs",
+        "prompts",
+        "runbooks",
+        "ticket-templates"
+      ],
+      "externalEvidenceDiscoveryAllowed": false,
+      "targetProjectOwnsRootCauseDecision": true,
+      "runnerRemainsPublicationAuthority": true
+    }
+  },
   "replayPolicy": {
     "supported": true,
     "safeModeRequired": true,

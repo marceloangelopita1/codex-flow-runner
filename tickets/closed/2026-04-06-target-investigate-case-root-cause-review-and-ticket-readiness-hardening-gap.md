@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case precisa consumir root-cause-review e bloquear publication baseada so em causa plausivel
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -10,7 +10,7 @@
 - Owner: workflow-core
 - Source: production-observation
 - Parent ticket (optional):
-- Parent execplan (optional):
+- Parent execplan (optional): execplans/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
 - Parent commit (optional):
 - Analysis stage (when applicable): post-implementation review cross-repo do fluxo `/target_investigate_case`
 - Active project (when applicable): codex-flow-runner
@@ -32,6 +32,7 @@
   - Decision file: src/core/target-investigate-case.ts
 - Related docs/execplans:
   - docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md
+  - execplans/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md
   - ../guiadomus-matricula/docs/specs/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening.md
   - ../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json
@@ -103,9 +104,20 @@ O runner deve aceitar `rootCauseReview` no manifesto, reservar artefatos canonic
 ## Decision log
 - 2026-04-06 - Ticket aberto a partir da nova spec cross-repo de hardening epistemico - publication runner-side precisa distinguir ticket bem escrito de causa realmente confirmada.
 - 2026-04-06 - Backlog reconciliado por divisao de ownership com `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md` - aquele ticket fica restrito a hardening editorial/naming de `causal-debug.result.json` e `ticket-proposal.json`; este ticket fica restrito a `rootCauseReview`, gates causais e rollout legado.
+- 2026-04-06 - Revisao manual da policy de rollout legado concluida: `rootCauseReview` permanece opt-in por manifesto; manifests legados continuam aceitos sem inferencia de `root_cause_confirmed`; a obrigatoriedade ampla so pode avancar depois que o target emitir `root-cause-review.request.json`/`root-cause-review.result.json` de forma estavel e que a documentacao operacional do capability seja atualizada no mesmo changeset.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-06 20:49Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
+- Closure evidence:
+  - `RF-01 / RF-03 / RF-06 / CA-01`: `src/types/target-investigate-case.ts` agora aceita `rootCauseReview` no manifesto, normaliza o bloco piloto legado e tipa `root-cause-review.request.json` / `root-cause-review.result.json` com enum finito `root_cause_confirmed | plausible_but_unfalsified | inconclusive`, `ticket_readiness` separado e campos aditivos `competing_hypotheses`, `qa_escape`, `prompt_guardrail_opportunities` e `remaining_gaps`.
+  - `RF-01 / RF-03 / RF-06 / CA-01`: `src/core/target-investigate-case.test.ts` cobre positivamente os tres membros aceitos de `root_cause_status` e rejeita valor fora do conjunto via schema, preservando a allowlist finita sem consolidacao generica.
+  - `RF-02 / RF-08 / CA-02`: `src/integrations/codex-client.ts` expõe `runTargetInvestigateCaseRootCauseReview(...)` e reforca no prompt runner-side a separacao entre `root_cause_status` e `ticket_readiness`; `src/integrations/target-investigate-case-round-preparer.ts` executa `root-cause-review` apenas depois de `causal-debug`, persiste o resultado canonico, reread/recompõe `assessment.json` quando o manifesto declara recomposition e sincroniza `ticket-proposal.json` antes da publication runner-side.
+  - `RF-02 / RF-08 / CA-02`: `src/integrations/target-investigate-case-round-preparer.test.ts` prova a ordem `causal-debug -> root-cause-review` e a persistencia canonica do resultado; `src/integrations/codex-client.test.ts` prova a injecao do packet repo-aware e dos gates causais explicitos no prompt.
+  - `RF-04 / RF-07 / CA-03`: `src/core/target-investigate-case.ts` bloqueia `publish_ticket` quando `root-cause-review.result.json` esta ausente, invalido ou inconclusivo, quando o veredito e `plausible_but_unfalsified`, quando `ticket_readiness.status != ready` e quando `ticket-proposal.json` contradiz a etapa nova, sem inferir confirmacao causal runner-side.
+  - `RF-05 / CA-05`: a policy de rollout legado foi revisada manualmente e registrada no `Decision log`; `rootCauseReview` permanece opt-in por manifesto, manifests legados seguem aceitos sem inferencia de `root_cause_confirmed`, e a obrigatoriedade ampla continua condicionada ao rollout estavel do target no mesmo changeset documental.
+  - `RF-04 / CA-04`: `src/core/target-investigate-case.test.ts` cobre explicitamente o caso em que `ticket-proposal.json` existe, mas a publication fica bloqueada porque `root-cause-review` retornou `plausible_but_unfalsified`, com `blocked_gates` observaveis e sem publication runner-side.
+  - Validacao automatizada observavel: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` -> `exit 0` (suite expandida do repositorio terminou com `600` testes passando); `npm run check` -> `exit 0`.
+  - Validacao manual pendente: nenhuma. A fixture antes herdada para `ticket-proposal.json` + `plausible_but_unfalsified` passou a ficar coberta por teste automatizado, e a revisao manual da policy de rollout legado ja foi registrada neste ticket.

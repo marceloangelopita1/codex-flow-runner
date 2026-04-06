@@ -999,6 +999,10 @@ const createController = (options: ControllerOptions = {}) => {
 	              "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
 	            causalDebugResultPath:
 	              "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+	            rootCauseReviewRequestPath:
+	              "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
+	            rootCauseReviewResultPath:
+	              "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
 	            ticketProposalPath:
 	              "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
 	            publicationDecisionPath:
@@ -1035,8 +1039,11 @@ const createController = (options: ControllerOptions = {}) => {
             evidence_sufficiency: "sufficient" as const,
             primary_taxonomy: "expected_behavior" as const,
             operational_class: null,
+            root_cause_status: null,
+            ticket_readiness_status: null,
             assessment_next_action: null,
             blocker_codes: [],
+            remaining_gap_codes: [],
             causal_surface: {
               owner: "target-project" as const,
               kind: "expected-behavior" as const,
@@ -1131,6 +1138,19 @@ const createController = (options: ControllerOptions = {}) => {
               verdict: null,
               issue_type: null,
               confidence: null,
+              failure_reason: null,
+            },
+            root_cause_review: {
+              status: "missing" as const,
+              request_path: null,
+              request_schema_version: null,
+              review_readiness_status: null,
+              review_readiness_reason_code: null,
+              result_path: null,
+              result_schema_version: null,
+              root_cause_status: null,
+              ticket_readiness_status: null,
+              remaining_gap_codes: [],
               failure_reason: null,
             },
           },

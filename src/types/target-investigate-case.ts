@@ -96,6 +96,14 @@ export const TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_SCHEMA_VERSION =
   "causal_debug_request_v1";
 export const TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_SCHEMA_VERSION =
   "causal_debug_result_v1";
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT =
+  "root-cause-review.request.json";
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT =
+  "root-cause-review.result.json";
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION =
+  "root_cause_review_request_v1";
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION =
+  "root_cause_review_result_v1";
 export const TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT = "ticket-proposal.json";
 export const TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION = "ticket_proposal_v1";
 
@@ -340,6 +348,18 @@ export const TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REPOSITORY_SURFACE_KIND_VALUES
     ["code", "prompt", "test", "docs", "config", "unknown"] as const,
     "causal-debug-repository-surface-kind",
   );
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_READINESS_STATUS_VALUES = uniqueValues(
+  ["ready", "blocked"] as const,
+  "root-cause-review-readiness-status",
+);
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES = uniqueValues(
+  ["root_cause_confirmed", "plausible_but_unfalsified", "inconclusive"] as const,
+  "root-cause-status",
+);
+export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_TRACE_STATUS_VALUES = uniqueValues(
+  ["missing", "blocked", "failed", "completed"] as const,
+  "root-cause-review-trace-status",
+);
 export const TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES = uniqueValues(
   ["not_requested", "blocked", "ready"] as const,
   "ticket-projection-status",
@@ -419,6 +439,10 @@ export type TargetInvestigateCaseCausalDebugRepositorySurfaceKind =
   (typeof TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REPOSITORY_SURFACE_KIND_VALUES)[number];
 export type TargetInvestigateCaseTicketProjectionStatus =
   (typeof TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES)[number];
+export type TargetInvestigateCaseRootCauseReviewReadinessStatus =
+  (typeof TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_READINESS_STATUS_VALUES)[number];
+export type TargetInvestigateCaseRootCauseStatus =
+  (typeof TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES)[number];
 
 const selectorEnumSchema = z.enum(TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS);
 const houveGapRealSchema = z.enum(TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES);
@@ -483,6 +507,13 @@ const causalDebugResultVerdictSchema = z.enum(
 );
 const causalDebugRepositorySurfaceKindSchema = z.enum(
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REPOSITORY_SURFACE_KIND_VALUES,
+);
+const rootCauseReviewReadinessStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_READINESS_STATUS_VALUES,
+);
+const rootCauseStatusSchema = z.enum(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES);
+const rootCauseReviewTraceStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_TRACE_STATUS_VALUES,
 );
 const workflowRootCauseSchema = z.enum(TARGET_INVESTIGATE_CASE_WORKFLOW_ROOT_CAUSE_VALUES);
 const remediationScopeSchema = z.enum(TARGET_INVESTIGATE_CASE_REMEDIATION_SCOPE_VALUES);
@@ -651,6 +682,61 @@ const targetInvestigateCaseManifestCausalDebugSchema = z
   })
   .strict();
 
+const targetInvestigateCaseManifestRootCauseReviewSchema = z
+  .object({
+    owner: z.literal("target-project"),
+    runnerExecutor: z.literal("codex-flow-runner"),
+    promptPath: relativePathSchema,
+    artifacts: z
+      .object({
+        request: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION,
+            ),
+          })
+          .strict(),
+        result: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
+            ),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "rootCauseReview.artifacts.result.optionalFields",
+            ).optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    reviewPolicy: z
+      .object({
+        repoReadAllowed: z.literal(true),
+        readableSurfaces: uniqueNonEmptyArray(
+          trimmedString,
+          "rootCauseReview.reviewPolicy.readableSurfaces",
+        ),
+        externalEvidenceDiscoveryAllowed: z.literal(false),
+        targetProjectOwnsRootCauseDecision: z.literal(true),
+        runnerRemainsPublicationAuthority: z.literal(true),
+        narrativeLanguage: trimmedString.optional(),
+      })
+      .strict(),
+    recomposition: z
+      .object({
+        strategy: z.literal("rerun-entrypoint"),
+        roundRequestIdFlag: z.literal("--round-request-id"),
+        forceFlag: z.literal("--force"),
+        replayMode: replayModeSchema,
+        preserveExistingDossier: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const targetInvestigateCaseManifestSchema = z
   .object({
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
@@ -776,6 +862,7 @@ export const targetInvestigateCaseManifestSchema = z
       .strict(),
     semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
     causalDebug: targetInvestigateCaseManifestCausalDebugSchema.optional(),
+    rootCauseReview: targetInvestigateCaseManifestRootCauseReviewSchema.optional(),
     replayPolicy: z
       .object({
         supported: z.boolean(),
@@ -1030,6 +1117,24 @@ export const targetInvestigateCasePilotManifestSchema = z
           })
           .strict()
           .optional(),
+        "root-cause-review-request": z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION,
+            ),
+          })
+          .strict()
+          .optional(),
+        "root-cause-review-result": z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
+            ),
+          })
+          .strict()
+          .optional(),
         "ticket-projection": z
           .object({
             artifact: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
@@ -1048,6 +1153,7 @@ export const targetInvestigateCasePilotManifestSchema = z
       .strict(),
     semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
     causalDebug: targetInvestigateCaseManifestCausalDebugSchema.optional(),
+    rootCauseReview: targetInvestigateCaseManifestRootCauseReviewSchema.optional(),
     replayPolicy: z
       .object({
         explicitReplayRequired: z.boolean(),
@@ -1426,6 +1532,48 @@ const normalizePilotManifestToInternal = (
             : undefined,
         }
       : undefined,
+    rootCauseReview: manifest.rootCauseReview
+      ? {
+          owner: manifest.rootCauseReview.owner,
+          runnerExecutor: manifest.rootCauseReview.runnerExecutor,
+          promptPath: manifest.rootCauseReview.promptPath,
+          artifacts: {
+            request: {
+              artifact: manifest.rootCauseReview.artifacts.request.artifact,
+              schemaVersion: manifest.rootCauseReview.artifacts.request.schemaVersion,
+            },
+            result: {
+              artifact: manifest.rootCauseReview.artifacts.result.artifact,
+              schemaVersion: manifest.rootCauseReview.artifacts.result.schemaVersion,
+              optionalFields: manifest.rootCauseReview.artifacts.result.optionalFields
+                ? [...manifest.rootCauseReview.artifacts.result.optionalFields]
+                : undefined,
+            },
+          },
+          reviewPolicy: {
+            repoReadAllowed: manifest.rootCauseReview.reviewPolicy.repoReadAllowed,
+            readableSurfaces: [...manifest.rootCauseReview.reviewPolicy.readableSurfaces],
+            externalEvidenceDiscoveryAllowed:
+              manifest.rootCauseReview.reviewPolicy.externalEvidenceDiscoveryAllowed,
+            targetProjectOwnsRootCauseDecision:
+              manifest.rootCauseReview.reviewPolicy.targetProjectOwnsRootCauseDecision,
+            runnerRemainsPublicationAuthority:
+              manifest.rootCauseReview.reviewPolicy.runnerRemainsPublicationAuthority,
+            narrativeLanguage: manifest.rootCauseReview.reviewPolicy.narrativeLanguage,
+          },
+          recomposition: manifest.rootCauseReview.recomposition
+            ? {
+                strategy: manifest.rootCauseReview.recomposition.strategy,
+                roundRequestIdFlag:
+                  manifest.rootCauseReview.recomposition.roundRequestIdFlag,
+                forceFlag: manifest.rootCauseReview.recomposition.forceFlag,
+                replayMode: manifest.rootCauseReview.recomposition.replayMode,
+                preserveExistingDossier:
+                  manifest.rootCauseReview.recomposition.preserveExistingDossier,
+              }
+            : undefined,
+        }
+      : undefined,
     replayPolicy: {
       supported: true,
       safeModeRequired: true,
@@ -1583,6 +1731,27 @@ export const targetInvestigateCaseAssessmentTicketProjectionSchema = z
   })
   .strict();
 
+export const targetInvestigateCaseRootCauseReviewRemainingGapSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+  })
+  .strict();
+
+export const targetInvestigateCaseAssessmentRootCauseReviewSchema = z
+  .object({
+    status: trimmedString,
+    summary: trimmedString,
+    request_status: trimmedString,
+    request_reason_code: trimmedString.nullable(),
+    result_status: trimmedString,
+    root_cause_status: rootCauseStatusSchema.nullable(),
+    ticket_readiness_status: trimmedString.nullable(),
+    publication_blocked: z.boolean(),
+    remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema),
+  })
+  .strict();
+
 type ArtifactNormalizationResult<Output> =
   | {
       success: true;
@@ -1667,6 +1836,7 @@ const targetInvestigateCaseInternalAssessmentSchema = z
     publication_recommendation: targetInvestigateCasePublicationRecommendationSchema,
     capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
     causal_debug: targetInvestigateCaseAssessmentCausalDebugSchema.nullable(),
+    root_cause_review: targetInvestigateCaseAssessmentRootCauseReviewSchema.nullable(),
     ticket_projection: targetInvestigateCaseAssessmentTicketProjectionSchema.nullable(),
   })
   .strict();
@@ -1695,6 +1865,7 @@ const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAss
     blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema).optional(),
     capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema).optional(),
     causal_debug: targetInvestigateCaseAssessmentCausalDebugSchema.nullable().optional(),
+    root_cause_review: targetInvestigateCaseAssessmentRootCauseReviewSchema.nullable().optional(),
     ticket_projection: targetInvestigateCaseAssessmentTicketProjectionSchema.nullable().optional(),
   }).passthrough();
 
@@ -1711,6 +1882,7 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
       blockers: [],
       capability_limits: [],
       causal_debug: null,
+      root_cause_review: null,
       ticket_projection: null,
     });
 
@@ -1759,6 +1931,7 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
     publication_recommendation: rich.data.publication_recommendation,
     capability_limits: rich.data.capability_limits ?? [],
     causal_debug: rich.data.causal_debug ?? null,
+    root_cause_review: rich.data.root_cause_review ?? null,
     ticket_projection: rich.data.ticket_projection ?? null,
   });
 
@@ -2746,6 +2919,144 @@ export const targetInvestigateCaseCausalDebugResultSchema = z
   })
   .strict();
 
+export const targetInvestigateCaseRootCauseReviewRequestSchema = z
+  .object({
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION),
+    generated_at: trimmedString,
+    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    dossier_local_path: relativePathSchema,
+    workflow: targetInvestigateCaseCausalDebugWorkflowSchema.nullable(),
+    selected_selectors: z.record(z.string(), trimmedString),
+    semantic_confirmation: z
+      .object({
+        status: trimmedString,
+        result_verdict: trimmedString.nullable(),
+        result_issue_type: trimmedString.nullable(),
+        summary: trimmedString,
+      })
+      .strict(),
+    causal_debug: z
+      .object({
+        status: trimmedString,
+        result_verdict: trimmedString.nullable(),
+        summary: trimmedString,
+      })
+      .strict(),
+    causal_surface: z
+      .object({
+        owner: causalSurfaceOwnerSchema,
+        kind: causalSurfaceKindSchema,
+        actionable: z.boolean(),
+        summary: trimmedString,
+      })
+      .strict(),
+    review_readiness: z
+      .object({
+        status: rootCauseReviewReadinessStatusSchema,
+        reason_code: trimmedString,
+        summary: trimmedString,
+      })
+      .strict(),
+    repo_context: z
+      .object({
+        prompt_path: relativePathSchema,
+        documentation_paths: z.array(relativePathSchema),
+        code_paths: z.array(relativePathSchema),
+        test_paths: z.array(relativePathSchema),
+        ticket_guidance_paths: z.array(relativePathSchema),
+      })
+      .strict(),
+    supporting_refs: z.array(
+      z
+        .object({
+          ref: trimmedString.optional(),
+          path: relativePathSchema,
+          reason: trimmedString,
+        })
+        .strict(),
+    ),
+    review_question: trimmedString,
+    expected_result_artifact: z
+      .object({
+        artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
+        schema_version: z.literal(
+          TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
+        ),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const targetInvestigateCaseRootCauseReviewResultSchema = z
+  .object({
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION),
+    generated_at: trimmedString,
+    request_artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT),
+    reviewer: z
+      .object({
+        orchestrator: trimmedString,
+        prompt_path: relativePathSchema,
+        reviewer_label: trimmedString,
+      })
+      .strict(),
+    root_cause_status: rootCauseStatusSchema,
+    confidence: confidenceSchema,
+    summary: trimmedString,
+    ticket_readiness: z
+      .object({
+        status: trimmedString,
+        reason_code: trimmedString.nullable().optional(),
+        summary: trimmedString,
+      })
+      .strict(),
+    competing_hypotheses: z
+      .array(
+        z
+          .object({
+            hypothesis: trimmedString,
+            disposition: trimmedString,
+            rationale: trimmedString,
+          })
+          .strict(),
+      )
+      .optional(),
+    qa_escape: z
+      .object({
+        summary: trimmedString,
+        why_not_caught: trimmedString,
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    prompt_guardrail_opportunities: z
+      .array(
+        z
+          .object({
+            area: trimmedString,
+            summary: trimmedString,
+          })
+          .strict(),
+      )
+      .optional(),
+    remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema).optional(),
+    supporting_refs: z.array(
+      z
+        .object({
+          path: relativePathSchema,
+          reason: trimmedString,
+        })
+        .strict(),
+    ),
+    constraints_acknowledged: z
+      .object({
+        repo_read_allowed: z.literal(true),
+        external_evidence_discovery_allowed: z.literal(false),
+        final_publication_authority: z.literal("runner"),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const targetInvestigateCaseTicketProposalSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION),
@@ -2984,6 +3295,26 @@ export const targetInvestigateCasePublicationDecisionSchema = z
     }
   });
 
+export const targetInvestigateCaseRootCauseReviewTraceSchema = z
+  .object({
+    status: rootCauseReviewTraceStatusSchema,
+    request_path: relativePathSchema.nullable(),
+    request_schema_version: z
+      .literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION)
+      .nullable(),
+    review_readiness_status: rootCauseReviewReadinessStatusSchema.nullable(),
+    review_readiness_reason_code: trimmedString.nullable(),
+    result_path: relativePathSchema.nullable(),
+    result_schema_version: z
+      .literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION)
+      .nullable(),
+    root_cause_status: rootCauseStatusSchema.nullable(),
+    ticket_readiness_status: trimmedString.nullable(),
+    remaining_gap_codes: z.array(trimmedString),
+    failure_reason: trimmedString.nullable(),
+  })
+  .strict();
+
 export const targetInvestigateCaseTracePayloadSchema = z
   .object({
     selectors: z
@@ -3063,6 +3394,7 @@ export const targetInvestigateCaseTracePayloadSchema = z
       })
       .strict(),
     semantic_review: targetInvestigateCaseSemanticReviewTraceSchema,
+    root_cause_review: targetInvestigateCaseRootCauseReviewTraceSchema,
   })
   .strict();
 
@@ -3081,8 +3413,11 @@ export const targetInvestigateCaseFinalSummarySchema = z
     evidence_sufficiency: evidenceSufficiencySchema,
     primary_taxonomy: primaryTaxonomySchema.nullable(),
     operational_class: operationalClassSchema.nullable(),
+    root_cause_status: rootCauseStatusSchema.nullable(),
+    ticket_readiness_status: trimmedString.nullable(),
     assessment_next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
     blocker_codes: z.array(trimmedString),
+    remaining_gap_codes: z.array(trimmedString),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
     publication_status: publicationStatusSchema,
     overall_outcome: overallOutcomeSchema,
@@ -3113,11 +3448,20 @@ export type TargetInvestigateCaseSemanticReviewResult = z.infer<
 export type TargetInvestigateCaseSemanticReviewTrace = z.infer<
   typeof targetInvestigateCaseSemanticReviewTraceSchema
 >;
+export type TargetInvestigateCaseRootCauseReviewTrace = z.infer<
+  typeof targetInvestigateCaseRootCauseReviewTraceSchema
+>;
 export type TargetInvestigateCaseCausalDebugRequest = z.infer<
   typeof targetInvestigateCaseCausalDebugRequestSchema
 >;
 export type TargetInvestigateCaseCausalDebugResult = z.infer<
   typeof targetInvestigateCaseCausalDebugResultSchema
+>;
+export type TargetInvestigateCaseRootCauseReviewRequest = z.infer<
+  typeof targetInvestigateCaseRootCauseReviewRequestSchema
+>;
+export type TargetInvestigateCaseRootCauseReviewResult = z.infer<
+  typeof targetInvestigateCaseRootCauseReviewResultSchema
 >;
 export type TargetInvestigateCaseTicketProposal = z.infer<
   typeof targetInvestigateCaseTicketProposalSchema
@@ -3141,6 +3485,8 @@ export interface TargetInvestigateCaseArtifactSet {
   semanticReviewResultPath: string;
   causalDebugRequestPath: string;
   causalDebugResultPath: string;
+  rootCauseReviewRequestPath: string;
+  rootCauseReviewResultPath: string;
   ticketProposalPath: string;
   publicationDecisionPath: string;
 }
@@ -3174,6 +3520,7 @@ export type TargetInvestigateCaseFailureSurface =
   | "round-materialization"
   | "semantic-review"
   | "causal-debug"
+  | "root-cause-review"
   | "round-evaluation";
 
 export type TargetInvestigateCaseFailureKind =

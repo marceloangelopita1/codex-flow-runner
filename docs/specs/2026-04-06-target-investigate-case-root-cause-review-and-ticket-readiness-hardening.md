@@ -9,7 +9,7 @@
 - Last reviewed at (UTC): 2026-04-06 19:55Z
 - Source: technical-evolution
 - Related tickets:
-  - `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
+  - `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
   - `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`
   - `../guiadomus-matricula/tickets/open/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening-gap.md`
 - Related execplans:
@@ -69,11 +69,11 @@
 - Implementar fixes de workflow especifico nesta spec.
 
 ## Criterios de aceitacao (observaveis)
-- [ ] CA-01 - `src/types/target-investigate-case.ts` aceita `rootCauseReview` no manifesto e tipa `root-cause-review.request.json` e `root-cause-review.result.json`.
-- [ ] CA-02 - `src/integrations/target-investigate-case-round-preparer.ts` executa a nova etapa quando declarada pelo target e reread/recompõe os artefatos oficiais depois do resultado.
-- [ ] CA-03 - `src/core/target-investigate-case.ts` bloqueia `publish_ticket` quando a nova etapa concluir `plausible_but_unfalsified` ou `inconclusive`.
-- [ ] CA-04 - os testes do runner cobrem pelo menos um caso em que `ticket-proposal.json` existe, mas a publication precisa ser bloqueada porque a causa ainda nao foi confirmada.
-- [ ] CA-05 - o runner continua aceitando manifests legados sem a etapa nova, sem quebrar o contrato atual durante rollout controlado.
+- [x] CA-01 - `src/types/target-investigate-case.ts` aceita `rootCauseReview` no manifesto e tipa `root-cause-review.request.json` e `root-cause-review.result.json`.
+- [x] CA-02 - `src/integrations/target-investigate-case-round-preparer.ts` executa a nova etapa quando declarada pelo target e reread/recompõe os artefatos oficiais depois do resultado.
+- [x] CA-03 - `src/core/target-investigate-case.ts` bloqueia `publish_ticket` quando a nova etapa concluir `plausible_but_unfalsified` ou `inconclusive`.
+- [x] CA-04 - os testes do runner cobrem pelo menos um caso em que `ticket-proposal.json` existe, mas a publication precisa ser bloqueada porque a causa ainda nao foi confirmada.
+- [x] CA-05 - o runner continua aceitando manifests legados sem a etapa nova, sem quebrar o contrato atual durante rollout controlado.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -173,17 +173,17 @@
 
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
-- Resultado da triagem final: a revalidacao do pacote derivado terminou em `GO`, sem gaps pendentes ou reancorados; por isso a spec passa a `Status: attended` com `Spec treatment: done`, mantendo a execucao futura rastreada nos tickets abertos relacionados.
+- Resultado da triagem final: a revalidacao do pacote derivado terminou em `GO`, sem gaps pendentes ou reancorados; por isso a spec passa a `Status: attended` com `Spec treatment: done`, mantendo a execucao futura rastreada nos tickets relacionados.
 - Itens atendidos:
   - a triagem runner-side fechou a fronteira de ownership entre `rootCauseReview` e o ticket historico de quality hardening, sem necessidade de ticket sucessor novo;
   - os `Closure criteria` dos tickets derivados agora tornam observaveis a revisao manual do rollout legado, a propagacao de `root_cause_status`, `ticket_readiness` e gaps remanescentes, e RF-08 no contrato/publication enriquecido;
   - a validacao registrada em `2026-04-06T19:49:00.036Z` reduziu os gaps de 2 para 0 e confirmou rastreabilidade suficiente para seguir no fluxo sequencial de tickets.
 - Pendencias em aberto:
-  - Nenhuma pendencia residual de triagem/documentacao nesta etapa; a execucao segue rastreada em `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`.
+  - Nenhuma pendencia residual de triagem/documentacao nesta etapa; a execucao segue rastreada em `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`.
 - Evidencias de validacao:
   - gate `spec-ticket-validation` concluido com `GO` em `2026-04-06T19:49:00.036Z`, com reducao objetiva de 2 gaps para 0;
   - analise cross-repo de 2026-04-06 sobre `case-investigation` e `/target_investigate_case`;
-  - atualizacao observavel dos `Closure criteria` em `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`;
+  - atualizacao observavel dos `Closure criteria` em `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`;
   - releitura objetiva de `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/target-investigate-case-ticket-publisher.ts` e suites associadas durante esta triagem.
 
 ## Auditoria final de entrega

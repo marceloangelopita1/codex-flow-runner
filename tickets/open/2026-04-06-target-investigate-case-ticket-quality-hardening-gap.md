@@ -33,7 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
   - execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md
-  - tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
+  - tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - ../guiadomus-matricula/execplans/2026-04-06-case-investigation-ticket-quality-hardening.md
 
 ## Classificacao de risco (check-up nao funcional, quando aplicavel)
@@ -50,7 +50,7 @@
 - Workflow area: target-investigate-case / publication runner-side / ticket publisher
 - Scenario: o target project ja consegue produzir uma hipotese repo-aware melhor, mas o runner ainda aceita pouco contexto adicional, valida pouco o markdown target-owned e impõe naming de arquivo que mistura um identificador de caso com tickets pensados para backlog reutilizavel.
 - Input constraints: preservar a autoridade semantica target-owned, manter publication final no runner e permitir rollout gradual sem quebrar targets que ainda emitem `ticket_proposal_v1` no shape atual.
-- Ownership boundary: este ticket nao cobre `rootCauseReview`, gates causais nem rollout legado da nova etapa; essa frente ficou explicitamente no ticket `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`.
+- Ownership boundary: este ticket nao cobre `rootCauseReview`, gates causais nem rollout legado da nova etapa; essa frente ficou explicitamente no ticket `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`.
 
 ## Problem statement
 O runner precisa aceitar enriquecimento aditivo de `causal-debug.result.json` e `ticket-proposal.json`, endurecer a publication de `ticket_markdown` com guardrails editoriais minimos e deixar de impor naming runner-side que contradiga o escopo reutilizavel declarado pelo target, sem assumir a ownership do contrato futuro de confirmacao causal (`rootCauseReview`).
@@ -107,7 +107,7 @@ Defina evidencias objetivas para encerrar o ticket. Para ticket automatico de re
 ## Decision log
 - 2026-04-06 - Ticket aberto a partir do diagnostico cross-repo do fluxo de `case-investigation` - a maior degradacao editorial nasce no target, mas o runner ainda precisa aceitar o contrato enriquecido e endurecer publication/naming para nao perpetuar o problema.
 - 2026-04-06 - Implementacao runner-side iniciada e validada localmente - o ticket permanece aberto ate o versionamento/fechamento formal no changeset final.
-- 2026-04-06 - Backlog reconciliado com `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` - este ticket segue apenas com contrato enriquecido de `causal-debug.result.json`/`ticket-proposal.json`, guardrails editoriais e naming; gates causais de `rootCauseReview` ficaram fora da sua ownership.
+- 2026-04-06 - Backlog reconciliado com `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` - este ticket segue apenas com contrato enriquecido de `causal-debug.result.json`/`ticket-proposal.json`, guardrails editoriais e naming; gates causais de `rootCauseReview` ficaram fora da sua ownership.
 
 ## Closure
 - Closed at (UTC):

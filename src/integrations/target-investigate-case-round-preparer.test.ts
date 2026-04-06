@@ -12,6 +12,7 @@ import { ProjectRef } from "../types/project.js";
 import { targetInvestigateCaseManifestSchema } from "../types/target-investigate-case.js";
 import {
   TargetInvestigateCaseCausalDebugCodexRequest,
+  TargetInvestigateCaseRootCauseReviewCodexRequest,
   TargetInvestigateCaseRoundMaterializationCodexClient,
   TargetInvestigateCaseRoundMaterializationCodexRequest,
   TargetInvestigateCaseSemanticReviewCodexRequest,
@@ -29,6 +30,7 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
   public readonly calls: TargetInvestigateCaseRoundMaterializationCodexRequest[] = [];
   public readonly semanticReviewCalls: TargetInvestigateCaseSemanticReviewCodexRequest[] = [];
   public readonly causalDebugCalls: TargetInvestigateCaseCausalDebugCodexRequest[] = [];
+  public readonly rootCauseReviewCalls: TargetInvestigateCaseRootCauseReviewCodexRequest[] = [];
 
   constructor(
     private readonly onRun: (request: TargetInvestigateCaseRoundMaterializationCodexRequest) => Promise<void>,
@@ -38,6 +40,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     ) => Promise<string>,
     private readonly onCausalDebug?: (
       request: TargetInvestigateCaseCausalDebugCodexRequest,
+    ) => Promise<string>,
+    private readonly onRootCauseReview?: (
+      request: TargetInvestigateCaseRootCauseReviewCodexRequest,
     ) => Promise<string>,
   ) {}
 
@@ -177,6 +182,52 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
       promptText: "prompt",
     };
   }
+
+  async runTargetInvestigateCaseRootCauseReview(
+    request: TargetInvestigateCaseRootCauseReviewCodexRequest,
+  ) {
+    this.rootCauseReviewCalls.push(request);
+    const output =
+      (await this.onRootCauseReview?.(request)) ??
+      JSON.stringify(
+        {
+          schema_version: "root_cause_review_result_v1",
+          generated_at: "2026-04-06T04:23:00.000Z",
+          request_artifact: "root-cause-review.request.json",
+          reviewer: {
+            orchestrator: "codex-flow-runner",
+            prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
+            reviewer_label: "codex",
+          },
+          root_cause_status: "root_cause_confirmed",
+          confidence: "high",
+          summary: "repo-aware root cause review confirmed the minimum local cause strongly enough",
+          ticket_readiness: {
+            status: "ready",
+            reason_code: "READY",
+            summary: "ticket publication is ready after adversarial review",
+          },
+          supporting_refs: [
+            {
+              path: "src/workflows/extract-address.ts",
+              reason: "fixture",
+            },
+          ],
+          constraints_acknowledged: {
+            repo_read_allowed: true,
+            external_evidence_discovery_allowed: false,
+            final_publication_authority: "runner",
+          },
+        },
+        null,
+        2,
+      );
+    return {
+      output,
+      promptTemplatePath: "/repo/docs/workflows/target-case-investigation-root-cause-review.md",
+      promptText: "prompt",
+    };
+  }
 }
 
 class StubGitVersioning implements GitVersioning {
@@ -214,7 +265,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer materializa artefatos canonicos
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   if (result.status !== "prepared") {
     return;
   }
@@ -267,7 +318,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos a
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   if (result.status !== "prepared") {
     return;
   }
@@ -334,7 +385,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo 
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   if (result.status !== "prepared") {
     return;
   }
@@ -389,7 +440,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando sema
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   assert.equal(codexClient.semanticReviewCalls.length, 0);
   assert.equal(
     await fileExists(
@@ -420,7 +471,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer nao chama o Codex quando o pack
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   assert.equal(codexClient.semanticReviewCalls.length, 0);
   assert.equal(
     await fileExists(
@@ -451,7 +502,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "prepared", JSON.stringify(result));
   assert.equal(codexClient.semanticReviewCalls.length, 1);
   assert.match(codexClient.semanticReviewCalls[0]?.reviewRequestJson ?? "", /"symptom_selection"/u);
   assert.match(codexClient.semanticReviewCalls[0]?.reviewRequestJson ?? "", /"symptom_candidates"/u);
@@ -466,6 +517,175 @@ test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e
   ) as { schema_version?: string; verdict?: string };
   assert.equal(persisted.schema_version, "semantic_review_result_v1");
   assert.equal(persisted.verdict, "confirmed_error");
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer executa root-cause-review apos causal-debug e persiste o resultado canonico", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const callOrder: string[] = [];
+  fixture.request.manifest.causalDebug = {
+    owner: "target-project",
+    runnerExecutor: "codex-flow-runner",
+    promptPath: "docs/workflows/target-case-investigation-causal-debug.md",
+    artifacts: {
+      request: {
+        artifact: "causal-debug.request.json",
+        schemaVersion: "causal_debug_request_v1",
+      },
+      result: {
+        artifact: "causal-debug.result.json",
+        schemaVersion: "causal_debug_result_v1",
+      },
+      ticketProposal: {
+        artifact: "ticket-proposal.json",
+        schemaVersion: "ticket_proposal_v1",
+      },
+    },
+    debugPolicy: {
+      repoReadAllowed: true,
+      readableSurfaces: ["code", "prompts", "tests", "docs", "config"],
+      externalEvidenceDiscoveryAllowed: false,
+      boundedSemanticConfirmationRequired: true,
+      targetProjectOwnsMinimalCause: true,
+      runnerRemainsPublicationAuthority: true,
+    },
+  };
+  fixture.request.manifest.rootCauseReview = {
+    owner: "target-project",
+    runnerExecutor: "codex-flow-runner",
+    promptPath: "docs/workflows/target-case-investigation-root-cause-review.md",
+    artifacts: {
+      request: {
+        artifact: "root-cause-review.request.json",
+        schemaVersion: "root_cause_review_request_v1",
+      },
+      result: {
+        artifact: "root-cause-review.result.json",
+        schemaVersion: "root_cause_review_result_v1",
+      },
+    },
+    reviewPolicy: {
+      repoReadAllowed: true,
+      readableSurfaces: ["code", "prompts", "tests", "docs", "config"],
+      externalEvidenceDiscoveryAllowed: false,
+      targetProjectOwnsRootCauseDecision: true,
+      runnerRemainsPublicationAuthority: true,
+    },
+  };
+  const codexClient = new StubCodexClient(
+    async (request) => {
+      await materializeRoundArtifacts(request.targetProject.path, request.roundDirectory, "json", null);
+      await writeCausalDebugRequest(request.targetProject.path, request.roundDirectory, "ready");
+      await writeRootCauseReviewRequest(request.targetProject.path, request.roundDirectory, "ready");
+    },
+    undefined,
+    undefined,
+    async () => {
+      callOrder.push("causal-debug");
+      return JSON.stringify(
+        {
+          schema_version: "causal_debug_result_v1",
+          generated_at: "2026-04-06T04:22:00.000Z",
+          request_artifact: "causal-debug.request.json",
+          debugger: {
+            orchestrator: "codex-flow-runner",
+            prompt_path: "docs/workflows/target-case-investigation-causal-debug.md",
+            debugger_label: "codex",
+          },
+          verdict: "minimal_cause_identified",
+          confidence: "high",
+          summary: "fixture",
+          minimal_cause: {
+            repository_surface_kind: "code",
+            summary: "fixture",
+            why_minimal: "fixture",
+            suggested_fix_surface: ["src/workflows/extract-address.ts"],
+            suspected_components: ["src/workflows/extract-address.ts"],
+          },
+          supporting_refs: [
+            {
+              path: "src/workflows/extract-address.ts",
+              reason: "fixture",
+            },
+          ],
+          ticket_seed: {
+            suggested_title: "Fix extract_address semantic truncation",
+            suggested_slug: "fix-extract-address-semantic-truncation",
+            scope_summary: "fix the reusable semantic bug in extract_address",
+            should_open_ticket: true,
+            rationale: "fixture",
+          },
+          constraints_acknowledged: {
+            repo_read_allowed: true,
+            external_evidence_discovery_allowed: false,
+            final_publication_authority: "runner",
+          },
+        },
+        null,
+        2,
+      );
+    },
+    async () => {
+      callOrder.push("root-cause-review");
+      return JSON.stringify(
+        {
+          schema_version: "root_cause_review_result_v1",
+          generated_at: "2026-04-06T04:23:00.000Z",
+          request_artifact: "root-cause-review.request.json",
+          reviewer: {
+            orchestrator: "codex-flow-runner",
+            prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
+            reviewer_label: "codex",
+          },
+          root_cause_status: "root_cause_confirmed",
+          confidence: "high",
+          summary: "fixture",
+          ticket_readiness: {
+            status: "ready",
+            reason_code: "READY",
+            summary: "fixture",
+          },
+          supporting_refs: [
+            {
+              path: "src/workflows/extract-address.ts",
+              reason: "fixture",
+            },
+          ],
+          constraints_acknowledged: {
+            repo_read_allowed: true,
+            external_evidence_discovery_allowed: false,
+            final_publication_authority: "runner",
+          },
+        },
+        null,
+        2,
+      );
+    },
+  );
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared", JSON.stringify(result));
+  assert.deepEqual(callOrder, ["causal-debug", "root-cause-review"]);
+  assert.equal(codexClient.causalDebugCalls.length, 1);
+  assert.equal(codexClient.rootCauseReviewCalls.length, 1);
+
+  const persisted = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.rootCauseReviewResultPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { schema_version?: string; root_cause_status?: string; ticket_readiness?: { status?: string } };
+  assert.equal(persisted.schema_version, "root_cause_review_result_v1");
+  assert.equal(persisted.root_cause_status, "root_cause_confirmed");
+  assert.equal(persisted.ticket_readiness?.status, "ready");
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer reroda a recomposicao oficial do target-project apos materializar semantic-review.result.json", async () => {
@@ -1101,6 +1321,10 @@ const createRoundPreparerFixture = async (): Promise<{
           "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
         causalDebugResultPath:
           "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+        rootCauseReviewRequestPath:
+          "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
+        rootCauseReviewResultPath:
+          "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
         ticketProposalPath:
           "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
         publicationDecisionPath:
@@ -1648,6 +1872,163 @@ const writeSemanticReviewRequest = async (
       "utf8",
     );
   }
+};
+
+const writeCausalDebugRequest = async (
+  projectPath: string,
+  roundDirectory: string,
+  status: "ready" | "blocked",
+): Promise<void> => {
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  await fs.writeFile(
+    path.join(roundPath, "causal-debug.request.json"),
+    JSON.stringify(
+      {
+        schema_version: "causal_debug_request_v1",
+        generated_at: "2026-04-06T04:21:00.000Z",
+        manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+        dossier_local_path: `${roundDirectory}/dossier.md`,
+        workflow: {
+          key: "extract_address",
+          documentation_path: "docs/specs/example.md",
+        },
+        selected_selectors: {
+          requestId: "req-001",
+          workflow: "extract_address",
+          symptom: "timeout on save",
+        },
+        semantic_confirmation: {
+          status: "confirmed_error",
+          result_verdict: "confirmed_error",
+          result_issue_type: "semantic_truncation",
+          summary: "fixture",
+        },
+        causal_hypothesis: {
+          owner: "target-project",
+          kind: "bug",
+          summary: "fixture bounded semantic signal already suggests a reusable local bug",
+        },
+        causal_surface: {
+          owner: "target-project",
+          kind: "bug",
+          actionable: true,
+          summary: "fixture",
+        },
+        evidence_sufficiency: "sufficient",
+        generalization_basis: [
+          {
+            code: "semantic_review_confirmed_error",
+            summary: "fixture bounded semantic review confirmed the workflow error",
+          },
+        ],
+        debug_readiness: {
+          status,
+          reason_code: status === "ready" ? "READY" : "NON_ACTIONABLE_SURFACE",
+          summary:
+            status === "ready"
+              ? "repo-aware causal debug ready"
+              : "causal debug blocked for this fixture",
+        },
+        repo_context: {
+          prompt_path: "docs/workflows/target-case-investigation-causal-debug.md",
+          documentation_paths: ["docs/specs/example.md"],
+          code_paths: ["src/workflows/extract-address.ts"],
+          test_paths: ["src/workflows/extract-address.test.ts"],
+          ticket_guidance_paths: ["tickets/templates/internal-ticket-template.md"],
+        },
+        supporting_refs: [
+          {
+            ref: "src/workflows/extract-address.ts",
+            path: "src/workflows/extract-address.ts",
+            reason: "fixture",
+          },
+        ],
+        debug_question: "Identify the minimum local cause for this fixture.",
+        expected_result_artifact: {
+          artifact: "causal-debug.result.json",
+          schema_version: "causal_debug_result_v1",
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+};
+
+const writeRootCauseReviewRequest = async (
+  projectPath: string,
+  roundDirectory: string,
+  status: "ready" | "blocked",
+): Promise<void> => {
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  await fs.writeFile(
+    path.join(roundPath, "root-cause-review.request.json"),
+    JSON.stringify(
+      {
+        schema_version: "root_cause_review_request_v1",
+        generated_at: "2026-04-06T04:22:30.000Z",
+        manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+        dossier_local_path: `${roundDirectory}/dossier.md`,
+        workflow: {
+          key: "extract_address",
+          documentation_path: "docs/specs/example.md",
+        },
+        selected_selectors: {
+          requestId: "req-001",
+          workflow: "extract_address",
+          symptom: "timeout on save",
+        },
+        semantic_confirmation: {
+          status: "confirmed_error",
+          result_verdict: "confirmed_error",
+          result_issue_type: "semantic_truncation",
+          summary: "fixture",
+        },
+        causal_debug: {
+          status: "minimal_cause_identified",
+          result_verdict: "minimal_cause_identified",
+          summary: "fixture",
+        },
+        causal_surface: {
+          owner: "target-project",
+          kind: "bug",
+          actionable: true,
+          summary: "fixture",
+        },
+        review_readiness: {
+          status,
+          reason_code: status === "ready" ? "READY" : "MORE_EVIDENCE_REQUIRED",
+          summary:
+            status === "ready"
+              ? "repo-aware root cause review ready"
+              : "root cause review blocked for this fixture",
+        },
+        repo_context: {
+          prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
+          documentation_paths: ["docs/specs/example.md"],
+          code_paths: ["src/workflows/extract-address.ts"],
+          test_paths: ["src/workflows/extract-address.test.ts"],
+          ticket_guidance_paths: ["tickets/templates/internal-ticket-template.md"],
+        },
+        supporting_refs: [
+          {
+            ref: "src/workflows/extract-address.ts",
+            path: "src/workflows/extract-address.ts",
+            reason: "fixture",
+          },
+        ],
+        review_question: "Confirm whether the root cause is strong enough for ticket publication.",
+        expected_result_artifact: {
+          artifact: "root-cause-review.result.json",
+          schema_version: "root_cause_review_result_v1",
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
 };
 
 const fileExists = async (value: string): Promise<boolean> => {

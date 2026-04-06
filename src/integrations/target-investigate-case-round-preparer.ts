@@ -15,9 +15,12 @@ import {
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
+  targetInvestigateCaseRootCauseReviewRequestSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
   TargetInvestigateCaseAssessment,
@@ -25,6 +28,7 @@ import {
   TargetInvestigateCaseFailureKind,
   TargetInvestigateCaseFailureSurface,
   TargetInvestigateCaseReplayMode,
+  TargetInvestigateCaseRootCauseReviewRequest,
   TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseMilestone } from "../types/target-flow.js";
@@ -35,6 +39,7 @@ import {
   parseTargetInvestigateCaseSemanticReviewOutput,
 } from "./target-investigate-case-semantic-review.js";
 import { parseTargetInvestigateCaseCausalDebugOutput } from "./target-investigate-case-causal-debug.js";
+import { parseTargetInvestigateCaseRootCauseReviewOutput } from "./target-investigate-case-root-cause-review.js";
 import { FileSystemTargetInvestigateCaseTicketPublisher } from "./target-investigate-case-ticket-publisher.js";
 
 interface TargetInvestigateCaseRoundPreparerDependencies {
@@ -199,6 +204,11 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         authoritativeDossierLocalPath,
       );
       await this.completeCausalDebugIfSupported(
+        request,
+        fixedCodexClient,
+        authoritativeDossierLocalPath,
+      );
+      await this.completeRootCauseReviewIfSupported(
         request,
         fixedCodexClient,
         authoritativeDossierLocalPath,
@@ -730,6 +740,231 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     }
   }
 
+  private async completeRootCauseReviewIfSupported(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    codexClient: TargetInvestigateCaseRoundMaterializationCodexClient,
+    authoritativeDossierLocalPath: string | null,
+  ): Promise<void> {
+    if (!request.manifest.rootCauseReview) {
+      return;
+    }
+
+    const resultDestinationPaths = uniquePaths([
+      request.artifactPaths.rootCauseReviewResultPath,
+      authoritativeDossierLocalPath
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+          )
+        : null,
+      request.artifactPaths.ticketProposalPath,
+      authoritativeDossierLocalPath
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+          )
+        : null,
+    ]);
+    for (const resultDestinationPath of resultDestinationPaths) {
+      await removeRelativePathIfExists(request.targetProject.path, resultDestinationPath);
+    }
+
+    if (
+      !(await relativePathExists(
+        request.targetProject.path,
+        request.artifactPaths.rootCauseReviewRequestPath,
+      ))
+    ) {
+      this.dependencies.logger.info(
+        "root-cause-review ausente na rodada de target-investigate-case; fluxo segue sem regressao",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+        },
+      );
+      return;
+    }
+
+    let rootCauseReviewRequest: TargetInvestigateCaseRootCauseReviewRequest;
+    try {
+      rootCauseReviewRequest = await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.rootCauseReviewRequestPath,
+        targetInvestigateCaseRootCauseReviewRequestSchema,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "root-cause-review.request.json invalido; rodada falhara com causa operacional explicita",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "root-cause-review",
+        "request-invalid",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Corrija root-cause-review.request.json no projeto alvo antes de rerodar a rodada.",
+      );
+    }
+
+    if (rootCauseReviewRequest.review_readiness.status === "blocked") {
+      this.dependencies.logger.info(
+        "root-cause-review pulado por bloqueio explicito do projeto alvo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+          reasonCode: rootCauseReviewRequest.review_readiness.reason_code,
+        },
+      );
+      return;
+    }
+
+    if (request.isCancellationRequested()) {
+      this.dependencies.logger.info(
+        "root-cause-review nao sera executado porque a rodada recebeu cancelamento cooperativo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+        },
+      );
+      return;
+    }
+
+    const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
+    const authoritativeResultPath =
+      authoritativeDossierLocalPath != null
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+          )
+        : request.artifactPaths.rootCauseReviewResultPath;
+
+    let resultOutput = "";
+    try {
+      const result = await codexClient.runTargetInvestigateCaseRootCauseReview({
+        targetProject: request.targetProject,
+        runnerRepoPath: this.dependencies.runnerRepoPath,
+        runnerReference,
+        manifestPath: request.manifestPath,
+        reviewPromptPath: request.manifest.rootCauseReview.promptPath,
+        reviewRequestPath: request.artifactPaths.rootCauseReviewRequestPath,
+        reviewResultPath: request.artifactPaths.rootCauseReviewResultPath,
+        reviewRequestJson: JSON.stringify(rootCauseReviewRequest, null, 2),
+      });
+      resultOutput = result.output;
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "root-cause-review runner-side falhou e agora interrompe a rodada",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+          resultPath: request.artifactPaths.rootCauseReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "root-cause-review",
+        "codex-execution-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a execucao runner-side do root-cause-review antes de rerodar a rodada.",
+      );
+    }
+
+    let parsedResult: unknown;
+    try {
+      parsedResult = parseTargetInvestigateCaseRootCauseReviewOutput(resultOutput);
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "root-cause-review retornou payload nao materializavel; rodada falhara com parse explicito",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+          resultPath: request.artifactPaths.rootCauseReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "root-cause-review",
+        "result-parse-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a resposta do Codex para root-cause-review e garanta JSON valido antes de rerodar.",
+      );
+    }
+
+    try {
+      await writeJsonArtifact(
+        request.targetProject.path,
+        authoritativeResultPath,
+        parsedResult,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "root-cause-review falhou ao persistir o artefato canonico; rodada sera interrompida",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.rootCauseReviewRequestPath,
+          resultPath: request.artifactPaths.rootCauseReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "root-cause-review",
+        "artifact-persist-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a persistencia de root-cause-review.result.json no projeto alvo antes de rerodar.",
+      );
+    }
+
+    if (request.manifest.rootCauseReview.recomposition) {
+      try {
+        await this.recomposeAssessmentAfterRootCauseReview(
+          request,
+          authoritativeResultPath,
+          authoritativeDossierLocalPath,
+        );
+        await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "root-cause-review",
+          "recomposition-failed",
+          "publication",
+          error instanceof Error ? error.message : String(error),
+          "Revise a recomposicao oficial do target para root-cause-review antes de rerodar.",
+        );
+      }
+    } else if (authoritativeResultPath !== request.artifactPaths.rootCauseReviewResultPath) {
+      try {
+        await copyRelativePath(
+          request.targetProject.path,
+          authoritativeResultPath,
+          request.artifactPaths.rootCauseReviewResultPath,
+        );
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "root-cause-review",
+          "artifact-persist-failed",
+          "publication",
+          error instanceof Error ? error.message : String(error),
+          "Revise a sincronizacao canonica de root-cause-review.result.json antes de rerodar.",
+        );
+      }
+    }
+  }
+
   private async recomposeAssessmentAfterSemanticReview(
     request: TargetInvestigateCaseRoundPreparationRequest,
     authoritativeResultPath: string,
@@ -848,6 +1083,73 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       await relativePathExists(
         request.targetProject.path,
         path.posix.join(authoritativeDossierLocalPath, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+      ),
+    );
+  }
+
+  private async recomposeAssessmentAfterRootCauseReview(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    authoritativeResultPath: string,
+    authoritativeDossierLocalPath: string | null,
+  ): Promise<void> {
+    const recomposition = request.manifest.rootCauseReview?.recomposition;
+    if (!recomposition) {
+      return;
+    }
+
+    if (!authoritativeDossierLocalPath) {
+      throw new Error(
+        "A recomposicao oficial do target-project exige dossier autoritativo local, mas nenhum caminho valido foi resolvido.",
+      );
+    }
+
+    if (!request.manifest.entrypoint) {
+      throw new Error(
+        "O manifesto declarou rootCauseReview.recomposition, mas entrypoint esta ausente para o rerun oficial.",
+      );
+    }
+
+    const selectors = await loadSelectedSelectorsFromCaseResolution(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "case-resolution.json"),
+    );
+
+    const runRecomposition =
+      this.dependencies.runSemanticReviewRecomposition ??
+      runTargetInvestigateCaseSemanticReviewRecomposition;
+
+    await runRecomposition({
+      targetProject: request.targetProject,
+      entrypointCommand: request.manifest.entrypoint.command,
+      scriptPath: request.manifest.entrypoint.scriptPath,
+      roundId: request.roundId,
+      selectors,
+      roundRequestIdFlag: recomposition.roundRequestIdFlag,
+      forceFlag: recomposition.forceFlag,
+      replayMode: recomposition.replayMode,
+    });
+
+    if (!(await relativePathExists(request.targetProject.path, authoritativeResultPath))) {
+      throw new Error(
+        "A recomposicao oficial removeu root-cause-review.result.json do dossier autoritativo, o que viola o contrato repo-aware.",
+      );
+    }
+
+    const recomposedAssessment = await readJsonArtifact(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
+      targetInvestigateCaseAssessmentSchema,
+      "assessment.json",
+    );
+
+    assertAssessmentConsumedRootCauseReviewResult(
+      recomposedAssessment,
+      await relativePathExists(
+        request.targetProject.path,
+        path.posix.join(
+          authoritativeDossierLocalPath,
+          TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+        ),
       ),
     );
   }
@@ -995,6 +1297,50 @@ const assertAssessmentConsumedCausalDebugResult = (
   ) {
     throw new Error(
       "assessment.json solicitou publication positiva sem ticket-proposal.json apos a recomposicao oficial do causal-debug.",
+    );
+  }
+};
+
+const assertAssessmentConsumedRootCauseReviewResult = (
+  assessment: TargetInvestigateCaseAssessment,
+  hasTicketProposal: boolean,
+): void => {
+  const staleBlockerCodes = new Set((assessment.blockers ?? []).map((entry) => entry.code));
+  const staleLimitCodes = new Set(
+    (assessment.capability_limits ?? []).map((entry) => entry.code),
+  );
+  if (
+    staleBlockerCodes.has("ROOT_CAUSE_REVIEW_RESULT_MISSING") ||
+    staleBlockerCodes.has("ROOT_CAUSE_REVIEW_RESULT_INVALID") ||
+    staleLimitCodes.has("root_cause_review_result_missing") ||
+    staleLimitCodes.has("root_cause_review_result_invalid")
+  ) {
+    throw new Error(
+      "assessment.json permaneceu stale apos a recomposicao oficial e ainda trata root-cause-review.result.json como ausente/invalido.",
+    );
+  }
+
+  if (
+    assessment.next_action?.code === "materialize_root_cause_review_result" ||
+    assessment.next_action?.code === "rerun_root_cause_review"
+  ) {
+    throw new Error(
+      "assessment.json nao consumiu root-cause-review.result.json e continuou exigindo sua materializacao apos a recomposicao oficial.",
+    );
+  }
+
+  if (!assessment.root_cause_review) {
+    throw new Error(
+      "assessment.json nao consolidou o bloco root_cause_review apos a recomposicao oficial.",
+    );
+  }
+
+  if (
+    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !hasTicketProposal
+  ) {
+    throw new Error(
+      "assessment.json solicitou publication positiva sem ticket-proposal.json apos a recomposicao oficial do root-cause-review.",
     );
   }
 };
@@ -1188,6 +1534,20 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
         TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
       ),
       destinationPath: request.artifactPaths.causalDebugResultPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.rootCauseReviewRequestPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.rootCauseReviewResultPath,
     },
     {
       sourcePath: path.posix.join(

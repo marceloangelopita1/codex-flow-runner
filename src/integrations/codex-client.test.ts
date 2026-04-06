@@ -369,6 +369,10 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
         "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
       causalDebugResultPath:
         "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+      rootCauseReviewRequestPath:
+        "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
+      rootCauseReviewResultPath:
+        "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
       ticketProposalPath:
         "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
       publicationDecisionPath:
@@ -591,6 +595,84 @@ test("runTargetInvestigateCaseCausalDebug reforca o schema estrito de supporting
   assert.match(
     capturedPrompt,
     /prefira apontar arquivos repo-relativos especificos em `suggested_fix_surface` e `suspected_components`/u,
+  );
+});
+
+test("runTargetInvestigateCaseRootCauseReview injeta packet repo-aware e reforca gates causais explicitos", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+        "Request path: <CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_REQUEST_PATH>",
+        "Result path: <CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_RESULT_PATH>",
+        "Prompt path: <CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_PROMPT_PATH>",
+        "Request:",
+        "<CASE_INVESTIGATION_ROOT_CAUSE_REVIEW_REQUEST_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "{\"schema_version\":\"root_cause_review_result_v1\"}", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetInvestigateCaseRootCauseReview({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+    reviewPromptPath: "docs/workflows/target-case-investigation-root-cause-review.md",
+    reviewRequestPath: "investigations/2026-04-06T15-35-11Z/root-cause-review.request.json",
+    reviewResultPath: "investigations/2026-04-06T15-35-11Z/root-cause-review.result.json",
+    reviewRequestJson: JSON.stringify(
+      {
+        schema_version: "root_cause_review_request_v1",
+        review_readiness: {
+          status: "ready",
+          reason_code: "READY",
+          summary: "repo-aware review ready",
+        },
+        causal_debug: {
+          status: "minimal_cause_identified",
+          result_verdict: "minimal_cause_identified",
+          summary: "fixture",
+        },
+        semantic_confirmation: {
+          status: "confirmed_error",
+          result_verdict: "confirmed_error",
+          result_issue_type: "semantic_truncation",
+          summary: "fixture",
+        },
+      },
+      null,
+      2,
+    ),
+  });
+
+  assert.match(result.promptTemplatePath, /target-case-investigation-root-cause-review\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(
+    capturedPrompt,
+    /Request path: investigations\/2026-04-06T15-35-11Z\/root-cause-review\.request\.json/u,
+  );
+  assert.match(
+    capturedPrompt,
+    /Result path: investigations\/2026-04-06T15-35-11Z\/root-cause-review\.result\.json/u,
+  );
+  assert.match(capturedPrompt, /"schema_version": "root_cause_review_request_v1"/u);
+  assert.match(
+    capturedPrompt,
+    /Preserve `ticket_readiness` como sinal separado de `root_cause_status`/u,
+  );
+  assert.match(
+    capturedPrompt,
+    /Quando houver `remaining_gaps`, devolva objetos estritos com `code` e `summary`/u,
   );
 });
 
