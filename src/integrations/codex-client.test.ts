@@ -519,6 +519,81 @@ test("prompt de semantic-review documenta o schema estrito de field_verdicts", (
   assert.match(promptTemplate, /inclua chaves extras em `field_verdicts`/u);
 });
 
+test("runTargetInvestigateCaseCausalDebug reforca o schema estrito de supporting_refs", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Target name: <TARGET_PROJECT_NAME>",
+        "Target path: <TARGET_PROJECT_PATH>",
+        "Request path: <CASE_INVESTIGATION_CAUSAL_DEBUG_REQUEST_PATH>",
+        "Result path: <CASE_INVESTIGATION_CAUSAL_DEBUG_RESULT_PATH>",
+        "Prompt path: <CASE_INVESTIGATION_CAUSAL_DEBUG_PROMPT_PATH>",
+        "Request:",
+        "<CASE_INVESTIGATION_CAUSAL_DEBUG_REQUEST_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "{\"schema_version\":\"causal_debug_result_v1\"}", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetInvestigateCaseCausalDebug({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-manifest.json",
+    debugPromptPath: "docs/workflows/target-case-investigation-causal-debug.md",
+    debugRequestPath: "investigations/2026-04-06T15-35-11Z/causal-debug.request.json",
+    debugResultPath: "investigations/2026-04-06T15-35-11Z/causal-debug.result.json",
+    debugRequestJson: JSON.stringify(
+      {
+        schema_version: "causal_debug_request_v1",
+        debug_readiness: {
+          status: "ready",
+          reason_code: "READY",
+          summary: "repo-aware debug ready",
+        },
+        supporting_refs: [
+          {
+            ref: "local-run-bundle:response",
+            path: "output/local-runs/case-01/main.response.json",
+            reason: "fixture",
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  });
+
+  assert.match(result.promptTemplatePath, /target-case-investigation-causal-debug\.md$/u);
+  assert.equal(result.promptText, capturedPrompt);
+  assert.match(
+    capturedPrompt,
+    /Request path: investigations\/2026-04-06T15-35-11Z\/causal-debug\.request\.json/u,
+  );
+  assert.match(
+    capturedPrompt,
+    /Result path: investigations\/2026-04-06T15-35-11Z\/causal-debug\.result\.json/u,
+  );
+  assert.match(capturedPrompt, /"schema_version": "causal_debug_request_v1"/u);
+  assert.match(
+    capturedPrompt,
+    /supporting_refs`, devolva apenas objetos estritos com `path` e `reason`/u,
+  );
+  assert.match(capturedPrompt, /nao replique chaves do packet como `ref`/u);
+  assert.match(
+    capturedPrompt,
+    /prefira apontar arquivos repo-relativos especificos em `suggested_fix_surface` e `suspected_components`/u,
+  );
+});
+
 test("runStage injeta guia operacional de shell no prompt", async () => {
   let capturedPrompt = "";
 

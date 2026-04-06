@@ -2167,7 +2167,9 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Prompt canonico do target: \`${request.debugPromptPath}\``,
       `- Packet de entrada: \`${request.debugRequestPath}\``,
       `- Artefato de saida esperado: \`${request.debugResultPath}\``,
-      "- Trabalhe somente no repositorio alvo atual e responda apenas com JSON valido.",
+      "- Trabalhe somente no repositorio alvo atual e responda apenas com JSON valido aderente ao schema solicitado.",
+      "- Em `supporting_refs`, devolva apenas objetos estritos com `path` e `reason`; nao replique chaves do packet como `ref`, `sha256`, `record_count` ou equivalentes.",
+      "- Quando a causa minima for plausivel, prefira apontar arquivos repo-relativos especificos em `suggested_fix_surface` e `suspected_components`, evitando diretorios amplos sem necessidade.",
     ].join("\n");
   }
 
