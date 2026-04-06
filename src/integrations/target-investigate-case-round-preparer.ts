@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Logger } from "../core/logger.js";
@@ -15,6 +16,8 @@ import {
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+  TargetInvestigateCaseAssessment,
+  TargetInvestigateCaseReplayMode,
   TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseRoundMaterializationCodexClient } from "./codex-client.js";
@@ -30,6 +33,29 @@ interface TargetInvestigateCaseRoundPreparerDependencies {
   runnerRepoPath: string;
   createCodexClient: (project: ProjectRef) => TargetInvestigateCaseRoundMaterializationCodexClient;
   createGitVersioning: (project: ProjectRef) => GitVersioning;
+  runSemanticReviewRecomposition?: (
+    request: TargetInvestigateCaseSemanticReviewRecompositionRequest,
+  ) => Promise<void>;
+}
+
+interface TargetInvestigateCaseSelectedSelectors {
+  propertyId?: string;
+  requestId?: string;
+  workflow?: string;
+  window?: string;
+  runArtifact?: string;
+  symptom?: string;
+}
+
+interface TargetInvestigateCaseSemanticReviewRecompositionRequest {
+  targetProject: ProjectRef;
+  entrypointCommand: string;
+  scriptPath: string;
+  roundId: string;
+  selectors: TargetInvestigateCaseSelectedSelectors;
+  roundRequestIdFlag: string;
+  forceFlag: string;
+  replayMode: TargetInvestigateCaseReplayMode;
 }
 
 export class CodexCliTargetInvestigateCaseRoundPreparer
@@ -115,7 +141,18 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         "assessment.json",
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
-      await this.completeSemanticReviewIfSupported(request, fixedCodexClient);
+      await this.completeSemanticReviewIfSupported(
+        request,
+        fixedCodexClient,
+        authoritativeDossierLocalPath,
+      );
+      await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.assessmentPath,
+        targetInvestigateCaseAssessmentSchema,
+        "assessment.json",
+      );
+      await validateDossierArtifact(request.targetProject.path, dossierPath);
     } catch (error) {
       return {
         status: "failed",
@@ -176,15 +213,21 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
   private async completeSemanticReviewIfSupported(
     request: TargetInvestigateCaseRoundPreparationRequest,
     codexClient: TargetInvestigateCaseRoundMaterializationCodexClient,
+    authoritativeDossierLocalPath: string | null,
   ): Promise<void> {
     if (!request.manifest.semanticReview) {
       return;
     }
 
-    await removeRelativePathIfExists(
-      request.targetProject.path,
+    const resultDestinationPaths = uniquePaths([
       request.artifactPaths.semanticReviewResultPath,
-    );
+      authoritativeDossierLocalPath
+        ? path.posix.join(authoritativeDossierLocalPath, "semantic-review.result.json")
+        : null,
+    ]);
+    for (const resultDestinationPath of resultDestinationPaths) {
+      await removeRelativePathIfExists(request.targetProject.path, resultDestinationPath);
+    }
 
     if (
       !(await relativePathExists(
@@ -273,6 +316,11 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     }
 
     const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
+    let authoritativeResultPath =
+      authoritativeDossierLocalPath != null
+        ? path.posix.join(authoritativeDossierLocalPath, "semantic-review.result.json")
+        : request.artifactPaths.semanticReviewResultPath;
+
     try {
       const result = await codexClient.runTargetInvestigateCaseSemanticReview({
         targetProject: request.targetProject,
@@ -285,13 +333,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         reviewContextJson,
       });
       const parsedResult = parseTargetInvestigateCaseSemanticReviewOutput(result.output);
-      await fs.writeFile(
-        path.join(
-          request.targetProject.path,
-          ...request.artifactPaths.semanticReviewResultPath.split("/"),
-        ),
-        `${JSON.stringify(parsedResult, null, 2)}\n`,
-        "utf8",
+      await writeJsonArtifact(
+        request.targetProject.path,
+        authoritativeResultPath,
+        parsedResult,
       );
     } catch (error) {
       this.dependencies.logger.warn(
@@ -304,7 +349,81 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
+      return;
     }
+
+    if (request.manifest.semanticReview.recomposition) {
+      await this.recomposeAssessmentAfterSemanticReview(
+        request,
+        authoritativeResultPath,
+        authoritativeDossierLocalPath,
+      );
+      await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+    } else if (authoritativeResultPath !== request.artifactPaths.semanticReviewResultPath) {
+      await copyRelativePath(
+        request.targetProject.path,
+        authoritativeResultPath,
+        request.artifactPaths.semanticReviewResultPath,
+      );
+    }
+  }
+
+  private async recomposeAssessmentAfterSemanticReview(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    authoritativeResultPath: string,
+    authoritativeDossierLocalPath: string | null,
+  ): Promise<void> {
+    const recomposition = request.manifest.semanticReview?.recomposition;
+    if (!recomposition) {
+      return;
+    }
+
+    if (!authoritativeDossierLocalPath) {
+      throw new Error(
+        "A recomposicao oficial do target-project exige dossier autoritativo local, mas nenhum caminho valido foi resolvido.",
+      );
+    }
+
+    if (!request.manifest.entrypoint) {
+      throw new Error(
+        "O manifesto declarou semanticReview.recomposition, mas entrypoint esta ausente para o rerun oficial.",
+      );
+    }
+
+    const selectors = await loadSelectedSelectorsFromCaseResolution(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "case-resolution.json"),
+    );
+
+    const runRecomposition =
+      this.dependencies.runSemanticReviewRecomposition ??
+      runTargetInvestigateCaseSemanticReviewRecomposition;
+
+    await runRecomposition({
+      targetProject: request.targetProject,
+      entrypointCommand: request.manifest.entrypoint.command,
+      scriptPath: request.manifest.entrypoint.scriptPath,
+      roundId: request.roundId,
+      selectors,
+      roundRequestIdFlag: recomposition.roundRequestIdFlag,
+      forceFlag: recomposition.forceFlag,
+      replayMode: recomposition.replayMode,
+    });
+
+    if (!(await relativePathExists(request.targetProject.path, authoritativeResultPath))) {
+      throw new Error(
+        "A recomposicao oficial removeu semantic-review.result.json do dossier autoritativo, o que viola o contrato bounded.",
+      );
+    }
+
+    const recomposedAssessment = await readJsonArtifact(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
+      targetInvestigateCaseAssessmentSchema,
+      "assessment.json",
+    );
+
+    assertAssessmentConsumedSemanticReviewResult(recomposedAssessment);
   }
 }
 
@@ -332,6 +451,225 @@ const resolveAuthoritativeDossierLocalPath = (
   }
 
   return normalized;
+};
+
+const loadSelectedSelectorsFromCaseResolution = async (
+  projectPath: string,
+  relativeCaseResolutionPath: string,
+): Promise<TargetInvestigateCaseSelectedSelectors> => {
+  const absolutePath = path.join(projectPath, ...relativeCaseResolutionPath.split("/"));
+  const decoded = JSON.parse(await fs.readFile(absolutePath, "utf8")) as {
+    selected_selectors?: Record<string, unknown>;
+  };
+  const selectedSelectors = decoded.selected_selectors;
+  if (!selectedSelectors || typeof selectedSelectors !== "object") {
+    throw new Error(
+      "case-resolution.json nao expoe selected_selectors suficientes para a recomposicao oficial.",
+    );
+  }
+
+  const pick = (key: keyof TargetInvestigateCaseSelectedSelectors): string | undefined => {
+    const value = selectedSelectors[key];
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  };
+
+  const normalizedSelectors = {
+    propertyId: pick("propertyId"),
+    requestId: pick("requestId"),
+    workflow: pick("workflow"),
+    window: pick("window"),
+    runArtifact: pick("runArtifact"),
+    symptom: pick("symptom"),
+  };
+
+  if (
+    !normalizedSelectors.propertyId &&
+    !normalizedSelectors.requestId &&
+    !normalizedSelectors.runArtifact
+  ) {
+    throw new Error(
+      "selected_selectors nao preserva propertyId, requestId ou runArtifact para a recomposicao oficial.",
+    );
+  }
+
+  return normalizedSelectors;
+};
+
+const writeJsonArtifact = async (
+  projectPath: string,
+  relativePath: string,
+  value: unknown,
+): Promise<void> => {
+  const absolutePath = path.join(projectPath, ...relativePath.split("/"));
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.writeFile(absolutePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+};
+
+const assertAssessmentConsumedSemanticReviewResult = (
+  assessment: TargetInvestigateCaseAssessment,
+): void => {
+  const staleBlockerCodes = new Set(
+    (assessment.blockers ?? []).map((entry) => entry.code),
+  );
+  const staleLimitCodes = new Set(
+    (assessment.capability_limits ?? []).map((entry) => entry.code),
+  );
+  if (
+    staleBlockerCodes.has("SEMANTIC_REVIEW_RESULT_MISSING") ||
+    staleBlockerCodes.has("SEMANTIC_REVIEW_RESULT_INVALID") ||
+    staleLimitCodes.has("semantic_review_result_missing") ||
+    staleLimitCodes.has("semantic_review_result_invalid")
+  ) {
+    throw new Error(
+      "assessment.json permaneceu stale apos a recomposicao oficial e ainda trata semantic-review.result.json como ausente/invalido.",
+    );
+  }
+
+  if (
+    assessment.primary_taxonomy === "bug_likely" &&
+    assessment.next_action?.code === "materialize_semantic_review_result"
+  ) {
+    throw new Error(
+      "assessment.json nao consumiu semantic-review.result.json e continuou exigindo sua materializacao apos a recomposicao oficial.",
+    );
+  }
+};
+
+const runTargetInvestigateCaseSemanticReviewRecomposition = async (
+  request: TargetInvestigateCaseSemanticReviewRecompositionRequest,
+): Promise<void> => {
+  const argv = parseCommandLine(request.entrypointCommand);
+  if (argv.length === 0) {
+    throw new Error("entrypoint.command nao pode estar vazio para a recomposicao oficial.");
+  }
+
+  const [command, ...baseArgs] = argv;
+  const selectorArgs = buildTargetSelectorArgs(request.selectors);
+  const args = [
+    ...baseArgs,
+    ...selectorArgs,
+    "--replay-mode",
+    request.replayMode,
+    request.roundRequestIdFlag,
+    request.roundId,
+    request.forceFlag,
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: request.targetProject.path,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          [
+            `A recomposicao oficial do target-project falhou com exit code ${code}.`,
+            stdout.trim() ? `stdout: ${stdout.trim()}` : null,
+            stderr.trim() ? `stderr: ${stderr.trim()}` : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ),
+      );
+    });
+  });
+};
+
+const buildTargetSelectorArgs = (
+  selectors: TargetInvestigateCaseSelectedSelectors,
+): string[] => {
+  const args: string[] = [];
+  const selectorFlags: Array<[keyof TargetInvestigateCaseSelectedSelectors, string]> = [
+    ["propertyId", "--property-id"],
+    ["requestId", "--request-id"],
+    ["workflow", "--workflow"],
+    ["window", "--window"],
+    ["runArtifact", "--run-artifact"],
+    ["symptom", "--symptom"],
+  ];
+
+  for (const [key, flag] of selectorFlags) {
+    const value = selectors[key];
+    if (!value) {
+      continue;
+    }
+    args.push(flag, value);
+  }
+
+  return args;
+};
+
+const parseCommandLine = (command: string): string[] => {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaping = false;
+
+  const pushCurrent = () => {
+    if (!current) {
+      return;
+    }
+    tokens.push(current);
+    current = "";
+  };
+
+  for (const character of command.trim()) {
+    if (escaping) {
+      current += character;
+      escaping = false;
+      continue;
+    }
+
+    if (character === "\\" && quote !== "'") {
+      escaping = true;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (/\s/u.test(character)) {
+      pushCurrent();
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (quote) {
+    throw new Error(`entrypoint.command possui aspas nao fechadas: ${command}`);
+  }
+
+  pushCurrent();
+  return tokens;
 };
 
 const syncCanonicalArtifactsFromAuthoritativeDossier = async (
@@ -365,6 +703,13 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
         TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
       ),
       destinationPath: request.artifactPaths.semanticReviewRequestPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        "semantic-review.result.json",
+      ),
+      destinationPath: request.artifactPaths.semanticReviewResultPath,
     },
     {
       sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.md"),

@@ -184,6 +184,24 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     loaded.manifest.semanticReview?.artifacts.request.artifact,
     "semantic-review.request.json",
   );
+  assert.equal(
+    loaded.manifest.semanticReview?.recomposition?.strategy,
+    "rerun-entrypoint",
+  );
+  assert.equal(
+    loaded.manifest.semanticReview?.recomposition?.roundRequestIdFlag,
+    "--round-request-id",
+  );
+  assert.equal(loaded.manifest.semanticReview?.recomposition?.forceFlag, "--force");
+  assert.equal(
+    loaded.manifest.semanticReview?.recomposition?.replayMode,
+    "historical-only",
+  );
+  assert.equal(
+    loaded.manifest.semanticReview?.recomposition?.preserveExistingDossier,
+    true,
+  );
+  assert.equal(loaded.manifest.semanticReview?.symptoms?.selectedField, "symptom");
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
@@ -382,7 +400,7 @@ test("semantic-review.request.json aceita symptom_selection e symptom_candidates
   assert.deepEqual(parsedLegacy.symptom_candidates, []);
 });
 
-test("evaluateTargetInvestigateCaseRound aceita bug_likely runner-side com packet ready e semantic-review.result.json ausente", async () => {
+test("evaluateTargetInvestigateCaseRound preserva bug_likely target-side quando o packet ready ainda espera semantic-review.result.json", async () => {
   const fixture = await createTargetRepoFixture({
     mutateManifest: (manifest) => {
       manifest.semanticReview = buildPilotManifestFixture().semanticReview;
@@ -416,12 +434,12 @@ test("evaluateTargetInvestigateCaseRound aceita bug_likely runner-side com packe
         },
       ],
       causal_surface: {
-        owner: "runner",
-        kind: "runner-limitation",
+        owner: "target-project",
+        kind: "bug",
         summary:
-          "semantic-review was ready, but semantic-review.result.json is still missing from the local dossier",
+          "deterministic target-project evidence already points to a reusable semantic bug while bounded confirmation stays pending",
         actionable: true,
-        systems: ["case-investigation", "semantic-review", "extract_address", "codex-flow-runner"],
+        systems: ["case-investigation", "semantic-review", "extract_address"],
       },
       publication_recommendation: {
         recommended_action: "inconclusive",
@@ -509,7 +527,7 @@ test("evaluateTargetInvestigateCaseRound aceita bug_likely runner-side com packe
   assert.equal(result.assessment.primary_taxonomy, "bug_likely");
   assert.equal(result.assessment.operational_class, "bug_likely_but_unconfirmed");
   assert.equal(result.publicationDecision.publication_status, "not_applicable");
-  assert.equal(result.publicationDecision.overall_outcome, "runner-limitation");
+  assert.equal(result.publicationDecision.overall_outcome, "inconclusive-case");
   assert.equal(result.tracePayload.semantic_review.status, "failed");
   assert.equal(result.tracePayload.semantic_review.symptom_selection_source, "strong_candidate");
   assert.equal(result.tracePayload.semantic_review.symptom_candidate_count, 1);
@@ -848,6 +866,7 @@ test("evaluateTargetInvestigateCaseRound registra semantic-review completed com 
     mutateManifest: (manifest) => {
       manifest.semanticReview = buildPilotManifestFixture().semanticReview;
     },
+    assessmentDocument: buildCurrentAssessmentFixture(),
     semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
     semanticReviewResultDocument: buildSemanticReviewResultFixture(),
   });
@@ -1095,6 +1114,74 @@ test("evaluateTargetInvestigateCaseRound aceita evidence_sufficiency=sufficient 
   assert.equal(successfulResult.publicationDecision.overall_outcome, "ticket-published");
 });
 
+test("evaluateTargetInvestigateCaseRound aceita promotion para evidence_sufficiency=strong quando semantic-review confirmou erro bounded", async () => {
+  const publisher = new StubTargetInvestigateCaseTicketPublisher(
+    "tickets/open/2026-04-06-case-investigation-semantic-confirmed.md",
+  );
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    mutateEvidenceBundle: (artifact) => {
+      artifact.collection_sufficiency = "sufficient";
+      artifact.normative_conflicts = [];
+    },
+    assessmentDocument: buildCurrentAssessmentFixture({
+      evidence_sufficiency: "strong",
+    }),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+    ticketPublisher: publisher,
+  });
+
+  assert.equal(result.publicationDecision.publication_status, "eligible");
+  assert.equal(result.publicationDecision.overall_outcome, "ticket-published");
+  assert.equal(result.publicationDecision.ticket_path, publisher.ticketPath);
+});
+
+test("evaluateTargetInvestigateCaseRound rejeita promotion de evidence_sufficiency sem semantic-review confirmado", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateEvidenceBundle: (artifact) => {
+      artifact.collection_sufficiency = "sufficient";
+      artifact.normative_conflicts = [];
+    },
+    assessmentDocument: buildCurrentAssessmentFixture({
+      evidence_sufficiency: "strong",
+    }),
+  });
+
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: fixture.project,
+        input: {
+          projectName: fixture.project.name,
+          caseRef: "case-001",
+          workflow: "billing-core",
+          requestId: "req-001",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
+        },
+        artifacts: fixture.artifactPaths,
+        ticketPublisher: new StubTargetInvestigateCaseTicketPublisher(),
+      }),
+    /assessment\.json nao pode declarar evidence_sufficiency acima da coleta factual registrada em evidence-bundle\.json\./u,
+  );
+});
+
 test("evaluateTargetInvestigateCaseRound devolve runner-limitation quando a causal surface pertence ao runner", async () => {
   const fixture = await createTargetRepoFixture({
     mutateAssessment: (artifact) => {
@@ -1122,6 +1209,59 @@ test("evaluateTargetInvestigateCaseRound devolve runner-limitation quando a caus
   assert.equal(result.publicationDecision.publication_status, "not_applicable");
   assert.equal(result.publicationDecision.overall_outcome, "runner-limitation");
   assert.equal(publisher.calls.length, 0);
+});
+
+test("evaluateTargetInvestigateCaseRound rejeita assessment stale quando semantic-review.result.json confirmado nao foi consumido pelo target-project", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    assessmentDocument: buildCurrentAssessmentFixture({
+      primary_taxonomy: "bug_likely",
+      operational_class: "bug_likely_but_unconfirmed",
+      next_action: {
+        code: "materialize_semantic_review_result",
+        summary:
+          "materialize semantic-review.result.json for the ready bounded packet before runner-side publication triage",
+        source: "semantic_review",
+      },
+      blockers: [
+        {
+          code: "SEMANTIC_REVIEW_RESULT_MISSING",
+          summary:
+            "semantic-review.result.json is still missing for the ready bounded packet in this dossier",
+          source: "semantic_review_result",
+          member: null,
+        },
+      ],
+      capability_limits: [
+        {
+          code: "semantic_review_result_missing",
+          summary:
+            "semantic-review was ready, but the runner result has not been materialized in the dossier yet",
+        },
+      ],
+    }),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: fixture.project,
+        input: {
+          projectName: fixture.project.name,
+          caseRef: "case-001",
+          workflow: "billing-core",
+          requestId: "req-001",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
+        },
+        artifacts: fixture.artifactPaths,
+      }),
+    /primary_taxonomy=bug_confirmed|assessment\.json permaneceu stale/u,
+  );
 });
 
 test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/summary permanecem redigidos", async () => {
@@ -1681,6 +1821,8 @@ const buildPilotManifestFixture = (options: {
           "operational_class",
           "next_action",
           "blockers",
+          "causal_hypothesis",
+          "semantic_confirmation",
           "causal_surface",
           "publication_recommendation",
         ],
@@ -1733,6 +1875,13 @@ const buildPilotManifestFixture = (options: {
         boundedByWorkflowContract: true,
         targetProjectRemainsAssessmentAuthority: true,
         runnerRemainsPublicationAuthority: true,
+      },
+      recomposition: {
+        strategy: "rerun-entrypoint",
+        roundRequestIdFlag: "--round-request-id",
+        forceFlag: "--force",
+        replayMode: "historical-only",
+        preserveExistingDossier: true,
       },
       symptoms: {
         selectedField: "symptom",
@@ -2192,6 +2341,23 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
   operational_class: null,
   next_action: null,
   blockers: [],
+  causal_hypothesis: {
+    owner: "target-project",
+    kind: "bug",
+    summary: "fixture deterministic target-project evidence already points to a reusable bug",
+    actionable: true,
+    systems: ["case-investigation", "extract_address"],
+  },
+  semantic_confirmation: {
+    status: "confirmed_error",
+    summary: "bounded semantic review confirmed the workflow error",
+    request_status: "ready",
+    request_reason_code: "READY",
+    result_status: "valid",
+    result_verdict: "confirmed_error",
+    result_issue_type: "semantic_truncation",
+    publication_blocked: false,
+  },
   causal_surface: {
     owner: "target-project",
     kind: "bug",

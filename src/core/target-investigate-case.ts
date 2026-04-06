@@ -386,8 +386,8 @@ export const evaluateTargetInvestigateCaseRound = async (
   );
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
-  validateAssessmentConsistency(assessment);
-  validateEvidenceCoherence(evidenceBundle, assessment);
+  validateAssessmentConsistency(assessment, semanticReview);
+  validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
 
   const decision = await buildPublicationDecision({
     targetProject: request.targetProject,
@@ -1156,7 +1156,10 @@ const validateCaseResolution = (
   }
 };
 
-const validateAssessmentConsistency = (assessment: TargetInvestigateCaseAssessment): void => {
+const validateAssessmentConsistency = (
+  assessment: TargetInvestigateCaseAssessment,
+  semanticReview?: DiscoveredSemanticReviewArtifacts,
+): void => {
   const hasRichTaxonomy =
     assessment.primary_taxonomy !== null || assessment.operational_class !== null;
 
@@ -1221,6 +1224,29 @@ const validateAssessmentConsistency = (assessment: TargetInvestigateCaseAssessme
     throw new Error(
       "assessment incompleto com blockers exige next_action estruturado.",
     );
+  }
+
+  if (semanticReview?.result?.verdict === "confirmed_error") {
+    if (assessment.primary_taxonomy !== "bug_confirmed") {
+      throw new Error(
+        "assessment.json precisa promover primary_taxonomy=bug_confirmed quando semantic-review.result.json confirma erro bounded.",
+      );
+    }
+
+    const staleBlockerCodes = new Set(assessment.blockers.map((entry) => entry.code));
+    const staleCapabilityLimitCodes = new Set(
+      assessment.capability_limits.map((entry) => entry.code),
+    );
+    if (
+      staleBlockerCodes.has("SEMANTIC_REVIEW_RESULT_MISSING") ||
+      staleBlockerCodes.has("SEMANTIC_REVIEW_RESULT_INVALID") ||
+      staleCapabilityLimitCodes.has("semantic_review_result_missing") ||
+      staleCapabilityLimitCodes.has("semantic_review_result_invalid")
+    ) {
+      throw new Error(
+        "assessment.json permaneceu stale apos semantic-review.result.json confirmado.",
+      );
+    }
   }
 
   if (!hasRichTaxonomy) {
@@ -1288,12 +1314,21 @@ const validateAssessmentConsistency = (assessment: TargetInvestigateCaseAssessme
 const validateEvidenceCoherence = (
   evidenceBundle: TargetInvestigateCaseEvidenceBundle,
   assessment: TargetInvestigateCaseAssessment,
+  semanticReview?: DiscoveredSemanticReviewArtifacts,
 ): void => {
+  const allowsSemanticPromotion =
+    evidenceBundle.collection_sufficiency === "sufficient" &&
+    assessment.evidence_sufficiency === "strong" &&
+    assessment.primary_taxonomy === "bug_confirmed" &&
+    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    semanticReview?.result?.verdict === "confirmed_error";
+
   if (
     compareTargetInvestigateCaseEvidenceSufficiency(
       assessment.evidence_sufficiency,
       evidenceBundle.collection_sufficiency,
-    ) > 0
+    ) > 0 &&
+    !allowsSemanticPromotion
   ) {
     throw new Error(
       "assessment.json nao pode declarar evidence_sufficiency acima da coleta factual registrada em evidence-bundle.json.",

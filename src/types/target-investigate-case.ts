@@ -463,6 +463,16 @@ const targetInvestigateCaseManifestSemanticReviewSchema = z
         runnerRemainsPublicationAuthority: z.literal(true),
       })
       .strict(),
+    recomposition: z
+      .object({
+        strategy: z.literal("rerun-entrypoint"),
+        roundRequestIdFlag: z.literal("--round-request-id"),
+        forceFlag: z.literal("--force"),
+        replayMode: replayModeSchema,
+        preserveExistingDossier: z.boolean(),
+      })
+      .strict()
+      .optional(),
     symptoms: targetInvestigateCaseManifestSemanticReviewSymptomsSchema.optional(),
   })
   .strict();
@@ -1130,6 +1140,38 @@ const normalizePilotManifestToInternal = (
             runnerRemainsPublicationAuthority:
               manifest.semanticReview.packetPolicy.runnerRemainsPublicationAuthority,
           },
+          recomposition: manifest.semanticReview.recomposition
+            ? {
+                strategy: manifest.semanticReview.recomposition.strategy,
+                roundRequestIdFlag:
+                  manifest.semanticReview.recomposition.roundRequestIdFlag,
+                forceFlag: manifest.semanticReview.recomposition.forceFlag,
+                replayMode: manifest.semanticReview.recomposition.replayMode,
+                preserveExistingDossier:
+                  manifest.semanticReview.recomposition.preserveExistingDossier,
+              }
+            : undefined,
+          symptoms: manifest.semanticReview.symptoms
+            ? {
+                selectedField: manifest.semanticReview.symptoms.selectedField,
+                selectionField: manifest.semanticReview.symptoms.selectionField,
+                candidateField: manifest.semanticReview.symptoms.candidateField,
+                selectionPrecedence: [
+                  ...manifest.semanticReview.symptoms.selectionPrecedence,
+                ],
+                minimumScopedCandidates:
+                  manifest.semanticReview.symptoms.minimumScopedCandidates.map(
+                    (entry) => ({
+                      candidateId: entry.candidateId,
+                      workflow: entry.workflow,
+                      fieldPath: entry.fieldPath,
+                      jsonPointer: entry.jsonPointer,
+                      issueType: entry.issueType,
+                      strength: entry.strength,
+                    }),
+                  ),
+              }
+            : undefined,
         }
       : undefined,
     replayPolicy: {

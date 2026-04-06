@@ -408,6 +408,226 @@ test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e
   assert.equal(persisted.verdict, "confirmed_error");
 });
 
+test("CodexCliTargetInvestigateCaseRoundPreparer reroda a recomposicao oficial do target-project apos materializar semantic-review.result.json", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.manifest.semanticReview = {
+    ...fixture.request.manifest.semanticReview!,
+    recomposition: {
+      strategy: "rerun-entrypoint",
+      roundRequestIdFlag: "--round-request-id",
+      forceFlag: "--force",
+      replayMode: "historical-only",
+      preserveExistingDossier: true,
+    },
+  };
+
+  const recompositionCalls: Array<{
+    roundId: string;
+    selectors: {
+      propertyId?: string;
+      requestId?: string;
+      workflow?: string;
+      window?: string;
+      runArtifact?: string;
+      symptom?: string;
+    };
+    replayMode: string;
+  }> = [];
+  const authoritativeRoundDirectory = `output/case-investigation/${fixture.request.roundId}`;
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(
+      request.targetProject.path,
+      authoritativeRoundDirectory,
+      "md",
+      "ready",
+    );
+    await fs.writeFile(
+      path.join(
+        request.targetProject.path,
+        "output",
+        "case-investigation",
+        request.roundId,
+        "assessment.json",
+      ),
+      `${JSON.stringify(
+        {
+          schema_version: "assessment_v1",
+          generated_at: "2026-04-05T15:49:00.000Z",
+          houve_gap_real: "inconclusive",
+          era_evitavel_internamente: "no",
+          merece_ticket_generalizavel: "inconclusive",
+          confidence: "medium",
+          evidence_sufficiency: "sufficient",
+          primary_taxonomy: "bug_likely",
+          operational_class: "bug_likely_but_unconfirmed",
+          next_action: {
+            code: "materialize_semantic_review_result",
+            summary:
+              "materialize semantic-review.result.json for the ready bounded packet before runner-side publication triage",
+            source: "semantic_review",
+          },
+          blockers: [
+            {
+              code: "SEMANTIC_REVIEW_RESULT_MISSING",
+              summary:
+                "semantic-review.result.json is still missing for the ready bounded packet in this dossier",
+              source: "semantic_review_result",
+              member: null,
+            },
+          ],
+          causal_surface: {
+            owner: "target-project",
+            kind: "bug",
+            summary:
+              "deterministic target-project evidence already points to a reusable semantic bug",
+            actionable: true,
+            systems: ["case-investigation", "extract_address"],
+          },
+          generalization_basis: [],
+          overfit_vetoes: [
+            {
+              code: "semantic_review_result_missing",
+              reason:
+                "semantic-review was ready but the runner result is still missing, so publication would overfit a partially finalized dossier",
+              blocking: true,
+            },
+          ],
+          ticket_decision_reason:
+            "the dossier already carries a strong bounded bug signal, but confirmation is still pending before ticket projection",
+          publication_recommendation: {
+            recommended_action: "inconclusive",
+            reason:
+              "materialize semantic-review.result.json for the ready bounded packet before runner-side publication triage",
+            proposed_ticket_scope:
+              "hold publication and keep the local dossier as supporting evidence only",
+            suggested_title: "Do not publish extract_address ticket yet",
+          },
+          capability_limits: [
+            {
+              code: "semantic_review_result_missing",
+              summary:
+                "semantic-review was ready, but the runner result has not been materialized in the dossier yet",
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+    runSemanticReviewRecomposition: async (request) => {
+      recompositionCalls.push({
+        roundId: request.roundId,
+        selectors: request.selectors,
+        replayMode: request.replayMode,
+      });
+      await fs.writeFile(
+        path.join(
+          fixture.project.path,
+          "output",
+          "case-investigation",
+          request.roundId,
+          "assessment.json",
+        ),
+        `${JSON.stringify(
+          {
+            schema_version: "assessment_v1",
+            generated_at: "2026-04-05T15:50:00.000Z",
+            houve_gap_real: "yes",
+            era_evitavel_internamente: "yes",
+            merece_ticket_generalizavel: "yes",
+            confidence: "high",
+            evidence_sufficiency: "sufficient",
+            primary_taxonomy: "bug_confirmed",
+            operational_class: null,
+            next_action: null,
+            blockers: [],
+            causal_surface: {
+              owner: "target-project",
+              kind: "bug",
+              summary:
+                "bounded semantic review confirmed the reusable semantic bug in extract_address",
+              actionable: true,
+              systems: ["case-investigation", "extract_address", "semantic-review"],
+            },
+            generalization_basis: [
+              {
+                code: "semantic_review_confirmed_error",
+                summary:
+                  "semantic-review confirmed a bounded semantic_truncation signal using only declared surfaces",
+              },
+            ],
+            overfit_vetoes: [],
+            ticket_decision_reason:
+              "bounded semantic confirmation is now part of the authoritative target assessment",
+            publication_recommendation: {
+              recommended_action: "publish_ticket",
+              reason: "bounded semantic review confirmed a reusable workflow bug",
+              proposed_ticket_scope: "fix the reusable semantic bug in extract_address",
+              suggested_title: "Fix extract_address semantic truncation",
+            },
+            capability_limits: [],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(
+          fixture.project.path,
+          "output",
+          "case-investigation",
+          request.roundId,
+          "dossier.md",
+        ),
+        "# dossier\n\nRecomposed authoritative dossier.\n",
+        "utf8",
+      );
+    },
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared");
+  assert.equal(codexClient.semanticReviewCalls.length, 1);
+  assert.equal(recompositionCalls.length, 1);
+  assert.equal(recompositionCalls[0]?.roundId, fixture.request.roundId);
+  assert.equal(recompositionCalls[0]?.selectors.propertyId, "case-001");
+  assert.equal(recompositionCalls[0]?.selectors.workflow, "extract_address");
+  assert.equal(recompositionCalls[0]?.selectors.requestId, "req-001");
+  assert.equal(recompositionCalls[0]?.replayMode, "historical-only");
+
+  const mirroredAssessment = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.assessmentPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { primary_taxonomy?: string; blockers?: unknown[]; capability_limits?: unknown[] };
+  assert.equal(mirroredAssessment.primary_taxonomy, "bug_confirmed");
+  assert.deepEqual(mirroredAssessment.blockers, []);
+  assert.deepEqual(mirroredAssessment.capability_limits, []);
+
+  const mirroredResult = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.semanticReviewResultPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { verdict?: string };
+  assert.equal(mirroredResult.verdict, "confirmed_error");
+});
+
 test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando semantic-review.request.json esta invalido", async () => {
   const fixture = await createRoundPreparerFixture();
   const codexClient = new StubCodexClient(async (request) => {
@@ -755,27 +975,68 @@ const materializeRoundArtifacts = async (
     path.join(roundPath, "case-resolution.json"),
     JSON.stringify(
       {
-        case_ref: "case-001",
-        selectors: {
+        schema_version: "case_resolution_v1",
+        generated_at: "2026-04-03T19:00:00.000Z",
+        official_entrypoint: "npm run case-investigation --",
+        dossier_request_id: "2026-04-03T19-00-00Z",
+        selected_selectors: {
+          propertyId: "case-001",
+          requestId: "req-001",
           workflow: "extract_address",
-          request_id: "req-001",
           window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
         },
         resolved_case: {
-          ref: "case-001",
-          summary: "Caso correlacionado com a entidade canonica.",
-        },
-        attempt_resolution: {
           status: "resolved",
-          attempt_ref: "attempt-001",
-          reason: "Request historico identificado com seguranca.",
+          authority: "propertyId",
+          value: "case-001",
+          request_id: null,
+          run_artifact: null,
+          resolution_reason: "Caso correlacionado com a entidade canonica.",
         },
-        relevant_workflows: ["extract_address"],
+        resolved_attempt: {
+          authority: "requestId",
+          status: "resolved",
+          request_id: "req-001",
+          run_artifact: null,
+          workflow: "extract_address",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          resolution_reason: "Request historico identificado com seguranca.",
+        },
+        attempt_candidates: {
+          status: "single",
+          silent_selection_blocked: false,
+          selected_for_historical_evidence_request_id: "req-001",
+          candidate_request_ids: ["req-001"],
+          next_step: {
+            code: "review_unique_candidate",
+            summary: "historical request can support the evidence set directly",
+          },
+        },
+        historical_evidence: {
+          factual_sufficiency_reason:
+            "historical request, response and headers already close the case without silent inference",
+        },
         replay_decision: {
           status: "used",
-          reason: "Replay seguro complementou a causalidade do caso.",
+          reason_code: "SAFE_REPLAY_USED",
+          resolution_reason: "Replay seguro complementou a causalidade do caso.",
+          factual_sufficiency_reason:
+            "replay complemented the historical bundle with bounded evidence",
+          replay_mode: "historical-only",
+          request_id: "replay-001",
+          local_namespace: "output/case-investigation/replay-001",
+          update_db: false,
+          include_workflow_debug: false,
+          workflow: "extract_address",
         },
-        resolution_reason: "O projeto alvo fechou o caso sem inferencia livre de tentativa.",
+        replay_readiness: {
+          state: "executed",
+          required: false,
+          summary: "the fixture already executed the bounded replay path",
+          reason_code: "SAFE_REPLAY_USED",
+          blockers: [],
+        },
       },
       null,
       2,
