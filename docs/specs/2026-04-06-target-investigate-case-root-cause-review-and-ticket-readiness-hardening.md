@@ -6,14 +6,15 @@
 - Spec treatment: done
 - Owner: workflow-core
 - Created at (UTC): 2026-04-06 19:19Z
-- Last reviewed at (UTC): 2026-04-06 19:55Z
+- Last reviewed at (UTC): 2026-04-06 21:23Z
 - Source: technical-evolution
 - Related tickets:
   - `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
-  - `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`
+  - `tickets/closed/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`
   - `../guiadomus-matricula/tickets/open/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening-gap.md`
 - Related execplans:
-  - n/a
+  - `execplans/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
+  - `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md`
 - Related commits:
   - n/a
 - Fluxo derivado canonico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessario.
@@ -166,35 +167,37 @@
 
 ## Validacoes pendentes ou manuais
 - Validacoes obrigatorias ainda nao automatizadas:
-  - validar publication runner-side contra um target fixture onde `root-cause-review` exista e retorne `plausible_but_unfalsified`.
+  - nenhuma.
 - Validacoes manuais pendentes:
-  - revisar a policy final de rollout para manifests legados antes de apertar obrigatoriedade ampla.
-- Nota de fechamento da triagem: as validacoes acima seguem herdadas pelos tickets abertos relacionados e nao bloqueiam o encerramento documental desta etapa.
+  - nenhuma.
+- Nota de fechamento da triagem: a fixture antes pendente para `root-cause-review` com veredito `plausible_but_unfalsified` ficou coberta por teste automatizado runner-side, e a revisao manual da policy de rollout legado foi registrada no ticket fechado da linhagem.
 
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
-- Resultado da triagem final: a revalidacao do pacote derivado terminou em `GO`, sem gaps pendentes ou reancorados; por isso a spec passa a `Status: attended` com `Spec treatment: done`, mantendo a execucao futura rastreada nos tickets relacionados.
+- Resultado da triagem final: a revalidacao do pacote derivado terminou em `GO`, sem gaps pendentes ou reancorados; a auditoria final pos-`/run_all` confirmou a implementacao entregue e manteve a spec em `Status: attended` com `Spec treatment: done`.
 - Itens atendidos:
-  - a triagem runner-side fechou a fronteira de ownership entre `rootCauseReview` e o ticket historico de quality hardening, sem necessidade de ticket sucessor novo;
-  - os `Closure criteria` dos tickets derivados agora tornam observaveis a revisao manual do rollout legado, a propagacao de `root_cause_status`, `ticket_readiness` e gaps remanescentes, e RF-08 no contrato/publication enriquecido;
-  - a validacao registrada em `2026-04-06T19:49:00.036Z` reduziu os gaps de 2 para 0 e confirmou rastreabilidade suficiente para seguir no fluxo sequencial de tickets.
+  - a execucao runner-side fechou a fronteira de ownership entre `rootCauseReview` e o ticket historico de quality hardening, sem necessidade de ticket sucessor novo;
+  - os dois tickets derivados desta linhagem foram encerrados com evidencias observaveis em `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/closed/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`;
+  - o contrato atual torna observaveis a revisao manual do rollout legado, a propagacao de `root_cause_status`, `ticket_readiness` e gaps remanescentes, e RF-08 no contrato/publication enriquecido;
+  - a auditoria final rerodou a validacao tecnica da frente com `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` (`603` testes passando) e `npm run check` (`tsc --noEmit` sem erro).
 - Pendencias em aberto:
-  - Nenhuma pendencia residual de triagem/documentacao nesta etapa; a execucao segue rastreada em `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`.
+  - Nenhuma pendencia residual funcional desta spec no repositorio corrente; a execucao desta linhagem ficou integralmente rastreada nos tickets fechados e nos execplans relacionados.
 - Evidencias de validacao:
   - gate `spec-ticket-validation` concluido com `GO` em `2026-04-06T19:49:00.036Z`, com reducao objetiva de 2 gaps para 0;
   - analise cross-repo de 2026-04-06 sobre `case-investigation` e `/target_investigate_case`;
-  - atualizacao observavel dos `Closure criteria` em `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`;
-  - releitura objetiva de `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/target-investigate-case-ticket-publisher.ts` e suites associadas durante esta triagem.
+  - fechamento observavel dos tickets `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` e `tickets/closed/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`, ambos ancorados em execplans proprios e sem follow-up residual;
+  - releitura objetiva de `docs/workflows/target-case-investigation-manifest.json`, `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-root-cause-review.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/target-investigate-case-ticket-publisher.ts` e suites associadas durante esta auditoria final;
+  - rerun local da validacao observavel em `2026-04-06 21:23Z` com `603` testes passando e `tsc --noEmit` limpo.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
-  - 2026-04-06 19:55Z
+  - 2026-04-06 21:23Z
 - Resultado:
-  - GO final do fechamento da triagem; a releitura desta spec, do historico `GO` da validacao e do diff dos dois tickets relacionados confirmou ausencia de gaps pendentes, coerencia documental e backlog pronto para seguir no fluxo sequencial.
+  - GO final pos-`/run_all` encadeado; a releitura desta spec, dos tickets fechados relacionados, dos execplans relacionados, do estado atual do codigo e da validacao observavel rerodada nesta auditoria confirmou ausencia de gaps residuais e coerencia entre contrato, implementacao e publication gates.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum ticket novo nesta etapa; permanecem apenas os tickets derivados ja rastreados em `Related tickets`.
+  - nenhum ticket novo nesta etapa; nao ha gap residual funcional que justifique novo follow-up em `tickets/open/`.
 - Causas-raiz sistemicas identificadas:
-  - publication runner-side ainda depende de um artefato target-owned que nao distingue bem causa confirmada de causa apenas plausivel.
+  - nenhuma nova causa-raiz residual nesta auditoria; a causa-raiz historica desta linhagem foi tratada nos tickets fechados com origem `validation`.
 - Ajustes genericos promovidos ao workflow:
   - n/a
 
@@ -214,4 +217,5 @@
 ## Historico de atualizacao
 - 2026-04-06 19:19Z - Versao inicial da spec.
 - 2026-04-06 19:33Z - Triagem runner-side concluida; backlog reconciliado com ticket historico de hardening editorial, sem abrir sucessor novo, e pendencias objetivas registradas por superficie.
-- 2026-04-06 19:55Z - Fechamento da triagem versionado com validacao final `GO`, sem gaps pendentes; a spec foi promovida para `Status: attended` e `Spec treatment: done`, mantendo a execucao futura rastreada nos tickets abertos relacionados.
+- 2026-04-06 19:55Z - Fechamento da triagem versionado com validacao final `GO`, sem gaps pendentes; a spec foi promovida para `Status: attended` e `Spec treatment: done`, mantendo a execucao futura rastreada nos tickets relacionados.
+- 2026-04-06 21:23Z - Auditoria final pos-`/run_all` encadeado releu tickets fechados, execplans, manifesto, codigo e suites observaveis; nenhum gap residual foi encontrado, nenhum follow-up foi criado e a spec permaneceu em `Status: attended` com `Spec treatment: done`.
