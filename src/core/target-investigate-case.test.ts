@@ -130,9 +130,9 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto canonico e rejeita au
   assert.match(invalidCapability.reason, /case-investigation/u);
 });
 
-test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto e preserva as allowlists explicitas", async () => {
+test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizado e preserva as allowlists explicitas", async () => {
   const fixture = await createTargetRepoFixture({
-    manifestDocument: buildPilotManifestFixture(),
+    manifestDocument: buildCurrentPilotManifestFixture(),
   });
 
   const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path);
@@ -225,7 +225,7 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
   );
   assert.equal(
     loaded.manifest.causalDebug?.artifacts.ticketProposal.optionalFields?.[0],
-    "competing_hypotheses",
+    "publication_hints.ticket_scope",
   );
   assert.equal(loaded.manifest.causalDebug?.debugPolicy.narrativeLanguage, "pt-BR");
   assert.equal(loaded.manifest.rootCauseReview?.owner, "target-project");
@@ -233,10 +233,15 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     loaded.manifest.rootCauseReview?.artifacts.request.artifact,
     "root-cause-review.request.json",
   );
-  assert.equal(
-    loaded.manifest.rootCauseReview?.artifacts.result.optionalFields?.[0],
-    "competing_hypotheses",
-  );
+  assert.equal(loaded.manifest.rootCauseReview?.artifacts.result.optionalFields, undefined);
+  assert.deepEqual(loaded.manifest.rootCauseReview?.reviewPolicy.readableSurfaces, [
+    "code",
+    "prompts",
+    "tests",
+    "docs",
+    "config",
+  ]);
+  assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.targetProjectOwnsRootCauseDecision, true);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.narrativeLanguage, "pt-BR");
 });
 
@@ -2830,6 +2835,45 @@ const buildPilotManifestFixture = (options: {
       finalPublicationAuthority: "runner",
     },
   } as any;
+
+  options.mutateManifest?.(manifest);
+  return manifest;
+};
+
+const buildCurrentPilotManifestFixture = (options: {
+  mutateManifest?: (manifest: any) => void;
+} = {}): any => {
+  const manifest = buildPilotManifestFixture();
+  manifest.causalDebug.analysisStages = [
+    "cache/versionamento",
+    "prompts do extractor",
+    "QA do extractor",
+    "pos-processamento deterministico",
+    "consolidacao final",
+    "cobertura de testes",
+  ];
+  manifest.rootCauseReview.artifacts.ticketProposal = {
+    artifact: "ticket-proposal.json",
+    schemaVersion: "ticket_proposal_v1",
+    optionalFields: [
+      "publication_hints.ticket_scope",
+      "publication_hints.slug_strategy",
+      "publication_hints.quality_gate",
+    ],
+    qualityGate: "target-ticket-quality-v1",
+  };
+  delete manifest.causalDebug.artifacts.ticketProposal;
+  delete manifest.rootCauseReview.artifacts.result.optionalFields;
+  manifest.rootCauseReview.reviewPolicy = {
+    repoReadAllowed: true,
+    externalEvidenceDiscoveryAllowed: false,
+    causalDebugMustStayComplementary: true,
+    acceptedVerdicts: [...TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES],
+    ticketReadinessValues: ["ready", "needs_more_falsification", "blocked"],
+    analysisStages: [...manifest.causalDebug.analysisStages],
+    runnerRemainsPublicationAuthority: true,
+    narrativeLanguage: "pt-BR",
+  };
 
   options.mutateManifest?.(manifest);
   return manifest;

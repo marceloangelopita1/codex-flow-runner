@@ -737,6 +737,171 @@ const targetInvestigateCaseManifestRootCauseReviewSchema = z
   })
   .strict();
 
+const targetInvestigateCasePilotManifestCausalDebugSchema = z
+  .object({
+    owner: z.literal("target-project"),
+    runnerExecutor: z.literal("codex-flow-runner"),
+    promptPath: relativePathSchema,
+    artifacts: z
+      .object({
+        request: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_SCHEMA_VERSION,
+            ),
+          })
+          .strict(),
+        result: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_SCHEMA_VERSION,
+            ),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "causalDebug.artifacts.result.optionalFields",
+            ).optional(),
+          })
+          .strict(),
+        ticketProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "causalDebug.artifacts.ticketProposal.optionalFields",
+            ).optional(),
+            qualityGate: ticketQualityGateSchema.optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    debugPolicy: z
+      .object({
+        repoReadAllowed: z.literal(true),
+        readableSurfaces: uniqueNonEmptyArray(
+          trimmedString,
+          "causalDebug.debugPolicy.readableSurfaces",
+        ),
+        externalEvidenceDiscoveryAllowed: z.literal(false),
+        boundedSemanticConfirmationRequired: z.literal(true),
+        targetProjectOwnsMinimalCause: z.literal(true),
+        runnerRemainsPublicationAuthority: z.literal(true),
+        narrativeLanguage: trimmedString.optional(),
+      })
+      .strict(),
+    analysisStages: uniqueNonEmptyArray(trimmedString, "causalDebug.analysisStages").optional(),
+    recomposition: z
+      .object({
+        strategy: z.literal("rerun-entrypoint"),
+        roundRequestIdFlag: z.literal("--round-request-id"),
+        forceFlag: z.literal("--force"),
+        replayMode: replayModeSchema,
+        preserveExistingDossier: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const targetInvestigateCasePilotManifestRootCauseReviewLegacyPolicySchema = z
+  .object({
+    repoReadAllowed: z.literal(true),
+    readableSurfaces: uniqueNonEmptyArray(
+      trimmedString,
+      "rootCauseReview.reviewPolicy.readableSurfaces",
+    ),
+    externalEvidenceDiscoveryAllowed: z.literal(false),
+    targetProjectOwnsRootCauseDecision: z.literal(true),
+    runnerRemainsPublicationAuthority: z.literal(true),
+    narrativeLanguage: trimmedString.optional(),
+  })
+  .strict();
+
+const targetInvestigateCasePilotManifestRootCauseReviewCurrentPolicySchema = z
+  .object({
+    repoReadAllowed: z.literal(true),
+    externalEvidenceDiscoveryAllowed: z.literal(false),
+    causalDebugMustStayComplementary: z.literal(true),
+    acceptedVerdicts: uniqueNonEmptyArray(
+      rootCauseStatusSchema,
+      "rootCauseReview.reviewPolicy.acceptedVerdicts",
+    ),
+    ticketReadinessValues: uniqueNonEmptyArray(
+      trimmedString,
+      "rootCauseReview.reviewPolicy.ticketReadinessValues",
+    ),
+    analysisStages: uniqueNonEmptyArray(
+      trimmedString,
+      "rootCauseReview.reviewPolicy.analysisStages",
+    ),
+    runnerRemainsPublicationAuthority: z.literal(true),
+    narrativeLanguage: trimmedString.optional(),
+  })
+  .strict();
+
+const targetInvestigateCasePilotManifestRootCauseReviewPolicySchema = z.union([
+  targetInvestigateCasePilotManifestRootCauseReviewLegacyPolicySchema,
+  targetInvestigateCasePilotManifestRootCauseReviewCurrentPolicySchema,
+]);
+
+const targetInvestigateCasePilotManifestRootCauseReviewSchema = z
+  .object({
+    owner: z.literal("target-project"),
+    runnerExecutor: z.literal("codex-flow-runner"),
+    promptPath: relativePathSchema,
+    artifacts: z
+      .object({
+        request: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION,
+            ),
+          })
+          .strict(),
+        result: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
+            ),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "rootCauseReview.artifacts.result.optionalFields",
+            ).optional(),
+          })
+          .strict(),
+        ticketProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION),
+            optionalFields: uniqueNonEmptyArray(
+              trimmedString,
+              "rootCauseReview.artifacts.ticketProposal.optionalFields",
+            ).optional(),
+            qualityGate: ticketQualityGateSchema.optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    reviewPolicy: targetInvestigateCasePilotManifestRootCauseReviewPolicySchema,
+    recomposition: z
+      .object({
+        strategy: z.literal("rerun-entrypoint"),
+        roundRequestIdFlag: z.literal("--round-request-id"),
+        forceFlag: z.literal("--force"),
+        replayMode: replayModeSchema,
+        preserveExistingDossier: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const targetInvestigateCaseManifestSchema = z
   .object({
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
@@ -1152,8 +1317,8 @@ export const targetInvestigateCasePilotManifestSchema = z
       })
       .strict(),
     semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
-    causalDebug: targetInvestigateCaseManifestCausalDebugSchema.optional(),
-    rootCauseReview: targetInvestigateCaseManifestRootCauseReviewSchema.optional(),
+    causalDebug: targetInvestigateCasePilotManifestCausalDebugSchema.optional(),
+    rootCauseReview: targetInvestigateCasePilotManifestRootCauseReviewSchema.optional(),
     replayPolicy: z
       .object({
         explicitReplayRequired: z.boolean(),
@@ -1481,6 +1646,7 @@ const normalizePilotManifestToInternal = (
             : undefined,
         }
       : undefined,
+    // ticket-proposal moved from causalDebug to rootCauseReview in the richer target manifest.
     causalDebug: manifest.causalDebug
       ? {
           owner: manifest.causalDebug.owner,
@@ -1499,12 +1665,31 @@ const normalizePilotManifestToInternal = (
                 : undefined,
             },
             ticketProposal: {
-              artifact: manifest.causalDebug.artifacts.ticketProposal.artifact,
-              schemaVersion: manifest.causalDebug.artifacts.ticketProposal.schemaVersion,
-              optionalFields: manifest.causalDebug.artifacts.ticketProposal.optionalFields
-                ? [...manifest.causalDebug.artifacts.ticketProposal.optionalFields]
+              artifact:
+                (
+                  manifest.causalDebug.artifacts.ticketProposal ??
+                  manifest.rootCauseReview?.artifacts.ticketProposal
+                )?.artifact,
+              schemaVersion:
+                (
+                  manifest.causalDebug.artifacts.ticketProposal ??
+                  manifest.rootCauseReview?.artifacts.ticketProposal
+                )?.schemaVersion,
+              optionalFields: (
+                manifest.causalDebug.artifacts.ticketProposal ??
+                manifest.rootCauseReview?.artifacts.ticketProposal
+              )?.optionalFields
+                ? [
+                    ...(
+                      manifest.causalDebug.artifacts.ticketProposal ??
+                      manifest.rootCauseReview?.artifacts.ticketProposal
+                    )!.optionalFields!,
+                  ]
                 : undefined,
-              qualityGate: manifest.causalDebug.artifacts.ticketProposal.qualityGate,
+              qualityGate: (
+                manifest.causalDebug.artifacts.ticketProposal ??
+                manifest.rootCauseReview?.artifacts.ticketProposal
+              )?.qualityGate,
             },
           },
           debugPolicy: {
@@ -1552,11 +1737,16 @@ const normalizePilotManifestToInternal = (
           },
           reviewPolicy: {
             repoReadAllowed: manifest.rootCauseReview.reviewPolicy.repoReadAllowed,
-            readableSurfaces: [...manifest.rootCauseReview.reviewPolicy.readableSurfaces],
+            readableSurfaces:
+              "readableSurfaces" in manifest.rootCauseReview.reviewPolicy
+                ? [...manifest.rootCauseReview.reviewPolicy.readableSurfaces]
+                : [...manifest.causalDebug?.debugPolicy.readableSurfaces ?? []],
             externalEvidenceDiscoveryAllowed:
               manifest.rootCauseReview.reviewPolicy.externalEvidenceDiscoveryAllowed,
             targetProjectOwnsRootCauseDecision:
-              manifest.rootCauseReview.reviewPolicy.targetProjectOwnsRootCauseDecision,
+              "targetProjectOwnsRootCauseDecision" in manifest.rootCauseReview.reviewPolicy
+                ? manifest.rootCauseReview.reviewPolicy.targetProjectOwnsRootCauseDecision
+                : true,
             runnerRemainsPublicationAuthority:
               manifest.rootCauseReview.reviewPolicy.runnerRemainsPublicationAuthority,
             narrativeLanguage: manifest.rootCauseReview.reviewPolicy.narrativeLanguage,
