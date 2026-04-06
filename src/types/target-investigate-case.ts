@@ -3176,6 +3176,8 @@ export const targetInvestigateCaseCausalDebugResultSchema = z
         })
         .strict(),
     ),
+    stage_analysis: z.array(targetInvestigateCaseStageFindingSchema).optional(),
+    competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema).optional(),
     ticket_seed: z
       .object({
         suggested_title: trimmedString.nullable(),

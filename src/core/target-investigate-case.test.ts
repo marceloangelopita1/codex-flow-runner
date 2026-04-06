@@ -386,6 +386,22 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
         reason: "fixture",
       },
     ],
+    stage_analysis: [
+      {
+        stage: "consolidacao final",
+        status: "leading_signal",
+        summary: "a consolidacao final preserva o melhor sinal da causa minima nesta fixture",
+        suspected_paths: ["src/workflows/extract-address.ts"],
+      },
+    ],
+    competing_hypotheses: [
+      {
+        stage: "cache/versionamento",
+        status: "competing",
+        hypothesis: "cache stale ainda influencia a resposta publicada",
+        summary: "o reuso historico ainda compete, mas nao explica sozinho a consolidacao final.",
+      },
+    ],
     ticket_seed: {
       suggested_title: "Fix extract_address semantic truncation",
       suggested_slug: "fix-extract-address-semantic-truncation",
@@ -401,6 +417,8 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
     },
   });
   assert.equal(causalDebugResult.minimal_cause?.root_cause_classification, "validation");
+  assert.equal(causalDebugResult.stage_analysis?.[0]?.status, "leading_signal");
+  assert.equal(causalDebugResult.competing_hypotheses?.[0]?.stage, "cache/versionamento");
   assert.equal(causalDebugResult.ticket_seed.ticket_scope, "generalizable");
 
   const rootCauseReviewResult = targetInvestigateCaseRootCauseReviewResultSchema.parse({

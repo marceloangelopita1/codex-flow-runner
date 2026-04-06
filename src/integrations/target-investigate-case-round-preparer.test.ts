@@ -160,6 +160,22 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
               reason: "fixture",
             },
           ],
+          stage_analysis: [
+            {
+              stage: "consolidacao final",
+              status: "leading_signal",
+              summary: "a consolidacao final concentra o melhor sinal causal desta fixture",
+              suspected_paths: ["src/workflows/extract-address.ts"],
+            },
+          ],
+          competing_hypotheses: [
+            {
+              stage: "cache/versionamento",
+              status: "competing",
+              hypothesis: "cache stale ainda influencia a resposta publicada",
+              summary: "o reuso historico ainda compete, mas nao explica sozinho a consolidacao final.",
+            },
+          ],
           ticket_seed: {
             suggested_title: "Fix extract_address semantic truncation",
             suggested_slug: "fix-extract-address-semantic-truncation",
