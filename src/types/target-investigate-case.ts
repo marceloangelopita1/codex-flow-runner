@@ -3198,7 +3198,38 @@ export const targetInvestigateCaseCausalDebugResultSchema = z
   })
   .strict();
 
-export const targetInvestigateCaseRootCauseReviewRequestSchema = z
+const targetInvestigateCaseRootCauseReviewReadinessSchema = z
+  .object({
+    status: rootCauseReviewReadinessStatusSchema,
+    reason_code: trimmedString,
+    summary: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseRootCauseReviewSupportingRefSchema = z
+  .object({
+    ref: trimmedString.optional(),
+    path: relativePathSchema,
+    reason: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseRootCauseReviewExpectedResultArtifactSchema = z
+  .object({
+    artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION),
+  })
+  .strict();
+
+const targetInvestigateCaseRootCauseReviewConstraintsSchema = z
+  .object({
+    repo_read_allowed: z.literal(true),
+    external_evidence_discovery_allowed: z.literal(false),
+    final_publication_authority: z.literal("runner"),
+  })
+  .strict();
+
+const targetInvestigateCaseLegacyRootCauseReviewRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION),
     generated_at: trimmedString,
@@ -3229,13 +3260,7 @@ export const targetInvestigateCaseRootCauseReviewRequestSchema = z
         summary: trimmedString,
       })
       .strict(),
-    review_readiness: z
-      .object({
-        status: rootCauseReviewReadinessStatusSchema,
-        reason_code: trimmedString,
-        summary: trimmedString,
-      })
-      .strict(),
+    review_readiness: targetInvestigateCaseRootCauseReviewReadinessSchema,
     repo_context: z
       .object({
         prompt_path: relativePathSchema,
@@ -3245,26 +3270,88 @@ export const targetInvestigateCaseRootCauseReviewRequestSchema = z
         ticket_guidance_paths: z.array(relativePathSchema),
       })
       .strict(),
-    supporting_refs: z.array(
-      z
-        .object({
-          ref: trimmedString.optional(),
-          path: relativePathSchema,
-          reason: trimmedString,
-        })
-        .strict(),
-    ),
+    supporting_refs: z.array(targetInvestigateCaseRootCauseReviewSupportingRefSchema),
     review_question: trimmedString,
-    expected_result_artifact: z
-      .object({
-        artifact: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
-        schema_version: z.literal(
-          TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
-        ),
-      })
-      .strict(),
+    expected_result_artifact: targetInvestigateCaseRootCauseReviewExpectedResultArtifactSchema,
   })
   .strict();
+
+const targetInvestigateCaseCurrentRootCauseReviewRequestSchema = z
+  .object({
+    schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION),
+    generated_at: trimmedString,
+    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    dossier_local_path: relativePathSchema,
+    workflow: targetInvestigateCaseCausalDebugWorkflowSchema.nullable(),
+    review_readiness: targetInvestigateCaseRootCauseReviewReadinessSchema,
+    source_causal_debug: z
+      .object({
+        request_artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT),
+        result_artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+        result_status: trimmedString,
+        result_verdict: trimmedString.nullable(),
+        summary: trimmedString,
+      })
+      .strict(),
+    stage_analysis: z.array(targetInvestigateCaseStageFindingSchema),
+    competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema),
+    review_questions: z.array(trimmedString).min(
+      5,
+      "review_questions precisa enumerar as perguntas canonicas do root-cause-review.",
+    ),
+    ticket_readiness_rule: trimmedString,
+    supporting_refs: z.array(targetInvestigateCaseRootCauseReviewSupportingRefSchema),
+    expected_result_artifact: targetInvestigateCaseRootCauseReviewExpectedResultArtifactSchema,
+    constraints_acknowledged: targetInvestigateCaseRootCauseReviewConstraintsSchema,
+  })
+  .strict();
+
+const ROOT_CAUSE_REVIEW_REQUEST_CURRENT_DIALECT_MARKERS = [
+  "source_causal_debug",
+  "stage_analysis",
+  "competing_hypotheses",
+  "review_questions",
+  "ticket_readiness_rule",
+  "constraints_acknowledged",
+] as const;
+
+const normalizeTargetInvestigateCaseRootCauseReviewRequestDocument = (
+  decoded: unknown,
+): ArtifactNormalizationResult<
+  | z.infer<typeof targetInvestigateCaseLegacyRootCauseReviewRequestSchema>
+  | z.infer<typeof targetInvestigateCaseCurrentRootCauseReviewRequestSchema>
+> => {
+  const looksLikeCurrentDialect =
+    typeof decoded === "object" &&
+    decoded !== null &&
+    ROOT_CAUSE_REVIEW_REQUEST_CURRENT_DIALECT_MARKERS.some((key) =>
+      Object.prototype.hasOwnProperty.call(decoded, key),
+    );
+  const parsed = (
+    looksLikeCurrentDialect
+      ? targetInvestigateCaseCurrentRootCauseReviewRequestSchema
+      : targetInvestigateCaseLegacyRootCauseReviewRequestSchema
+  ).safeParse(decoded);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      issues: parsed.error.issues,
+    };
+  }
+
+  return {
+    success: true,
+    data: parsed.data,
+  };
+};
+
+export const targetInvestigateCaseRootCauseReviewRequestSchema: z.ZodType<
+  | z.infer<typeof targetInvestigateCaseLegacyRootCauseReviewRequestSchema>
+  | z.infer<typeof targetInvestigateCaseCurrentRootCauseReviewRequestSchema>,
+  z.ZodTypeDef,
+  unknown
+> = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseRootCauseReviewRequestDocument);
 
 export const targetInvestigateCaseRootCauseReviewResultSchema = z
   .object({

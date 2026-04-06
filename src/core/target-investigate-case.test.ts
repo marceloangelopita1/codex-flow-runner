@@ -32,6 +32,8 @@ import {
   targetInvestigateCaseTicketProposalSchema,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
   TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES,
   TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES,
@@ -286,7 +288,7 @@ test("loadTargetInvestigateCaseManifest rejeita manifesto rico com members fora 
   assert.match(invalidPurge.reason, /unexpected-id/u);
 });
 
-test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem quebrar v1", () => {
+test("schemas aceitam metadados aditivos e o contrato atual de root-cause-review sem quebrar v1", () => {
   const causalDebugRequest = targetInvestigateCaseCausalDebugRequestSchema.parse({
     schema_version: "causal_debug_request_v1",
     generated_at: "2026-04-06T17:10:00.000Z",
@@ -420,6 +422,19 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
   assert.equal(causalDebugResult.stage_analysis?.[0]?.status, "leading_signal");
   assert.equal(causalDebugResult.competing_hypotheses?.[0]?.stage, "cache/versionamento");
   assert.equal(causalDebugResult.ticket_seed.ticket_scope, "generalizable");
+
+  const rootCauseReviewRequest = targetInvestigateCaseRootCauseReviewRequestSchema.parse(
+    buildCurrentRootCauseReviewRequestFixture(),
+  );
+  assert.ok("source_causal_debug" in rootCauseReviewRequest);
+  assert.ok("review_questions" in rootCauseReviewRequest);
+  assert.ok("stage_analysis" in rootCauseReviewRequest);
+  assert.equal(
+    rootCauseReviewRequest.source_causal_debug?.result_artifact,
+    TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  );
+  assert.equal(rootCauseReviewRequest.review_questions?.length, 5);
+  assert.equal(rootCauseReviewRequest.stage_analysis?.[0]?.stage, "cache/versionamento");
 
   const rootCauseReviewResult = targetInvestigateCaseRootCauseReviewResultSchema.parse({
     ...buildRootCauseReviewResultFixture({
@@ -3511,6 +3526,108 @@ const buildRootCauseReviewRequestFixture = (overrides: Record<string, unknown> =
   expected_result_artifact: {
     artifact: TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
     schema_version: "root_cause_review_result_v1",
+  },
+  ...overrides,
+});
+
+const buildCurrentRootCauseReviewRequestFixture = (
+  overrides: Record<string, unknown> = {},
+): any => ({
+  schema_version: "root_cause_review_request_v1",
+  generated_at: "2026-04-06T17:20:00.000Z",
+  manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  dossier_local_path: "investigations/round-1/dossier.md",
+  workflow: {
+    key: "extract_address",
+    documentation_path: "docs/specs/example.md",
+  },
+  review_readiness: {
+    status: "ready",
+    reason_code: "READY",
+    summary: "root-cause-review repo-aware ready",
+  },
+  source_causal_debug: {
+    request_artifact: TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+    result_artifact: TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+    result_status: "valid",
+    result_verdict: "minimal_cause_identified",
+    summary: "causal-debug confirmou uma causa minima forte o suficiente para revisao adversarial.",
+  },
+  stage_analysis: [
+    {
+      stage: "cache/versionamento",
+      status: "not_supported",
+      summary: "o cache sozinho nao explica a perda semantica principal desta fixture.",
+      suspected_paths: ["src/workflows/extract-address.ts"],
+    },
+    {
+      stage: "prompts do extractor",
+      status: "competing_signal",
+      summary: "o prompt principal ainda compete, mas sem artefato suficiente para vencer a hipotese local.",
+      suspected_paths: ["docs/specs/example.md"],
+    },
+    {
+      stage: "QA do extractor",
+      status: "leading_signal",
+      summary: "o QA nao abriu revisao para o complemento truncado desta fixture.",
+      suspected_paths: ["src/workflows/extract-address.ts"],
+    },
+    {
+      stage: "pos-processamento deterministico",
+      status: "not_supported",
+      summary: "o pos-processamento deterministico nao sustenta a causa minima nesta fixture.",
+      suspected_paths: ["src/workflows/extract-address.ts"],
+    },
+    {
+      stage: "consolidacao final",
+      status: "competing_signal",
+      summary: "a consolidacao ainda compete por promover um candidato ruim sem novo guardrail.",
+      suspected_paths: ["src/workflows/extract-address.ts"],
+    },
+    {
+      stage: "cobertura de testes",
+      status: "competing_signal",
+      summary: "a suite ainda nao cobre a fuga especifica desta fixture.",
+      suspected_paths: ["src/workflows/extract-address.test.ts"],
+    },
+  ],
+  competing_hypotheses: [
+    {
+      stage: "QA do extractor",
+      status: "leading",
+      hypothesis: "o QA falhou ao revisar o complemento truncado",
+      summary: "o fluxo local nao abriu nem aplicou uma correcao adequada para a unidade truncada.",
+    },
+    {
+      stage: "consolidacao final",
+      status: "competing",
+      hypothesis: "a consolidacao final promoveu um candidato ruim",
+      summary: "continua plausivel, mas depende de a truncacao ja existir antes da consolidacao.",
+    },
+  ],
+  review_questions: [
+    "Em qual etapa do fluxo do extractor o erro esta surgindo e por que essa etapa domina as alternativas concorrentes?",
+    "Por que o QA do proprio extractor nao captou o problema neste fluxo?",
+    "O prompt principal ou o prompt de QA precisam de mais clareza ou exemplos para evitar a recorrencia?",
+    "Faltam regras deterministicas, warnings ou gatilhos para encaminhar o caso ao QA?",
+    "A hipotese vencedora foi falsificada contra as hipoteses concorrentes ou ainda restam lacunas objetivas?",
+  ],
+  ticket_readiness_rule:
+    "ticket_readiness somente pode sair ready quando a causa estiver confirmada e falsificada contra hipoteses concorrentes",
+  supporting_refs: [
+    {
+      path: "src/workflows/extract-address.ts",
+      reason: "fixture",
+    },
+  ],
+  expected_result_artifact: {
+    artifact: TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+    schema_version: "root_cause_review_result_v1",
+  },
+  constraints_acknowledged: {
+    repo_read_allowed: true,
+    external_evidence_discovery_allowed: false,
+    final_publication_authority: "runner",
   },
   ...overrides,
 });

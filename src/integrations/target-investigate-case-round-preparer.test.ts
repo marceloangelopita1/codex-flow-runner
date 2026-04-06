@@ -692,6 +692,8 @@ test("CodexCliTargetInvestigateCaseRoundPreparer executa root-cause-review apos 
   assert.equal(codexClient.causalDebugCalls.length, 1);
   assert.match(codexClient.causalDebugCalls[0]?.debugRequestJson ?? "", /"extractor_stage_analysis"/u);
   assert.equal(codexClient.rootCauseReviewCalls.length, 1);
+  assert.match(codexClient.rootCauseReviewCalls[0]?.reviewRequestJson ?? "", /"source_causal_debug"/u);
+  assert.match(codexClient.rootCauseReviewCalls[0]?.reviewRequestJson ?? "", /"review_questions"/u);
 
   const persisted = JSON.parse(
     await fs.readFile(
@@ -2032,28 +2034,6 @@ const writeRootCauseReviewRequest = async (
           key: "extract_address",
           documentation_path: "docs/specs/example.md",
         },
-        selected_selectors: {
-          requestId: "req-001",
-          workflow: "extract_address",
-          symptom: "timeout on save",
-        },
-        semantic_confirmation: {
-          status: "confirmed_error",
-          result_verdict: "confirmed_error",
-          result_issue_type: "semantic_truncation",
-          summary: "fixture",
-        },
-        causal_debug: {
-          status: "minimal_cause_identified",
-          result_verdict: "minimal_cause_identified",
-          summary: "fixture",
-        },
-        causal_surface: {
-          owner: "target-project",
-          kind: "bug",
-          actionable: true,
-          summary: "fixture",
-        },
         review_readiness: {
           status,
           reason_code: status === "ready" ? "READY" : "MORE_EVIDENCE_REQUIRED",
@@ -2062,24 +2042,88 @@ const writeRootCauseReviewRequest = async (
               ? "repo-aware root cause review ready"
               : "root cause review blocked for this fixture",
         },
-        repo_context: {
-          prompt_path: "docs/workflows/target-case-investigation-root-cause-review.md",
-          documentation_paths: ["docs/specs/example.md"],
-          code_paths: ["src/workflows/extract-address.ts"],
-          test_paths: ["src/workflows/extract-address.test.ts"],
-          ticket_guidance_paths: ["tickets/templates/internal-ticket-template.md"],
+        source_causal_debug: {
+          request_artifact: "causal-debug.request.json",
+          result_artifact: "causal-debug.result.json",
+          result_status: "valid",
+          result_verdict: "minimal_cause_identified",
+          summary: "fixture causal-debug confirmed a strong local minimum cause",
         },
+        stage_analysis: [
+          {
+            stage: "cache/versionamento",
+            status: "not_supported",
+            summary: "cache alone does not explain the semantic loss in this fixture",
+            suspected_paths: ["src/workflows/extract-address.ts"],
+          },
+          {
+            stage: "prompts do extractor",
+            status: "competing_signal",
+            summary: "the primary prompt still competes, but the local repo signal is stronger",
+            suspected_paths: ["docs/specs/example.md"],
+          },
+          {
+            stage: "QA do extractor",
+            status: "leading_signal",
+            summary: "the QA layer failed to challenge the truncated complement",
+            suspected_paths: ["src/workflows/extract-address.ts"],
+          },
+          {
+            stage: "pos-processamento deterministico",
+            status: "not_supported",
+            summary: "deterministic post-processing is not the minimum cause in this fixture",
+            suspected_paths: ["src/workflows/extract-address.ts"],
+          },
+          {
+            stage: "consolidacao final",
+            status: "competing_signal",
+            summary: "final consolidation still competes as the stage that promoted the bad value",
+            suspected_paths: ["src/workflows/extract-address.ts"],
+          },
+          {
+            stage: "cobertura de testes",
+            status: "competing_signal",
+            summary: "the current suite still misses this exact escape path",
+            suspected_paths: ["src/workflows/extract-address.test.ts"],
+          },
+        ],
+        competing_hypotheses: [
+          {
+            stage: "QA do extractor",
+            status: "leading",
+            hypothesis: "the QA layer failed to open or apply the needed correction",
+            summary: "the local QA workflow did not produce a usable challenge for the truncated unit",
+          },
+          {
+            stage: "consolidacao final",
+            status: "competing",
+            hypothesis: "final consolidation promoted a candidate that was already degraded",
+            summary: "this remains plausible, but depends on the truncation happening earlier in the flow",
+          },
+        ],
+        review_questions: [
+          "Em qual etapa do fluxo do extractor o erro esta surgindo e por que essa etapa domina as alternativas concorrentes?",
+          "Por que o QA do proprio extractor nao captou o problema neste fluxo?",
+          "O prompt principal ou o prompt de QA precisam de mais clareza ou exemplos para evitar a recorrencia?",
+          "Faltam regras deterministicas, warnings ou gatilhos para encaminhar o caso ao QA?",
+          "A hipotese vencedora foi falsificada contra as hipoteses concorrentes ou ainda restam lacunas objetivas?",
+        ],
+        ticket_readiness_rule:
+          "ticket_readiness somente pode sair ready quando a causa estiver confirmada e falsificada contra hipoteses concorrentes",
         supporting_refs: [
           {
-            ref: "src/workflows/extract-address.ts",
             path: "src/workflows/extract-address.ts",
             reason: "fixture",
           },
         ],
-        review_question: "Confirm whether the root cause is strong enough for ticket publication.",
         expected_result_artifact: {
           artifact: "root-cause-review.result.json",
           schema_version: "root_cause_review_result_v1",
+        },
+        constraints_acknowledged: {
+          repo_read_allowed: true,
+          external_evidence_discovery_allowed: false,
+          final_publication_authority: "runner",
         },
       },
       null,
