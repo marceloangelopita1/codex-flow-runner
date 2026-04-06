@@ -393,6 +393,8 @@ test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e
   const result = await preparer.prepareRound(fixture.request);
   assert.equal(result.status, "prepared");
   assert.equal(codexClient.semanticReviewCalls.length, 1);
+  assert.match(codexClient.semanticReviewCalls[0]?.reviewRequestJson ?? "", /"symptom_selection"/u);
+  assert.match(codexClient.semanticReviewCalls[0]?.reviewRequestJson ?? "", /"symptom_candidates"/u);
   const persisted = JSON.parse(
     await fs.readFile(
       path.join(
@@ -1117,6 +1119,28 @@ const writeSemanticReviewRequest = async (
           symptom: "complemento truncado",
         },
         symptom: "complemento truncado",
+        symptom_selection: {
+          source: "operator",
+          selected_candidate_id:
+            "extract_address_current_complemento_semantic_truncation_apartamento_n",
+          selection_reason:
+            "operator-provided symptom took precedence over inferred candidates and matched the bounded strong candidate",
+        },
+        symptom_candidates: [
+          {
+            candidate_id: "extract_address_current_complemento_semantic_truncation_apartamento_n",
+            workflow_key: "extract_address",
+            surface_id: "local-run-bundle",
+            artifact_path: "output/local-runs/hist-case/main.response.json",
+            field_path: "extract_address.value.current.complemento",
+            json_pointer: "/extract_address/value/current/complemento",
+            symptom: "complemento truncado",
+            issue_type: "semantic_truncation",
+            strength: "strong",
+            selection_reason:
+              'the observed workflow response still carries the bounded complemento literal "apartamento n", which strongly suggests semantic truncation of the apartment identifier',
+          },
+        ],
         review_readiness: {
           status,
           reason_code: status === "ready" ? "READY" : "WORKFLOW_RESPONSE_MISSING",

@@ -457,6 +457,14 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
     },
     resolved_case_ref: params.caseResolution.resolved_case.ref,
     resolved_attempt_ref: params.caseResolution.attempt_resolution.attempt_ref,
+    case_resolution: {
+      attempt_candidates_status: params.caseResolution.attempt_candidates?.status ?? null,
+      selected_attempt_candidate_request_id:
+        params.caseResolution.attempt_candidates?.selected_request_id ?? null,
+      attempt_candidate_request_ids:
+        params.caseResolution.attempt_candidates?.candidate_request_ids ?? [],
+      replay_readiness: params.caseResolution.replay_readiness ?? null,
+    },
     replay: {
       used: params.evidenceBundle.replay.used,
       mode: params.evidenceBundle.replay.mode,
@@ -475,6 +483,13 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
       merece_ticket_generalizavel: params.assessment.merece_ticket_generalizavel,
       confidence: params.assessment.confidence,
       evidence_sufficiency: params.assessment.evidence_sufficiency,
+      primary_taxonomy: params.assessment.primary_taxonomy,
+      operational_class: params.assessment.operational_class,
+    },
+    assessment: {
+      next_action: params.assessment.next_action,
+      blockers: params.assessment.blockers,
+      capability_limits: params.assessment.capability_limits,
     },
     causal_surface: params.assessment.causal_surface,
     publication: {
@@ -505,12 +520,18 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
     case_ref: params.caseResolution.case_ref,
     resolved_attempt_ref: params.caseResolution.attempt_resolution.attempt_ref,
     attempt_resolution_status: params.caseResolution.attempt_resolution.status,
+    attempt_candidates_status: params.caseResolution.attempt_candidates?.status ?? null,
+    replay_readiness_state: params.caseResolution.replay_readiness?.state ?? null,
     replay_used: params.evidenceBundle.replay.used,
     houve_gap_real: params.assessment.houve_gap_real,
     era_evitavel_internamente: params.assessment.era_evitavel_internamente,
     merece_ticket_generalizavel: params.assessment.merece_ticket_generalizavel,
     confidence: params.assessment.confidence,
     evidence_sufficiency: params.assessment.evidence_sufficiency,
+    primary_taxonomy: params.assessment.primary_taxonomy,
+    operational_class: params.assessment.operational_class,
+    assessment_next_action: params.assessment.next_action,
+    blocker_codes: params.assessment.blockers.map((entry) => entry.code),
     causal_surface: params.assessment.causal_surface,
     publication_status: params.publicationDecision.publication_status,
     overall_outcome: params.publicationDecision.overall_outcome,
@@ -533,12 +554,18 @@ export const renderTargetInvestigateCaseFinalSummary = (
     "",
     `- Case-ref: ${summary.case_ref}`,
     `- Resolved attempt: ${attempt}`,
+    `- Attempt candidates status: ${summary.attempt_candidates_status ?? "N/A"}`,
+    `- Replay readiness state: ${summary.replay_readiness_state ?? "N/A"}`,
     `- Replay used: ${summary.replay_used ? "yes" : "no"}`,
     `- Houve gap real: ${summary.houve_gap_real}`,
     `- Era evitavel internamente: ${summary.era_evitavel_internamente}`,
     `- Merece ticket generalizavel: ${summary.merece_ticket_generalizavel}`,
     `- Confidence: ${summary.confidence}`,
     `- Evidence sufficiency: ${summary.evidence_sufficiency}`,
+    `- Primary taxonomy: ${summary.primary_taxonomy ?? "legacy-not-declared"}`,
+    `- Operational class: ${summary.operational_class ?? "not_applicable"}`,
+    `- Assessment next action: ${summary.assessment_next_action ? `${summary.assessment_next_action.code} (${summary.assessment_next_action.source}) - ${summary.assessment_next_action.summary}` : "N/A"}`,
+    `- Blockers: ${summary.blocker_codes.length > 0 ? summary.blocker_codes.join(", ") : "none"}`,
     `- Causal surface: ${summary.causal_surface.owner}/${summary.causal_surface.kind} - ${summary.causal_surface.summary}`,
     `- Publication status: ${summary.publication_status}`,
     `- Overall outcome: ${summary.overall_outcome}`,
@@ -838,11 +865,18 @@ const buildPublicationDecision = async (params: {
     (entry) => entry.blocking && entry.kind === "high-precedence-conflict",
   );
   const hasProjectCapabilityGap =
+    params.assessment.primary_taxonomy === "capability_gap" ||
     params.assessment.causal_surface.kind === "project-capability-gap" ||
     params.assessment.causal_surface.kind === "observability-gap";
   const isRunnerLimitation =
     params.assessment.causal_surface.owner === "runner" ||
     params.assessment.causal_surface.kind === "runner-limitation";
+  const hasRichTaxonomy =
+    params.assessment.primary_taxonomy !== null || params.assessment.operational_class !== null;
+  const isExpectedBehaviorTaxonomy = params.assessment.primary_taxonomy === "expected_behavior";
+  const isEvidenceGapTaxonomy =
+    params.assessment.primary_taxonomy === "evidence_missing_or_partial";
+  const isLikelyBugTaxonomy = params.assessment.primary_taxonomy === "bug_likely";
   const hasStrongEnoughEvidence =
     params.assessment.evidence_sufficiency === "strong" ||
     (params.assessment.evidence_sufficiency === "sufficient" &&
@@ -854,9 +888,10 @@ const buildPublicationDecision = async (params: {
     params.assessment.publication_recommendation.recommended_action === "publish_ticket";
   const semanticallyEligible =
     publicationRequested &&
-    ((params.assessment.houve_gap_real === "yes" &&
-      params.assessment.era_evitavel_internamente === "yes" &&
-      params.assessment.merece_ticket_generalizavel === "yes") ||
+    (params.assessment.primary_taxonomy === "bug_confirmed" ||
+      (params.assessment.houve_gap_real === "yes" &&
+        params.assessment.era_evitavel_internamente === "yes" &&
+        params.assessment.merece_ticket_generalizavel === "yes") ||
       (params.assessment.houve_gap_real === "inconclusive" &&
         params.assessment.merece_ticket_generalizavel === "yes" &&
         hasProjectCapabilityGap));
@@ -875,7 +910,7 @@ const buildPublicationDecision = async (params: {
     outcome_reason =
       "A superficie causal principal pertence ao proprio runner; nenhum ticket automatico deve ser aberto no projeto alvo.";
     next_action = "Abrir tratamento no runner antes de nova publication para o projeto alvo.";
-  } else if (params.assessment.houve_gap_real === "no") {
+  } else if (isExpectedBehaviorTaxonomy || params.assessment.houve_gap_real === "no") {
     publication_status = "not_applicable";
     overall_outcome = "no-real-gap";
     outcome_reason =
@@ -977,6 +1012,30 @@ const buildPublicationDecision = async (params: {
       versionedArtifactPaths = [ticketPath];
       next_action = "Revisar o ticket publicado no projeto alvo e seguir o fluxo sequencial normal.";
     }
+  } else if (params.assessment.primary_taxonomy === "capability_gap") {
+    publication_status = "not_eligible";
+    overall_outcome = "inconclusive-project-capability-gap";
+    outcome_reason =
+      "O assessment do projeto alvo classificou o caso como capability_gap sem base runner-side suficiente para publication automatica.";
+    next_action =
+      params.assessment.next_action?.summary ??
+      "Revisar a capability local antes de promover ticket automatico.";
+  } else if (isLikelyBugTaxonomy) {
+    publication_status = "not_applicable";
+    overall_outcome = "inconclusive-case";
+    outcome_reason =
+      "O assessment do projeto alvo sinalizou bug provavel, mas ainda nao confirmado o bastante para publication runner-side.";
+    next_action =
+      params.assessment.next_action?.summary ??
+      "Materializar ou rerodar o semantic-review bounded antes de qualquer publication.";
+  } else if (isEvidenceGapTaxonomy) {
+    publication_status = "not_applicable";
+    overall_outcome = "inconclusive-case";
+    outcome_reason =
+      "O assessment do projeto alvo ainda indica evidencia faltante ou parcial para publication runner-side.";
+    next_action =
+      params.assessment.next_action?.summary ??
+      "Completar a captura bounded de evidencia antes de qualquer publication.";
   } else if (
     hasProjectCapabilityGap &&
     params.assessment.merece_ticket_generalizavel !== "not_applicable"
@@ -1007,6 +1066,7 @@ const buildPublicationDecision = async (params: {
   });
 
   if (
+    !hasRichTaxonomy &&
     !isTargetInvestigateCasePublicationCombinationValid({
       houve_gap_real: params.assessment.houve_gap_real,
       era_evitavel_internamente: params.assessment.era_evitavel_internamente,
@@ -1097,42 +1157,16 @@ const validateCaseResolution = (
 };
 
 const validateAssessmentConsistency = (assessment: TargetInvestigateCaseAssessment): void => {
+  const hasRichTaxonomy =
+    assessment.primary_taxonomy !== null || assessment.operational_class !== null;
+
   if (
     assessment.houve_gap_real === "no" &&
-    (assessment.era_evitavel_internamente !== "not_applicable" ||
-      assessment.merece_ticket_generalizavel !== "not_applicable")
+    (assessment.evidence_sufficiency === "insufficient" ||
+      assessment.evidence_sufficiency === "partial")
   ) {
     throw new Error(
-      "Quando houve_gap_real=no, era_evitavel_internamente e merece_ticket_generalizavel precisam ser not_applicable.",
-    );
-  }
-
-  if (
-    assessment.houve_gap_real === "yes" &&
-    assessment.era_evitavel_internamente === "not_applicable"
-  ) {
-    throw new Error(
-      "era_evitavel_internamente nao pode ser not_applicable quando houve_gap_real=yes.",
-    );
-  }
-
-  if (
-    assessment.houve_gap_real === "yes" &&
-    assessment.era_evitavel_internamente === "no" &&
-    assessment.merece_ticket_generalizavel !== "not_applicable"
-  ) {
-    throw new Error(
-      "merece_ticket_generalizavel precisa ser not_applicable quando o gap nao e evitavel internamente.",
-    );
-  }
-
-  if (
-    assessment.houve_gap_real === "inconclusive" &&
-    (assessment.era_evitavel_internamente === "yes" ||
-      assessment.era_evitavel_internamente === "no")
-  ) {
-    throw new Error(
-      "era_evitavel_internamente nao pode concluir yes/no quando houve_gap_real=inconclusive.",
+      "assessment nao pode concluir houve_gap_real=no com evidence_sufficiency fraca.",
     );
   }
 
@@ -1153,30 +1187,101 @@ const validateAssessmentConsistency = (assessment: TargetInvestigateCaseAssessme
   }
 
   if (
-    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
-    assessment.houve_gap_real === "yes" &&
-    assessment.era_evitavel_internamente !== "yes"
-  ) {
-    throw new Error(
-      "publish_ticket exige era_evitavel_internamente=yes quando houve_gap_real=yes.",
-    );
-  }
-
-  if (
-    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
-    assessment.houve_gap_real === "inconclusive" &&
-    assessment.merece_ticket_generalizavel !== "yes"
-  ) {
-    throw new Error(
-      "publish_ticket com caso inconclusivo exige merece_ticket_generalizavel=yes.",
-    );
-  }
-
-  if (
     assessment.causal_surface.kind === "runner-limitation" &&
     assessment.causal_surface.owner !== "runner"
   ) {
     throw new Error("causal_surface.kind=runner-limitation exige owner=runner.");
+  }
+
+  if (
+    assessment.primary_taxonomy === "bug_likely" &&
+    assessment.operational_class !== "bug_likely_but_unconfirmed"
+  ) {
+    throw new Error(
+      "assessment bug_likely precisa expor operational_class=bug_likely_but_unconfirmed.",
+    );
+  }
+
+  if (
+    (assessment.operational_class === "bundle_not_captured" ||
+      assessment.operational_class === "runtime_surface_unavailable") &&
+    assessment.primary_taxonomy !== "evidence_missing_or_partial"
+  ) {
+    throw new Error(
+      "assessment operational_class de evidencia parcial precisa mapear para primary_taxonomy=evidence_missing_or_partial.",
+    );
+  }
+
+  if (
+    (assessment.primary_taxonomy === "bug_likely" ||
+      assessment.primary_taxonomy === "evidence_missing_or_partial") &&
+    assessment.blockers.length > 0 &&
+    assessment.next_action === null
+  ) {
+    throw new Error(
+      "assessment incompleto com blockers exige next_action estruturado.",
+    );
+  }
+
+  if (!hasRichTaxonomy) {
+    if (
+      assessment.houve_gap_real === "no" &&
+      (assessment.era_evitavel_internamente !== "not_applicable" ||
+        assessment.merece_ticket_generalizavel !== "not_applicable")
+    ) {
+      throw new Error(
+        "Quando houve_gap_real=no, era_evitavel_internamente e merece_ticket_generalizavel precisam ser not_applicable.",
+      );
+    }
+
+    if (
+      assessment.houve_gap_real === "yes" &&
+      assessment.era_evitavel_internamente === "not_applicable"
+    ) {
+      throw new Error(
+        "era_evitavel_internamente nao pode ser not_applicable quando houve_gap_real=yes.",
+      );
+    }
+
+    if (
+      assessment.houve_gap_real === "yes" &&
+      assessment.era_evitavel_internamente === "no" &&
+      assessment.merece_ticket_generalizavel !== "not_applicable"
+    ) {
+      throw new Error(
+        "merece_ticket_generalizavel precisa ser not_applicable quando o gap nao e evitavel internamente.",
+      );
+    }
+
+    if (
+      assessment.houve_gap_real === "inconclusive" &&
+      (assessment.era_evitavel_internamente === "yes" ||
+        assessment.era_evitavel_internamente === "no")
+    ) {
+      throw new Error(
+        "era_evitavel_internamente nao pode concluir yes/no quando houve_gap_real=inconclusive.",
+      );
+    }
+
+    if (
+      assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+      assessment.houve_gap_real === "yes" &&
+      assessment.era_evitavel_internamente !== "yes"
+    ) {
+      throw new Error(
+        "publish_ticket exige era_evitavel_internamente=yes quando houve_gap_real=yes.",
+      );
+    }
+
+    if (
+      assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+      assessment.houve_gap_real === "inconclusive" &&
+      assessment.merece_ticket_generalizavel !== "yes"
+    ) {
+      throw new Error(
+        "publish_ticket com caso inconclusivo exige merece_ticket_generalizavel=yes.",
+      );
+    }
   }
 };
 
@@ -1302,6 +1407,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
           status: "failed",
           requestPath: artifactPaths.semanticReviewRequestPath,
           requestSchemaVersion: request.schema_version,
+          symptom: request.symptom,
+          symptomSelectionSource: request.symptom_selection?.source ?? null,
+          selectedCandidateId: request.symptom_selection?.selected_candidate_id ?? null,
+          symptomCandidateCount: request.symptom_candidates.length,
           reviewReadinessStatus: request.review_readiness.status,
           reviewReadinessReasonCode: request.review_readiness.reason_code,
           resultPath: artifactPaths.semanticReviewResultPath,
@@ -1318,6 +1427,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
         status: "blocked",
         requestPath: artifactPaths.semanticReviewRequestPath,
         requestSchemaVersion: request.schema_version,
+        symptom: request.symptom,
+        symptomSelectionSource: request.symptom_selection?.source ?? null,
+        selectedCandidateId: request.symptom_selection?.selected_candidate_id ?? null,
+        symptomCandidateCount: request.symptom_candidates.length,
         reviewReadinessStatus: request.review_readiness.status,
         reviewReadinessReasonCode: request.review_readiness.reason_code,
       }),
@@ -1332,6 +1445,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
         status: "failed",
         requestPath: artifactPaths.semanticReviewRequestPath,
         requestSchemaVersion: request.schema_version,
+        symptom: request.symptom,
+        symptomSelectionSource: request.symptom_selection?.source ?? null,
+        selectedCandidateId: request.symptom_selection?.selected_candidate_id ?? null,
+        symptomCandidateCount: request.symptom_candidates.length,
         reviewReadinessStatus: request.review_readiness.status,
         reviewReadinessReasonCode: request.review_readiness.reason_code,
         failureReason: "semantic-review.result.json ausente para packet pronto.",
@@ -1355,6 +1472,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
         status: "failed",
         requestPath: artifactPaths.semanticReviewRequestPath,
         requestSchemaVersion: request.schema_version,
+        symptom: request.symptom,
+        symptomSelectionSource: request.symptom_selection?.source ?? null,
+        selectedCandidateId: request.symptom_selection?.selected_candidate_id ?? null,
+        symptomCandidateCount: request.symptom_candidates.length,
         reviewReadinessStatus: request.review_readiness.status,
         reviewReadinessReasonCode: request.review_readiness.reason_code,
         resultPath: artifactPaths.semanticReviewResultPath,
@@ -1370,6 +1491,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
       status: "completed",
       requestPath: artifactPaths.semanticReviewRequestPath,
       requestSchemaVersion: request.schema_version,
+      symptom: request.symptom,
+      symptomSelectionSource: request.symptom_selection?.source ?? null,
+      selectedCandidateId: request.symptom_selection?.selected_candidate_id ?? null,
+      symptomCandidateCount: request.symptom_candidates.length,
       reviewReadinessStatus: request.review_readiness.status,
       reviewReadinessReasonCode: request.review_readiness.reason_code,
       resultPath: artifactPaths.semanticReviewResultPath,
@@ -1387,6 +1512,10 @@ const buildTargetInvestigateCaseSemanticReviewTrace = (params: {
   status: TargetInvestigateCaseSemanticReviewTrace["status"];
   requestPath?: string | null;
   requestSchemaVersion?: TargetInvestigateCaseSemanticReviewRequest["schema_version"] | null;
+  symptom?: string | null;
+  symptomSelectionSource?: TargetInvestigateCaseSemanticReviewTrace["symptom_selection_source"];
+  selectedCandidateId?: string | null;
+  symptomCandidateCount?: number;
   reviewReadinessStatus?: TargetInvestigateCaseSemanticReviewRequest["review_readiness"]["status"] | null;
   reviewReadinessReasonCode?: TargetInvestigateCaseSemanticReviewRequest["review_readiness"]["reason_code"] | null;
   resultPath?: string | null;
@@ -1400,6 +1529,10 @@ const buildTargetInvestigateCaseSemanticReviewTrace = (params: {
     status: params.status,
     request_path: params.requestPath ?? null,
     request_schema_version: params.requestSchemaVersion ?? null,
+    symptom: params.symptom ?? null,
+    symptom_selection_source: params.symptomSelectionSource ?? null,
+    selected_candidate_id: params.selectedCandidateId ?? null,
+    symptom_candidate_count: params.symptomCandidateCount ?? 0,
     review_readiness_status: params.reviewReadinessStatus ?? null,
     review_readiness_reason_code: params.reviewReadinessReasonCode ?? null,
     result_path: params.resultPath ?? null,

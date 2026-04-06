@@ -32,7 +32,9 @@ import {
   TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES,
   TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES,
   TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES,
+  TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES,
   TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
@@ -284,6 +286,18 @@ test("assessment.json e publication-decision.json cobrem todos os enums explicit
     targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
   }
 
+  const richAssessment = buildCurrentAssessmentFixture();
+  for (const value of TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES) {
+    const nextAssessment = structuredClone(richAssessment);
+    nextAssessment.primary_taxonomy = value;
+    targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
+  }
+  for (const value of TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES) {
+    const nextAssessment = structuredClone(richAssessment);
+    nextAssessment.operational_class = value;
+    targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
+  }
+
   assert.throws(
     () =>
       targetInvestigateCaseAssessmentSchema.parse({
@@ -326,6 +340,399 @@ test("assessment.json e publication-decision.json cobrem todos os enums explicit
       }),
     /Invalid enum value/u,
   );
+});
+
+test("semantic-review.request.json aceita symptom_selection e symptom_candidates mantendo retrocompatibilidade legada", () => {
+  const currentPacket = buildSemanticReviewRequestFixture({
+    symptom: "complemento truncado como apartamento n",
+    symptom_selection: {
+      source: "strong_candidate",
+      selected_candidate_id:
+        "extract_address_current_complemento_semantic_truncation_apartamento_n",
+      selection_reason:
+        "the packet promoted the only bounded strong symptom candidate because the operator did not provide a symptom",
+    },
+    symptom_candidates: [
+      {
+        candidate_id: "extract_address_current_complemento_semantic_truncation_apartamento_n",
+        workflow_key: "extract_address",
+        surface_id: "local-run-bundle",
+        artifact_path: "output/local-runs/hist-case/main.response.json",
+        field_path: "extract_address.value.current.complemento",
+        json_pointer: "/extract_address/value/current/complemento",
+        symptom: "complemento truncado como apartamento n",
+        issue_type: "semantic_truncation",
+        strength: "strong",
+        selection_reason:
+          'the observed workflow response still carries the bounded complemento literal "apartamento n", which strongly suggests semantic truncation of the apartment identifier',
+      },
+    ],
+  });
+
+  const parsedCurrent = targetInvestigateCaseSemanticReviewRequestSchema.parse(currentPacket);
+  assert.equal(parsedCurrent.symptom_selection?.source, "strong_candidate");
+  assert.equal(parsedCurrent.symptom_candidates.length, 1);
+
+  const legacyPacket = buildSemanticReviewRequestFixture();
+  delete legacyPacket.symptom_selection;
+  delete legacyPacket.symptom_candidates;
+
+  const parsedLegacy = targetInvestigateCaseSemanticReviewRequestSchema.parse(legacyPacket);
+  assert.equal(parsedLegacy.symptom_selection, null);
+  assert.deepEqual(parsedLegacy.symptom_candidates, []);
+});
+
+test("evaluateTargetInvestigateCaseRound aceita bug_likely runner-side com packet ready e semantic-review.result.json ausente", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+      manifest.workflows = {
+        investigable: ["extract_address"],
+      };
+    },
+    caseResolutionDocument: buildCurrentCaseResolutionFixture(),
+    evidenceBundleDocument: buildRichEvidenceBundleFixture(),
+    assessmentDocument: buildCurrentAssessmentFixture({
+      houve_gap_real: "inconclusive",
+      era_evitavel_internamente: "no",
+      merece_ticket_generalizavel: "inconclusive",
+      confidence: "medium",
+      evidence_sufficiency: "sufficient",
+      primary_taxonomy: "bug_likely",
+      operational_class: "bug_likely_but_unconfirmed",
+      next_action: {
+        code: "materialize_semantic_review_result",
+        summary:
+          "materialize semantic-review.result.json for the ready bounded packet before runner-side publication triage",
+        source: "semantic_review",
+      },
+      blockers: [
+        {
+          code: "SEMANTIC_REVIEW_RESULT_MISSING",
+          summary:
+            "semantic-review.result.json is still missing for the ready bounded packet in this dossier",
+          source: "semantic_review_result",
+          member: null,
+        },
+      ],
+      causal_surface: {
+        owner: "runner",
+        kind: "runner-limitation",
+        summary:
+          "semantic-review was ready, but semantic-review.result.json is still missing from the local dossier",
+        actionable: true,
+        systems: ["case-investigation", "semantic-review", "extract_address", "codex-flow-runner"],
+      },
+      publication_recommendation: {
+        recommended_action: "inconclusive",
+        reason:
+          "materialize semantic-review.result.json for the ready bounded packet before runner-side publication triage",
+        proposed_ticket_scope: "hold publication and keep the local dossier as supporting evidence only",
+        suggested_title: "Do not publish extract_address ticket yet",
+      },
+      capability_limits: [
+        {
+          code: "semantic_review_result_missing",
+          summary:
+            "semantic-review was ready, but the runner result has not been materialized in the dossier yet",
+        },
+      ],
+    }),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture({
+      selected_selectors: {
+        propertyId: "case-001",
+        workflow: "extract_address",
+        window: "2026-04-05T23:15:00Z/2026-04-05T23:25:00Z",
+      },
+      symptom: "complemento truncado como apartamento n",
+      symptom_selection: {
+        source: "strong_candidate",
+        selected_candidate_id:
+          "extract_address_current_complemento_semantic_truncation_apartamento_n",
+        selection_reason:
+          "the packet promoted the only bounded strong symptom candidate because the operator did not provide a symptom",
+      },
+      symptom_candidates: [
+        {
+          candidate_id: "extract_address_current_complemento_semantic_truncation_apartamento_n",
+          workflow_key: "extract_address",
+          surface_id: "local-run-bundle",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          field_path: "extract_address.value.current.complemento",
+          json_pointer: "/extract_address/value/current/complemento",
+          symptom: "complemento truncado como apartamento n",
+          issue_type: "semantic_truncation",
+          strength: "strong",
+          selection_reason:
+            'the observed workflow response still carries the bounded complemento literal "apartamento n", which strongly suggests semantic truncation of the apartment identifier',
+        },
+      ],
+      workflow: {
+        key: "extract_address",
+        support_status: "supported",
+        public_http_selectable: true,
+        documentation_path: "docs/specs/example.md",
+      },
+      target_fields: [
+        {
+          field_path: "extract_address.value.current.complemento",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          json_pointer: "/extract_address/value/current/complemento",
+          selection_reason: "bounded target field selected by the target project",
+        },
+      ],
+      supporting_refs: [
+        {
+          surface_id: "local-run-bundle",
+          ref: "local-run-bundle:response",
+          path: "output/local-runs/hist-case/main.response.json",
+          sha256: "a".repeat(64),
+          record_count: 1,
+          selection_reason: "observed workflow response bounded by the target packet",
+          json_pointers: ["/extract_address/value/current/complemento"],
+        },
+      ],
+    }),
+    semanticReviewResultDocument: null,
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "extract_address",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.assessment.primary_taxonomy, "bug_likely");
+  assert.equal(result.assessment.operational_class, "bug_likely_but_unconfirmed");
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+  assert.equal(result.publicationDecision.overall_outcome, "runner-limitation");
+  assert.equal(result.tracePayload.semantic_review.status, "failed");
+  assert.equal(result.tracePayload.semantic_review.symptom_selection_source, "strong_candidate");
+  assert.equal(result.tracePayload.semantic_review.symptom_candidate_count, 1);
+});
+
+test("evaluateTargetInvestigateCaseRound preserva evidence_missing_or_partial com bundle_not_captured e replay_readiness pronto", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+      manifest.workflows = {
+        investigable: ["extract_address"],
+      };
+    },
+    caseResolutionDocument: {
+      ...buildCurrentCaseResolutionFixture(),
+      replay_decision: {
+        status: "required",
+        reason_code: "SAFE_REPLAY_REQUIRED",
+        resolution_reason: "fixture still requires a safe replay",
+        factual_sufficiency_reason: "fixture response artifact is still missing",
+        replay_mode: "historical-only",
+        request_id: "case_inv_current_01",
+        local_namespace: "output/case-investigation/case_inv_current_01",
+        update_db: false,
+        include_workflow_debug: false,
+        workflow: "extract_address",
+      },
+      replay_readiness: {
+        state: "ready",
+        required: true,
+        summary: "fixture has enough selectors to run safe replay",
+        reason_code: "SAFE_REPLAY_REQUIRED",
+        blockers: [],
+        next_step: {
+          code: "run_safe_replay",
+          summary: "fixture should run safe replay to capture the missing bundle",
+        },
+      },
+    },
+    evidenceBundleDocument: {
+      ...buildRichEvidenceBundleFixture(),
+      collection_sufficiency: "partial",
+    },
+    assessmentDocument: buildCurrentAssessmentFixture({
+      houve_gap_real: "inconclusive",
+      era_evitavel_internamente: "no",
+      merece_ticket_generalizavel: "inconclusive",
+      confidence: "medium",
+      evidence_sufficiency: "partial",
+      primary_taxonomy: "evidence_missing_or_partial",
+      operational_class: "bundle_not_captured",
+      next_action: {
+        code: "run_safe_replay",
+        summary: "fixture should run safe replay to capture the missing bundle",
+        source: "replay_readiness",
+      },
+      blockers: [
+        {
+          code: "WORKFLOW_RESPONSE_MISSING",
+          summary: "semantic review blocked because the observed workflow response is unavailable",
+          source: "semantic_review_request",
+          member: null,
+        },
+      ],
+      causal_surface: {
+        owner: "shared",
+        kind: "unknown",
+        summary: "fixture still lacks the bounded response artifact for semantic confirmation",
+        actionable: true,
+        systems: ["case-investigation", "safe-replay", "extract_address"],
+      },
+      publication_recommendation: {
+        recommended_action: "inconclusive",
+        reason: "capture the missing bundle before runner-side publication triage",
+        proposed_ticket_scope: "hold publication until the missing bundle is captured",
+        suggested_title: "Do not publish extract_address ticket yet",
+      },
+      capability_limits: [
+        {
+          code: "bundle_not_captured",
+          summary: "the bounded workflow response was still unavailable in the local dossier",
+        },
+      ],
+    }),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture({
+      symptom: null,
+      symptom_selection: {
+        source: "none",
+        selected_candidate_id: null,
+        selection_reason:
+          "no operator-provided symptom or unique bounded strong symptom candidate was available for prioritization",
+      },
+      symptom_candidates: [],
+      selected_selectors: {
+        propertyId: "case-001",
+        workflow: "extract_address",
+      },
+      workflow: {
+        key: "extract_address",
+        support_status: "supported",
+        public_http_selectable: true,
+        documentation_path: "docs/specs/example.md",
+      },
+      review_readiness: {
+        status: "blocked",
+        reason_code: "WORKFLOW_RESPONSE_MISSING",
+        summary: "semantic review blocked because the observed workflow response is unavailable",
+      },
+      target_fields: [],
+      supporting_refs: [],
+    }),
+    semanticReviewResultDocument: null,
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "extract_address",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.assessment.primary_taxonomy, "evidence_missing_or_partial");
+  assert.equal(result.assessment.operational_class, "bundle_not_captured");
+  assert.equal(result.summary.primary_taxonomy, "evidence_missing_or_partial");
+  assert.equal(result.summary.operational_class, "bundle_not_captured");
+  assert.equal(result.tracePayload.case_resolution.replay_readiness?.state, "ready");
+  assert.equal(result.publicationDecision.overall_outcome, "inconclusive-case");
+});
+
+test("evaluateTargetInvestigateCaseRound publica normalmente com assessment bug_confirmed no contrato novo", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+      manifest.workflows = {
+        investigable: ["extract_address"],
+      };
+    },
+    caseResolutionDocument: buildCurrentCaseResolutionFixture(),
+    evidenceBundleDocument: {
+      ...buildRichEvidenceBundleFixture(),
+      collection_sufficiency: "strong",
+    },
+    assessmentDocument: buildCurrentAssessmentFixture(),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture({
+      selected_selectors: {
+        propertyId: "case-001",
+        workflow: "extract_address",
+        symptom: "complemento truncado como apartamento n",
+      },
+      symptom: "complemento truncado como apartamento n",
+      symptom_selection: {
+        source: "operator",
+        selected_candidate_id:
+          "extract_address_current_complemento_semantic_truncation_apartamento_n",
+        selection_reason:
+          "operator-provided symptom took precedence over inferred candidates and matched the bounded strong candidate",
+      },
+      symptom_candidates: [
+        {
+          candidate_id: "extract_address_current_complemento_semantic_truncation_apartamento_n",
+          workflow_key: "extract_address",
+          surface_id: "local-run-bundle",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          field_path: "extract_address.value.current.complemento",
+          json_pointer: "/extract_address/value/current/complemento",
+          symptom: "complemento truncado como apartamento n",
+          issue_type: "semantic_truncation",
+          strength: "strong",
+          selection_reason:
+            'the observed workflow response still carries the bounded complemento literal "apartamento n", which strongly suggests semantic truncation of the apartment identifier',
+        },
+      ],
+      workflow: {
+        key: "extract_address",
+        support_status: "supported",
+        public_http_selectable: true,
+        documentation_path: "docs/specs/example.md",
+      },
+      target_fields: [
+        {
+          field_path: "extract_address.value.current.complemento",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          json_pointer: "/extract_address/value/current/complemento",
+          selection_reason: "bounded target field selected by the target project",
+        },
+      ],
+      supporting_refs: [
+        {
+          surface_id: "local-run-bundle",
+          ref: "local-run-bundle:response",
+          path: "output/local-runs/hist-case/main.response.json",
+          sha256: "a".repeat(64),
+          record_count: 1,
+          selection_reason: "observed workflow response bounded by the target packet",
+          json_pointers: ["/extract_address/value/current/complemento"],
+        },
+      ],
+    }),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+  const publisher = new StubTargetInvestigateCaseTicketPublisher(
+    "tickets/open/2026-04-05-case-investigation-bug-confirmed.md",
+  );
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "extract_address",
+    },
+    artifacts: fixture.artifactPaths,
+    ticketPublisher: publisher,
+  });
+
+  assert.equal(result.assessment.primary_taxonomy, "bug_confirmed");
+  assert.equal(result.publicationDecision.publication_status, "eligible");
+  assert.equal(result.publicationDecision.overall_outcome, "ticket-published");
+  assert.equal(result.tracePayload.semantic_review.status, "completed");
+  assert.equal(result.summary.primary_taxonomy, "bug_confirmed");
 });
 
 test("evaluateTargetInvestigateCaseRound grava publication-decision no caminho no-op para no-real-gap", async () => {
@@ -1647,7 +2054,112 @@ const buildRichAssessmentFixture = (): any => ({
   ],
 });
 
-const buildSemanticReviewRequestFixture = (): any => ({
+const buildCurrentCaseResolutionFixture = (): any => ({
+  schema_version: "case_resolution_v1",
+  generated_at: "2026-04-05T22:03:15.476Z",
+  official_entrypoint: "npm run case-investigation --",
+  dossier_request_id: "case_inv_current_01",
+  selected_selectors: {
+    propertyId: "case-001",
+    workflow: "extract_address",
+  },
+  case_ref_authorities: ["propertyId", "requestId", "runArtifact"],
+  attempt_ref_authorities: ["requestId", "runArtifact", "workflow+window"],
+  resolved_case: {
+    status: "resolved",
+    authority: "propertyId",
+    value: "case-001",
+    request_id: null,
+    run_artifact: null,
+    resolution_reason: "fixture resolved the case against propertyId",
+  },
+  resolved_attempt: {
+    authority: null,
+    status: "not-required",
+    request_id: null,
+    run_artifact: null,
+    workflow: "extract_address",
+    window: null,
+    resolution_reason: "fixture kept attempt resolution implicit",
+  },
+  attempt_candidates: {
+    discovery_mode: "case-identity",
+    status: "single",
+    silent_selection_blocked: false,
+    resolution_reason: "fixture exposed one historical attempt candidate",
+    selected_for_historical_evidence_request_id: "hist-case",
+    candidate_request_ids: ["hist-case"],
+    next_step: {
+      code: "review_unique_candidate",
+      summary: "fixture candidate can support historical evidence directly",
+    },
+  },
+  historical_evidence: {
+    factual_sufficiency_reason: "fixture historical evidence remained correlated",
+  },
+  replay_decision: {
+    status: "not-required",
+    reason_code: "HISTORICAL_BUNDLE_SUFFICIENT",
+    resolution_reason: "fixture historical bundle already closed the case",
+    factual_sufficiency_reason: "fixture historical bundle remained sufficient",
+    replay_mode: "historical-only",
+    request_id: "case_inv_current_01",
+    local_namespace: "output/case-investigation/case_inv_current_01",
+    update_db: false,
+    include_workflow_debug: false,
+    workflow: "extract_address",
+  },
+  replay_readiness: {
+    state: "ready",
+    required: false,
+    summary: "fixture historical evidence already closed the case",
+    reason_code: "HISTORICAL_BUNDLE_SUFFICIENT",
+    blockers: [],
+    next_step: {
+      code: "continue_with_historical_evidence",
+      summary: "fixture may continue without replay",
+    },
+  },
+});
+
+const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}): any => ({
+  schema_version: "assessment_v1",
+  generated_at: "2026-04-05T22:52:04.562Z",
+  houve_gap_real: "yes",
+  era_evitavel_internamente: "yes",
+  merece_ticket_generalizavel: "yes",
+  confidence: "high",
+  evidence_sufficiency: "strong",
+  primary_taxonomy: "bug_confirmed",
+  operational_class: null,
+  next_action: null,
+  blockers: [],
+  causal_surface: {
+    owner: "target-project",
+    kind: "bug",
+    summary: "fixture confirmed a reusable target-project bug",
+    actionable: true,
+    systems: ["case-investigation", "extract_address"],
+  },
+  generalization_basis: [
+    {
+      code: "semantic_review_confirmed_error",
+      summary: "bounded semantic review confirmed the workflow error",
+    },
+  ],
+  overfit_vetoes: [],
+  ticket_decision_reason: "fixture has strong bounded evidence and reusable generalization basis",
+  publication_recommendation: {
+    recommended_action: "publish_ticket",
+    reason: "fixture is strong enough for conservative runner-side publication",
+    proposed_ticket_scope: "fix the reusable semantic bug in extract_address",
+    suggested_title: "Fix extract_address semantic truncation",
+  },
+  capability_limits: [],
+  ...overrides,
+});
+
+const buildSemanticReviewRequestFixture = (overrides: Record<string, unknown> = {}): any => ({
   schema_version: "semantic_review_request_v1",
   generated_at: "2026-04-05T15:48:00.000Z",
   manifest_path: TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
@@ -1665,6 +2177,26 @@ const buildSemanticReviewRequestFixture = (): any => ({
     symptom: "timeout on save",
   },
   symptom: "timeout on save",
+  symptom_selection: {
+    source: "operator",
+    selected_candidate_id: "billing_core_value_current_status_timeout_on_save",
+    selection_reason:
+      "operator-provided symptom took precedence over inferred candidates in this bounded packet",
+  },
+  symptom_candidates: [
+    {
+      candidate_id: "billing_core_value_current_status_timeout_on_save",
+      workflow_key: "billing-core",
+      surface_id: "local-run-bundle",
+      artifact_path: "investigations/round-1/semantic-source.json",
+      field_path: "billing-core.value.current.status",
+      json_pointer: "/billing-core/value/current/status",
+      symptom: "timeout on save",
+      issue_type: "unknown",
+      strength: "strong",
+      selection_reason: "fixture bounded candidate remained aligned with the operator symptom",
+    },
+  ],
   review_readiness: {
     status: "ready",
     reason_code: "READY",
@@ -1725,6 +2257,7 @@ const buildSemanticReviewRequestFixture = (): any => ({
     artifact: TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
     schema_version: "semantic_review_result_v1",
   },
+  ...overrides,
 });
 
 const buildSemanticReviewResultFixture = (): any => ({

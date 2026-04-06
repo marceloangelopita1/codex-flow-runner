@@ -183,6 +183,19 @@ const renderTicketContent = (
           (entry) => `${entry.code}: ${entry.reason} (blocking=${entry.blocking ? "yes" : "no"})`,
         )
       : ["Nenhum veto registrado."];
+  const blockers =
+    (request.assessment.blockers?.length ?? 0) > 0
+      ? request.assessment.blockers.map(
+          (entry) =>
+            `${entry.code}: ${entry.summary} (source=${entry.source}; member=${entry.member ?? "N/A"})`,
+        )
+      : ["Nenhum blocker registrado."];
+  const capabilityLimits =
+    (request.assessment.capability_limits?.length ?? 0) > 0
+      ? request.assessment.capability_limits.map((entry) => `${entry.code}: ${entry.summary}`)
+      : ["Nenhum capability_limit registrado."];
+  const replayReadiness = request.caseResolution.replay_readiness;
+  const attemptCandidates = request.caseResolution.attempt_candidates;
 
   return [
     `# [TICKET] ${request.assessment.publication_recommendation.suggested_title}`,
@@ -275,6 +288,9 @@ const renderTicketContent = (
     "### Resolved attempt",
     "",
     `- ${request.caseResolution.attempt_resolution.attempt_ref ?? request.caseResolution.attempt_resolution.status}: ${request.caseResolution.attempt_resolution.reason}`,
+    `- attempt_candidates_status: ${attemptCandidates?.status ?? "N/A"}`,
+    `- attempt_candidate_request_ids: ${attemptCandidates?.candidate_request_ids.join(", ") || "N/A"}`,
+    `- selected_attempt_candidate_request_id: ${attemptCandidates?.selected_request_id ?? "N/A"}`,
     "",
     "### Investigation inputs",
     "",
@@ -283,17 +299,22 @@ const renderTicketContent = (
     "### Replay used",
     "",
     `- ${request.evidenceBundle.replay.used ? "Sim" : "Nao"}; mode=${request.evidenceBundle.replay.mode}; requestId=${request.evidenceBundle.replay.request_id ?? "N/A"}; updateDb=${request.evidenceBundle.replay.update_db ?? "N/A"}`,
+    `- replay_readiness_state: ${replayReadiness?.state ?? "N/A"}; required=${replayReadiness?.required ?? "N/A"}; reason_code=${replayReadiness?.reason_code ?? "N/A"}`,
+    `- replay_readiness_next_step: ${replayReadiness?.next_step ? `${replayReadiness.next_step.code} - ${replayReadiness.next_step.summary}` : "N/A"}`,
     "",
     "### Verdicts",
     "",
     `- houve_gap_real: ${request.assessment.houve_gap_real}`,
     `- era_evitavel_internamente: ${request.assessment.era_evitavel_internamente}`,
     `- merece_ticket_generalizavel: ${request.assessment.merece_ticket_generalizavel}`,
+    `- primary_taxonomy: ${request.assessment.primary_taxonomy ?? "legacy-not-declared"}`,
+    `- operational_class: ${request.assessment.operational_class ?? "not_applicable"}`,
     "",
     "### Confidence and evidence sufficiency",
     "",
     `- confidence: ${request.assessment.confidence}`,
     `- evidence_sufficiency: ${request.assessment.evidence_sufficiency}`,
+    `- assessment_next_action: ${request.assessment.next_action ? `${request.assessment.next_action.code} (${request.assessment.next_action.source}) - ${request.assessment.next_action.summary}` : "N/A"}`,
     "",
     "### Causal surface",
     "",
@@ -317,6 +338,8 @@ const renderTicketContent = (
     `- finalPublicationAuthority: ${policy.finalPublicationAuthority}`,
     `- recommended_action: ${request.assessment.publication_recommendation.recommended_action}`,
     `- reason: ${request.assessment.publication_recommendation.reason}`,
+    `- blockers: ${blockers.join(" | ")}`,
+    `- capability_limits: ${capabilityLimits.join(" | ")}`,
     `- dossier_path: ${request.summary.dossier_path}`,
     `- ticket_path: ${ticketPath}`,
     `- non_versioned_defaults: ${policy.nonVersionedArtifactsDefault.join(", ")}`,

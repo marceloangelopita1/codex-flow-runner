@@ -113,6 +113,24 @@ export const TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES = uniqueValues(
   ["insufficient", "partial", "sufficient", "strong"] as const,
   "evidence-sufficiency",
 );
+export const TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES = uniqueValues(
+  [
+    "capability_gap",
+    "bug_likely",
+    "bug_confirmed",
+    "expected_behavior",
+    "evidence_missing_or_partial",
+  ] as const,
+  "primary-taxonomy",
+);
+export const TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES = uniqueValues(
+  [
+    "bundle_not_captured",
+    "runtime_surface_unavailable",
+    "bug_likely_but_unconfirmed",
+  ] as const,
+  "operational-class",
+);
 export const TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES = uniqueValues(
   ["publish_ticket", "do_not_publish", "inconclusive"] as const,
   "recommended-action",
@@ -168,6 +186,10 @@ export const TARGET_INVESTIGATE_CASE_REPLAY_DECISION_STATUS_VALUES = uniqueValue
   ["required", "not-required", "used", "not-allowed", "inconclusive"] as const,
   "replay-decision-status",
 );
+export const TARGET_INVESTIGATE_CASE_REPLAY_READINESS_STATE_VALUES = uniqueValues(
+  ["prohibited", "incomplete", "ready", "executed"] as const,
+  "replay-readiness-state",
+);
 export const TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES = uniqueValues(
   ["historical-only", "safe-replay", "mixed"] as const,
   "replay-mode",
@@ -216,6 +238,12 @@ export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUE
   ["READY", "WORKFLOW_UNRESOLVED", "WORKFLOW_RESPONSE_MISSING", "WORKFLOW_TARGETS_MISSING"] as const,
   "semantic-review-readiness-reason-code",
 );
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_SELECTION_SOURCE_VALUES = uniqueValues(
+  ["operator", "strong_candidate", "none"] as const,
+  "semantic-review-symptom-selection-source",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_CANDIDATE_STRENGTH_VALUES =
+  uniqueValues(["strong"] as const, "semantic-review-symptom-candidate-strength");
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES = uniqueValues(
   ["confirmed_error", "expected_behavior", "inconclusive"] as const,
   "semantic-review-verdict",
@@ -252,6 +280,10 @@ export type TargetInvestigateCaseConfidence =
   (typeof TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES)[number];
 export type TargetInvestigateCaseEvidenceSufficiency =
   (typeof TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES)[number];
+export type TargetInvestigateCasePrimaryTaxonomy =
+  (typeof TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES)[number];
+export type TargetInvestigateCaseOperationalClass =
+  (typeof TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES)[number];
 export type TargetInvestigateCaseRecommendedAction =
   (typeof TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES)[number];
 export type TargetInvestigateCasePublicationStatus =
@@ -268,6 +300,8 @@ export type TargetInvestigateCaseAttemptResolutionStatus =
   (typeof TARGET_INVESTIGATE_CASE_ATTEMPT_RESOLUTION_STATUS_VALUES)[number];
 export type TargetInvestigateCaseReplayDecisionStatus =
   (typeof TARGET_INVESTIGATE_CASE_REPLAY_DECISION_STATUS_VALUES)[number];
+export type TargetInvestigateCaseReplayReadinessState =
+  (typeof TARGET_INVESTIGATE_CASE_REPLAY_READINESS_STATE_VALUES)[number];
 export type TargetInvestigateCaseReplayMode =
   (typeof TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES)[number];
 export type TargetInvestigateCaseDossierSensitivity =
@@ -284,6 +318,10 @@ export type TargetInvestigateCaseSemanticReviewReadinessStatus =
   (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES)[number];
 export type TargetInvestigateCaseSemanticReviewReadinessReasonCode =
   (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewSymptomSelectionSource =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_SELECTION_SOURCE_VALUES)[number];
+export type TargetInvestigateCaseSemanticReviewSymptomCandidateStrength =
+  (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_CANDIDATE_STRENGTH_VALUES)[number];
 export type TargetInvestigateCaseSemanticReviewVerdict =
   (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES)[number];
 export type TargetInvestigateCaseSemanticReviewIssueType =
@@ -299,6 +337,8 @@ const evitabilidadeSchema = z.enum(TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES)
 const generalizacaoSchema = z.enum(TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES);
 const confidenceSchema = z.enum(TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES);
 const evidenceSufficiencySchema = z.enum(TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES);
+const primaryTaxonomySchema = z.enum(TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES);
+const operationalClassSchema = z.enum(TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES);
 const recommendedActionSchema = z.enum(TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES);
 const publicationStatusSchema = z.enum(TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES);
 const overallOutcomeSchema = z.enum(TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES);
@@ -309,6 +349,7 @@ const attemptResolutionStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_ATTEMPT_RESOLUTION_STATUS_VALUES,
 );
 const replayDecisionStatusSchema = z.enum(TARGET_INVESTIGATE_CASE_REPLAY_DECISION_STATUS_VALUES);
+const replayReadinessStateSchema = z.enum(TARGET_INVESTIGATE_CASE_REPLAY_READINESS_STATE_VALUES);
 const replayModeSchema = z.enum(TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES);
 const dossierSensitivitySchema = z.enum(TARGET_INVESTIGATE_CASE_DOSSIER_SENSITIVITY_VALUES);
 const targetProjectSelectorSchema = z.enum(TARGET_INVESTIGATE_CASE_TARGET_PROJECT_SELECTOR_VALUES);
@@ -322,6 +363,12 @@ const semanticReviewReadinessStatusSchema = z.enum(
 );
 const semanticReviewReadinessReasonCodeSchema = z.enum(
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_REASON_CODE_VALUES,
+);
+const semanticReviewSymptomSelectionSourceSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_SELECTION_SOURCE_VALUES,
+);
+const semanticReviewSymptomCandidateStrengthSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_SYMPTOM_CANDIDATE_STRENGTH_VALUES,
 );
 const semanticReviewVerdictSchema = z.enum(
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_VERDICT_VALUES,
@@ -1134,6 +1181,30 @@ export const targetInvestigateCasePublicationRecommendationSchema = z
   })
   .strict();
 
+export const targetInvestigateCaseAssessmentNextActionSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+    source: trimmedString,
+  })
+  .strict();
+
+export const targetInvestigateCaseAssessmentBlockerSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+    source: trimmedString,
+    member: trimmedString.nullable(),
+  })
+  .strict();
+
+export const targetInvestigateCaseCapabilityLimitSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+  })
+  .strict();
+
 type ArtifactNormalizationResult<Output> =
   | {
       success: true;
@@ -1200,6 +1271,26 @@ const collectUniqueTrimmedStrings = (values: Array<unknown>): string[] => {
   return result;
 };
 
+const targetInvestigateCaseInternalAssessmentSchema = z
+  .object({
+    houve_gap_real: houveGapRealSchema,
+    era_evitavel_internamente: evitabilidadeSchema,
+    merece_ticket_generalizavel: generalizacaoSchema,
+    confidence: confidenceSchema,
+    evidence_sufficiency: evidenceSufficiencySchema,
+    primary_taxonomy: primaryTaxonomySchema.nullable(),
+    operational_class: operationalClassSchema.nullable(),
+    next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
+    blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema),
+    causal_surface: targetInvestigateCaseCausalSurfaceSchema,
+    generalization_basis: z.array(targetInvestigateCaseGeneralizationBasisSchema),
+    overfit_vetoes: z.array(targetInvestigateCaseOverfitVetoSchema),
+    ticket_decision_reason: trimmedString,
+    publication_recommendation: targetInvestigateCasePublicationRecommendationSchema,
+    capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
+  })
+  .strict();
+
 const targetInvestigateCaseLegacyAssessmentSchema = z
   .object({
     houve_gap_real: houveGapRealSchema,
@@ -1215,21 +1306,40 @@ const targetInvestigateCaseLegacyAssessmentSchema = z
   })
   .strict();
 
-const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAssessmentSchema
-  .extend({
+const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAssessmentSchema.extend({
     schema_version: z.literal("assessment_v1"),
     generated_at: trimmedString.optional(),
-  })
-  .passthrough();
+    primary_taxonomy: primaryTaxonomySchema.nullable().optional(),
+    operational_class: operationalClassSchema.nullable().optional(),
+    next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable().optional(),
+    blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema).optional(),
+    capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema).optional(),
+  }).passthrough();
 
 const normalizeTargetInvestigateCaseAssessmentDocument = (
   decoded: unknown,
-): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseLegacyAssessmentSchema>> => {
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseInternalAssessmentSchema>> => {
   const legacy = targetInvestigateCaseLegacyAssessmentSchema.safeParse(decoded);
   if (legacy.success) {
+    const normalizedLegacy = targetInvestigateCaseInternalAssessmentSchema.safeParse({
+      ...legacy.data,
+      primary_taxonomy: null,
+      operational_class: null,
+      next_action: null,
+      blockers: [],
+      capability_limits: [],
+    });
+
+    if (!normalizedLegacy.success) {
+      return {
+        success: false,
+        issues: normalizedLegacy.error.issues,
+      };
+    }
+
     return {
       success: true,
-      data: legacy.data,
+      data: normalizedLegacy.data,
     };
   }
 
@@ -1248,17 +1358,22 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
     };
   }
 
-  const normalized = targetInvestigateCaseLegacyAssessmentSchema.safeParse({
+  const normalized = targetInvestigateCaseInternalAssessmentSchema.safeParse({
     houve_gap_real: rich.data.houve_gap_real,
     era_evitavel_internamente: rich.data.era_evitavel_internamente,
     merece_ticket_generalizavel: rich.data.merece_ticket_generalizavel,
     confidence: rich.data.confidence,
     evidence_sufficiency: rich.data.evidence_sufficiency,
+    primary_taxonomy: rich.data.primary_taxonomy ?? null,
+    operational_class: rich.data.operational_class ?? null,
+    next_action: rich.data.next_action ?? null,
+    blockers: rich.data.blockers ?? [],
     causal_surface: rich.data.causal_surface,
     generalization_basis: rich.data.generalization_basis,
     overfit_vetoes: rich.data.overfit_vetoes,
     ticket_decision_reason: rich.data.ticket_decision_reason,
     publication_recommendation: rich.data.publication_recommendation,
+    capability_limits: rich.data.capability_limits ?? [],
   });
 
   if (!normalized.success) {
@@ -1275,7 +1390,7 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
 };
 
 export const targetInvestigateCaseAssessmentSchema: z.ZodType<
-  z.infer<typeof targetInvestigateCaseLegacyAssessmentSchema>,
+  z.infer<typeof targetInvestigateCaseInternalAssessmentSchema>,
   z.ZodTypeDef,
   unknown
 > = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseAssessmentDocument);
@@ -1318,6 +1433,53 @@ const targetInvestigateCaseReplayDecisionSchema = z
   .object({
     status: replayDecisionStatusSchema,
     reason: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseCaseResolutionNextStepSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseCaseResolutionAttemptCandidatesSchema = z
+  .object({
+    status: trimmedString.nullable(),
+    silent_selection_blocked: z.boolean().nullable(),
+    selected_request_id: trimmedString.nullable(),
+    candidate_request_ids: z.array(trimmedString),
+    next_step: targetInvestigateCaseCaseResolutionNextStepSchema.nullable(),
+  })
+  .strict();
+
+const targetInvestigateCaseCaseResolutionReplayReadinessSchema = z
+  .object({
+    state: replayReadinessStateSchema.nullable(),
+    required: z.boolean().nullable(),
+    summary: trimmedString.nullable(),
+    reason_code: trimmedString.nullable(),
+    blocker_codes: z.array(trimmedString),
+    next_step: targetInvestigateCaseCaseResolutionNextStepSchema.nullable(),
+  })
+  .strict();
+
+const targetInvestigateCaseInternalCaseResolutionSchema = z
+  .object({
+    case_ref: trimmedString,
+    selectors: targetInvestigateCaseSelectorsSchema,
+    resolved_case: z
+      .object({
+        ref: trimmedString,
+        summary: trimmedString,
+      })
+      .strict(),
+    attempt_resolution: targetInvestigateCaseAttemptResolutionSchema,
+    relevant_workflows: uniqueArray(trimmedString, "case-resolution.relevant-workflows"),
+    replay_decision: targetInvestigateCaseReplayDecisionSchema,
+    attempt_candidates: targetInvestigateCaseCaseResolutionAttemptCandidatesSchema.nullable(),
+    replay_readiness: targetInvestigateCaseCaseResolutionReplayReadinessSchema.nullable(),
+    resolution_reason: trimmedString,
   })
   .strict();
 
@@ -1393,17 +1555,58 @@ const targetInvestigateCaseRichCaseResolutionSchema = z
         workflow: trimmedString.nullable().optional(),
       })
       .passthrough(),
+    attempt_candidates: z
+      .object({
+        status: trimmedString.optional(),
+        silent_selection_blocked: z.boolean().optional(),
+        selected_for_historical_evidence_request_id: trimmedString.nullable().optional(),
+        candidate_request_ids: z.array(trimmedString).optional(),
+        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    replay_readiness: z
+      .object({
+        state: replayReadinessStateSchema.optional(),
+        required: z.boolean().optional(),
+        summary: trimmedString.optional(),
+        reason_code: trimmedString.optional(),
+        blockers: z
+          .array(
+            z
+              .object({
+                code: trimmedString.optional(),
+              })
+              .passthrough(),
+          )
+          .optional(),
+        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
 const normalizeTargetInvestigateCaseCaseResolutionDocument = (
   decoded: unknown,
-): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseLegacyCaseResolutionSchema>> => {
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseInternalCaseResolutionSchema>> => {
   const legacy = targetInvestigateCaseLegacyCaseResolutionSchema.safeParse(decoded);
   if (legacy.success) {
+    const normalizedLegacy = targetInvestigateCaseInternalCaseResolutionSchema.safeParse({
+      ...legacy.data,
+      attempt_candidates: null,
+      replay_readiness: null,
+    });
+    if (!normalizedLegacy.success) {
+      return {
+        success: false,
+        issues: normalizedLegacy.error.issues,
+      };
+    }
+
     return {
       success: true,
-      data: legacy.data,
+      data: normalizedLegacy.data,
     };
   }
 
@@ -1440,7 +1643,7 @@ const normalizeTargetInvestigateCaseCaseResolutionDocument = (
         )
       : null;
 
-  const normalized = targetInvestigateCaseLegacyCaseResolutionSchema.safeParse({
+  const normalized = targetInvestigateCaseInternalCaseResolutionSchema.safeParse({
     case_ref: caseRef,
     selectors: {
       workflow: rich.data.selected_selectors.workflow,
@@ -1489,6 +1692,42 @@ const normalizeTargetInvestigateCaseCaseResolutionDocument = (
           "Decisao de replay registrada sem detalhamento adicional.",
         ) ?? "",
     },
+    attempt_candidates: rich.data.attempt_candidates
+      ? {
+          status: firstTrimmedString(rich.data.attempt_candidates.status),
+          silent_selection_blocked:
+            rich.data.attempt_candidates.silent_selection_blocked ?? null,
+          selected_request_id: firstTrimmedString(
+            rich.data.attempt_candidates.selected_for_historical_evidence_request_id,
+          ),
+          candidate_request_ids: collectUniqueTrimmedStrings(
+            rich.data.attempt_candidates.candidate_request_ids ?? [],
+          ),
+          next_step: rich.data.attempt_candidates.next_step
+            ? {
+                code: rich.data.attempt_candidates.next_step.code,
+                summary: rich.data.attempt_candidates.next_step.summary,
+              }
+            : null,
+        }
+      : null,
+    replay_readiness: rich.data.replay_readiness
+      ? {
+          state: rich.data.replay_readiness.state ?? null,
+          required: rich.data.replay_readiness.required ?? null,
+          summary: firstTrimmedString(rich.data.replay_readiness.summary),
+          reason_code: firstTrimmedString(rich.data.replay_readiness.reason_code),
+          blocker_codes: collectUniqueTrimmedStrings(
+            (rich.data.replay_readiness.blockers ?? []).map((entry) => entry.code),
+          ),
+          next_step: rich.data.replay_readiness.next_step
+            ? {
+                code: rich.data.replay_readiness.next_step.code,
+                summary: rich.data.replay_readiness.next_step.summary,
+              }
+            : null,
+        }
+      : null,
     resolution_reason:
       firstTrimmedString(
         rich.data.resolved_case.resolution_reason,
@@ -1512,7 +1751,7 @@ const normalizeTargetInvestigateCaseCaseResolutionDocument = (
 };
 
 export const targetInvestigateCaseCaseResolutionSchema: z.ZodType<
-  z.infer<typeof targetInvestigateCaseLegacyCaseResolutionSchema>,
+  z.infer<typeof targetInvestigateCaseInternalCaseResolutionSchema>,
   z.ZodTypeDef,
   unknown
 > = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseCaseResolutionDocument);
@@ -1726,6 +1965,29 @@ const targetInvestigateCaseSemanticReviewTargetFieldSchema = z
   })
   .strict();
 
+const targetInvestigateCaseSemanticReviewSymptomSelectionSchema = z
+  .object({
+    source: semanticReviewSymptomSelectionSourceSchema,
+    selected_candidate_id: trimmedString.nullable(),
+    selection_reason: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseSemanticReviewSymptomCandidateSchema = z
+  .object({
+    candidate_id: trimmedString,
+    workflow_key: trimmedString,
+    surface_id: trimmedString,
+    artifact_path: relativePathSchema,
+    field_path: trimmedString,
+    json_pointer: jsonPointerSchema,
+    symptom: trimmedString,
+    issue_type: semanticReviewIssueTypeSchema,
+    strength: semanticReviewSymptomCandidateStrengthSchema,
+    selection_reason: trimmedString,
+  })
+  .strict();
+
 export const targetInvestigateCaseSemanticReviewRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION),
@@ -1747,6 +2009,15 @@ export const targetInvestigateCaseSemanticReviewRequestSchema = z
         }
       }),
     symptom: trimmedString.nullable(),
+    symptom_selection: targetInvestigateCaseSemanticReviewSymptomSelectionSchema
+      .nullable()
+      .optional()
+      .default(null),
+    symptom_candidates: z
+      .array(targetInvestigateCaseSemanticReviewSymptomCandidateSchema)
+      .max(4)
+      .optional()
+      .default([]),
     review_readiness: z
       .object({
         status: semanticReviewReadinessStatusSchema,
@@ -1814,6 +2085,74 @@ export const targetInvestigateCaseSemanticReviewRequestSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    const seenCandidateIds = new Set<string>();
+    value.symptom_candidates.forEach((candidate, index) => {
+      if (seenCandidateIds.has(candidate.candidate_id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["symptom_candidates", index, "candidate_id"],
+          message: "semantic-review request nao aceita symptom_candidates duplicados.",
+        });
+      }
+      seenCandidateIds.add(candidate.candidate_id);
+    });
+
+    if (value.symptom_selection) {
+      const selectedCandidateId = value.symptom_selection.selected_candidate_id;
+      if (selectedCandidateId && !seenCandidateIds.has(selectedCandidateId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["symptom_selection", "selected_candidate_id"],
+          message:
+            "symptom_selection.selected_candidate_id precisa apontar para um candidate_id emitido no packet.",
+        });
+      }
+
+      if (value.symptom_selection.source === "none") {
+        if (value.symptom !== null) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["symptom"],
+            message: "symptom deve permanecer null quando symptom_selection.source=none.",
+          });
+        }
+        if (selectedCandidateId !== null) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["symptom_selection", "selected_candidate_id"],
+            message:
+              "symptom_selection.selected_candidate_id deve permanecer null quando nenhum sintoma foi priorizado.",
+          });
+        }
+      } else if (value.symptom === null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["symptom"],
+          message:
+            "symptom precisa ser nao-nulo quando symptom_selection.source prioriza um sintoma.",
+        });
+      }
+
+      if (
+        value.symptom_selection.source === "strong_candidate" &&
+        value.symptom_selection.selected_candidate_id === null
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["symptom_selection", "selected_candidate_id"],
+          message:
+            "symptom_selection.source=strong_candidate exige selected_candidate_id nao nulo.",
+        });
+      }
+    } else if (value.symptom_candidates.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["symptom_selection"],
+        message:
+          "symptom_selection e obrigatorio quando symptom_candidates foram emitidos no packet.",
+      });
+    }
+
     if (
       value.review_readiness.status === "ready" &&
       (value.workflow === null ||
@@ -1873,6 +2212,10 @@ export const targetInvestigateCaseSemanticReviewTraceSchema = z
     request_schema_version: z
       .literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION)
       .nullable(),
+    symptom: trimmedString.nullable(),
+    symptom_selection_source: semanticReviewSymptomSelectionSourceSchema.nullable(),
+    selected_candidate_id: trimmedString.nullable(),
+    symptom_candidate_count: z.number().int().nonnegative(),
     review_readiness_status: semanticReviewReadinessStatusSchema.nullable(),
     review_readiness_reason_code: semanticReviewReadinessReasonCodeSchema.nullable(),
     result_path: relativePathSchema.nullable(),
@@ -2100,6 +2443,14 @@ export const targetInvestigateCaseTracePayloadSchema = z
       .strict(),
     resolved_case_ref: trimmedString,
     resolved_attempt_ref: trimmedString.nullable(),
+    case_resolution: z
+      .object({
+        attempt_candidates_status: trimmedString.nullable(),
+        selected_attempt_candidate_request_id: trimmedString.nullable(),
+        attempt_candidate_request_ids: z.array(trimmedString),
+        replay_readiness: targetInvestigateCaseCaseResolutionReplayReadinessSchema.nullable(),
+      })
+      .strict(),
     replay: z
       .object({
         used: z.boolean(),
@@ -2127,6 +2478,15 @@ export const targetInvestigateCaseTracePayloadSchema = z
         merece_ticket_generalizavel: generalizacaoSchema,
         confidence: confidenceSchema,
         evidence_sufficiency: evidenceSufficiencySchema,
+        primary_taxonomy: primaryTaxonomySchema.nullable(),
+        operational_class: operationalClassSchema.nullable(),
+      })
+      .strict(),
+    assessment: z
+      .object({
+        next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
+        blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema),
+        capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
       })
       .strict(),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
@@ -2157,12 +2517,18 @@ export const targetInvestigateCaseFinalSummarySchema = z
     case_ref: trimmedString,
     resolved_attempt_ref: trimmedString.nullable(),
     attempt_resolution_status: attemptResolutionStatusSchema,
+    attempt_candidates_status: trimmedString.nullable(),
+    replay_readiness_state: replayReadinessStateSchema.nullable(),
     replay_used: z.boolean(),
     houve_gap_real: houveGapRealSchema,
     era_evitavel_internamente: evitabilidadeSchema,
     merece_ticket_generalizavel: generalizacaoSchema,
     confidence: confidenceSchema,
     evidence_sufficiency: evidenceSufficiencySchema,
+    primary_taxonomy: primaryTaxonomySchema.nullable(),
+    operational_class: operationalClassSchema.nullable(),
+    assessment_next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
+    blocker_codes: z.array(trimmedString),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
     publication_status: publicationStatusSchema,
     overall_outcome: overallOutcomeSchema,

@@ -13,6 +13,8 @@ Regras obrigatórias:
 - Não leia arquivos, não execute comandos e não procure contexto adicional no repositório alvo.
 - Não use superfícies, sinais, paths ou evidências fora das declaradas no packet.
 - Não reescreva o contrato do alvo e não tome a autoridade final de `assessment` ou `publication`.
+- Quando o packet trouxer `symptom_selection` e `symptom_candidates`, trate-os como priorização bounded já decidida pelo projeto alvo.
+- Não promova candidatos alternativos, não invente sintomas novos e não amplie `target_fields` ou `supporting_refs`.
 - Se a evidência bounded não for suficiente para confirmar erro nem comportamento esperado, devolva `verdict = "inconclusive"`.
 - Replique os `supporting_refs` relevantes do packet apenas quando eles realmente sustentarem o veredito.
 - Preencha `field_verdicts` apenas para os campos declarados no packet.
@@ -56,6 +58,10 @@ Formato da resposta:
 
 ## Packet bounded de entrada
 <TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_JSON>
+
+Observação:
+- O packet pode incluir `symptom_selection.source = operator | strong_candidate | none`.
+- O packet pode incluir `symptom_candidates` bounded; use-os apenas como contexto declarado, nunca como gatilho para descoberta livre.
 
 ## Contexto mínimo extraído pelo runner
 <TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_CONTEXT_JSON>
