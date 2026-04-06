@@ -3883,7 +3883,7 @@ export class TicketRunner {
         versionBoundaryState: result.summary.versionBoundaryState,
         nextAction: result.summary.nextAction,
         artifactPaths: uniqueSorted([
-          ...Object.values(result.summary.artifactPaths),
+          ...result.summary.realizedArtifactPaths,
           ...result.summary.publicationDecision.versioned_artifact_paths,
         ]),
         versionedArtifactPaths: [...result.summary.publicationDecision.versioned_artifact_paths],
@@ -3919,21 +3919,70 @@ export class TicketRunner {
       flow: "target-investigate-case",
       command: "/target_investigate_case",
       outcome: result.status === "blocked" ? "blocked" : "failure",
-      finalStage: active.milestone,
-      completionReason: result.status === "blocked" ? "blocked" : "failed",
+      finalStage:
+        result.status === "failed"
+          ? (result.summary?.failedAtMilestone ?? active.milestone)
+          : active.milestone,
+      completionReason:
+        result.status === "blocked"
+          ? "blocked"
+          : this.mapTargetInvestigateCaseFailureCompletionReason(result),
       timestampUtc: new Date(finishedAt).toISOString(),
       targetProjectName: active.targetProject.name,
       targetProjectPath: active.targetProject.path,
-      versionBoundaryState: active.versionBoundaryState,
+      versionBoundaryState:
+        result.status === "failed"
+          ? (result.summary?.versionBoundaryState ?? active.versionBoundaryState)
+          : active.versionBoundaryState,
       nextAction:
         result.status === "blocked"
           ? "Corrija o bloqueio objetivo reportado e rerode o fluxo."
-          : "Revise o namespace local de investigacao antes de rerodar.",
-      artifactPaths: [],
+          : result.summary?.nextAction ??
+            "Revise o namespace local de investigacao antes de rerodar.",
+      artifactPaths: result.status === "failed" ? [...(result.summary?.artifactPaths ?? [])] : [],
       versionedArtifactPaths: [],
-      details: result.message,
+      details:
+        result.status === "failed"
+          ? this.renderTargetInvestigateCaseFailureDetails(result)
+          : result.message,
       timing,
     };
+  }
+
+  private mapTargetInvestigateCaseFailureCompletionReason(
+    result: Extract<TargetInvestigateCaseExecutionResult, { status: "failed" }>,
+  ): TargetInvestigateCaseFlowSummary["completionReason"] {
+    if (!result.summary) {
+      return "failed";
+    }
+
+    if (result.summary.failureSurface === "semantic-review") {
+      return "semantic-review-failed";
+    }
+
+    if (result.summary.failureSurface === "causal-debug") {
+      return "causal-debug-failed";
+    }
+
+    if (result.summary.failureSurface === "round-evaluation") {
+      return "round-evaluation-failed";
+    }
+
+    return "round-materialization-failed";
+  }
+
+  private renderTargetInvestigateCaseFailureDetails(
+    result: Extract<TargetInvestigateCaseExecutionResult, { status: "failed" }>,
+  ): string {
+    if (!result.summary) {
+      return result.message;
+    }
+
+    return [
+      `Falha operacional em ${result.summary.failureSurface}`,
+      `tipo=${result.summary.failureKind}`,
+      result.summary.message,
+    ].join("; ");
   }
 
   private completeTargetFlowTiming<Stage extends string>(

@@ -9767,6 +9767,13 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
 	                publicationDecisionPath:
 	                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
 	              },
+              realizedArtifactPaths: [
+                "investigations/2026-04-03T19-00-00Z/assessment.json",
+                "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+                "investigations/2026-04-03T19-00-00Z/dossier.md",
+                "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+                "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+              ],
               publicationDecision: {
                 publication_status: "not_applicable",
                 overall_outcome: "no-real-gap",
@@ -9929,6 +9936,91 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
   assert.equal(flowSummaries[0]?.summary?.overall_outcome, "no-real-gap");
 });
 
+test("requestTargetInvestigateCase propaga falha estrutural de semantic-review com artefatos reais", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetInvestigateCaseExecutor: {
+        execute: async (_request, hooks) => {
+          const targetProject = {
+            name: "beta-target",
+            path: "/home/mapita/projetos/beta-target",
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case",
+            command: "/target_investigate_case",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: "Preflight concluido para beta-target.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-06T05:35:50.000Z",
+          });
+          return {
+            status: "failed" as const,
+            message: "semantic-review.result.json ausente para packet pronto.",
+            summary: {
+              targetProject,
+              roundId: "2026-04-06T05-31-37Z",
+              roundDirectory: "investigations/2026-04-06T05-31-37Z",
+              artifactPaths: [
+                "investigations/2026-04-06T05-31-37Z/assessment.json",
+                "investigations/2026-04-06T05-31-37Z/case-resolution.json",
+                "investigations/2026-04-06T05-31-37Z/causal-debug.request.json",
+                "investigations/2026-04-06T05-31-37Z/dossier.md",
+                "investigations/2026-04-06T05-31-37Z/evidence-bundle.json",
+                "investigations/2026-04-06T05-31-37Z/semantic-review.request.json",
+              ],
+              failedAtMilestone: "publication",
+              failureSurface: "semantic-review",
+              failureKind: "artifact-validation-failed",
+              nextAction:
+                "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+              message: "semantic-review.result.json ausente para packet pronto.",
+              versionBoundaryState: "before-versioning" as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const startResult = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case beta-target case-001",
+  );
+
+  assert.deepEqual(startResult, {
+    status: "started",
+    message: "Execucao /target_investigate_case iniciada para beta-target.",
+  });
+
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.equal(flowSummaries[0]?.flow, "target-investigate-case");
+  assert.equal(flowSummaries[0]?.outcome, "failure");
+  assert.equal(flowSummaries[0]?.completionReason, "semantic-review-failed");
+  assert.equal(flowSummaries[0]?.finalStage, "publication");
+  assert.deepEqual(flowSummaries[0]?.artifactPaths, [
+    "investigations/2026-04-06T05-31-37Z/assessment.json",
+    "investigations/2026-04-06T05-31-37Z/case-resolution.json",
+    "investigations/2026-04-06T05-31-37Z/causal-debug.request.json",
+    "investigations/2026-04-06T05-31-37Z/dossier.md",
+    "investigations/2026-04-06T05-31-37Z/evidence-bundle.json",
+    "investigations/2026-04-06T05-31-37Z/semantic-review.request.json",
+  ]);
+  assert.match(flowSummaries[0]?.details ?? "", /semantic-review/u);
+  assert.match(flowSummaries[0]?.details ?? "", /artifact-validation-failed/u);
+});
+
 test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro projeto e exige escopo para cancelamento", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({
@@ -10010,6 +10102,13 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
 	                publicationDecisionPath:
 	                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
 	              },
+              realizedArtifactPaths: [
+                "investigations/2026-04-03T20-00-00Z/assessment.json",
+                "investigations/2026-04-03T20-00-00Z/case-resolution.json",
+                "investigations/2026-04-03T20-00-00Z/dossier.md",
+                "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
+                "investigations/2026-04-03T20-00-00Z/publication-decision.json",
+              ],
               publicationDecision: {
                 publication_status: "not_applicable",
                 overall_outcome: "inconclusive-case",
@@ -10252,6 +10351,13 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
 	                publicationDecisionPath:
 	                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
 	              },
+              realizedArtifactPaths: [
+                "investigations/2026-04-03T21-00-00Z/assessment.json",
+                "investigations/2026-04-03T21-00-00Z/case-resolution.json",
+                "investigations/2026-04-03T21-00-00Z/dossier.md",
+                "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
+                "investigations/2026-04-03T21-00-00Z/publication-decision.json",
+              ],
               publicationDecision: {
                 publication_status: "eligible",
                 overall_outcome: "ticket-published",

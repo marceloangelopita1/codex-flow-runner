@@ -6878,6 +6878,18 @@ export class TelegramController {
       ].join("\n");
     }
 
+    if (result.status === "failed" && result.summary) {
+      return [
+        `❌ /target_investigate_case falhou para ${result.summary.targetProject.name}.`,
+        `Etapa operacional: ${result.summary.failureSurface}`,
+        `Falha classificada: ${result.summary.failureKind}`,
+        `Fase final: ${result.summary.failedAtMilestone}`,
+        `Artefatos locais: ${result.summary.artifactPaths.join(", ") || "(nenhum)"}`,
+        `Proxima acao: ${result.summary.nextAction}`,
+        `Detalhes: ${result.summary.message}`,
+      ].join("\n");
+    }
+
     return `❌ ${result.message}`;
   }
 

@@ -1004,6 +1004,13 @@ const createController = (options: ControllerOptions = {}) => {
 	            publicationDecisionPath:
 	              "investigations/2026-04-03T19-00-00Z/publication-decision.json",
 	          },
+          realizedArtifactPaths: [
+            "investigations/2026-04-03T19-00-00Z/assessment.json",
+            "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+            "investigations/2026-04-03T19-00-00Z/dossier.md",
+            "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+            "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+          ],
           publicationDecision: {
             publication_status: "not_applicable" as const,
             overall_outcome: "no-real-gap" as const,
@@ -3710,6 +3717,54 @@ test("handleTargetInvestigateCaseCommand responde com CTA de acompanhamento quan
   assert.match(replies[0] ?? "", /Execucao \/target_investigate_case iniciada para alpha-project/u);
   assert.match(replies[0] ?? "", /\/target_investigate_case_status/u);
   assert.match(replies[0] ?? "", /\/target_investigate_case_cancel/u);
+});
+
+test("handleTargetInvestigateCaseCommand responde falha estrutural com etapa e artefatos reais", async () => {
+  const { controller } = createController({
+    targetInvestigateCaseResult: {
+      status: "failed",
+      message: "semantic-review.result.json ausente para packet pronto.",
+      summary: {
+        targetProject: {
+          name: "alpha-project",
+          path: "/home/mapita/projetos/alpha-project",
+        },
+        roundId: "2026-04-06T05-31-37Z",
+        roundDirectory: "investigations/2026-04-06T05-31-37Z",
+        artifactPaths: [
+          "investigations/2026-04-06T05-31-37Z/assessment.json",
+          "investigations/2026-04-06T05-31-37Z/case-resolution.json",
+          "investigations/2026-04-06T05-31-37Z/dossier.md",
+          "investigations/2026-04-06T05-31-37Z/evidence-bundle.json",
+          "investigations/2026-04-06T05-31-37Z/semantic-review.request.json",
+        ],
+        failedAtMilestone: "publication",
+        failureSurface: "semantic-review",
+        failureKind: "artifact-validation-failed",
+        nextAction:
+          "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+        message: "semantic-review.result.json ausente para packet pronto.",
+        versionBoundaryState: "before-versioning",
+      },
+    },
+  });
+  const replies: string[] = [];
+
+  await callHandleTargetInvestigateCaseCommand(controller, {
+    chat: { id: 42 },
+    message: {
+      text: "/target_investigate_case alpha-project case-001 --workflow extract_address",
+    },
+    reply: async (text) => {
+      replies.push(String(text));
+      return {};
+    },
+  });
+
+  assert.match(replies[0] ?? "", /falhou para alpha-project/u);
+  assert.match(replies[0] ?? "", /Etapa operacional: semantic-review/u);
+  assert.match(replies[0] ?? "", /Falha classificada: artifact-validation-failed/u);
+  assert.match(replies[0] ?? "", /Artefatos locais: investigations\/2026-04-06T05-31-37Z\/assessment\.json/u);
 });
 
 test("handleTargetInvestigateCaseStatusCommand e cancel usam o flow dedicado", async () => {

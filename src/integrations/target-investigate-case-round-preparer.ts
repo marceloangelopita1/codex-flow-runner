@@ -22,9 +22,12 @@ import {
   TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseCausalDebugRequest,
+  TargetInvestigateCaseFailureKind,
+  TargetInvestigateCaseFailureSurface,
   TargetInvestigateCaseReplayMode,
   TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
+import { TargetInvestigateCaseMilestone } from "../types/target-flow.js";
 import { TargetInvestigateCaseRoundMaterializationCodexClient } from "./codex-client.js";
 import { GitVersioning } from "./git-client.js";
 import {
@@ -63,6 +66,44 @@ interface TargetInvestigateCaseSemanticReviewRecompositionRequest {
   forceFlag: string;
   replayMode: TargetInvestigateCaseReplayMode;
 }
+
+class TargetInvestigateCaseRoundPreparationFailureError extends Error {
+  constructor(
+    public readonly failureSurface: TargetInvestigateCaseFailureSurface,
+    public readonly failureKind: TargetInvestigateCaseFailureKind,
+    public readonly failedAtMilestone: TargetInvestigateCaseMilestone,
+    message: string,
+    public readonly nextAction: string,
+  ) {
+    super(message);
+    this.name = "TargetInvestigateCaseRoundPreparationFailureError";
+  }
+}
+
+const buildRoundPreparationFailedResult = (
+  error: unknown,
+): Extract<TargetInvestigateCaseRoundPreparationResult, { status: "failed" }> => {
+  if (error instanceof TargetInvestigateCaseRoundPreparationFailureError) {
+    return {
+      status: "failed",
+      message: error.message,
+      failureSurface: error.failureSurface,
+      failureKind: error.failureKind,
+      failedAtMilestone: error.failedAtMilestone,
+      nextAction: error.nextAction,
+    };
+  }
+
+  return {
+    status: "failed",
+    message: error instanceof Error ? error.message : String(error),
+    failureSurface: "round-materialization",
+    failureKind: "artifact-validation-failed",
+    failedAtMilestone: "case-resolution",
+    nextAction:
+      "Revise os artefatos canonicos materializados nesta rodada antes de rerodar /target_investigate_case.",
+  };
+};
 
 export class CodexCliTargetInvestigateCaseRoundPreparer
   implements TargetInvestigateCaseRoundPreparer
@@ -121,6 +162,11 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       return {
         status: "failed",
         message: error instanceof Error ? error.message : String(error),
+        failureSurface: "round-materialization",
+        failureKind: "codex-execution-failed",
+        failedAtMilestone: "case-resolution",
+        nextAction:
+          "Revise a execucao runner-side da materializacao inicial e rerode /target_investigate_case.",
       };
     }
 
@@ -165,10 +211,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
     } catch (error) {
-      return {
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      };
+      return buildRoundPreparationFailedResult(error);
     }
 
     return {
@@ -267,7 +310,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     } catch (error) {
       this.dependencies.logger.warn(
-        "semantic-review.request.json invalido; subfluxo sera degradado sem interromper a rodada",
+        "semantic-review.request.json invalido; rodada falhara com causa operacional explicita",
         {
           targetProjectName: request.targetProject.name,
           roundId: request.roundId,
@@ -275,7 +318,13 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return;
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "semantic-review",
+        "request-invalid",
+        "assessment",
+        error instanceof Error ? error.message : String(error),
+        "Corrija semantic-review.request.json no projeto alvo antes de rerodar a rodada.",
+      );
     }
 
     if (semanticReviewRequest.review_readiness.status === "blocked") {
@@ -315,7 +364,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     } catch (error) {
       this.dependencies.logger.warn(
-        "semantic-review nao conseguiu montar contexto bounded valido; subfluxo sera degradado",
+        "semantic-review nao conseguiu montar contexto bounded valido; rodada falhara com causa operacional explicita",
         {
           targetProjectName: request.targetProject.name,
           roundId: request.roundId,
@@ -323,7 +372,13 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return;
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "semantic-review",
+        "context-build-failed",
+        "assessment",
+        error instanceof Error ? error.message : String(error),
+        "Revise o packet bounded e os supporting_refs declarados pelo target antes de rerodar.",
+      );
     }
 
     const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
@@ -332,6 +387,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         ? path.posix.join(authoritativeDossierLocalPath, "semantic-review.result.json")
         : request.artifactPaths.semanticReviewResultPath;
 
+    let resultOutput = "";
     try {
       const result = await codexClient.runTargetInvestigateCaseSemanticReview({
         targetProject: request.targetProject,
@@ -343,15 +399,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         reviewRequestJson: JSON.stringify(semanticReviewRequest, null, 2),
         reviewContextJson,
       });
-      const parsedResult = parseTargetInvestigateCaseSemanticReviewOutput(result.output);
-      await writeJsonArtifact(
-        request.targetProject.path,
-        authoritativeResultPath,
-        parsedResult,
-      );
+      resultOutput = result.output;
     } catch (error) {
       this.dependencies.logger.warn(
-        "semantic-review runner-side falhou; fluxo principal seguira sem resultado sintetico",
+        "semantic-review runner-side falhou e agora interrompe a rodada",
         {
           targetProjectName: request.targetProject.name,
           roundId: request.roundId,
@@ -360,22 +411,97 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return;
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "semantic-review",
+        "codex-execution-failed",
+        "assessment",
+        error instanceof Error ? error.message : String(error),
+        "Revise a execucao runner-side do semantic-review e rerode a rodada.",
+      );
+    }
+
+    let parsedResult: unknown;
+    try {
+      parsedResult = parseTargetInvestigateCaseSemanticReviewOutput(resultOutput);
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "semantic-review retornou payload nao materializavel; rodada falhara com parse explicito",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          resultPath: request.artifactPaths.semanticReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "semantic-review",
+        "result-parse-failed",
+        "assessment",
+        error instanceof Error ? error.message : String(error),
+        "Revise a resposta do Codex para semantic-review e garanta JSON valido antes de rerodar.",
+      );
+    }
+
+    try {
+      await writeJsonArtifact(
+        request.targetProject.path,
+        authoritativeResultPath,
+        parsedResult,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "semantic-review falhou ao persistir o artefato canonico; rodada sera interrompida",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.semanticReviewRequestPath,
+          resultPath: request.artifactPaths.semanticReviewResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "semantic-review",
+        "artifact-persist-failed",
+        "assessment",
+        error instanceof Error ? error.message : String(error),
+        "Revise a persistencia de semantic-review.result.json no projeto alvo antes de rerodar.",
+      );
     }
 
     if (request.manifest.semanticReview.recomposition) {
-      await this.recomposeAssessmentAfterSemanticReview(
-        request,
-        authoritativeResultPath,
-        authoritativeDossierLocalPath,
-      );
-      await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      try {
+        await this.recomposeAssessmentAfterSemanticReview(
+          request,
+          authoritativeResultPath,
+          authoritativeDossierLocalPath,
+        );
+        await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "semantic-review",
+          "recomposition-failed",
+          "assessment",
+          error instanceof Error ? error.message : String(error),
+          "Revise a recomposicao oficial do target para semantic-review antes de rerodar.",
+        );
+      }
     } else if (authoritativeResultPath !== request.artifactPaths.semanticReviewResultPath) {
-      await copyRelativePath(
-        request.targetProject.path,
-        authoritativeResultPath,
-        request.artifactPaths.semanticReviewResultPath,
-      );
+      try {
+        await copyRelativePath(
+          request.targetProject.path,
+          authoritativeResultPath,
+          request.artifactPaths.semanticReviewResultPath,
+        );
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "semantic-review",
+          "artifact-persist-failed",
+          "assessment",
+          error instanceof Error ? error.message : String(error),
+          "Revise a sincronizacao canonica de semantic-review.result.json antes de rerodar.",
+        );
+      }
     }
   }
 
@@ -435,7 +561,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     } catch (error) {
       this.dependencies.logger.warn(
-        "causal-debug.request.json invalido; subfluxo repo-aware sera degradado sem interromper a rodada",
+        "causal-debug.request.json invalido; rodada falhara com causa operacional explicita",
         {
           targetProjectName: request.targetProject.name,
           roundId: request.roundId,
@@ -443,7 +569,13 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return;
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "causal-debug",
+        "request-invalid",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Corrija causal-debug.request.json no projeto alvo antes de rerodar a rodada.",
+      );
     }
 
     if (causalDebugRequest.debug_readiness.status === "blocked") {
@@ -480,6 +612,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           )
         : request.artifactPaths.causalDebugResultPath;
 
+    let resultOutput = "";
     try {
       const result = await codexClient.runTargetInvestigateCaseCausalDebug({
         targetProject: request.targetProject,
@@ -491,15 +624,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         debugResultPath: request.artifactPaths.causalDebugResultPath,
         debugRequestJson: JSON.stringify(causalDebugRequest, null, 2),
       });
-      const parsedResult = parseTargetInvestigateCaseCausalDebugOutput(result.output);
-      await writeJsonArtifact(
-        request.targetProject.path,
-        authoritativeResultPath,
-        parsedResult,
-      );
+      resultOutput = result.output;
     } catch (error) {
       this.dependencies.logger.warn(
-        "causal-debug runner-side falhou; fluxo principal seguira sem resultado repo-aware",
+        "causal-debug runner-side falhou e agora interrompe a rodada",
         {
           targetProjectName: request.targetProject.name,
           roundId: request.roundId,
@@ -508,22 +636,97 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return;
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "causal-debug",
+        "codex-execution-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a execucao runner-side do causal-debug antes de rerodar a rodada.",
+      );
+    }
+
+    let parsedResult: unknown;
+    try {
+      parsedResult = parseTargetInvestigateCaseCausalDebugOutput(resultOutput);
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "causal-debug retornou payload nao materializavel; rodada falhara com parse explicito",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+          resultPath: request.artifactPaths.causalDebugResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "causal-debug",
+        "result-parse-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a resposta do Codex para causal-debug e garanta JSON valido antes de rerodar.",
+      );
+    }
+
+    try {
+      await writeJsonArtifact(
+        request.targetProject.path,
+        authoritativeResultPath,
+        parsedResult,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "causal-debug falhou ao persistir o artefato canonico; rodada sera interrompida",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+          resultPath: request.artifactPaths.causalDebugResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "causal-debug",
+        "artifact-persist-failed",
+        "publication",
+        error instanceof Error ? error.message : String(error),
+        "Revise a persistencia de causal-debug.result.json no projeto alvo antes de rerodar.",
+      );
     }
 
     if (request.manifest.causalDebug.recomposition) {
-      await this.recomposeAssessmentAfterCausalDebug(
-        request,
-        authoritativeResultPath,
-        authoritativeDossierLocalPath,
-      );
-      await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      try {
+        await this.recomposeAssessmentAfterCausalDebug(
+          request,
+          authoritativeResultPath,
+          authoritativeDossierLocalPath,
+        );
+        await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "causal-debug",
+          "recomposition-failed",
+          "publication",
+          error instanceof Error ? error.message : String(error),
+          "Revise a recomposicao oficial do target para causal-debug antes de rerodar.",
+        );
+      }
     } else if (authoritativeResultPath !== request.artifactPaths.causalDebugResultPath) {
-      await copyRelativePath(
-        request.targetProject.path,
-        authoritativeResultPath,
-        request.artifactPaths.causalDebugResultPath,
-      );
+      try {
+        await copyRelativePath(
+          request.targetProject.path,
+          authoritativeResultPath,
+          request.artifactPaths.causalDebugResultPath,
+        );
+      } catch (error) {
+        throw new TargetInvestigateCaseRoundPreparationFailureError(
+          "causal-debug",
+          "artifact-persist-failed",
+          "publication",
+          error instanceof Error ? error.message : String(error),
+          "Revise a sincronizacao canonica de causal-debug.result.json antes de rerodar.",
+        );
+      }
     }
   }
 

@@ -3076,6 +3076,7 @@ export interface TargetInvestigateCaseCompletedSummary {
   roundDirectory: string;
   canonicalCommand: string;
   artifactPaths: TargetInvestigateCaseArtifactSet;
+  realizedArtifactPaths: string[];
   publicationDecision: TargetInvestigateCasePublicationDecision;
   finalSummary: TargetInvestigateCaseFinalSummary;
   tracePayload: TargetInvestigateCaseTracePayload;
@@ -3090,6 +3091,35 @@ export interface TargetInvestigateCaseCancelledSummary {
   artifactPaths: string[];
   cancelledAtMilestone: TargetInvestigateCaseMilestone;
   nextAction: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+}
+
+export type TargetInvestigateCaseFailureSurface =
+  | "round-materialization"
+  | "semantic-review"
+  | "causal-debug"
+  | "round-evaluation";
+
+export type TargetInvestigateCaseFailureKind =
+  | "request-invalid"
+  | "context-build-failed"
+  | "codex-execution-failed"
+  | "result-parse-failed"
+  | "artifact-persist-failed"
+  | "recomposition-failed"
+  | "artifact-validation-failed"
+  | "round-evaluation-failed";
+
+export interface TargetInvestigateCaseFailureSummary {
+  targetProject: ProjectRef;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: string[];
+  failedAtMilestone: TargetInvestigateCaseMilestone;
+  failureSurface: TargetInvestigateCaseFailureSurface;
+  failureKind: TargetInvestigateCaseFailureKind;
+  nextAction: string;
+  message: string;
   versionBoundaryState: TargetFlowVersionBoundaryState;
 }
 
@@ -3119,6 +3149,7 @@ export type TargetInvestigateCaseExecutionResult =
   | {
       status: "failed";
       message: string;
+      summary?: TargetInvestigateCaseFailureSummary;
     };
 
 export type TargetInvestigateCaseLifecycleHooks =

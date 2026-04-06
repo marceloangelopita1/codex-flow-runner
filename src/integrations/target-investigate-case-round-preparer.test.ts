@@ -36,6 +36,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     private readonly onSemanticReview?: (
       request: TargetInvestigateCaseSemanticReviewCodexRequest,
     ) => Promise<string>,
+    private readonly onCausalDebug?: (
+      request: TargetInvestigateCaseCausalDebugCodexRequest,
+    ) => Promise<string>,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -124,8 +127,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     request: TargetInvestigateCaseCausalDebugCodexRequest,
   ) {
     this.causalDebugCalls.push(request);
-    return {
-      output: JSON.stringify(
+    const output =
+      (await this.onCausalDebug?.(request)) ??
+      JSON.stringify(
         {
           schema_version: "causal_debug_result_v1",
           generated_at: "2026-04-06T04:22:00.000Z",
@@ -166,7 +170,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
         },
         null,
         2,
-      ),
+      );
+    return {
+      output,
       promptTemplatePath: "/repo/docs/workflows/target-case-investigation-causal-debug.md",
       promptText: "prompt",
     };
@@ -682,7 +688,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer reroda a recomposicao oficial d
   assert.equal(mirroredResult.verdict, "confirmed_error");
 });
 
-test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando semantic-review.request.json esta invalido", async () => {
+test("CodexCliTargetInvestigateCaseRoundPreparer falha explicitamente quando semantic-review.request.json esta invalido", async () => {
   const fixture = await createRoundPreparerFixture();
   const codexClient = new StubCodexClient(async (request) => {
     await materializeRoundArtifacts(
@@ -705,7 +711,14 @@ test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando se
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "failed");
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.equal(result.failureSurface, "semantic-review");
+  assert.equal(result.failureKind, "request-invalid");
+  assert.equal(result.failedAtMilestone, "assessment");
   assert.equal(codexClient.semanticReviewCalls.length, 0);
   assert.equal(
     await fileExists(
@@ -718,7 +731,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando se
   );
 });
 
-test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando a resposta do Codex para semantic-review e invalida", async () => {
+test("CodexCliTargetInvestigateCaseRoundPreparer falha explicitamente quando a resposta do Codex para semantic-review e invalida", async () => {
   const fixture = await createRoundPreparerFixture();
   const codexClient = new StubCodexClient(
     async (request) => {
@@ -740,7 +753,14 @@ test("CodexCliTargetInvestigateCaseRoundPreparer degrada com seguranca quando a 
   });
 
   const result = await preparer.prepareRound(fixture.request);
-  assert.equal(result.status, "prepared");
+  assert.equal(result.status, "failed");
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.equal(result.failureSurface, "semantic-review");
+  assert.equal(result.failureKind, "result-parse-failed");
+  assert.equal(result.failedAtMilestone, "assessment");
   assert.equal(codexClient.semanticReviewCalls.length, 1);
   assert.equal(
     await fileExists(

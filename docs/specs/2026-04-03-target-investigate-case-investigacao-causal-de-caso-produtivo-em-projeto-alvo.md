@@ -6,7 +6,7 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-03 16:00Z
-- Last reviewed at (UTC): 2026-04-06 03:32Z
+- Last reviewed at (UTC): 2026-04-06 06:34Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md
@@ -14,6 +14,7 @@
   - tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md
   - tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
   - tickets/closed/2026-04-06-target-investigate-case-semantic-confirmation-recomposition-and-publication-boundary-gap.md
+  - tickets/closed/2026-04-06-target-investigate-case-silent-degradation-and-false-success-gap.md
 - Related execplans:
   - execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md
@@ -21,6 +22,7 @@
   - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
   - execplans/2026-04-05-target-investigate-case-semantic-review-runner-milestone-3.md
   - execplans/2026-04-06-target-investigate-case-semantic-confirmation-recomposition-and-publication-boundary-gap.md
+  - execplans/2026-04-06-target-investigate-case-silent-degradation-and-false-success-gap.md
 - Related commits:
   - chore(specs): triage 2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
   - chore(tickets): close 2026-04-03-target-investigate-case-contract-and-publication-gap.md
@@ -229,6 +231,10 @@
 - RF-48: a normalização runner-side do manifesto rico do piloto deve preservar integralmente os metadados de `semanticReview`, incluindo `symptoms[]` e `recomposition`, sem perder campos necessários para o loop oficial de recomposição.
 - RF-49: após um `semantic-review.result.json` válido com veredito conclusivo, o runner deve rejeitar `assessment.json` semanticamente stale que ainda se comporte como pré-confirmação, em vez de seguir para publication com artefatos contraditórios.
 - RF-50: o runner deve aceitar, de forma estritamente bounded, que o target promova `assessment.evidence_sufficiency` de `sufficient` para `strong` quando isso decorrer de `semantic-review.result.json` com `confirmed_error`, `primary_taxonomy=bug_confirmed` e recomendação final `publish_ticket`, sem reabrir a coleta factual fora do manifesto.
+- RF-51: quando uma etapa obrigatória runner-side de `round-materialization`, `semantic-review`, `causal-debug` ou `round-evaluation` falhar, `/target_investigate_case` não pode encerrar como `completed`; o fluxo deve terminar como falha operacional classificada, com `failureSurface`, `failureKind`, milestone final e próxima ação explícitos.
+- RF-52: `semantic-review.request.json` ou `causal-debug.request.json` em estado `ready` sem o artefato resultado obrigatório correspondente materializado deve ser tratado como falha operacional runner-side e não como `inconclusive-case` legítimo.
+- RF-53: o resumo final do runner, o trace final e o Telegram devem listar apenas artefatos realmente materializados no disco, somados aos artefatos versionados, sem anunciar caminhos canônicos inexistentes como “tocados”.
+- RF-54: o comando deve diferenciar explicitamente, no resultado operacional e no resumo final, `ticket-published`, `completed` sem ticket por inconclusão legítima e falhas operacionais das superfícies bounded/repo-aware, preservando a separação entre hipótese causal local, confirmação bounded, causal-debug target-owned e publication runner-side.
 
 ## Assumptions and defaults
 - O comando canônico do novo fluxo será `/target_investigate_case`, sem reuso semântico do contrato atual de `/target_checkup`.
@@ -275,6 +281,9 @@
 - [ ] CA-20 - Se `semantic-review.result.json` confirmar erro bounded, mas o `assessment.json` ainda permanecer com blockers/limites de resultado ausente ou com taxonomia pré-confirmação, o runner falha explicitamente por stale assessment em vez de degradar silenciosamente.
 - [ ] CA-21 - No piloto `../guiadomus-matricula`, o manifesto rico preservado pelo runner mantém `semanticReview.symptoms[]` e `semanticReview.recomposition` disponíveis no contrato normalizado usado durante a execução real.
 - [ ] CA-22 - O runner aceita `assessment.evidence_sufficiency="strong"` acima de `evidence_bundle.collection_sufficiency="sufficient"` somente quando o target comprova a promoção via `semantic-review.result.json` confirmado, e rejeita qualquer promoção equivalente sem essa confirmação bounded.
+- [ ] CA-23 - Quando `semantic-review.request.json` estiver `ready` e `semantic-review.result.json` não existir ou estiver inválido, o executor encerra `/target_investigate_case` como `failed`, com `failureSurface=semantic-review`, `failureKind` compatível e `failedAtMilestone=publication`, em vez de `completed`.
+- [ ] CA-24 - O resumo final do fluxo e o reply imediato do Telegram passam a listar apenas `realizedArtifactPaths` existentes no disco, sem incluir `semantic-review.result.json`, `causal-debug.result.json` ou `ticket-proposal.json` ausentes.
+- [ ] CA-25 - Na reprodução controlada da rodada âncora `../guiadomus-matricula/investigations/2026-04-06T05-31-37Z`, o fluxo reclassifica o caso como falha operacional de `semantic-review` com próxima ação explícita, diferenciando esse cenário de “caso inconclusivo legítimo”.
 
 ## Gate de validacao dos tickets derivados
 - Veredito atual: n/a
@@ -392,7 +401,7 @@
   - executar uma rodada real de `/target_investigate_case` em ambiente com Telegram e projeto alvo elegível para confirmar o resumo final do Telegram e o trace minimizado sobre uma investigação não bloqueada, assim que houver operador autorizado e caso seguro aprovado para uma execução que não viole a restrição atual de não fazer commit/push.
 - Validações já consolidadas nesta linhagem:
   - o contrato machine-readable do manifesto, as allowlists finitas, a política de replay/purge, o dossier local e o bloco `## Investigação Causal` do piloto foram validados em `../guiadomus-matricula`, inclusive pelo teste `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`);
-  - o runner passou na matriz automatizada atualizada da linhagem, incluindo a recomposição oficial do alvo após `semantic-review.result.json` e a aceitação bounded da promoção de `evidence_sufficiency`, com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts`, que no script atual expandiu para o repositório inteiro e terminou com `587` testes `pass`;
+  - o runner passou na matriz automatizada atualizada da linhagem, incluindo a recomposição oficial do alvo após `semantic-review.result.json`, a aceitação bounded da promoção de `evidence_sufficiency` e a classificação explícita das novas falhas operacionais, com `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` (`590` testes `pass`) e `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` (`357` testes `pass`);
   - o guardrail tipado `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` permaneceu verde.
 
 ## Status de atendimento (documento vivo)
@@ -406,33 +415,34 @@
   - o runner agora preserva a hipótese causal forte do projeto alvo quando o bounded packet está `ready` mas ainda sem `semantic-review.result.json`, tratando a ausência do resultado como bloqueio de confirmação/publication e não como `runner-limitation`;
   - o runner agora preserva `semanticReview.recomposition` e `semanticReview.symptoms[]` ao normalizar o manifesto rico do piloto, reroda a recomposição oficial do target após materializar `semantic-review.result.json` e rejeita `assessment.json` stale depois da confirmação bounded;
   - o runner agora aceita a promoção bounded de `assessment.evidence_sufficiency` para `strong` quando o target comprova `confirmed_error` via `semantic-review.result.json`, mantendo o veto para qualquer promoção sem confirmação semântica consumida;
-  - as validações automatizadas atuais ficaram verdes no estado revisado: `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` (`587` testes `pass` no script atual), `npm run check`, `npm test` (`587` testes `pass`) e `node --test tests/scripts/target-case-investigation-capability.test.js` (`3/3`).
+  - o runner agora encerra falhas runner-side obrigatórias de `semantic-review`, `causal-debug`, materialização ou avaliação como `failed` estruturado, com `failureSurface`, `failureKind`, milestone final, `nextAction` e artefatos reais;
+  - o resumo final do flow e o reply do Telegram agora usam apenas artefatos realmente materializados no disco, evitando paths canônicos fantasmas;
+  - as validações automatizadas atuais ficaram verdes no estado revisado: `npm run check`, `npm test` (`590` testes `pass`) e `npx tsx --test src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` (`357` testes `pass`).
 - Pendências em aberto:
   - executar a validação manual ponta a ponta via Telegram autorizado em um caso previamente aprovado e seguro, registrando o resumo final e o trace minimizado sem cruzar indevidamente a fronteira de publication; a entrega técnica já foi fechada em `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`, sem novo follow-up local.
 - Evidências de validação:
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` passou com `587` testes `pass` no script atual;
   - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` passou;
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` passou com `587` testes `pass`;
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; node --test tests/scripts/target-case-investigation-capability.test.js` passou com `3/3` no piloto;
-  - a releitura dirigida de `src/main.ts`, `src/core/target-investigate-case.ts`, `src/types/target-investigate-case.ts`, `src/integrations/codex-client.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/target-investigate-case-semantic-review.ts` e `src/integrations/target-investigate-case-ticket-publisher.ts` confirmou o wiring do preparer oficial, a preservação do manifesto rico do piloto, a orquestração bounded do `semantic-review`, a recomposição runner-triggered do alvo e a omissão deliberada de `onAiExchange` para evitar vazamento de payload sensível no trace do runner.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test` passou com `590` testes `pass`;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npx tsx --test src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts` passou com `357` testes `pass`;
+  - a reprodução controlada da rodada âncora `2026-04-06T05-31-37Z`, em projeto temporário com o manifesto real do piloto e os artefatos reais da rodada, passou a retornar `status=failed`, `failureSurface=semantic-review`, `failureKind=artifact-validation-failed` e lista apenas dos artefatos existentes, confirmando que o limbo anterior era runner-side;
+  - a releitura dirigida de `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/core/runner.ts`, `src/integrations/telegram-bot.ts`, `prompts/17-target-investigate-case-semantic-review.md`, do trace `../guiadomus-matricula/.codex-flow-runner/flow-traces/target-flows/20260406t053550z-target_investigate_case-target-investigate-case-guiadomus-matricula.json` e dos artefatos reais da rodada confirmou a combinação entre degradação silenciosa no preparer e resumo baseado em paths canônicos no runner.
 
 ## Auditoria final de entrega
-- Auditoria executada em: 2026-04-06 03:32Z
-- Resultado: parcialmente atendida - recomposição oficial pós-`semantic-review` entregue entre runner e piloto, com validação manual externa via Telegram ainda pendente
+- Auditoria executada em: 2026-04-06 06:34Z
+- Resultado: parcialmente atendida - a recomposição oficial pós-`semantic-review` segue entregue e o runner agora diferencia falha operacional de inconclusão legítima, mas a validação manual externa via Telegram autorizado ainda permanece pendente
 - Evidências finais consideradas:
-  - o runner e o piloto passaram nas suítes automatizadas relevantes, preservando o contrato publicado desta linhagem;
-  - `src/main.ts` passou a instanciar `ControlledTargetInvestigateCaseExecutor` com `CodexCliTargetInvestigateCaseRoundPreparer`, eliminando o gap de bootstrap local;
-  - `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` agora normalizam o manifesto rico real do piloto preservando `semanticReview.recomposition`, rejeitando `assessment.json` stale após confirmação bounded e aceitando a promoção bounded de `assessment.evidence_sufficiency` quando o target consumiu `semantic-review.result.json`;
-  - `src/integrations/target-investigate-case-round-preparer.ts` agora valida os artefatos canônicos da rodada, executa o subfluxo bounded de `semantic-review` quando o packet está `ready`, persiste `semantic-review.result.json`, aciona a recomposição oficial do target e omite `onAiExchange` para preservar o trace mínimo do runner;
-  - `src/integrations/target-investigate-case-semantic-review.ts` limita o contexto do Codex a paths e `json_pointer`s declarados pelo packet, sem descoberta livre de evidência;
-  - a validação manual externa via Telegram autorizado permaneceu pendente porque esta etapa explicitamente não permite commit/push e o shell não representa o operador humano autorizado;
-  - o piloto `../guiadomus-matricula` agora consome `semantic-review.result.json` em `assessment.json` e `dossier.md`, preservando a autoridade semântica do target enquanto o runner permanece como autoridade final de publication.
+  - `src/integrations/target-investigate-case-round-preparer.ts` deixou de absorver silenciosamente falhas runner-side de `semantic-review` e `causal-debug`, propagando `failed` estruturado com superfície, tipo e próxima ação;
+  - `src/core/target-investigate-case.ts` passou a tratar packet `ready` sem artefato obrigatório materializado como falha operacional explícita, em vez de `inconclusive-case` legítimo;
+  - `src/core/runner.ts` e `src/integrations/telegram-bot.ts` passaram a anunciar apenas `realizedArtifactPaths` e a classificar o encerramento final em motivos operacionais específicos (`semantic-review-failed`, `causal-debug-failed`, `round-materialization-failed`, `round-evaluation-failed`);
+  - a reprodução controlada da rodada âncora `../guiadomus-matricula/investigations/2026-04-06T05-31-37Z` reproduziu, com os artefatos reais, a nova saída `failed` em `publication` por ausência de `semantic-review.result.json`, comprovando que o problema não era falta de elegibilidade do target nem insuficiência de evidência;
+  - a validação manual externa via Telegram autorizado permaneceu pendente porque o shell não representa o operador humano autorizado.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum local no runner; o fechamento estrutural desta frente foi consolidado em `tickets/closed/2026-04-06-target-investigate-case-semantic-confirmation-recomposition-and-publication-boundary-gap.md`, restando apenas a validação manual externa via Telegram autorizado.
+  - `tickets/closed/2026-04-06-target-investigate-case-silent-degradation-and-false-success-gap.md` registra o endurecimento runner-side desta frente até o fechamento versionado do changeset local.
 - Causas-raiz sistêmicas identificadas:
-  - `ticket` - a linhagem derivada fechou control-plane, contrato/publication e capability do piloto, mas não manteve ownership explícito do materializador oficial que transforma manifesto + capability em artefatos reais na execução do runner.
+  - `execplan/contrato` - a “degradação segura” documentada no milestone runner-side anterior sobreviveu além do ponto em que `semantic-review` e `causal-debug` já eram precondições reais de publication, convertendo falhas operacionais em limbo silencioso;
+  - `observabilidade` - o resumo final continuava usando a lista canônica de artefatos esperados, e não os paths realmente materializados, mascarando a ausência de `semantic-review.result.json`, `causal-debug.result.json` e `ticket-proposal.json`.
 - Ajustes genéricos promovidos ao workflow:
-  - nenhum; o residual foi tratado apenas como follow-up funcional local desta spec, sem promover backlog transversal do workflow.
+  - o contrato local desta spec agora exige classificação operacional explícita e resumo baseado em artefatos realizados para `/target_investigate_case`, reduzindo espaço para “sucesso inconclusivo” sem explicação suficiente.
 
 ## Riscos e impacto
 - Risco funcional: a implementação local removeu o bloqueio `round-preparer-unavailable` e aterrissou o subfluxo runner-side de `semantic-review`, mas a ausência da rodada manual autorizada ainda deixa sem evidência ponta a ponta o comportamento do resumo final no Telegram e do trace real em uma investigação não bloqueada.
@@ -451,6 +461,8 @@
 - 2026-04-03 - Manter poucas milestones externas e um conjunto mínimo fixo de artefatos locais - melhora auditabilidade sem inflar Telegram, `/status` ou o contrato do runner.
 - 2026-04-03 - Preferir dossier local rico e trace do runner mínimo - preserva rastreabilidade sem poluir o repositório ou vazar material sensível no trace compartilhado do runner.
 - 2026-04-03 - Sem ticket, `publication` permanece como fase de decisão final/no-op e não gera write-back versionado por default - reduz ruído e mantém o artefato versionado de v1 restrito ao ticket quando houver ganho generalizável claro.
+- 2026-04-06 - Encerrar falhas obrigatórias runner-side como `failed` estruturado em vez de degradação silenciosa - depois que `semantic-review` e `causal-debug` passaram a bloquear publication real, a degradação deixou de ser segura e passou a esconder erro operacional.
+- 2026-04-06 - Restringir “artefatos tocados” a paths realmente materializados mais artefatos versionados - evita falso positivo no Telegram e preserva auditabilidade do round real.
 
 ## Historico de atualizacao
 - 2026-04-03 16:00Z - Versão inicial da spec.
@@ -461,4 +473,5 @@
 - 2026-04-03 20:13Z - Fechamento técnico do follow-up revalidado como `GO`; o ticket foi movido para `tickets/closed/` e a spec permaneceu em `Status: partially_attended` apenas pela validação manual externa operacional ainda pendente.
 - 2026-04-05 16:16Z - Milestone 3 runner-side do `semantic-review` concluído no `codex-flow-runner`: manifesto/artefatos auxiliares suportados, prompt bounded dedicado, execução via Codex apenas para packet `ready`, persistência de `semantic-review.result.json`, trace minimizado e validações automatizadas (`npm run check`, `npm test` e matriz focada) verdes; a spec permaneceu em `Status: partially_attended` porque a validação manual externa ainda está pendente e o Milestone 4 segue no projeto alvo.
 - 2026-04-06 03:10Z - O runner passou a preservar a hipótese causal do target quando o packet bounded está `ready` mas ainda sem resultado, a preservar `semanticReview.recomposition` no manifesto normalizado, a rerodar a recomposição oficial do alvo após materializar `semantic-review.result.json` e a rejeitar `assessment.json` stale; o piloto `../guiadomus-matricula` passou a refletir `causal_hypothesis`, `semantic_confirmation` e a recomposição pós-confirmação nos artefatos autoritativos.
-- 2026-04-06 03:32Z - O runner passou a aceitar a promoção bounded de `assessment.evidence_sufficiency` para `strong` quando o target consumiu `semantic-review.result.json` confirmado, destravando o caso âncora real até `publication_status=eligible`, `overall_outcome=ticket-published` e ticket materializado localmente no projeto alvo.
+- 2026-04-06 03:32Z - O runner passou a aceitar a promoção bounded de `assessment.evidence_sufficiency` para `strong` quando o target consumiu `semantic-review.result.json` confirmado, removendo um bloqueio contratual para publication positiva quando o artefato estiver efetivamente materializado.
+- 2026-04-06 06:34Z - A auditoria ancorada na rodada real `../guiadomus-matricula/investigations/2026-04-06T05-31-37Z` identificou a menor causa plausível remanescente como degradação silenciosa runner-side entre `semantic-review`/`causal-debug` e o resumo final; o runner passou a classificar essas falhas como `failed` estruturado e a reportar apenas artefatos reais.

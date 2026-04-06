@@ -43,6 +43,9 @@ import {
   TargetInvestigateCaseCompletedSummary,
   TargetInvestigateCaseEvidenceBundle,
   TargetInvestigateCaseExecutionResult,
+  TargetInvestigateCaseFailureKind,
+  TargetInvestigateCaseFailureSummary,
+  TargetInvestigateCaseFailureSurface,
   TargetInvestigateCaseFinalSummary,
   TargetInvestigateCaseLifecycleHooks,
   TargetInvestigateCaseManifest,
@@ -169,6 +172,10 @@ export type TargetInvestigateCaseRoundPreparationResult =
   | {
       status: "failed";
       message: string;
+      failureSurface?: TargetInvestigateCaseFailureSurface;
+      failureKind?: TargetInvestigateCaseFailureKind;
+      failedAtMilestone?: TargetInvestigateCaseMilestone;
+      nextAction?: string;
     };
 
 export interface TargetInvestigateCaseRoundPreparer {
@@ -206,6 +213,30 @@ interface DiscoveredCausalDebugArtifacts {
   result: TargetInvestigateCaseCausalDebugResult | null;
   ticketProposal: TargetInvestigateCaseTicketProposal | null;
 }
+
+class TargetInvestigateCaseOperationalFailureError extends Error {
+  constructor(
+    public readonly failureSurface: TargetInvestigateCaseFailureSurface,
+    public readonly failureKind: TargetInvestigateCaseFailureKind,
+    public readonly failedAtMilestone: TargetInvestigateCaseMilestone,
+    message: string,
+    public readonly nextAction: string,
+  ) {
+    super(message);
+    this.name = "TargetInvestigateCaseOperationalFailureError";
+  }
+}
+
+const isTargetInvestigateCaseOperationalFailure = (
+  error: unknown,
+): error is TargetInvestigateCaseOperationalFailureError =>
+  error instanceof TargetInvestigateCaseOperationalFailureError ||
+  (typeof error === "object" &&
+    error !== null &&
+    "failureSurface" in error &&
+    "failureKind" in error &&
+    "failedAtMilestone" in error &&
+    "nextAction" in error);
 
 const OPTIONAL_FLAG_ORDER = [
   ["workflow", "--workflow"],
@@ -410,6 +441,7 @@ export const evaluateTargetInvestigateCaseRound = async (
   );
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
+  assertOperationalSubflowsReady(semanticReview, causalDebug, assessment);
   validateAssessmentConsistency(assessment, semanticReview, causalDebug);
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
 
@@ -659,10 +691,31 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       path.join(TARGET_INVESTIGATE_CASE_ROUNDS_DIR, roundId),
     );
     let artifactPaths = buildTargetInvestigateCaseArtifactSet(roundDirectory);
+    let finalVersionBoundaryState: TargetFlowVersionBoundaryState = "before-versioning";
 
     await fs.mkdir(path.join(targetProject.path, ...roundDirectory.split("/")), {
       recursive: true,
     });
+
+    const buildFailure = async (params: {
+      failedAtMilestone: TargetInvestigateCaseMilestone;
+      failureSurface: TargetInvestigateCaseFailureSurface;
+      failureKind: TargetInvestigateCaseFailureKind;
+      message: string;
+      nextAction: string;
+    }): Promise<Extract<TargetInvestigateCaseExecutionResult, { status: "failed" }>> =>
+      buildFailedTargetInvestigateCaseResult({
+        targetProject,
+        roundId,
+        roundDirectory,
+        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
+        failedAtMilestone: params.failedAtMilestone,
+        failureSurface: params.failureSurface,
+        failureKind: params.failureKind,
+        message: params.message,
+        nextAction: params.nextAction,
+        versionBoundaryState: finalVersionBoundaryState,
+      });
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
@@ -713,10 +766,15 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
     }
 
     if (preparation.status === "failed") {
-      return {
-        status: "failed",
+      return buildFailure({
+        failedAtMilestone: preparation.failedAtMilestone ?? "case-resolution",
+        failureSurface: preparation.failureSurface ?? "round-materialization",
+        failureKind: preparation.failureKind ?? "artifact-validation-failed",
         message: preparation.message,
-      };
+        nextAction:
+          preparation.nextAction ??
+          "Revise a materializacao local da rodada e rerode /target_investigate_case.",
+      });
     }
 
     if (preparation.dossierPath) {
@@ -734,11 +792,22 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       versionBoundaryState: "before-versioning",
       now: this.now,
     });
-    await assertRelativeArtifactExists(
-      targetProject.path,
-      artifactPaths.caseResolutionPath,
-      "case-resolution.json",
-    );
+    try {
+      await assertRelativeArtifactExists(
+        targetProject.path,
+        artifactPaths.caseResolutionPath,
+        "case-resolution.json",
+      );
+    } catch (error) {
+      return buildFailure({
+        failedAtMilestone: "case-resolution",
+        failureSurface: "round-materialization",
+        failureKind: "artifact-validation-failed",
+        message: error instanceof Error ? error.message : String(error),
+        nextAction:
+          "Garanta que case-resolution.json seja materializado no namespace canonico antes de rerodar.",
+      });
+    }
     if (hooks?.isCancellationRequested?.()) {
       return buildCancelledTargetInvestigateCaseResult({
         targetProject,
@@ -758,11 +827,22 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       versionBoundaryState: "before-versioning",
       now: this.now,
     });
-    await assertRelativeArtifactExists(
-      targetProject.path,
-      artifactPaths.evidenceBundlePath,
-      "evidence-bundle.json",
-    );
+    try {
+      await assertRelativeArtifactExists(
+        targetProject.path,
+        artifactPaths.evidenceBundlePath,
+        "evidence-bundle.json",
+      );
+    } catch (error) {
+      return buildFailure({
+        failedAtMilestone: "evidence-collection",
+        failureSurface: "round-materialization",
+        failureKind: "artifact-validation-failed",
+        message: error instanceof Error ? error.message : String(error),
+        nextAction:
+          "Garanta que evidence-bundle.json seja materializado no namespace canonico antes de rerodar.",
+      });
+    }
     if (hooks?.isCancellationRequested?.()) {
       return buildCancelledTargetInvestigateCaseResult({
         targetProject,
@@ -782,8 +862,23 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       versionBoundaryState: "before-versioning",
       now: this.now,
     });
-    await assertRelativeArtifactExists(targetProject.path, artifactPaths.assessmentPath, "assessment.json");
-    await assertRelativeArtifactExists(targetProject.path, artifactPaths.dossierPath, "dossier");
+    try {
+      await assertRelativeArtifactExists(
+        targetProject.path,
+        artifactPaths.assessmentPath,
+        "assessment.json",
+      );
+      await assertRelativeArtifactExists(targetProject.path, artifactPaths.dossierPath, "dossier");
+    } catch (error) {
+      return buildFailure({
+        failedAtMilestone: "assessment",
+        failureSurface: "round-materialization",
+        failureKind: "artifact-validation-failed",
+        message: error instanceof Error ? error.message : String(error),
+        nextAction:
+          "Garanta que assessment.json e dossier local existam e estejam coerentes antes de rerodar.",
+      });
+    }
     if (hooks?.isCancellationRequested?.()) {
       return buildCancelledTargetInvestigateCaseResult({
         targetProject,
@@ -814,7 +909,6 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       });
     }
 
-    let finalVersionBoundaryState: TargetFlowVersionBoundaryState = "before-versioning";
     const ticketPublisher = preparation.ticketPublisher
       ? wrapTargetInvestigateCaseTicketPublisher(preparation.ticketPublisher, async () => {
           finalVersionBoundaryState = "after-versioning";
@@ -829,12 +923,26 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         })
       : undefined;
 
-    const evaluation = await evaluateTargetInvestigateCaseRound({
-      targetProject,
-      input: normalizedInput,
-      artifacts: artifactPaths,
-      ticketPublisher,
-    });
+    let evaluation: TargetInvestigateCaseEvaluationResult;
+    try {
+      evaluation = await evaluateTargetInvestigateCaseRound({
+        targetProject,
+        input: normalizedInput,
+        artifacts: artifactPaths,
+        ticketPublisher,
+      });
+    } catch (error) {
+      const inferredFailure = await inferTargetInvestigateCaseFailureFromArtifacts(
+        targetProject.path,
+        artifactPaths,
+      );
+      if (inferredFailure) {
+        return buildFailure(inferredFailure);
+      }
+
+      const classifiedFailure = classifyTargetInvestigateCaseEvaluationFailure(error);
+      return buildFailure(classifiedFailure);
+    }
 
     if (evaluation.publicationDecision.versioned_artifact_paths.length === 0) {
       finalVersionBoundaryState = "before-versioning";
@@ -847,6 +955,10 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       roundDirectory,
       canonicalCommand: evaluation.normalizedInput.canonicalCommand,
       artifactPaths,
+      realizedArtifactPaths: await listExistingTargetInvestigateCaseArtifacts(
+        targetProject.path,
+        artifactPaths,
+      ),
       publicationDecision: evaluation.publicationDecision,
       finalSummary: evaluation.summary,
       tracePayload: evaluation.tracePayload,
@@ -1192,6 +1304,239 @@ const validateCaseResolution = (
   ) {
     throw new Error("O manifesto exige resolucao explicita de tentativa para este caso.");
   }
+};
+
+const assertOperationalSubflowsReady = (
+  semanticReview: DiscoveredSemanticReviewArtifacts,
+  causalDebug: DiscoveredCausalDebugArtifacts,
+  assessment: TargetInvestigateCaseAssessment,
+): void => {
+  if (semanticReview.trace.status === "failed") {
+    throw new TargetInvestigateCaseOperationalFailureError(
+      "semantic-review",
+      mapSemanticReviewTraceToFailureKind(semanticReview.trace.failure_reason),
+      "publication",
+      semanticReview.trace.failure_reason ??
+        "semantic-review entrou em falha operacional antes da publication runner-side.",
+      assessment.next_action?.summary ??
+        "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+    );
+  }
+
+  if (!causalDebug.request) {
+    return;
+  }
+
+  if (causalDebug.request.debug_readiness.status !== "ready") {
+    return;
+  }
+
+  if (!causalDebug.result) {
+    throw new TargetInvestigateCaseOperationalFailureError(
+      "causal-debug",
+      "artifact-validation-failed",
+      "publication",
+      "causal-debug.result.json ausente para packet repo-aware pronto.",
+      assessment.next_action?.summary ??
+        "Materialize causal-debug.result.json no projeto alvo antes de nova publication runner-side.",
+    );
+  }
+
+  if (
+    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !causalDebug.ticketProposal
+  ) {
+    throw new TargetInvestigateCaseOperationalFailureError(
+      "causal-debug",
+      "artifact-validation-failed",
+      "publication",
+      "ticket-proposal.json ausente para packet repo-aware pronto com publication positiva.",
+      assessment.next_action?.summary ??
+        "Materialize ticket-proposal.json no projeto alvo antes de nova publication runner-side.",
+    );
+  }
+};
+
+const mapSemanticReviewTraceToFailureKind = (
+  failureReason: string | null,
+): TargetInvestigateCaseFailureKind => {
+  if (!failureReason) {
+    return "artifact-validation-failed";
+  }
+
+  if (failureReason.includes("request.json invalido")) {
+    return "request-invalid";
+  }
+
+  if (failureReason.includes("result.json invalido")) {
+    return "result-parse-failed";
+  }
+
+  return "artifact-validation-failed";
+};
+
+const classifyTargetInvestigateCaseEvaluationFailure = (error: unknown): {
+  failedAtMilestone: TargetInvestigateCaseMilestone;
+  failureSurface: TargetInvestigateCaseFailureSurface;
+  failureKind: TargetInvestigateCaseFailureKind;
+  message: string;
+  nextAction: string;
+} => {
+  if (isTargetInvestigateCaseOperationalFailure(error)) {
+    return {
+      failedAtMilestone: error.failedAtMilestone,
+      failureSurface: error.failureSurface,
+      failureKind: error.failureKind,
+      message: error.message,
+      nextAction: error.nextAction,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("semantic-review")) {
+    return {
+      failedAtMilestone: "publication",
+      failureSurface: "semantic-review",
+      failureKind: mapSemanticReviewTraceToFailureKind(message),
+      message,
+      nextAction:
+        "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+    };
+  }
+
+  if (message.includes("causal-debug") || message.includes("ticket-proposal.json")) {
+    return {
+      failedAtMilestone: "publication",
+      failureSurface: "causal-debug",
+      failureKind: "artifact-validation-failed",
+      message,
+      nextAction:
+        "Materialize causal-debug.result.json e ticket-proposal.json validos antes de nova publication runner-side.",
+    };
+  }
+
+  return {
+    failedAtMilestone: "publication",
+    failureSurface: "round-evaluation",
+    failureKind: "round-evaluation-failed",
+    message,
+    nextAction:
+      "Revise a coerencia contratual dos artefatos da rodada antes de rerodar a publication.",
+  };
+};
+
+const inferTargetInvestigateCaseFailureFromArtifacts = async (
+  projectPath: string,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): Promise<{
+  failedAtMilestone: TargetInvestigateCaseMilestone;
+  failureSurface: TargetInvestigateCaseFailureSurface;
+  failureKind: TargetInvestigateCaseFailureKind;
+  message: string;
+  nextAction: string;
+} | null> => {
+  if (await relativePathExists(projectPath, artifactPaths.semanticReviewRequestPath)) {
+    try {
+      const request = await readJsonArtifact(
+        projectPath,
+        artifactPaths.semanticReviewRequestPath,
+        targetInvestigateCaseSemanticReviewRequestSchema,
+        TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+      );
+      if (request.review_readiness.status === "ready") {
+        if (!(await relativePathExists(projectPath, artifactPaths.semanticReviewResultPath))) {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "semantic-review",
+            failureKind: "artifact-validation-failed",
+            message: "semantic-review.result.json ausente para packet pronto.",
+            nextAction:
+              "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+          };
+        }
+
+        try {
+          await readJsonArtifact(
+            projectPath,
+            artifactPaths.semanticReviewResultPath,
+            targetInvestigateCaseSemanticReviewResultSchema,
+            TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
+          );
+        } catch {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "semantic-review",
+            failureKind: "result-parse-failed",
+            message: "semantic-review.result.json invalido.",
+            nextAction:
+              "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
+          };
+        }
+      }
+    } catch {
+      return {
+        failedAtMilestone: "publication",
+        failureSurface: "semantic-review",
+        failureKind: "request-invalid",
+        message: "semantic-review.request.json invalido.",
+        nextAction:
+          "Corrija semantic-review.request.json no projeto alvo antes de rerodar a rodada.",
+      };
+    }
+  }
+
+  if (await relativePathExists(projectPath, artifactPaths.causalDebugRequestPath)) {
+    try {
+      const request = await readJsonArtifact(
+        projectPath,
+        artifactPaths.causalDebugRequestPath,
+        targetInvestigateCaseCausalDebugRequestSchema,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+      );
+      if (request.debug_readiness.status === "ready") {
+        if (!(await relativePathExists(projectPath, artifactPaths.causalDebugResultPath))) {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "causal-debug",
+            failureKind: "artifact-validation-failed",
+            message: "causal-debug.result.json ausente para packet repo-aware pronto.",
+            nextAction:
+              "Materialize causal-debug.result.json antes de nova publication runner-side.",
+          };
+        }
+
+        try {
+          await readJsonArtifact(
+            projectPath,
+            artifactPaths.causalDebugResultPath,
+            targetInvestigateCaseCausalDebugResultSchema,
+            TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+          );
+        } catch {
+          return {
+            failedAtMilestone: "publication",
+            failureSurface: "causal-debug",
+            failureKind: "result-parse-failed",
+            message: "causal-debug.result.json invalido.",
+            nextAction:
+              "Materialize causal-debug.result.json valido antes de nova publication runner-side.",
+          };
+        }
+
+      }
+    } catch {
+      return {
+        failedAtMilestone: "publication",
+        failureSurface: "causal-debug",
+        failureKind: "request-invalid",
+        message: "causal-debug.request.json invalido.",
+        nextAction: "Corrija causal-debug.request.json no projeto alvo antes de rerodar a rodada.",
+      };
+    }
+  }
+
+  return null;
 };
 
 const validateAssessmentConsistency = (
@@ -1935,6 +2280,38 @@ const buildCancelledTargetInvestigateCaseResult = (params: {
     versionBoundaryState: params.versionBoundaryState,
   },
 });
+
+const buildFailedTargetInvestigateCaseResult = (params: {
+  targetProject: ProjectRef;
+  roundId: string;
+  roundDirectory: string;
+  artifactPaths: string[];
+  failedAtMilestone: TargetInvestigateCaseMilestone;
+  failureSurface: TargetInvestigateCaseFailureSurface;
+  failureKind: TargetInvestigateCaseFailureKind;
+  message: string;
+  nextAction: string;
+  versionBoundaryState: TargetFlowVersionBoundaryState;
+}): Extract<TargetInvestigateCaseExecutionResult, { status: "failed" }> => {
+  const summary: TargetInvestigateCaseFailureSummary = {
+    targetProject: params.targetProject,
+    roundId: params.roundId,
+    roundDirectory: params.roundDirectory,
+    artifactPaths: [...params.artifactPaths],
+    failedAtMilestone: params.failedAtMilestone,
+    failureSurface: params.failureSurface,
+    failureKind: params.failureKind,
+    nextAction: params.nextAction,
+    message: params.message,
+    versionBoundaryState: params.versionBoundaryState,
+  };
+
+  return {
+    status: "failed",
+    message: params.message,
+    summary,
+  };
+};
 
 const wrapTargetInvestigateCaseTicketPublisher = (
   publisher: TargetInvestigateCaseTicketPublisher,

@@ -211,16 +211,25 @@ export type TargetCheckupFlowCompletionReason = "completed" | "failed" | "blocke
 export type TargetDeriveFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
 export type TargetInvestigateCaseFlowCompletionReason =
   | "completed"
+  | "round-materialization-failed"
+  | "semantic-review-failed"
+  | "causal-debug-failed"
+  | "round-evaluation-failed"
   | "failed"
   | "blocked"
   | "cancelled";
 
-interface TargetFlowSummaryBase<Flow extends TargetFlowKind, Stage extends string, Summary> {
+interface TargetFlowSummaryBase<
+  Flow extends TargetFlowKind,
+  Stage extends string,
+  Summary,
+  CompletionReason extends string = "completed" | "failed" | "blocked" | "cancelled",
+> {
   flow: Flow;
   command: TargetFlowCommand;
   outcome: TargetFlowOutcome;
   finalStage: Stage | "unknown";
-  completionReason: "completed" | "failed" | "blocked" | "cancelled";
+  completionReason: CompletionReason;
   timestampUtc: string;
   targetProjectName: string;
   targetProjectPath: string;
@@ -237,7 +246,8 @@ interface TargetFlowSummaryBase<Flow extends TargetFlowKind, Stage extends strin
 export type TargetPrepareFlowSummary = TargetFlowSummaryBase<
   "target-prepare",
   TargetPrepareMilestone,
-  TargetPrepareSummary
+  TargetPrepareSummary,
+  TargetPrepareFlowCompletionReason
 > & {
   completionReason: TargetPrepareFlowCompletionReason;
 };
@@ -245,7 +255,8 @@ export type TargetPrepareFlowSummary = TargetFlowSummaryBase<
 export type TargetCheckupFlowSummary = TargetFlowSummaryBase<
   "target-checkup",
   TargetCheckupMilestone,
-  TargetCheckupSummary
+  TargetCheckupSummary,
+  TargetCheckupFlowCompletionReason
 > & {
   completionReason: TargetCheckupFlowCompletionReason;
 };
@@ -253,7 +264,8 @@ export type TargetCheckupFlowSummary = TargetFlowSummaryBase<
 export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
   "target-derive",
   TargetDeriveMilestone,
-  TargetDeriveTicketSummary
+  TargetDeriveTicketSummary,
+  TargetDeriveFlowCompletionReason
 > & {
   completionReason: TargetDeriveFlowCompletionReason;
 };
@@ -261,7 +273,8 @@ export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
 export type TargetInvestigateCaseFlowSummary = TargetFlowSummaryBase<
   "target-investigate-case",
   TargetInvestigateCaseMilestone,
-  TargetInvestigateCaseFinalSummary
+  TargetInvestigateCaseFinalSummary,
+  TargetInvestigateCaseFlowCompletionReason
 > & {
   completionReason: TargetInvestigateCaseFlowCompletionReason;
 };
