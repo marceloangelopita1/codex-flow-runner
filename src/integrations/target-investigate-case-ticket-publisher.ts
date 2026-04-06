@@ -384,10 +384,31 @@ const TARGET_OWNED_TICKET_REQUIRED_HEADINGS_V1 = [
   "## Evidence",
   "## Impact assessment",
   "## Investigacao Causal",
+  "### Hypotheses considered",
+  "### QA escape",
+  "### Prompt / guardrail opportunities",
+  "### Ticket readiness",
   "## Closure criteria",
   "## Decision log",
   "## Closure",
 ] as const;
+
+const normalizeMarkdownSearchText = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+    .trim();
+
+const assertMarkdownIncludesExplicitTrail = (
+  markdown: string,
+  expectedText: string,
+  errorMessage: string,
+): void => {
+  if (!normalizeMarkdownSearchText(markdown).includes(normalizeMarkdownSearchText(expectedText))) {
+    throw new Error(errorMessage);
+  }
+};
 
 const assertTargetOwnedTicketProposalQuality = (
   request: TargetInvestigateCaseTicketPublicationRequest,
@@ -454,6 +475,67 @@ const assertTargetOwnedTicketProposalQuality = (
   if (!hasThreeStepReproduction) {
     throw new Error(
       "ticket-proposal.json target-owned precisa conter ao menos tres passos observaveis em `## Reproduction steps` para quality_gate=target-ticket-quality-v1.",
+    );
+  }
+
+  if (!ticketProposal.competing_hypotheses?.length) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa declarar `competing_hypotheses[]` quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+  for (const entry of ticketProposal.competing_hypotheses) {
+    assertMarkdownIncludesExplicitTrail(
+      markdown,
+      entry.hypothesis,
+      "ticket-proposal.json target-owned precisa expor explicitamente as hipoteses consideradas quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+
+  if (!ticketProposal.qa_escape) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa declarar `qa_escape` quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+  assertMarkdownIncludesExplicitTrail(
+    markdown,
+    ticketProposal.qa_escape.why_not_caught,
+    "ticket-proposal.json target-owned precisa expor explicitamente o motivo de `qa_escape` quando quality_gate=target-ticket-quality-v1.",
+  );
+
+  if (!ticketProposal.prompt_guardrail_opportunities?.length) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa declarar `prompt_guardrail_opportunities[]` quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+  for (const entry of ticketProposal.prompt_guardrail_opportunities) {
+    assertMarkdownIncludesExplicitTrail(
+      markdown,
+      entry.summary,
+      "ticket-proposal.json target-owned precisa expor explicitamente as oportunidades de prompt/guardrails quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+
+  if (!ticketProposal.ticket_readiness) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa declarar `ticket_readiness` quando quality_gate=target-ticket-quality-v1.",
+    );
+  }
+  assertMarkdownIncludesExplicitTrail(
+    markdown,
+    ticketProposal.ticket_readiness.summary,
+    "ticket-proposal.json target-owned precisa expor explicitamente `ticket_readiness.summary` quando quality_gate=target-ticket-quality-v1.",
+  );
+  assertMarkdownIncludesExplicitTrail(
+    markdown,
+    ticketProposal.ticket_readiness.status,
+    "ticket-proposal.json target-owned precisa expor explicitamente `ticket_readiness.status` quando quality_gate=target-ticket-quality-v1.",
+  );
+
+  for (const gap of ticketProposal.remaining_gaps ?? []) {
+    assertMarkdownIncludesExplicitTrail(
+      markdown,
+      gap.summary,
+      "ticket-proposal.json target-owned precisa expor explicitamente `remaining_gaps` quando quality_gate=target-ticket-quality-v1.",
     );
   }
 };

@@ -95,7 +95,18 @@
       },
       "ticketProposal": {
         "artifact": "ticket-proposal.json",
-        "schemaVersion": "ticket_proposal_v1"
+        "schemaVersion": "ticket_proposal_v1",
+        "optionalFields": [
+          "competing_hypotheses",
+          "qa_escape",
+          "prompt_guardrail_opportunities",
+          "ticket_readiness",
+          "remaining_gaps",
+          "publication_hints.ticket_scope",
+          "publication_hints.slug_strategy",
+          "publication_hints.quality_gate"
+        ],
+        "qualityGate": "target-ticket-quality-v1"
       }
     },
     "debugPolicy": {

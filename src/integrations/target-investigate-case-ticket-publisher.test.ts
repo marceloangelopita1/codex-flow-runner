@@ -104,7 +104,16 @@ test("FileSystemTargetInvestigateCaseTicketPublisher respeita slug-only para tic
       slug_strategy: "suggested-slug-only",
       quality_gate: "target-ticket-quality-v1",
     },
-    ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core local guardrail"),
+    ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core local guardrail", {
+      hypothesis: "o cache local reaproveita uma resposta antiga do billing-core",
+      qaEscapeWhyNotCaught:
+        "o checklist atual nao forca uma revisita ao envelope historico antes da publication.",
+      promptOpportunity:
+        "explicitar o requisito de citar invalidacao de cache na projecao do ticket.",
+      ticketReadinessStatus: "ready",
+      ticketReadinessSummary: "o handoff target-owned esta pronto para publication runner-side.",
+      remainingGapSummary: "confirmar o purge dos envelopes antigos antes do rollout amplo.",
+    }),
   });
 
   const publisher = new FileSystemTargetInvestigateCaseTicketPublisher(
@@ -121,6 +130,37 @@ test("FileSystemTargetInvestigateCaseTicketPublisher respeita slug-only para tic
   const absoluteTicketPath = path.join(fixture.projectPath, ...result.ticketPath.split("/"));
   const content = await fs.readFile(absoluteTicketPath, "utf8");
   assert.match(content, /# \[TICKET\] Fix billing-core local guardrail/u);
+});
+
+test("FileSystemTargetInvestigateCaseTicketPublisher respeita case-ref-prefix para ticket case-specific target-owned", async () => {
+  const fixture = await createPublisherFixture();
+  fixture.request.ticketProposal = buildTargetOwnedTicketProposalFixture({
+    suggested_slug: "fix-billing-core-local-guardrail",
+    suggested_title: "Fix billing-core local guardrail",
+    publication_hints: {
+      ticket_scope: "case-specific",
+      slug_strategy: "case-ref-prefix",
+      quality_gate: "legacy",
+    },
+  });
+
+  const publisher = new FileSystemTargetInvestigateCaseTicketPublisher(
+    fixture.projectPath,
+    fixture.gitVersioning,
+    {
+      now: () => new Date("2026-04-03T22:10:00.000Z"),
+    },
+  );
+
+  const result = await publisher.publish(fixture.request);
+  assert.equal(
+    result.ticketPath,
+    "tickets/open/2026-04-03-case-001-fix-billing-core-local-guardrail.md",
+  );
+
+  const absoluteTicketPath = path.join(fixture.projectPath, ...result.ticketPath.split("/"));
+  const content = await fs.readFile(absoluteTicketPath, "utf8");
+  assert.match(content, /# \[TICKET\] Fix billing-core guardrail/u);
 });
 
 test("FileSystemTargetInvestigateCaseTicketPublisher rejeita markdown target-owned invalido sob quality gate v1", async () => {
@@ -165,6 +205,16 @@ test("FileSystemTargetInvestigateCaseTicketPublisher rejeita markdown target-own
       "### Replay used",
       "### Verdicts",
       "### Confidence and evidence sufficiency",
+      "### Hypotheses considered",
+      "- o cache local reaproveita uma resposta antiga do billing-core",
+      "### QA escape",
+      "- o checklist atual nao forca uma revisita ao envelope historico antes da publication.",
+      "### Prompt / guardrail opportunities",
+      "- explicitar o requisito de citar invalidacao de cache na projecao do ticket.",
+      "### Ticket readiness",
+      "- ready",
+      "- o handoff target-owned esta pronto para publication runner-side.",
+      "- confirmar o purge dos envelopes antigos antes do rollout amplo.",
       "### Causal surface",
       "### Generalization basis",
       "### Overfit vetoes considered",
@@ -189,6 +239,41 @@ test("FileSystemTargetInvestigateCaseTicketPublisher rejeita markdown target-own
   await assert.rejects(
     () => publisher.publish(fixture.request),
     /linhas de lista duplicadas em sequencia/u,
+  );
+});
+
+test("FileSystemTargetInvestigateCaseTicketPublisher rejeita markdown target-owned sem trilha explicita de RF-08 sob quality gate v1", async () => {
+  const fixture = await createPublisherFixture();
+  fixture.request.ticketProposal = buildTargetOwnedTicketProposalFixture({
+    publication_hints: {
+      ticket_scope: "generalizable",
+      slug_strategy: "suggested-slug-only",
+      quality_gate: "target-ticket-quality-v1",
+    },
+    ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core local guardrail", {
+      hypothesis: "o cache local reaproveita uma resposta antiga do billing-core",
+      qaEscapeWhyNotCaught:
+        "o checklist atual nao forca uma revisita ao envelope historico antes da publication.",
+      promptOpportunity:
+        "explicitar o requisito de citar invalidacao de cache na projecao do ticket.",
+      ticketReadinessStatus: "ready",
+      ticketReadinessSummary: "o handoff target-owned esta pronto para publication runner-side.",
+      remainingGapSummary: "confirmar o purge dos envelopes antigos antes do rollout amplo.",
+      includeQaEscapeSection: false,
+    }),
+  });
+
+  const publisher = new FileSystemTargetInvestigateCaseTicketPublisher(
+    fixture.projectPath,
+    fixture.gitVersioning,
+    {
+      now: () => new Date("2026-04-03T22:10:00.000Z"),
+    },
+  );
+
+  await assert.rejects(
+    () => publisher.publish(fixture.request),
+    /heading obrigatorio ### QA escape|motivo de `qa_escape`/u,
   );
 });
 
@@ -521,12 +606,63 @@ const buildTargetOwnedTicketProposalFixture = (
   priority: "P1",
   severity: "S2",
   summary: "Fix the reusable billing-core guardrail gap.",
-  ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core guardrail"),
+  competing_hypotheses: [
+    {
+      hypothesis: "o cache local reaproveita uma resposta antiga do billing-core",
+      disposition: "kept-as-primary",
+      rationale: "o comportamento observado reaparece sem rerodar o fluxo corrigido",
+    },
+  ],
+  qa_escape: {
+    summary: "o QA local nao revisitou envelopes historicos antes da publication",
+    why_not_caught:
+      "o checklist atual nao forca uma revisita ao envelope historico antes da publication.",
+  },
+  prompt_guardrail_opportunities: [
+    {
+      area: "ticket projection",
+      summary: "explicitar o requisito de citar invalidacao de cache na projecao do ticket.",
+    },
+  ],
+  ticket_readiness: {
+    status: "ready",
+    reason_code: "READY",
+    summary: "o handoff target-owned esta pronto para publication runner-side.",
+  },
+  remaining_gaps: [
+    {
+      code: "cache-purge-follow-up",
+      summary: "confirmar o purge dos envelopes antigos antes do rollout amplo.",
+    },
+  ],
+  ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core guardrail", {
+    hypothesis: "o cache local reaproveita uma resposta antiga do billing-core",
+    qaEscapeWhyNotCaught:
+      "o checklist atual nao forca uma revisita ao envelope historico antes da publication.",
+    promptOpportunity:
+      "explicitar o requisito de citar invalidacao de cache na projecao do ticket.",
+    ticketReadinessStatus: "ready",
+    ticketReadinessSummary: "o handoff target-owned esta pronto para publication runner-side.",
+    remainingGapSummary: "confirmar o purge dos envelopes antigos antes do rollout amplo.",
+  }),
   ...overrides,
 });
 
-const buildTargetOwnedTicketMarkdown = (title: string): string =>
-  [
+const buildTargetOwnedTicketMarkdown = (
+  title: string,
+  options: {
+    hypothesis?: string;
+    qaEscapeWhyNotCaught?: string;
+    promptOpportunity?: string;
+    ticketReadinessStatus?: string;
+    ticketReadinessSummary?: string;
+    remainingGapSummary?: string;
+    includeQaEscapeSection?: boolean;
+  } = {},
+): string => {
+  const includeQaEscapeSection = options.includeQaEscapeSection ?? true;
+
+  return [
     `# [TICKET] ${title}`,
     "",
     "## Metadata",
@@ -594,6 +730,28 @@ const buildTargetOwnedTicketMarkdown = (title: string): string =>
     "",
     "- confidence: high",
     "",
+    "### Hypotheses considered",
+    "",
+    `- ${options.hypothesis ?? "o cache local reaproveita uma resposta antiga do billing-core"}`,
+    "",
+    ...(includeQaEscapeSection
+      ? [
+          "### QA escape",
+          "",
+          `- ${options.qaEscapeWhyNotCaught ?? "o checklist atual nao forca uma revisita ao envelope historico antes da publication."}`,
+          "",
+        ]
+      : []),
+    "### Prompt / guardrail opportunities",
+    "",
+    `- ${options.promptOpportunity ?? "explicitar o requisito de citar invalidacao de cache na projecao do ticket."}`,
+    "",
+    "### Ticket readiness",
+    "",
+    `- ${options.ticketReadinessStatus ?? "ready"}`,
+    `- ${options.ticketReadinessSummary ?? "o handoff target-owned esta pronto para publication runner-side."}`,
+    `- ${options.remainingGapSummary ?? "confirmar o purge dos envelopes antigos antes do rollout amplo."}`,
+    "",
     "### Causal surface",
     "",
     "- owner: target-project",
@@ -622,3 +780,4 @@ const buildTargetOwnedTicketMarkdown = (title: string): string =>
     "",
     "- Closed at (UTC):",
   ].join("\n");
+};

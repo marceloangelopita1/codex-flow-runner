@@ -1,7 +1,7 @@
 # [TICKET] Endurecer contrato e publication runner-side para ticket target-owned de case-investigation
 
 ## Metadata
-- Status: in-progress
+- Status: closed
 - Status guidance: `open` = elegivel para execucao; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisao externa sem proximo passo local executavel; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -10,7 +10,7 @@
 - Owner: workflow-core
 - Source: production-observation
 - Parent ticket (optional):
-- Parent execplan (optional): execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md
+- Parent execplan (optional): execplans/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md
 - Parent commit (optional):
 - Analysis stage (when applicable): post-implementation audit/review cross-repo do fluxo `/target_investigate_case`
 - Active project (when applicable): codex-flow-runner
@@ -32,7 +32,7 @@
   - Decision file: ../guiadomus-matricula/investigations/2026-04-06T16-30-09Z/publication-decision.json
 - Related docs/execplans:
   - docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
-  - execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md
+  - execplans/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md
   - tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - ../guiadomus-matricula/execplans/2026-04-06-case-investigation-ticket-quality-hardening.md
 
@@ -108,10 +108,20 @@ Defina evidencias objetivas para encerrar o ticket. Para ticket automatico de re
 - 2026-04-06 - Ticket aberto a partir do diagnostico cross-repo do fluxo de `case-investigation` - a maior degradacao editorial nasce no target, mas o runner ainda precisa aceitar o contrato enriquecido e endurecer publication/naming para nao perpetuar o problema.
 - 2026-04-06 - Implementacao runner-side iniciada e validada localmente - o ticket permanece aberto ate o versionamento/fechamento formal no changeset final.
 - 2026-04-06 - Backlog reconciliado com `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` - este ticket segue apenas com contrato enriquecido de `causal-debug.result.json`/`ticket-proposal.json`, guardrails editoriais e naming; gates causais de `rootCauseReview` ficaram fora da sua ownership.
+- 2026-04-06 - Fechamento validado com checklist de `docs/workflows/codex-quality-gates.md` - as allowlists finitas de `ticket_scope`, `slug_strategy` e `quality_gate` ficaram com evidencia positiva dos membros aceitos (`case-specific`, `generalizable`, `case-ref-prefix`, `suggested-slug-only`, `legacy`, `target-ticket-quality-v1`) e evidencia negativa da combinacao fora do conjunto (`suggested-slug-only` com `ticket_scope=case-specific`).
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-06 21:19Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`; commit pertencente ao mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisao externa e nao houver proximo passo local executavel, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executavel pelo agente.
+- Closure evidence:
+  - `RF-06 / CA-01`: `src/types/target-investigate-case.ts` preserva o shape enriquecido de `causal-debug.result.json` ja em uso (`root_cause_classification`, `preventable_stage`, `remediation_scope`, `ticket_seed.ticket_scope`) e passa a aceitar, em `ticket-proposal.json`, `ticket_readiness`, `competing_hypotheses`, `qa_escape`, `prompt_guardrail_opportunities` e `remaining_gaps` sem quebrar o shape legado.
+  - `RF-06 / CA-01`: `src/core/target-investigate-case.test.ts` prova a allowlist finita com parse positivo de `ticket_scope=generalizable + slug_strategy=suggested-slug-only + quality_gate=target-ticket-quality-v1`, parse positivo de `ticket_scope=case-specific + slug_strategy=case-ref-prefix + quality_gate=legacy` e rejeicao explicita de `suggested-slug-only` fora de `ticket_scope=generalizable`.
+  - `RF-08 / CA-04`: `src/integrations/target-investigate-case-ticket-publisher.ts` endurece `quality_gate=target-ticket-quality-v1` exigindo headings e trilha explicita no markdown target-owned para `competing_hypotheses`, `qa_escape.why_not_caught`, `prompt_guardrail_opportunities`, `ticket_readiness.status`, `ticket_readiness.summary` e `remaining_gaps`.
+  - `RF-08 / CA-04`: `src/integrations/target-investigate-case-ticket-publisher.test.ts` prova naming positivo para os dois membros aceitos do escopo: `generalizable + suggested-slug-only` publica `tickets/open/2026-04-03-fix-billing-core-local-guardrail.md`, enquanto `case-specific + case-ref-prefix + legacy` publica `tickets/open/2026-04-03-case-001-fix-billing-core-local-guardrail.md`.
+  - `RF-08 / CA-04`: `src/integrations/target-investigate-case-ticket-publisher.test.ts` rejeita markdown target-owned sob `quality_gate=target-ticket-quality-v1` quando ha duplicacao estrutural ou quando a secao/trilha explicita de `QA escape` e omitida, mantendo o runner como validador e nao reescritor semantico do ticket.
+  - `RF-07 / CA-03`: `src/core/target-investigate-case.test.ts` cobre o gate runner-side quando `ticket-proposal.json` enriquecido chega sem a trilha estruturada minima do quality gate v1; a leitura falha com schema explicito em `qa_escape`, e `evaluateTargetInvestigateCaseRound(...)` nao chega a publicar ticket.
+  - `RF-07 / CA-03`: `npm test -- src/core/target-investigate-case.test.ts src/core/runner.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` -> `exit 0`, com suite expandida encerrando em `603` testes passando; `npm run check` -> `exit 0`.
+  - Validacao manual pendente: nenhuma. A revalidacao pedida para `ticket-proposal.json` legado e contrato enriquecido ficou coberta por teste automatizado runner-side e nao restou dependencia externa/manual para aceite tecnico.

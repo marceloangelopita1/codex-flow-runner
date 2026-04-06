@@ -1738,6 +1738,36 @@ export const targetInvestigateCaseRootCauseReviewRemainingGapSchema = z
   })
   .strict();
 
+const targetInvestigateCaseTicketReadinessSchema = z
+  .object({
+    status: trimmedString,
+    reason_code: trimmedString.nullable().optional(),
+    summary: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseCompetingHypothesisSchema = z
+  .object({
+    hypothesis: trimmedString,
+    disposition: trimmedString,
+    rationale: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseQaEscapeSchema = z
+  .object({
+    summary: trimmedString,
+    why_not_caught: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCasePromptGuardrailOpportunitySchema = z
+  .object({
+    area: trimmedString,
+    summary: trimmedString,
+  })
+  .strict();
+
 export const targetInvestigateCaseAssessmentRootCauseReviewSchema = z
   .object({
     status: trimmedString,
@@ -3002,41 +3032,11 @@ export const targetInvestigateCaseRootCauseReviewResultSchema = z
     root_cause_status: rootCauseStatusSchema,
     confidence: confidenceSchema,
     summary: trimmedString,
-    ticket_readiness: z
-      .object({
-        status: trimmedString,
-        reason_code: trimmedString.nullable().optional(),
-        summary: trimmedString,
-      })
-      .strict(),
-    competing_hypotheses: z
-      .array(
-        z
-          .object({
-            hypothesis: trimmedString,
-            disposition: trimmedString,
-            rationale: trimmedString,
-          })
-          .strict(),
-      )
-      .optional(),
-    qa_escape: z
-      .object({
-        summary: trimmedString,
-        why_not_caught: trimmedString,
-      })
-      .strict()
-      .nullable()
-      .optional(),
+    ticket_readiness: targetInvestigateCaseTicketReadinessSchema,
+    competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema).optional(),
+    qa_escape: targetInvestigateCaseQaEscapeSchema.nullable().optional(),
     prompt_guardrail_opportunities: z
-      .array(
-        z
-          .object({
-            area: trimmedString,
-            summary: trimmedString,
-          })
-          .strict(),
-      )
+      .array(targetInvestigateCasePromptGuardrailOpportunitySchema)
       .optional(),
     remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema).optional(),
     supporting_refs: z.array(
@@ -3070,6 +3070,13 @@ export const targetInvestigateCaseTicketProposalSchema = z
     severity: trimmedString,
     summary: trimmedString,
     ticket_markdown: trimmedString,
+    ticket_readiness: targetInvestigateCaseTicketReadinessSchema.optional(),
+    competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema).optional(),
+    qa_escape: targetInvestigateCaseQaEscapeSchema.nullable().optional(),
+    prompt_guardrail_opportunities: z
+      .array(targetInvestigateCasePromptGuardrailOpportunitySchema)
+      .optional(),
+    remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema).optional(),
     publication_hints: z
       .object({
         ticket_scope: ticketScopeSchema,
@@ -3090,6 +3097,46 @@ export const targetInvestigateCaseTicketProposalSchema = z
         path: ["publication_hints", "slug_strategy"],
         message:
           "publication_hints.slug_strategy=`suggested-slug-only` exige ticket_scope=`generalizable`.",
+      });
+    }
+
+    if (value.publication_hints?.quality_gate !== "target-ticket-quality-v1") {
+      return;
+    }
+
+    if (!value.competing_hypotheses || value.competing_hypotheses.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["competing_hypotheses"],
+        message:
+          "competing_hypotheses[] e obrigatorio quando publication_hints.quality_gate=`target-ticket-quality-v1`.",
+      });
+    }
+
+    if (!value.qa_escape) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["qa_escape"],
+        message:
+          "qa_escape e obrigatorio quando publication_hints.quality_gate=`target-ticket-quality-v1`.",
+      });
+    }
+
+    if (!value.prompt_guardrail_opportunities || value.prompt_guardrail_opportunities.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["prompt_guardrail_opportunities"],
+        message:
+          "prompt_guardrail_opportunities[] e obrigatorio quando publication_hints.quality_gate=`target-ticket-quality-v1`.",
+      });
+    }
+
+    if (!value.ticket_readiness) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ticket_readiness"],
+        message:
+          "ticket_readiness e obrigatorio quando publication_hints.quality_gate=`target-ticket-quality-v1`.",
       });
     }
   });

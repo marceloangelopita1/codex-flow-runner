@@ -223,6 +223,10 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual do piloto 
     loaded.manifest.causalDebug?.artifacts.ticketProposal.qualityGate,
     "target-ticket-quality-v1",
   );
+  assert.equal(
+    loaded.manifest.causalDebug?.artifacts.ticketProposal.optionalFields?.[0],
+    "competing_hypotheses",
+  );
   assert.equal(loaded.manifest.causalDebug?.debugPolicy.narrativeLanguage, "pt-BR");
   assert.equal(loaded.manifest.rootCauseReview?.owner, "target-project");
   assert.equal(
@@ -323,11 +327,59 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
   assert.equal(causalDebugResult.ticket_seed.ticket_scope, "generalizable");
 
   const ticketProposal = targetInvestigateCaseTicketProposalSchema.parse({
-    ...buildTicketProposalFixture(),
+    ...buildTicketProposalFixture({
+      competing_hypotheses: [
+        {
+          hypothesis: "cache stale v10 ainda domina a resposta",
+          disposition: "kept-as-primary",
+          rationale: "o version gate ainda reaproveita envelopes antigos",
+        },
+      ],
+      qa_escape: {
+        summary: "o QA nao revisitou envelopes cacheados apos o fix local",
+        why_not_caught:
+          "o suite atual valida o parser, mas nao um envelope Mongo legado ainda marcado como v10.",
+      },
+      prompt_guardrail_opportunities: [
+        {
+          area: "ticket projection",
+          summary: "explicitar a necessidade de descrever invalidacao de cache ao projetar o ticket.",
+        },
+      ],
+      ticket_readiness: {
+        status: "ready",
+        reason_code: "READY",
+        summary: "ha contexto suficiente para publication runner-side conservadora.",
+      },
+      remaining_gaps: [
+        {
+          code: "cache-purge-follow-up",
+          summary: "confirmar a estrategia de purge dos envelopes antigos.",
+        },
+      ],
+    }),
     ticket_markdown: [
       "# [TICKET] Fix extract_address semantic truncation",
       "",
       "## Metadata",
+      "",
+      "## Context",
+      "",
+      "## Problem statement",
+      "",
+      "## Observed behavior",
+      "",
+      "## Expected behavior",
+      "",
+      "## Reproduction steps",
+      "",
+      "1. Reexecutar o caso ancora.",
+      "2. Confirmar o envelope cacheado legado.",
+      "3. Validar o novo version gate.",
+      "",
+      "## Evidence",
+      "",
+      "## Impact assessment",
       "",
       "## Investigacao Causal",
       "",
@@ -337,10 +389,26 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
       "### Replay used",
       "### Verdicts",
       "### Confidence and evidence sufficiency",
+      "### Hypotheses considered",
+      "- cache stale v10 ainda domina a resposta",
+      "### QA escape",
+      "- o suite atual valida o parser, mas nao um envelope Mongo legado ainda marcado como v10.",
+      "### Prompt / guardrail opportunities",
+      "- explicitar a necessidade de descrever invalidacao de cache ao projetar o ticket.",
+      "### Ticket readiness",
+      "- ready",
+      "- ha contexto suficiente para publication runner-side conservadora.",
+      "- confirmar a estrategia de purge dos envelopes antigos.",
       "### Causal surface",
       "### Generalization basis",
       "### Overfit vetoes considered",
       "### Publication decision",
+      "",
+      "## Closure criteria",
+      "",
+      "## Decision log",
+      "",
+      "## Closure",
     ].join("\n"),
     publication_hints: {
       ticket_scope: "generalizable",
@@ -349,6 +417,36 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
     },
   });
   assert.equal(ticketProposal.publication_hints?.slug_strategy, "suggested-slug-only");
+  assert.equal(ticketProposal.ticket_readiness?.status, "ready");
+  assert.equal(
+    ticketProposal.qa_escape?.why_not_caught,
+    "o suite atual valida o parser, mas nao um envelope Mongo legado ainda marcado como v10.",
+  );
+
+  const legacyTicketProposal = targetInvestigateCaseTicketProposalSchema.parse({
+    ...buildTicketProposalFixture(),
+    publication_hints: {
+      ticket_scope: "case-specific",
+      slug_strategy: "case-ref-prefix",
+      quality_gate: "legacy",
+    },
+  });
+  assert.equal(legacyTicketProposal.publication_hints?.ticket_scope, "case-specific");
+  assert.equal(legacyTicketProposal.publication_hints?.slug_strategy, "case-ref-prefix");
+  assert.equal(legacyTicketProposal.publication_hints?.quality_gate, "legacy");
+
+  assert.throws(
+    () =>
+      targetInvestigateCaseTicketProposalSchema.parse({
+        ...buildTicketProposalFixture(),
+        publication_hints: {
+          ticket_scope: "case-specific",
+          slug_strategy: "suggested-slug-only",
+          quality_gate: "legacy",
+        },
+      }),
+    /ticket_scope=`generalizable`/u,
+  );
 });
 
 test("parseTargetInvestigateCaseCommand normaliza o contrato canonico e rejeita flags fora da allowlist", () => {
@@ -1450,6 +1548,60 @@ test("evaluateTargetInvestigateCaseRound bloqueia publication quando ticket-prop
   assert.equal(ticketPublisher.calls.length, 0);
 });
 
+test("evaluateTargetInvestigateCaseRound rejeita ticket-proposal enriquecido sem trilha estruturada minima do quality gate v1", async () => {
+  const fixture = await createTargetRepoFixture({
+    ticketProposalDocument: null,
+  });
+  const invalidTicketProposal = buildTicketProposalFixture({
+    publication_hints: {
+      ticket_scope: "generalizable",
+      slug_strategy: "suggested-slug-only",
+      quality_gate: "target-ticket-quality-v1",
+    },
+    competing_hypotheses: [
+      {
+        hypothesis: "cache stale v10 ainda domina a resposta",
+        disposition: "kept-as-primary",
+        rationale: "o version gate ainda reaproveita envelopes antigos",
+      },
+    ],
+    prompt_guardrail_opportunities: [
+      {
+        area: "ticket projection",
+        summary: "explicitar invalidacao de cache na projecao do ticket.",
+      },
+    ],
+    ticket_readiness: {
+      status: "ready",
+      reason_code: "READY",
+      summary: "publication runner-side pode seguir.",
+    },
+    ticket_markdown: "# [TICKET] Fix extract_address semantic truncation\n",
+  });
+  await fs.writeFile(
+    path.join(fixture.project.path, ...fixture.artifactPaths.ticketProposalPath.split("/")),
+    `${JSON.stringify(invalidTicketProposal, null, 2)}\n`,
+    "utf8",
+  );
+
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: fixture.project,
+        input: {
+          projectName: fixture.project.name,
+          caseRef: "case-001",
+          workflow: "billing-core",
+          requestId: "req-001",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
+        },
+        artifacts: fixture.artifactPaths,
+      }),
+    /ticket-proposal\.json contem schema invalido: qa_escape:/u,
+  );
+});
+
 test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/summary permanecem redigidos", async () => {
   const invalidFixture = await createTargetRepoFixture({
     mutateAssessment: (artifact) => {
@@ -2539,6 +2691,11 @@ const buildPilotManifestFixture = (options: {
           artifact: "ticket-proposal.json",
           schemaVersion: "ticket_proposal_v1",
           optionalFields: [
+            "competing_hypotheses",
+            "qa_escape",
+            "prompt_guardrail_opportunities",
+            "ticket_readiness",
+            "remaining_gaps",
             "publication_hints.ticket_scope",
             "publication_hints.slug_strategy",
             "publication_hints.quality_gate",
@@ -3186,7 +3343,7 @@ const buildRootCauseReviewResultFixture = (overrides: Record<string, unknown> = 
   ...overrides,
 });
 
-const buildTicketProposalFixture = (): any => ({
+const buildTicketProposalFixture = (overrides: Record<string, unknown> = {}): any => ({
   schema_version: "ticket_proposal_v1",
   generated_at: "2026-04-06T04:20:00.000Z",
   source_assessment_artifact: "assessment.json",
@@ -3198,6 +3355,7 @@ const buildTicketProposalFixture = (): any => ({
   severity: "S2",
   summary: "fix the reusable semantic bug in extract_address",
   ticket_markdown: "# [TICKET] Fix extract_address semantic truncation\n",
+  ...overrides,
 });
 
 const buildSemanticReviewRequestFixture = (overrides: Record<string, unknown> = {}): any => ({
