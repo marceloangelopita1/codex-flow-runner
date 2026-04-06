@@ -15,23 +15,31 @@ import {
   normalizeTargetInvestigateCaseManifestDocument,
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
+  targetInvestigateCaseCausalDebugRequestSchema,
+  targetInvestigateCaseCausalDebugResultSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseFinalSummarySchema,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
+  targetInvestigateCaseTicketProposalSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   targetInvestigateCaseSemanticReviewResultSchema,
   targetInvestigateCaseSemanticReviewTraceSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseArtifactSet,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
   TargetInvestigateCaseCaseResolution,
+  TargetInvestigateCaseCausalDebugRequest,
+  TargetInvestigateCaseCausalDebugResult,
   TargetInvestigateCaseCompletedSummary,
   TargetInvestigateCaseEvidenceBundle,
   TargetInvestigateCaseExecutionResult,
@@ -44,6 +52,7 @@ import {
   TargetInvestigateCaseSemanticReviewRequest,
   TargetInvestigateCaseSemanticReviewResult,
   TargetInvestigateCaseSemanticReviewTrace,
+  TargetInvestigateCaseTicketProposal,
   TargetInvestigateCaseTracePayload,
 } from "../types/target-investigate-case.js";
 import {
@@ -69,6 +78,9 @@ export interface TargetInvestigateCaseArtifactPaths {
   dossierPath: string;
   semanticReviewRequestPath?: string;
   semanticReviewResultPath?: string;
+  causalDebugRequestPath?: string;
+  causalDebugResultPath?: string;
+  ticketProposalPath?: string;
   publicationDecisionPath?: string;
 }
 
@@ -79,6 +91,7 @@ export interface TargetInvestigateCaseTicketPublicationRequest {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  ticketProposal?: TargetInvestigateCaseTicketProposal | null;
   summary: TargetInvestigateCaseFinalSummary;
 }
 
@@ -186,6 +199,12 @@ interface DiscoveredSemanticReviewArtifacts {
   trace: TargetInvestigateCaseSemanticReviewTrace;
   request: TargetInvestigateCaseSemanticReviewRequest | null;
   result: TargetInvestigateCaseSemanticReviewResult | null;
+}
+
+interface DiscoveredCausalDebugArtifacts {
+  request: TargetInvestigateCaseCausalDebugRequest | null;
+  result: TargetInvestigateCaseCausalDebugResult | null;
+  ticketProposal: TargetInvestigateCaseTicketProposal | null;
 }
 
 const OPTIONAL_FLAG_ORDER = [
@@ -384,9 +403,14 @@ export const evaluateTargetInvestigateCaseRound = async (
     manifestLoad.manifest,
     artifactPaths,
   );
+  const causalDebug = await discoverTargetInvestigateCaseCausalDebugArtifacts(
+    request.targetProject.path,
+    manifestLoad.manifest,
+    artifactPaths,
+  );
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
-  validateAssessmentConsistency(assessment, semanticReview);
+  validateAssessmentConsistency(assessment, semanticReview, causalDebug);
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
 
   const decision = await buildPublicationDecision({
@@ -398,6 +422,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     evidenceBundle,
     assessment,
     dossier,
+    ticketProposal: causalDebug.ticketProposal,
     ticketPublisher: request.ticketPublisher,
   });
 
@@ -845,6 +870,7 @@ const buildPublicationDecision = async (params: {
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
   dossier: ValidatedDossierArtifact;
+  ticketProposal?: TargetInvestigateCaseTicketProposal | null;
   ticketPublisher?: TargetInvestigateCaseTicketPublisher;
 }): Promise<TargetInvestigateCasePublicationDecision> => {
   const gatesApplied = [
@@ -969,6 +995,17 @@ const buildPublicationDecision = async (params: {
         params.manifest.publicationPolicy.blockedReason ??
         "A policy declarada pelo projeto alvo nao permite publication automatica deste ticket.";
       next_action = "Escalar para revisao humana conforme a policy do manifesto.";
+    } else if (!params.ticketProposal) {
+      blockedGates.push("target-ticket-proposal-missing");
+      publication_status = "not_eligible";
+      overall_outcome = hasProjectCapabilityGap
+        ? "inconclusive-project-capability-gap"
+        : "inconclusive-case";
+      outcome_reason =
+        "O projeto alvo solicitou publication, mas ticket-proposal.json ainda nao foi materializado com base repo-aware suficiente.";
+      next_action =
+        params.assessment.next_action?.summary ??
+        "Materializar ticket-proposal.json no projeto alvo antes de nova publication runner-side.";
     } else if (!params.ticketPublisher) {
       blockedGates.push("ticket-publisher-missing");
       publication_status = "not_applicable";
@@ -1002,6 +1039,7 @@ const buildPublicationDecision = async (params: {
         caseResolution: params.caseResolution,
         evidenceBundle: params.evidenceBundle,
         assessment: params.assessment,
+        ticketProposal: params.ticketProposal,
         summary: draftSummary,
       });
       publication_status = "eligible";
@@ -1159,6 +1197,7 @@ const validateCaseResolution = (
 const validateAssessmentConsistency = (
   assessment: TargetInvestigateCaseAssessment,
   semanticReview?: DiscoveredSemanticReviewArtifacts,
+  causalDebug?: DiscoveredCausalDebugArtifacts,
 ): void => {
   const hasRichTaxonomy =
     assessment.primary_taxonomy !== null || assessment.operational_class !== null;
@@ -1187,6 +1226,15 @@ const validateAssessmentConsistency = (
     assessment.houve_gap_real === "no"
   ) {
     throw new Error("Nao ha publication positiva valida quando houve_gap_real=no.");
+  }
+
+  if (
+    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !causalDebug?.ticketProposal
+  ) {
+    throw new Error(
+      "publication positiva runner-side exige ticket-proposal.json target-owned materializado.",
+    );
   }
 
   if (
@@ -1578,6 +1626,55 @@ const buildTargetInvestigateCaseSemanticReviewTrace = (params: {
     failure_reason: params.failureReason ?? null,
   });
 
+const discoverTargetInvestigateCaseCausalDebugArtifacts = async (
+  projectPath: string,
+  manifest: TargetInvestigateCaseManifest,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): Promise<DiscoveredCausalDebugArtifacts> => {
+  if (!manifest.causalDebug) {
+    return {
+      request: null,
+      result: null,
+      ticketProposal: null,
+    };
+  }
+
+  const hasRequest = await relativePathExists(projectPath, artifactPaths.causalDebugRequestPath);
+  const hasResult = await relativePathExists(projectPath, artifactPaths.causalDebugResultPath);
+  const hasTicketProposal = await relativePathExists(projectPath, artifactPaths.ticketProposalPath);
+
+  const request = hasRequest
+    ? await readJsonArtifact(
+        projectPath,
+        artifactPaths.causalDebugRequestPath,
+        targetInvestigateCaseCausalDebugRequestSchema,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+      )
+    : null;
+  const result = hasResult
+    ? await readJsonArtifact(
+        projectPath,
+        artifactPaths.causalDebugResultPath,
+        targetInvestigateCaseCausalDebugResultSchema,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+      )
+    : null;
+  const ticketProposal = hasTicketProposal
+    ? await readJsonArtifact(
+        projectPath,
+        artifactPaths.ticketProposalPath,
+        targetInvestigateCaseTicketProposalSchema,
+        TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+      )
+    : null;
+
+  return {
+    request,
+    result,
+    ticketProposal,
+  };
+};
+
 const normalizeArtifactPaths = (
   paths: TargetInvestigateCaseArtifactPaths,
 ): Required<TargetInvestigateCaseArtifactPaths> => {
@@ -1596,6 +1693,21 @@ const normalizeArtifactPaths = (
       path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
     "semanticReviewResultPath",
   );
+  const causalDebugRequestPath = normalizeRelativePath(
+    paths.causalDebugRequestPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT),
+    "causalDebugRequestPath",
+  );
+  const causalDebugResultPath = normalizeRelativePath(
+    paths.causalDebugResultPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+    "causalDebugResultPath",
+  );
+  const ticketProposalPath = normalizeRelativePath(
+    paths.ticketProposalPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+    "ticketProposalPath",
+  );
   const publicationDecisionPath = normalizeRelativePath(
     paths.publicationDecisionPath ??
       path.posix.join(roundDirectory, "publication-decision.json"),
@@ -1609,6 +1721,9 @@ const normalizeArtifactPaths = (
     dossierPath,
     semanticReviewRequestPath,
     semanticReviewResultPath,
+    causalDebugRequestPath,
+    causalDebugResultPath,
+    ticketProposalPath,
     publicationDecisionPath,
   };
 };
@@ -1728,6 +1843,15 @@ const buildTargetInvestigateCaseArtifactSet = (
   ),
   semanticReviewResultPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT),
+  ),
+  causalDebugRequestPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT),
+  ),
+  causalDebugResultPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+  ),
+  ticketProposalPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
   ),
   publicationDecisionPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, "publication-decision.json"),

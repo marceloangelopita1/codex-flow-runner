@@ -12,11 +12,16 @@ import {
   normalizeTargetInvestigateCaseRelativePath,
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
+  targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
   TargetInvestigateCaseAssessment,
+  TargetInvestigateCaseCausalDebugRequest,
   TargetInvestigateCaseReplayMode,
   TargetInvestigateCaseSemanticReviewRequest,
 } from "../types/target-investigate-case.js";
@@ -26,6 +31,7 @@ import {
   buildTargetInvestigateCaseSemanticReviewPromptContext,
   parseTargetInvestigateCaseSemanticReviewOutput,
 } from "./target-investigate-case-semantic-review.js";
+import { parseTargetInvestigateCaseCausalDebugOutput } from "./target-investigate-case-causal-debug.js";
 import { FileSystemTargetInvestigateCaseTicketPublisher } from "./target-investigate-case-ticket-publisher.js";
 
 interface TargetInvestigateCaseRoundPreparerDependencies {
@@ -142,6 +148,11 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
       await this.completeSemanticReviewIfSupported(
+        request,
+        fixedCodexClient,
+        authoritativeDossierLocalPath,
+      );
+      await this.completeCausalDebugIfSupported(
         request,
         fixedCodexClient,
         authoritativeDossierLocalPath,
@@ -368,6 +379,154 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     }
   }
 
+  private async completeCausalDebugIfSupported(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    codexClient: TargetInvestigateCaseRoundMaterializationCodexClient,
+    authoritativeDossierLocalPath: string | null,
+  ): Promise<void> {
+    if (!request.manifest.causalDebug) {
+      return;
+    }
+
+    const resultDestinationPaths = uniquePaths([
+      request.artifactPaths.causalDebugResultPath,
+      authoritativeDossierLocalPath
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+          )
+        : null,
+      request.artifactPaths.ticketProposalPath,
+      authoritativeDossierLocalPath
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+          )
+        : null,
+    ]);
+    for (const resultDestinationPath of resultDestinationPaths) {
+      await removeRelativePathIfExists(request.targetProject.path, resultDestinationPath);
+    }
+
+    if (
+      !(await relativePathExists(
+        request.targetProject.path,
+        request.artifactPaths.causalDebugRequestPath,
+      ))
+    ) {
+      this.dependencies.logger.info(
+        "causal-debug ausente na rodada de target-investigate-case; fluxo segue sem regressao",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+        },
+      );
+      return;
+    }
+
+    let causalDebugRequest: TargetInvestigateCaseCausalDebugRequest;
+    try {
+      causalDebugRequest = await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.causalDebugRequestPath,
+        targetInvestigateCaseCausalDebugRequestSchema,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "causal-debug.request.json invalido; subfluxo repo-aware sera degradado sem interromper a rodada",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return;
+    }
+
+    if (causalDebugRequest.debug_readiness.status === "blocked") {
+      this.dependencies.logger.info(
+        "causal-debug pulado por bloqueio explicito do projeto alvo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+          reasonCode: causalDebugRequest.debug_readiness.reason_code,
+        },
+      );
+      return;
+    }
+
+    if (request.isCancellationRequested()) {
+      this.dependencies.logger.info(
+        "causal-debug nao sera executado porque a rodada recebeu cancelamento cooperativo",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+        },
+      );
+      return;
+    }
+
+    const runnerReference = `codex-flow-runner@${this.dependencies.runnerRepoPath}`;
+    const authoritativeResultPath =
+      authoritativeDossierLocalPath != null
+        ? path.posix.join(
+            authoritativeDossierLocalPath,
+            TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+          )
+        : request.artifactPaths.causalDebugResultPath;
+
+    try {
+      const result = await codexClient.runTargetInvestigateCaseCausalDebug({
+        targetProject: request.targetProject,
+        runnerRepoPath: this.dependencies.runnerRepoPath,
+        runnerReference,
+        manifestPath: request.manifestPath,
+        debugPromptPath: request.manifest.causalDebug.promptPath,
+        debugRequestPath: request.artifactPaths.causalDebugRequestPath,
+        debugResultPath: request.artifactPaths.causalDebugResultPath,
+        debugRequestJson: JSON.stringify(causalDebugRequest, null, 2),
+      });
+      const parsedResult = parseTargetInvestigateCaseCausalDebugOutput(result.output);
+      await writeJsonArtifact(
+        request.targetProject.path,
+        authoritativeResultPath,
+        parsedResult,
+      );
+    } catch (error) {
+      this.dependencies.logger.warn(
+        "causal-debug runner-side falhou; fluxo principal seguira sem resultado repo-aware",
+        {
+          targetProjectName: request.targetProject.name,
+          roundId: request.roundId,
+          requestPath: request.artifactPaths.causalDebugRequestPath,
+          resultPath: request.artifactPaths.causalDebugResultPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return;
+    }
+
+    if (request.manifest.causalDebug.recomposition) {
+      await this.recomposeAssessmentAfterCausalDebug(
+        request,
+        authoritativeResultPath,
+        authoritativeDossierLocalPath,
+      );
+      await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+    } else if (authoritativeResultPath !== request.artifactPaths.causalDebugResultPath) {
+      await copyRelativePath(
+        request.targetProject.path,
+        authoritativeResultPath,
+        request.artifactPaths.causalDebugResultPath,
+      );
+    }
+  }
+
   private async recomposeAssessmentAfterSemanticReview(
     request: TargetInvestigateCaseRoundPreparationRequest,
     authoritativeResultPath: string,
@@ -424,6 +583,70 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     );
 
     assertAssessmentConsumedSemanticReviewResult(recomposedAssessment);
+  }
+
+  private async recomposeAssessmentAfterCausalDebug(
+    request: TargetInvestigateCaseRoundPreparationRequest,
+    authoritativeResultPath: string,
+    authoritativeDossierLocalPath: string | null,
+  ): Promise<void> {
+    const recomposition = request.manifest.causalDebug?.recomposition;
+    if (!recomposition) {
+      return;
+    }
+
+    if (!authoritativeDossierLocalPath) {
+      throw new Error(
+        "A recomposicao oficial do target-project exige dossier autoritativo local, mas nenhum caminho valido foi resolvido.",
+      );
+    }
+
+    if (!request.manifest.entrypoint) {
+      throw new Error(
+        "O manifesto declarou causalDebug.recomposition, mas entrypoint esta ausente para o rerun oficial.",
+      );
+    }
+
+    const selectors = await loadSelectedSelectorsFromCaseResolution(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "case-resolution.json"),
+    );
+
+    const runRecomposition =
+      this.dependencies.runSemanticReviewRecomposition ??
+      runTargetInvestigateCaseSemanticReviewRecomposition;
+
+    await runRecomposition({
+      targetProject: request.targetProject,
+      entrypointCommand: request.manifest.entrypoint.command,
+      scriptPath: request.manifest.entrypoint.scriptPath,
+      roundId: request.roundId,
+      selectors,
+      roundRequestIdFlag: recomposition.roundRequestIdFlag,
+      forceFlag: recomposition.forceFlag,
+      replayMode: recomposition.replayMode,
+    });
+
+    if (!(await relativePathExists(request.targetProject.path, authoritativeResultPath))) {
+      throw new Error(
+        "A recomposicao oficial removeu causal-debug.result.json do dossier autoritativo, o que viola o contrato repo-aware.",
+      );
+    }
+
+    const recomposedAssessment = await readJsonArtifact(
+      request.targetProject.path,
+      path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
+      targetInvestigateCaseAssessmentSchema,
+      "assessment.json",
+    );
+
+    assertAssessmentConsumedCausalDebugResult(
+      recomposedAssessment,
+      await relativePathExists(
+        request.targetProject.path,
+        path.posix.join(authoritativeDossierLocalPath, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+      ),
+    );
   }
 }
 
@@ -531,6 +754,44 @@ const assertAssessmentConsumedSemanticReviewResult = (
   ) {
     throw new Error(
       "assessment.json nao consumiu semantic-review.result.json e continuou exigindo sua materializacao apos a recomposicao oficial.",
+    );
+  }
+};
+
+const assertAssessmentConsumedCausalDebugResult = (
+  assessment: TargetInvestigateCaseAssessment,
+  hasTicketProposal: boolean,
+): void => {
+  const staleBlockerCodes = new Set((assessment.blockers ?? []).map((entry) => entry.code));
+  const staleLimitCodes = new Set(
+    (assessment.capability_limits ?? []).map((entry) => entry.code),
+  );
+  if (
+    staleBlockerCodes.has("CAUSAL_DEBUG_RESULT_MISSING") ||
+    staleBlockerCodes.has("CAUSAL_DEBUG_RESULT_INVALID") ||
+    staleLimitCodes.has("causal_debug_result_missing") ||
+    staleLimitCodes.has("causal_debug_result_invalid")
+  ) {
+    throw new Error(
+      "assessment.json permaneceu stale apos a recomposicao oficial e ainda trata causal-debug.result.json como ausente/invalido.",
+    );
+  }
+
+  if (
+    assessment.next_action?.code === "materialize_causal_debug_result" ||
+    assessment.next_action?.code === "rerun_causal_debug"
+  ) {
+    throw new Error(
+      "assessment.json nao consumiu causal-debug.result.json e continuou exigindo sua materializacao apos a recomposicao oficial.",
+    );
+  }
+
+  if (
+    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !hasTicketProposal
+  ) {
+    throw new Error(
+      "assessment.json solicitou publication positiva sem ticket-proposal.json apos a recomposicao oficial do causal-debug.",
     );
   }
 };
@@ -710,6 +971,27 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
         "semantic-review.result.json",
       ),
       destinationPath: request.artifactPaths.semanticReviewResultPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.causalDebugRequestPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.causalDebugResultPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+      ),
+      destinationPath: request.artifactPaths.ticketProposalPath,
     },
     {
       sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.md"),

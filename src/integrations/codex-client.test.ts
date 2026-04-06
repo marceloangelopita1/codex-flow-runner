@@ -363,6 +363,12 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
         "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
       semanticReviewResultPath:
         "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
+      causalDebugRequestPath:
+        "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
+      causalDebugResultPath:
+        "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+      ticketProposalPath:
+        "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
       publicationDecisionPath:
         "investigations/2026-04-03T19-00-00Z/publication-decision.json",
     },

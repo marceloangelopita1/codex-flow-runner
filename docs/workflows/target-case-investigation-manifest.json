@@ -80,6 +80,40 @@
       "runnerRemainsPublicationAuthority": true
     }
   },
+  "causalDebug": {
+    "owner": "target-project",
+    "runnerExecutor": "codex-flow-runner",
+    "promptPath": "docs/workflows/target-case-investigation-causal-debug.md",
+    "artifacts": {
+      "request": {
+        "artifact": "causal-debug.request.json",
+        "schemaVersion": "causal_debug_request_v1"
+      },
+      "result": {
+        "artifact": "causal-debug.result.json",
+        "schemaVersion": "causal_debug_result_v1"
+      },
+      "ticketProposal": {
+        "artifact": "ticket-proposal.json",
+        "schemaVersion": "ticket_proposal_v1"
+      }
+    },
+    "debugPolicy": {
+      "repoReadAllowed": true,
+      "readableSurfaces": [
+        "source-code",
+        "tests",
+        "docs",
+        "prompts",
+        "runbooks",
+        "ticket-templates"
+      ],
+      "externalEvidenceDiscoveryAllowed": false,
+      "boundedSemanticConfirmationRequired": true,
+      "targetProjectOwnsMinimalCause": true,
+      "runnerRemainsPublicationAuthority": true
+    }
+  },
   "replayPolicy": {
     "supported": true,
     "safeModeRequired": true,

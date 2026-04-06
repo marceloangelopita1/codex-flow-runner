@@ -11,6 +11,7 @@ import {
 import { ProjectRef } from "../types/project.js";
 import { targetInvestigateCaseManifestSchema } from "../types/target-investigate-case.js";
 import {
+  TargetInvestigateCaseCausalDebugCodexRequest,
   TargetInvestigateCaseRoundMaterializationCodexClient,
   TargetInvestigateCaseRoundMaterializationCodexRequest,
   TargetInvestigateCaseSemanticReviewCodexRequest,
@@ -27,6 +28,7 @@ class SilentLogger extends Logger {
 class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexClient {
   public readonly calls: TargetInvestigateCaseRoundMaterializationCodexRequest[] = [];
   public readonly semanticReviewCalls: TargetInvestigateCaseSemanticReviewCodexRequest[] = [];
+  public readonly causalDebugCalls: TargetInvestigateCaseCausalDebugCodexRequest[] = [];
 
   constructor(
     private readonly onRun: (request: TargetInvestigateCaseRoundMaterializationCodexRequest) => Promise<void>,
@@ -114,6 +116,58 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     return {
       output,
       promptTemplatePath: "/repo/prompts/17-target-investigate-case-semantic-review.md",
+      promptText: "prompt",
+    };
+  }
+
+  async runTargetInvestigateCaseCausalDebug(
+    request: TargetInvestigateCaseCausalDebugCodexRequest,
+  ) {
+    this.causalDebugCalls.push(request);
+    return {
+      output: JSON.stringify(
+        {
+          schema_version: "causal_debug_result_v1",
+          generated_at: "2026-04-06T04:22:00.000Z",
+          request_artifact: "causal-debug.request.json",
+          debugger: {
+            orchestrator: "codex-flow-runner",
+            prompt_path: "docs/workflows/target-case-investigation-causal-debug.md",
+            debugger_label: "codex",
+          },
+          verdict: "minimal_cause_identified",
+          confidence: "high",
+          summary: "repo-aware causal debug isolated the minimum local cause",
+          minimal_cause: {
+            repository_surface_kind: "code",
+            summary: "fixture minimum cause",
+            why_minimal: "fixture",
+            suggested_fix_surface: ["src/workflows/extract-address.ts"],
+            suspected_components: ["src/workflows/extract-address.ts"],
+          },
+          supporting_refs: [
+            {
+              path: "src/workflows/extract-address.ts",
+              reason: "fixture",
+            },
+          ],
+          ticket_seed: {
+            suggested_title: "Fix extract_address semantic truncation",
+            suggested_slug: "fix-extract-address-semantic-truncation",
+            scope_summary: "fix the reusable semantic bug in extract_address",
+            should_open_ticket: true,
+            rationale: "fixture",
+          },
+          constraints_acknowledged: {
+            repo_read_allowed: true,
+            external_evidence_discovery_allowed: false,
+            final_publication_authority: "runner",
+          },
+        },
+        null,
+        2,
+      ),
+      promptTemplatePath: "/repo/docs/workflows/target-case-investigation-causal-debug.md",
       promptText: "prompt",
     };
   }
@@ -955,6 +1009,12 @@ const createRoundPreparerFixture = async (): Promise<{
           "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
         semanticReviewResultPath:
           "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
+        causalDebugRequestPath:
+          "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
+        causalDebugResultPath:
+          "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+        ticketProposalPath:
+          "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
         publicationDecisionPath:
           "investigations/2026-04-03T19-00-00Z/publication-decision.json",
       },

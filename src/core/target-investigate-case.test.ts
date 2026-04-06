@@ -25,6 +25,7 @@ import {
   targetInvestigateCasePublicationDecisionSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   targetInvestigateCaseSemanticReviewResultSchema,
+  targetInvestigateCaseTicketProposalSchema,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
@@ -54,6 +55,9 @@ interface TargetRepoFixture {
     dossierPath: string;
     semanticReviewRequestPath: string;
     semanticReviewResultPath: string;
+    causalDebugRequestPath: string;
+    causalDebugResultPath: string;
+    ticketProposalPath: string;
     publicationDecisionPath: string;
   };
 }
@@ -1448,6 +1452,12 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
         "investigations/2026-04-03T18-00-00Z/semantic-review.request.json",
       semanticReviewResultPath:
         "investigations/2026-04-03T18-00-00Z/semantic-review.result.json",
+      causalDebugRequestPath:
+        "investigations/2026-04-03T18-00-00Z/causal-debug.request.json",
+      causalDebugResultPath:
+        "investigations/2026-04-03T18-00-00Z/causal-debug.result.json",
+      ticketProposalPath:
+        "investigations/2026-04-03T18-00-00Z/ticket-proposal.json",
       publicationDecisionPath: "investigations/2026-04-03T18-00-00Z/publication-decision.json",
     },
   );
@@ -1493,6 +1503,12 @@ test("ControlledTargetInvestigateCaseExecutor cruza a fronteira de versionamento
           fixture.artifactPaths.assessmentPath,
           request.targetProject.path,
           request.artifactPaths.assessmentPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.ticketProposalPath,
+          request.targetProject.path,
+          request.artifactPaths.ticketProposalPath,
         );
         const dossierPath = request.artifactPaths.dossierPath.replace(/\.md$/u, ".json");
         await copyInvestigationArtifact(
@@ -1589,6 +1605,7 @@ const createTargetRepoFixture = async (options: {
   assessmentDocument?: any;
   semanticReviewRequestDocument?: any | null;
   semanticReviewResultDocument?: any | null;
+  ticketProposalDocument?: any | null;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
   const projectName = "alpha-project";
@@ -1601,6 +1618,9 @@ const createTargetRepoFixture = async (options: {
     dossierPath: `${roundDir}/dossier.${options.dossierFormat === "json" ? "json" : "md"}`,
     semanticReviewRequestPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT}`,
     semanticReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT}`,
+    causalDebugRequestPath: `${roundDir}/causal-debug.request.json`,
+    causalDebugResultPath: `${roundDir}/causal-debug.result.json`,
+    ticketProposalPath: `${roundDir}/ticket-proposal.json`,
     publicationDecisionPath: `${roundDir}/publication-decision.json`,
   };
 
@@ -1664,6 +1684,22 @@ const createTargetRepoFixture = async (options: {
       `${JSON.stringify(semanticReviewRequest, null, 2)}\n`,
       "utf8",
     );
+  }
+
+  if (options.ticketProposalDocument !== null) {
+    const shouldWriteTicketProposal =
+      options.ticketProposalDocument !== undefined ||
+      assessment.publication_recommendation?.recommended_action === "publish_ticket";
+    if (shouldWriteTicketProposal) {
+      const ticketProposal =
+        options.ticketProposalDocument ?? buildTicketProposalFixture();
+      targetInvestigateCaseTicketProposalSchema.parse(ticketProposal);
+      await fs.writeFile(
+        path.join(projectPath, ...artifactPaths.ticketProposalPath.split("/")),
+        `${JSON.stringify(ticketProposal, null, 2)}\n`,
+        "utf8",
+      );
+    }
   }
 
   if (options.semanticReviewResultDocument !== null && options.semanticReviewResultDocument !== undefined) {
@@ -2259,6 +2295,8 @@ const buildRichAssessmentFixture = (): any => ({
         "no compare report was available for this round, so phase/step corroboration stayed limited to local runtime traces",
     },
   ],
+  causal_debug: null,
+  ticket_projection: null,
 });
 
 const buildCurrentCaseResolutionFixture = (): any => ({
@@ -2358,12 +2396,26 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
     result_issue_type: "semantic_truncation",
     publication_blocked: false,
   },
+  causal_debug: {
+    status: "minimal_cause_identified",
+    summary: "repo-aware causal debug isolated the minimum local cause",
+    request_status: "ready",
+    request_reason_code: "READY",
+    result_status: "valid",
+    result_verdict: "minimal_cause_identified",
+    publication_blocked: false,
+  },
   causal_surface: {
     owner: "target-project",
     kind: "bug",
     summary: "fixture confirmed a reusable target-project bug",
     actionable: true,
     systems: ["case-investigation", "extract_address"],
+  },
+  ticket_projection: {
+    status: "ready",
+    summary: "ticket projection is ready and stored in ticket-proposal.json for runner-side publication review",
+    ticket_proposal_artifact: "ticket-proposal.json",
   },
   generalization_basis: [
     {
@@ -2381,6 +2433,20 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
   },
   capability_limits: [],
   ...overrides,
+});
+
+const buildTicketProposalFixture = (): any => ({
+  schema_version: "ticket_proposal_v1",
+  generated_at: "2026-04-06T04:20:00.000Z",
+  source_assessment_artifact: "assessment.json",
+  source_causal_debug_artifact: "causal-debug.result.json",
+  recommended_action: "publish_ticket",
+  suggested_slug: "fix-extract-address-semantic-truncation",
+  suggested_title: "Fix extract_address semantic truncation",
+  priority: "P1",
+  severity: "S2",
+  summary: "fix the reusable semantic bug in extract_address",
+  ticket_markdown: "# [TICKET] Fix extract_address semantic truncation\n",
 });
 
 const buildSemanticReviewRequestFixture = (overrides: Record<string, unknown> = {}): any => ({

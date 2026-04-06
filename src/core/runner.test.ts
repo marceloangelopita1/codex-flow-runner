@@ -9749,18 +9749,24 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
               roundDirectory: "investigations/2026-04-03T19-00-00Z",
               canonicalCommand:
                 "/target_investigate_case beta-target case-001 --workflow billing-core --request-id req-001",
-              artifactPaths: {
-                caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
-                evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
-                assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
-                dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
-                semanticReviewRequestPath:
-                  "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
-                semanticReviewResultPath:
-                  "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
-                publicationDecisionPath:
-                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
-              },
+	              artifactPaths: {
+	                caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+	                evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+	                assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+	                dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+	                semanticReviewRequestPath:
+	                  "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+	                semanticReviewResultPath:
+	                  "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
+	                causalDebugRequestPath:
+	                  "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
+	                causalDebugResultPath:
+	                  "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+	                ticketProposalPath:
+	                  "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
+	                publicationDecisionPath:
+	                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+	              },
               publicationDecision: {
                 publication_status: "not_applicable",
                 overall_outcome: "no-real-gap",
@@ -9986,18 +9992,24 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
               roundDirectory: "investigations/2026-04-03T20-00-00Z",
               canonicalCommand:
                 `/target_investigate_case ${normalized.projectName} ${normalized.caseRef}`,
-              artifactPaths: {
-                caseResolutionPath: "investigations/2026-04-03T20-00-00Z/case-resolution.json",
-                evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
-                assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
-                dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
-                semanticReviewRequestPath:
-                  "investigations/2026-04-03T20-00-00Z/semantic-review.request.json",
-                semanticReviewResultPath:
-                  "investigations/2026-04-03T20-00-00Z/semantic-review.result.json",
-                publicationDecisionPath:
-                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
-              },
+	              artifactPaths: {
+	                caseResolutionPath: "investigations/2026-04-03T20-00-00Z/case-resolution.json",
+	                evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
+	                assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
+	                dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
+	                semanticReviewRequestPath:
+	                  "investigations/2026-04-03T20-00-00Z/semantic-review.request.json",
+	                semanticReviewResultPath:
+	                  "investigations/2026-04-03T20-00-00Z/semantic-review.result.json",
+	                causalDebugRequestPath:
+	                  "investigations/2026-04-03T20-00-00Z/causal-debug.request.json",
+	                causalDebugResultPath:
+	                  "investigations/2026-04-03T20-00-00Z/causal-debug.result.json",
+	                ticketProposalPath:
+	                  "investigations/2026-04-03T20-00-00Z/ticket-proposal.json",
+	                publicationDecisionPath:
+	                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
+	              },
               publicationDecision: {
                 publication_status: "not_applicable",
                 overall_outcome: "inconclusive-case",
@@ -10222,18 +10234,24 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
               roundId: "2026-04-03T21-00-00Z",
               roundDirectory: "investigations/2026-04-03T21-00-00Z",
               canonicalCommand: "/target_investigate_case alpha-project case-001",
-              artifactPaths: {
-                caseResolutionPath: "investigations/2026-04-03T21-00-00Z/case-resolution.json",
-                evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
-                assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
-                dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
-                semanticReviewRequestPath:
-                  "investigations/2026-04-03T21-00-00Z/semantic-review.request.json",
-                semanticReviewResultPath:
-                  "investigations/2026-04-03T21-00-00Z/semantic-review.result.json",
-                publicationDecisionPath:
-                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
-              },
+	              artifactPaths: {
+	                caseResolutionPath: "investigations/2026-04-03T21-00-00Z/case-resolution.json",
+	                evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
+	                assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
+	                dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
+	                semanticReviewRequestPath:
+	                  "investigations/2026-04-03T21-00-00Z/semantic-review.request.json",
+	                semanticReviewResultPath:
+	                  "investigations/2026-04-03T21-00-00Z/semantic-review.result.json",
+	                causalDebugRequestPath:
+	                  "investigations/2026-04-03T21-00-00Z/causal-debug.request.json",
+	                causalDebugResultPath:
+	                  "investigations/2026-04-03T21-00-00Z/causal-debug.result.json",
+	                ticketProposalPath:
+	                  "investigations/2026-04-03T21-00-00Z/ticket-proposal.json",
+	                publicationDecisionPath:
+	                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
+	              },
               publicationDecision: {
                 publication_status: "eligible",
                 overall_outcome: "ticket-published",

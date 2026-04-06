@@ -165,6 +165,12 @@ const renderTicketContent = (
   ticketPath: string,
   createdAt: Date,
 ): string => {
+  if (request.ticketProposal?.ticket_markdown) {
+    return request.ticketProposal.ticket_markdown.endsWith("\n")
+      ? request.ticketProposal.ticket_markdown
+      : `${request.ticketProposal.ticket_markdown}\n`;
+  }
+
   const requestIdHint = request.evidenceBundle.replay.request_id ?? "N/A";
   const investigationInputs = [
     `Comando canonico: ${request.normalizedInput.canonicalCommand}`,
@@ -368,7 +374,10 @@ const renderTicketContent = (
 const buildTicketSlug = (request: TargetInvestigateCaseTicketPublicationRequest): string => {
   const caseRefSlug = slugify(request.caseResolution.resolved_case.ref, 48);
   const titleSlug = slugify(
-    request.assessment.publication_recommendation.suggested_title || "case-investigation-gap",
+    (request.ticketProposal?.suggested_slug ??
+      request.ticketProposal?.suggested_title ??
+      request.assessment.publication_recommendation.suggested_title) ||
+      "case-investigation-gap",
     80,
   );
   return `${caseRefSlug}-${titleSlug}`;

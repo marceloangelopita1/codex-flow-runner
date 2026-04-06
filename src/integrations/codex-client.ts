@@ -406,6 +406,9 @@ export interface TargetInvestigateCaseRoundMaterializationCodexClient {
   runTargetInvestigateCaseSemanticReview(
     request: TargetInvestigateCaseSemanticReviewCodexRequest,
   ): Promise<TargetInvestigateCaseSemanticReviewCodexResult>;
+  runTargetInvestigateCaseCausalDebug(
+    request: TargetInvestigateCaseCausalDebugCodexRequest,
+  ): Promise<TargetInvestigateCaseCausalDebugCodexResult>;
 }
 
 export interface TargetInvestigateCaseSemanticReviewCodexRequest {
@@ -420,6 +423,24 @@ export interface TargetInvestigateCaseSemanticReviewCodexRequest {
 }
 
 export interface TargetInvestigateCaseSemanticReviewCodexResult {
+  output: string;
+  diagnostics?: CodexStageDiagnostics;
+  promptTemplatePath: string;
+  promptText: string;
+}
+
+export interface TargetInvestigateCaseCausalDebugCodexRequest {
+  targetProject: ProjectRef;
+  runnerRepoPath: string;
+  runnerReference: string;
+  manifestPath: string;
+  debugPromptPath: string;
+  debugRequestPath: string;
+  debugResultPath: string;
+  debugRequestJson: string;
+}
+
+export interface TargetInvestigateCaseCausalDebugCodexResult {
   output: string;
   diagnostics?: CodexStageDiagnostics;
   promptTemplatePath: string;
@@ -1429,6 +1450,79 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
     }
   }
 
+  async runTargetInvestigateCaseCausalDebug(
+    request: TargetInvestigateCaseCausalDebugCodexRequest,
+  ): Promise<TargetInvestigateCaseCausalDebugCodexResult> {
+    const promptTemplatePath = path.join(
+      request.targetProject.path,
+      ...request.debugPromptPath.split("/"),
+    );
+    let prompt = "";
+    try {
+      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      prompt = this.buildTargetInvestigateCaseCausalDebugPrompt(promptTemplate, request);
+
+      this.logger.info("Executando causal-debug de target-investigate-case via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        debugRequestPath: request.debugRequestPath,
+        promptTemplatePath,
+      });
+
+      const preferences = await this.snapshotInvocationPreferences();
+      const result = await this.dependencies.runCodexCommand({
+        cwd: this.repoPath,
+        prompt,
+        env: {
+          ...process.env,
+        },
+        preferences,
+      });
+
+      const diagnostics = buildCodexStageDiagnostics(result.stdout, result.stderr);
+      if (diagnostics?.stderrPreview) {
+        this.logger.warn(
+          "Codex CLI retornou diagnostico em stderr no causal-debug de target-investigate-case",
+          {
+            targetProjectName: request.targetProject.name,
+            debugRequestPath: request.debugRequestPath,
+            codexCliTranscriptPreview: diagnostics.stderrPreview,
+            ...(diagnostics.stdoutPreview
+              ? { codexAssistantResponsePreview: diagnostics.stdoutPreview }
+              : {}),
+          },
+        );
+      }
+
+      this.logger.info("causal-debug de target-investigate-case concluido via Codex CLI", {
+        targetProjectName: request.targetProject.name,
+        targetProjectPath: request.targetProject.path,
+        debugRequestPath: request.debugRequestPath,
+      });
+
+      return {
+        output: result.stdout,
+        ...(diagnostics ? { diagnostics } : {}),
+        promptTemplatePath,
+        promptText: prompt,
+      };
+    } catch (error) {
+      const details = errorMessage(error);
+      const diagnostics =
+        error instanceof CodexCliCommandError
+          ? buildCodexStageDiagnostics(error.stdout, error.stderr)
+          : undefined;
+      throw new CodexStageExecutionError(
+        request.targetProject.name,
+        "implement",
+        details,
+        promptTemplatePath,
+        prompt,
+        diagnostics,
+      );
+    }
+  }
+
   async startPlanSession(request: PlanSpecSessionStartRequest): Promise<PlanSpecSession> {
     this.logger.info("Iniciando sessao de planejamento via Codex CLI exec/resume", {
       repoPath: this.repoPath,
@@ -2044,6 +2138,36 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       `- Artefato de saida esperado: \`${request.reviewResultPath}\``,
       "- Responda somente com JSON valido aderente ao schema solicitado.",
       "- Nao descubra novas evidencias nem leia arquivos fora do contexto serializado neste prompt.",
+    ].join("\n");
+  }
+
+  private buildTargetInvestigateCaseCausalDebugPrompt(
+    promptTemplate: string,
+    request: TargetInvestigateCaseCausalDebugCodexRequest,
+  ): string {
+    const stageTemplate = promptTemplate
+      .replace(/<TARGET_PROJECT_NAME>/gu, request.targetProject.name)
+      .replace(/<TARGET_PROJECT_PATH>/gu, request.targetProject.path)
+      .replace(/<CASE_INVESTIGATION_CAUSAL_DEBUG_REQUEST_PATH>/gu, request.debugRequestPath)
+      .replace(/<CASE_INVESTIGATION_CAUSAL_DEBUG_RESULT_PATH>/gu, request.debugResultPath)
+      .replace(/<CASE_INVESTIGATION_CAUSAL_DEBUG_PROMPT_PATH>/gu, request.debugPromptPath)
+      .replace(/<CASE_INVESTIGATION_CAUSAL_DEBUG_REQUEST_JSON>/gu, request.debugRequestJson);
+
+    return [
+      stageTemplate.trimEnd(),
+      "",
+      this.runtimeShellGuidance.text,
+      "",
+      "Contexto adicional do causal-debug repo-aware:",
+      `- Projeto alvo: \`${request.targetProject.name}\``,
+      `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
+      `- Runner repo de referencia: \`${request.runnerRepoPath}\``,
+      `- Referencia textual do runner: \`${request.runnerReference}\``,
+      `- Manifesto da capability: \`${request.manifestPath}\``,
+      `- Prompt canonico do target: \`${request.debugPromptPath}\``,
+      `- Packet de entrada: \`${request.debugRequestPath}\``,
+      `- Artefato de saida esperado: \`${request.debugResultPath}\``,
+      "- Trabalhe somente no repositorio alvo atual e responda apenas com JSON valido.",
     ].join("\n");
   }
 

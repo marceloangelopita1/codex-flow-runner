@@ -348,6 +348,8 @@ const createPublisherFixture = async (): Promise<{
         next_action: null,
         blockers: [],
         capability_limits: [],
+        causal_debug: null,
+        ticket_projection: null,
         causal_surface: {
           owner: "target-project",
           kind: "bug",
