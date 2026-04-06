@@ -47,7 +47,8 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
     }
 
     const policy = this.requirePublicationPolicy(request);
-    await this.assertTemplateCompatibility(policy);
+    const causalBlockHeadings = await this.assertTemplateCompatibility(policy);
+    assertTargetOwnedTicketProposalQuality(request, causalBlockHeadings);
 
     const ticketSlug = buildTicketSlug(request);
     const existingTicketPath = await this.findExistingTicketPath(ticketSlug);
@@ -109,7 +110,7 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
     return policy;
   }
 
-  private async assertTemplateCompatibility(policy: TicketPublicationPolicy): Promise<void> {
+  private async assertTemplateCompatibility(policy: TicketPublicationPolicy): Promise<string[]> {
     const internalTemplate = await fs.readFile(
       path.join(this.projectPath, ...policy.internalTicketTemplatePath.split("/")),
       "utf8",
@@ -132,6 +133,8 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
         );
       }
     }
+
+    return block;
   }
 
   private async findExistingTicketPath(slug: string): Promise<string | null> {
@@ -371,6 +374,90 @@ const renderTicketContent = (
   ].join("\n");
 };
 
+const TARGET_OWNED_TICKET_REQUIRED_HEADINGS_V1 = [
+  "## Metadata",
+  "## Context",
+  "## Problem statement",
+  "## Observed behavior",
+  "## Expected behavior",
+  "## Reproduction steps",
+  "## Evidence",
+  "## Impact assessment",
+  "## Investigacao Causal",
+  "## Closure criteria",
+  "## Decision log",
+  "## Closure",
+] as const;
+
+const assertTargetOwnedTicketProposalQuality = (
+  request: TargetInvestigateCaseTicketPublicationRequest,
+  causalBlockHeadings: readonly string[],
+): void => {
+  const ticketProposal = request.ticketProposal;
+  if (!ticketProposal?.ticket_markdown) {
+    return;
+  }
+
+  const markdown = ticketProposal.ticket_markdown;
+  if (!markdown.startsWith("# [TICKET] ")) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa iniciar com um heading `# [TICKET] ...`.",
+    );
+  }
+
+  const headings = extractMarkdownHeadings(markdown);
+  for (const heading of causalBlockHeadings) {
+    if (!headings.includes(heading)) {
+      throw new Error(
+        `ticket-proposal.json target-owned nao contem o heading causal obrigatorio ${heading}.`,
+      );
+    }
+  }
+
+  if (ticketProposal.publication_hints?.quality_gate !== "target-ticket-quality-v1") {
+    return;
+  }
+
+  for (const heading of TARGET_OWNED_TICKET_REQUIRED_HEADINGS_V1) {
+    if (!headings.includes(heading)) {
+      throw new Error(
+        `ticket-proposal.json target-owned nao contem o heading obrigatorio ${heading} para quality_gate=target-ticket-quality-v1.`,
+      );
+    }
+  }
+
+  const lines = markdown.split(/\r?\n/u).map((line) => line.trim());
+  let previousBulletLine: string | null = null;
+  for (const line of lines) {
+    if (line.length === 0) {
+      previousBulletLine = null;
+      continue;
+    }
+
+    if (!/^(?:- |\d+\. )/u.test(line)) {
+      previousBulletLine = null;
+      continue;
+    }
+
+    if (line === previousBulletLine) {
+      throw new Error(
+        "ticket-proposal.json target-owned contem linhas de lista duplicadas em sequencia para quality_gate=target-ticket-quality-v1.",
+      );
+    }
+    previousBulletLine = line;
+  }
+
+  const hasThreeStepReproduction =
+    lines.some((line) => /^1\. /u.test(line)) &&
+    lines.some((line) => /^2\. /u.test(line)) &&
+    lines.some((line) => /^3\. /u.test(line));
+  if (!hasThreeStepReproduction) {
+    throw new Error(
+      "ticket-proposal.json target-owned precisa conter ao menos tres passos observaveis em `## Reproduction steps` para quality_gate=target-ticket-quality-v1.",
+    );
+  }
+};
+
 const buildTicketSlug = (request: TargetInvestigateCaseTicketPublicationRequest): string => {
   const caseRefSlug = slugify(request.caseResolution.resolved_case.ref, 48);
   const titleSlug = slugify(
@@ -380,6 +467,12 @@ const buildTicketSlug = (request: TargetInvestigateCaseTicketPublicationRequest)
       "case-investigation-gap",
     80,
   );
+  if (
+    request.ticketProposal?.publication_hints?.ticket_scope === "generalizable" &&
+    request.ticketProposal.publication_hints.slug_strategy === "suggested-slug-only"
+  ) {
+    return titleSlug;
+  }
   return `${caseRefSlug}-${titleSlug}`;
 };
 

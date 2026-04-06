@@ -94,6 +94,104 @@ test("FileSystemTargetInvestigateCaseTicketPublisher reaproveita ticket existent
   assert.equal(fixture.gitVersioning.commitAndPushCalls.length, 1);
 });
 
+test("FileSystemTargetInvestigateCaseTicketPublisher respeita slug-only para ticket generalizavel target-owned", async () => {
+  const fixture = await createPublisherFixture();
+  fixture.request.ticketProposal = buildTargetOwnedTicketProposalFixture({
+    suggested_slug: "fix-billing-core-local-guardrail",
+    suggested_title: "Fix billing-core local guardrail",
+    publication_hints: {
+      ticket_scope: "generalizable",
+      slug_strategy: "suggested-slug-only",
+      quality_gate: "target-ticket-quality-v1",
+    },
+    ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core local guardrail"),
+  });
+
+  const publisher = new FileSystemTargetInvestigateCaseTicketPublisher(
+    fixture.projectPath,
+    fixture.gitVersioning,
+    {
+      now: () => new Date("2026-04-03T22:10:00.000Z"),
+    },
+  );
+
+  const result = await publisher.publish(fixture.request);
+  assert.equal(result.ticketPath, "tickets/open/2026-04-03-fix-billing-core-local-guardrail.md");
+
+  const absoluteTicketPath = path.join(fixture.projectPath, ...result.ticketPath.split("/"));
+  const content = await fs.readFile(absoluteTicketPath, "utf8");
+  assert.match(content, /# \[TICKET\] Fix billing-core local guardrail/u);
+});
+
+test("FileSystemTargetInvestigateCaseTicketPublisher rejeita markdown target-owned invalido sob quality gate v1", async () => {
+  const fixture = await createPublisherFixture();
+  fixture.request.ticketProposal = buildTargetOwnedTicketProposalFixture({
+    publication_hints: {
+      ticket_scope: "generalizable",
+      slug_strategy: "suggested-slug-only",
+      quality_gate: "target-ticket-quality-v1",
+    },
+    ticket_markdown: [
+      "# [TICKET] Fix billing-core local guardrail",
+      "",
+      "## Metadata",
+      "",
+      "## Context",
+      "",
+      "## Problem statement",
+      "",
+      "## Observed behavior",
+      "",
+      "- O que foi observado:",
+      "- O que foi observado:",
+      "",
+      "## Expected behavior",
+      "",
+      "## Reproduction steps",
+      "",
+      "1. repetir",
+      "2. repetir",
+      "3. repetir",
+      "",
+      "## Evidence",
+      "",
+      "## Impact assessment",
+      "",
+      "## Investigacao Causal",
+      "",
+      "### Resolved case",
+      "### Resolved attempt",
+      "### Investigation inputs",
+      "### Replay used",
+      "### Verdicts",
+      "### Confidence and evidence sufficiency",
+      "### Causal surface",
+      "### Generalization basis",
+      "### Overfit vetoes considered",
+      "### Publication decision",
+      "",
+      "## Closure criteria",
+      "",
+      "## Decision log",
+      "",
+      "## Closure",
+    ].join("\n"),
+  });
+
+  const publisher = new FileSystemTargetInvestigateCaseTicketPublisher(
+    fixture.projectPath,
+    fixture.gitVersioning,
+    {
+      now: () => new Date("2026-04-03T22:10:00.000Z"),
+    },
+  );
+
+  await assert.rejects(
+    () => publisher.publish(fixture.request),
+    /linhas de lista duplicadas em sequencia/u,
+  );
+});
+
 const createPublisherFixture = async (): Promise<{
   projectPath: string;
   gitVersioning: StubGitVersioning;
@@ -405,3 +503,118 @@ const createPublisherFixture = async (): Promise<{
     },
   };
 };
+
+const buildTargetOwnedTicketProposalFixture = (
+  overrides: Record<string, unknown> = {},
+): any => ({
+  schema_version: "ticket_proposal_v1",
+  generated_at: "2026-04-03T22:09:30.000Z",
+  source_assessment_artifact: "assessment.json",
+  source_causal_debug_artifact: "causal-debug.result.json",
+  recommended_action: "publish_ticket",
+  suggested_slug: "fix-billing-core-guardrail",
+  suggested_title: "Fix billing-core guardrail",
+  priority: "P1",
+  severity: "S2",
+  summary: "Fix the reusable billing-core guardrail gap.",
+  ticket_markdown: buildTargetOwnedTicketMarkdown("Fix billing-core guardrail"),
+  ...overrides,
+});
+
+const buildTargetOwnedTicketMarkdown = (title: string): string =>
+  [
+    `# [TICKET] ${title}`,
+    "",
+    "## Metadata",
+    "",
+    "- Status: open",
+    "- Priority: P1",
+    "- Severity: S2",
+    "",
+    "## Context",
+    "",
+    "- Workflow/extractor area: billing-core",
+    "- Scenario: target-owned markdown fixture",
+    "",
+    "## Problem statement",
+    "",
+    "billing-core still exposes a reusable local guardrail gap.",
+    "",
+    "## Observed behavior",
+    "",
+    "- O que foi observado:",
+    "  - guardrail local falhou sob evidencia correlacionada.",
+    "",
+    "## Expected behavior",
+    "",
+    "o ticket target-owned deve permanecer estruturado e reutilizavel.",
+    "",
+    "## Reproduction steps",
+    "",
+    "1. Reexecutar o caso com a mesma selecao.",
+    "2. Confirmar a mesma superficie causal no dossier.",
+    "3. Validar a correcao sem depender apenas deste caso.",
+    "",
+    "## Evidence",
+    "",
+    "- Warnings/codes relevantes:",
+    "  - bug_confirmed",
+    "",
+    "## Impact assessment",
+    "",
+    "- Impacto funcional: backlog recebe ticket reutilizavel.",
+    "",
+    "## Investigacao Causal",
+    "",
+    "### Resolved case",
+    "",
+    "- authority: propertyId",
+    "",
+    "### Resolved attempt",
+    "",
+    "- status: resolved",
+    "",
+    "### Investigation inputs",
+    "",
+    "- manifest: docs/workflows/target-case-investigation-manifest.json",
+    "",
+    "### Replay used",
+    "",
+    "- replay status: not-required",
+    "",
+    "### Verdicts",
+    "",
+    "- houve_gap_real: yes",
+    "",
+    "### Confidence and evidence sufficiency",
+    "",
+    "- confidence: high",
+    "",
+    "### Causal surface",
+    "",
+    "- owner: target-project",
+    "",
+    "### Generalization basis",
+    "",
+    "- correlated_local_bundle: fixture",
+    "",
+    "### Overfit vetoes considered",
+    "",
+    "- none",
+    "",
+    "### Publication decision",
+    "",
+    "- recommended_action: publish_ticket",
+    "",
+    "## Closure criteria",
+    "",
+    "- Provar a correcao com evidencia observavel.",
+    "",
+    "## Decision log",
+    "",
+    "- 2026-04-03 - fixture - preserve target-owned markdown.",
+    "",
+    "## Closure",
+    "",
+    "- Closed at (UTC):",
+  ].join("\n");

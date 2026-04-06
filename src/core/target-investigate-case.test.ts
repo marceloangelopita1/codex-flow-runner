@@ -20,6 +20,7 @@ import { ProjectRef } from "../types/project.js";
 import {
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
+  targetInvestigateCaseCausalDebugResultSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
   targetInvestigateCasePublicationDecisionSchema,
@@ -246,6 +247,81 @@ test("loadTargetInvestigateCaseManifest rejeita manifesto rico com members fora 
   const invalidPurge = await loadTargetInvestigateCaseManifest(invalidPurgeFixture.project.path);
   assert.equal(invalidPurge.status, "invalid");
   assert.match(invalidPurge.reason, /unexpected-id/u);
+});
+
+test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem quebrar v1", () => {
+  const causalDebugResult = targetInvestigateCaseCausalDebugResultSchema.parse({
+    schema_version: "causal_debug_result_v1",
+    generated_at: "2026-04-06T17:15:00.000Z",
+    request_artifact: "causal-debug.request.json",
+    debugger: {
+      orchestrator: "codex-flow-runner",
+      prompt_path: "docs/workflows/target-case-investigation-causal-debug.md",
+      debugger_label: "codex",
+    },
+    verdict: "minimal_cause_identified",
+    confidence: "high",
+    summary: "fixture causal debug enriched the local cause contract",
+    minimal_cause: {
+      repository_surface_kind: "code",
+      summary: "fixture minimal cause",
+      why_minimal: "fixture",
+      suggested_fix_surface: ["src/workflows/extract-address.ts"],
+      suspected_components: ["src/workflows/extract-address.ts"],
+      root_cause_classification: "validation",
+      preventable_stage: "after target-owned parser fix and before version-gate publication",
+      remediation_scope: "local",
+    },
+    supporting_refs: [
+      {
+        path: "src/workflows/extract-address.ts",
+        reason: "fixture",
+      },
+    ],
+    ticket_seed: {
+      suggested_title: "Fix extract_address semantic truncation",
+      suggested_slug: "fix-extract-address-semantic-truncation",
+      scope_summary: "fix the reusable semantic bug in extract_address",
+      should_open_ticket: true,
+      rationale: "fixture",
+      ticket_scope: "generalizable",
+    },
+    constraints_acknowledged: {
+      repo_read_allowed: true,
+      external_evidence_discovery_allowed: false,
+      final_publication_authority: "runner",
+    },
+  });
+  assert.equal(causalDebugResult.minimal_cause?.root_cause_classification, "validation");
+  assert.equal(causalDebugResult.ticket_seed.ticket_scope, "generalizable");
+
+  const ticketProposal = targetInvestigateCaseTicketProposalSchema.parse({
+    ...buildTicketProposalFixture(),
+    ticket_markdown: [
+      "# [TICKET] Fix extract_address semantic truncation",
+      "",
+      "## Metadata",
+      "",
+      "## Investigacao Causal",
+      "",
+      "### Resolved case",
+      "### Resolved attempt",
+      "### Investigation inputs",
+      "### Replay used",
+      "### Verdicts",
+      "### Confidence and evidence sufficiency",
+      "### Causal surface",
+      "### Generalization basis",
+      "### Overfit vetoes considered",
+      "### Publication decision",
+    ].join("\n"),
+    publication_hints: {
+      ticket_scope: "generalizable",
+      slug_strategy: "suggested-slug-only",
+      quality_gate: "target-ticket-quality-v1",
+    },
+  });
+  assert.equal(ticketProposal.publication_hints?.slug_strategy, "suggested-slug-only");
 });
 
 test("parseTargetInvestigateCaseCommand normaliza o contrato canonico e rejeita flags fora da allowlist", () => {

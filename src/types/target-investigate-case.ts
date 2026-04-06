@@ -145,6 +145,34 @@ export const TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES = uniqueValues(
   ["publish_ticket", "do_not_publish", "inconclusive"] as const,
   "recommended-action",
 );
+export const TARGET_INVESTIGATE_CASE_WORKFLOW_ROOT_CAUSE_VALUES = uniqueValues(
+  [
+    "spec",
+    "ticket",
+    "execplan",
+    "execution",
+    "validation",
+    "systemic-instruction",
+    "external/manual",
+  ] as const,
+  "workflow-root-cause",
+);
+export const TARGET_INVESTIGATE_CASE_REMEDIATION_SCOPE_VALUES = uniqueValues(
+  ["local", "generic-repository-instruction"] as const,
+  "remediation-scope",
+);
+export const TARGET_INVESTIGATE_CASE_TICKET_SCOPE_VALUES = uniqueValues(
+  ["case-specific", "generalizable"] as const,
+  "ticket-scope",
+);
+export const TARGET_INVESTIGATE_CASE_TICKET_SLUG_STRATEGY_VALUES = uniqueValues(
+  ["case-ref-prefix", "suggested-slug-only"] as const,
+  "ticket-slug-strategy",
+);
+export const TARGET_INVESTIGATE_CASE_TICKET_QUALITY_GATE_VALUES = uniqueValues(
+  ["legacy", "target-ticket-quality-v1"] as const,
+  "ticket-quality-gate",
+);
 export const TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES = uniqueValues(
   ["eligible", "not_eligible", "blocked_by_policy", "not_applicable"] as const,
   "publication-status",
@@ -456,6 +484,11 @@ const causalDebugResultVerdictSchema = z.enum(
 const causalDebugRepositorySurfaceKindSchema = z.enum(
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REPOSITORY_SURFACE_KIND_VALUES,
 );
+const workflowRootCauseSchema = z.enum(TARGET_INVESTIGATE_CASE_WORKFLOW_ROOT_CAUSE_VALUES);
+const remediationScopeSchema = z.enum(TARGET_INVESTIGATE_CASE_REMEDIATION_SCOPE_VALUES);
+const ticketScopeSchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_SCOPE_VALUES);
+const ticketSlugStrategySchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_SLUG_STRATEGY_VALUES);
+const ticketQualityGateSchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_QUALITY_GATE_VALUES);
 const ticketProjectionStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES,
 );
@@ -2661,6 +2694,9 @@ export const targetInvestigateCaseCausalDebugResultSchema = z
         why_minimal: trimmedString,
         suggested_fix_surface: z.array(relativePathSchema),
         suspected_components: z.array(relativePathSchema),
+        root_cause_classification: workflowRootCauseSchema.nullable().optional(),
+        preventable_stage: trimmedString.nullable().optional(),
+        remediation_scope: remediationScopeSchema.nullable().optional(),
       })
       .strict()
       .nullable(),
@@ -2679,6 +2715,7 @@ export const targetInvestigateCaseCausalDebugResultSchema = z
         scope_summary: trimmedString,
         should_open_ticket: z.boolean(),
         rationale: trimmedString,
+        ticket_scope: ticketScopeSchema.nullable().optional(),
       })
       .strict(),
     constraints_acknowledged: z
@@ -2704,8 +2741,29 @@ export const targetInvestigateCaseTicketProposalSchema = z
     severity: trimmedString,
     summary: trimmedString,
     ticket_markdown: trimmedString,
+    publication_hints: z
+      .object({
+        ticket_scope: ticketScopeSchema,
+        slug_strategy: ticketSlugStrategySchema,
+        quality_gate: ticketQualityGateSchema,
+      })
+      .strict()
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.publication_hints?.slug_strategy === "suggested-slug-only" &&
+      value.publication_hints.ticket_scope !== "generalizable"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["publication_hints", "slug_strategy"],
+        message:
+          "publication_hints.slug_strategy=`suggested-slug-only` exige ticket_scope=`generalizable`.",
+      });
+    }
+  });
 
 export interface TargetInvestigateCasePublicationCombination {
   houve_gap_real: TargetInvestigateCaseHouveGapReal;
