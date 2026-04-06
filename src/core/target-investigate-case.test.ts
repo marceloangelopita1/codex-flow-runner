@@ -1753,6 +1753,148 @@ test("ControlledTargetInvestigateCaseExecutor falha explicitamente quando semant
   ]);
 });
 
+test("ControlledTargetInvestigateCaseExecutor preserva detalhes de schema quando semantic-review.result.json esta invalido", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+    },
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture({
+      workflow: {
+        key: "extract_address",
+        support_status: "supported",
+        public_http_selectable: true,
+        documentation_path: "docs/workflows/extract_address.md",
+      },
+      symptom: "complemento truncado como apartamento n",
+      symptom_selection: {
+        source: "strong_candidate",
+        selected_candidate_id:
+          "extract_address_current_complemento_semantic_truncation_apartamento_n",
+        selection_reason:
+          "the packet promoted the only bounded strong symptom candidate because the operator did not provide a symptom",
+      },
+      symptom_candidates: [
+        {
+          candidate_id: "extract_address_current_complemento_semantic_truncation_apartamento_n",
+          workflow_key: "extract_address",
+          surface_id: "local-run-bundle",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          field_path: "extract_address.value.current.complemento",
+          json_pointer: "/extract_address/value/current/complemento",
+          symptom: "complemento truncado como apartamento n",
+          issue_type: "semantic_truncation",
+          strength: "strong",
+          selection_reason: "single bounded strong candidate from the target dossier",
+        },
+      ],
+      target_fields: [
+        {
+          field_path: "extract_address.value.current.complemento",
+          artifact_path: "output/local-runs/hist-case/main.response.json",
+          json_pointer: "/extract_address/value/current/complemento",
+          selection_reason: "current complemento extracted from the bounded workflow response",
+        },
+      ],
+      supporting_refs: [
+        {
+          surface_id: "local-run-bundle",
+          ref: "local-run-bundle:response",
+          path: "output/local-runs/hist-case/main.response.json",
+          sha256: "a".repeat(64),
+          record_count: 1,
+          selection_reason: "observed workflow response bounded by the target packet",
+          json_pointers: ["/extract_address/value/current/complemento"],
+        },
+      ],
+    }),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+  });
+  await fs.writeFile(
+    path.join(fixture.project.path, ...fixture.artifactPaths.semanticReviewResultPath.split("/")),
+    `${JSON.stringify(
+      {
+        ...buildSemanticReviewResultFixture(),
+        field_verdicts: [
+          {
+            field_path: "extract_address.value.current.complemento",
+            json_pointer: "/extract_address/value/current/complemento",
+            verdict: "confirmed_error",
+            summary: "field preserves only a truncated fragment of the expected value",
+            artifact_path: "output/local-runs/hist-case/main.response.json",
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const executor = new ControlledTargetInvestigateCaseExecutor({
+    targetProjectResolver: new FileSystemTargetProjectResolver(fixture.rootPath),
+    now: () => new Date("2026-04-06T05:35:50.000Z"),
+    roundPreparer: {
+      prepareRound: async (request) => {
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.caseResolutionPath,
+          request.targetProject.path,
+          request.artifactPaths.caseResolutionPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.evidenceBundlePath,
+          request.targetProject.path,
+          request.artifactPaths.evidenceBundlePath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.assessmentPath,
+          request.targetProject.path,
+          request.artifactPaths.assessmentPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.dossierPath,
+          request.targetProject.path,
+          request.artifactPaths.dossierPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.semanticReviewRequestPath,
+          request.targetProject.path,
+          request.artifactPaths.semanticReviewRequestPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.semanticReviewResultPath,
+          request.targetProject.path,
+          request.artifactPaths.semanticReviewResultPath,
+        );
+        return {
+          status: "prepared",
+        };
+      },
+    },
+  });
+
+  const result = await executor.execute({
+    input: `${TARGET_INVESTIGATE_CASE_COMMAND} ${fixture.project.name} case-001 --workflow extract_address`,
+  });
+
+  assert.equal(result.status, "failed");
+  if (result.status !== "failed" || !result.summary) {
+    return;
+  }
+
+  assert.equal(result.summary.failureSurface, "semantic-review");
+  assert.equal(result.summary.failureKind, "result-parse-failed");
+  assert.equal(result.summary.failedAtMilestone, "publication");
+  assert.match(result.summary.message, /semantic-review\.result\.json invalido\./u);
+  assert.match(result.summary.message, /Invalid enum value/u);
+  assert.match(result.summary.message, /artifact_path/u);
+});
+
 test("ControlledTargetInvestigateCaseExecutor bloqueia explicitamente quando o materializador oficial ainda nao foi ligado", async () => {
   const fixture = await createTargetRepoFixture();
   const milestones: string[] = [];

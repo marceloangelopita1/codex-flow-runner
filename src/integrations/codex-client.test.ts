@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Logger } from "../core/logger.js";
@@ -492,6 +494,29 @@ test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto mi
     capturedPrompt,
     /Nao descubra novas evidencias nem leia arquivos fora do contexto serializado neste prompt\./u,
   );
+});
+
+test("prompt de semantic-review documenta o schema estrito de field_verdicts", () => {
+  const promptPath = path.join(
+    workflowRepoPath,
+    "prompts",
+    "17-target-investigate-case-semantic-review.md",
+  );
+  const promptTemplate = fs.readFileSync(promptPath, "utf8");
+
+  assert.match(
+    promptTemplate,
+    /`field_path`: string exatamente igual a um campo declarado no packet/u,
+  );
+  assert.match(
+    promptTemplate,
+    /`json_pointer`: string exatamente igual ao ponteiro declarado para o mesmo campo/u,
+  );
+  assert.match(
+    promptTemplate,
+    /`verdict`: `supports_error \| supports_expected_behavior \| not_assessed`/u,
+  );
+  assert.match(promptTemplate, /inclua chaves extras em `field_verdicts`/u);
 });
 
 test("runStage injeta guia operacional de shell no prompt", async () => {

@@ -1375,6 +1375,18 @@ const mapSemanticReviewTraceToFailureKind = (
   return "artifact-validation-failed";
 };
 
+const renderArtifactValidationFailure = (summary: string, error: unknown): string => {
+  const details = error instanceof Error ? error.message : String(error);
+  const normalizedSummary = summary.trim();
+  const normalizedDetails = details.trim();
+
+  if (!normalizedDetails) {
+    return normalizedSummary;
+  }
+
+  return `${normalizedSummary} Detalhes: ${normalizedDetails}`;
+};
+
 const classifyTargetInvestigateCaseEvaluationFailure = (error: unknown): {
   failedAtMilestone: TargetInvestigateCaseMilestone;
   failureSurface: TargetInvestigateCaseFailureSurface;
@@ -1463,23 +1475,29 @@ const inferTargetInvestigateCaseFailureFromArtifacts = async (
             targetInvestigateCaseSemanticReviewResultSchema,
             TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
           );
-        } catch {
+        } catch (error) {
           return {
             failedAtMilestone: "publication",
             failureSurface: "semantic-review",
             failureKind: "result-parse-failed",
-            message: "semantic-review.result.json invalido.",
+            message: renderArtifactValidationFailure(
+              "semantic-review.result.json invalido.",
+              error,
+            ),
             nextAction:
               "Materialize semantic-review.result.json valido para o packet bounded antes de nova publication runner-side.",
           };
         }
       }
-    } catch {
+    } catch (error) {
       return {
         failedAtMilestone: "publication",
         failureSurface: "semantic-review",
         failureKind: "request-invalid",
-        message: "semantic-review.request.json invalido.",
+        message: renderArtifactValidationFailure(
+          "semantic-review.request.json invalido.",
+          error,
+        ),
         nextAction:
           "Corrija semantic-review.request.json no projeto alvo antes de rerodar a rodada.",
       };
@@ -1816,12 +1834,15 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
       targetInvestigateCaseSemanticReviewRequestSchema,
       TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
     );
-  } catch {
+  } catch (error) {
     return {
       trace: buildTargetInvestigateCaseSemanticReviewTrace({
         status: "failed",
         requestPath: artifactPaths.semanticReviewRequestPath,
-        failureReason: "semantic-review.request.json invalido.",
+        failureReason: renderArtifactValidationFailure(
+          "semantic-review.request.json invalido.",
+          error,
+        ),
       }),
       request: null,
       result: null,
@@ -1894,7 +1915,7 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
       targetInvestigateCaseSemanticReviewResultSchema,
       TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
     );
-  } catch {
+  } catch (error) {
     return {
       trace: buildTargetInvestigateCaseSemanticReviewTrace({
         status: "failed",
@@ -1907,7 +1928,10 @@ const discoverTargetInvestigateCaseSemanticReviewArtifacts = async (
         reviewReadinessStatus: request.review_readiness.status,
         reviewReadinessReasonCode: request.review_readiness.reason_code,
         resultPath: artifactPaths.semanticReviewResultPath,
-        failureReason: "semantic-review.result.json invalido.",
+        failureReason: renderArtifactValidationFailure(
+          "semantic-review.result.json invalido.",
+          error,
+        ),
       }),
       request,
       result: null,

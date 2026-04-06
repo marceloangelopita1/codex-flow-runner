@@ -773,6 +773,74 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha explicitamente quando a r
   );
 });
 
+test("CodexCliTargetInvestigateCaseRoundPreparer expõe detalhes de schema quando semantic-review retorna JSON incompatível", async () => {
+  const fixture = await createRoundPreparerFixture();
+  const codexClient = new StubCodexClient(
+    async (request) => {
+      await materializeRoundArtifacts(
+        request.targetProject.path,
+        request.roundDirectory,
+        "json",
+        "ready",
+      );
+    },
+    undefined,
+    async () =>
+      JSON.stringify(
+        {
+          schema_version: "semantic_review_result_v1",
+          generated_at: "2026-04-05T15:50:00.000Z",
+          request_artifact: "semantic-review.request.json",
+          reviewer: {
+            orchestrator: "codex-flow-runner",
+            reviewer_label: "codex",
+          },
+          verdict: "confirmed_error",
+          issue_type: "semantic_truncation",
+          confidence: "high",
+          owner_hint: "target-project",
+          actionable: true,
+          summary: "bounded semantic review confirms the observed functional mismatch",
+          supporting_refs: [],
+          field_verdicts: [
+            {
+              field_path: "extract_address.value.current.complemento",
+              json_pointer: "/extract_address/value/current/complemento",
+              verdict: "confirmed_error",
+              summary: "field preserves only a truncated fragment of the expected value",
+              artifact_path: "output/local-runs/hist-case/main.response.json",
+            },
+          ],
+          constraints_acknowledged: {
+            declared_surfaces_only: true,
+            new_evidence_discovery_allowed: false,
+          },
+        },
+        null,
+        2,
+      ),
+  );
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "failed");
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.equal(result.failureSurface, "semantic-review");
+  assert.equal(result.failureKind, "result-parse-failed");
+  assert.equal(result.failedAtMilestone, "assessment");
+  assert.match(result.message, /Invalid enum value/u);
+  assert.match(result.message, /supports_error/u);
+  assert.match(result.message, /artifact_path/u);
+});
+
 test("CodexCliTargetInvestigateCaseRoundPreparer bloqueia quando o Codex CLI nao esta autenticado", async () => {
   const fixture = await createRoundPreparerFixture();
   const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({

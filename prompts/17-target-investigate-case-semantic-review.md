@@ -37,6 +37,12 @@ JSON de saída obrigatório:
 - `summary`: string
 - `supporting_refs`: array
 - `field_verdicts`: array
+  - cada item deve ser um objeto estrito com:
+    - `field_path`: string exatamente igual a um campo declarado no packet
+    - `json_pointer`: string exatamente igual ao ponteiro declarado para o mesmo campo
+    - `verdict`: `supports_error | supports_expected_behavior | not_assessed`
+    - `summary`: string curta
+  - não inclua chaves extras em `field_verdicts` (por exemplo `artifact_path`, `issue_type`, `confidence`)
 - `constraints_acknowledged`:
   - `declared_surfaces_only`: true
   - `new_evidence_discovery_allowed`: false
