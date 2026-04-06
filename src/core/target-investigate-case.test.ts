@@ -20,6 +20,7 @@ import { ProjectRef } from "../types/project.js";
 import {
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCaseResolutionSchema,
+  targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseCausalDebugResultSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
@@ -286,6 +287,77 @@ test("loadTargetInvestigateCaseManifest rejeita manifesto rico com members fora 
 });
 
 test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem quebrar v1", () => {
+  const causalDebugRequest = targetInvestigateCaseCausalDebugRequestSchema.parse({
+    schema_version: "causal_debug_request_v1",
+    generated_at: "2026-04-06T17:10:00.000Z",
+    manifest_path: "docs/workflows/target-case-investigation-manifest.json",
+    dossier_local_path: "output/case-investigation/2026-04-06T17-10-00Z",
+    workflow: {
+      key: "extract_address",
+      documentation_path: "docs/specs/example.md",
+    },
+    selected_selectors: {
+      propertyId: "8555540138269",
+      workflow: "extract_address",
+    },
+    semantic_confirmation: {
+      status: "confirmed_error",
+      result_verdict: "confirmed_error",
+      result_issue_type: "semantic_truncation",
+      summary: "fixture bounded review already confirmed the workflow error",
+    },
+    causal_hypothesis: {
+      owner: "target-project",
+      kind: "bug",
+      summary: "fixture bounded signal already points to a local reusable bug",
+    },
+    causal_surface: {
+      owner: "target-project",
+      kind: "bug",
+      actionable: true,
+      summary: "fixture bounded signal already points to a local reusable bug",
+    },
+    evidence_sufficiency: "strong",
+    generalization_basis: [
+      {
+        code: "semantic_review_confirmed_error",
+        summary: "fixture bounded review already confirmed the workflow error",
+      },
+    ],
+    debug_readiness: {
+      status: "ready",
+      reason_code: "READY",
+      summary: "fixture repo-aware causal debug may proceed",
+    },
+    repo_context: {
+      prompt_path: "docs/workflows/target-case-investigation-causal-debug.md",
+      documentation_paths: ["docs/specs/example.md"],
+      code_paths: ["src/workflows/extract-address.ts"],
+      test_paths: ["src/workflows/extract-address.test.ts"],
+      ticket_guidance_paths: ["tickets/templates/internal-ticket-template.md"],
+    },
+    extractor_stage_analysis: [
+      {
+        stage: "cache/versionamento",
+        focus: "revisar como a superficie de cache participa do sintoma observado",
+        paths: ["src/workflows/extract-address.ts"],
+      },
+    ],
+    supporting_refs: [
+      {
+        ref: "src/workflows/extract-address.ts",
+        path: "src/workflows/extract-address.ts",
+        reason: "fixture",
+      },
+    ],
+    debug_question: "Identify the minimum local cause for this fixture.",
+    expected_result_artifact: {
+      artifact: "causal-debug.result.json",
+      schema_version: "causal_debug_result_v1",
+    },
+  });
+  assert.equal(causalDebugRequest.extractor_stage_analysis?.[0]?.stage, "cache/versionamento");
+
   const causalDebugResult = targetInvestigateCaseCausalDebugResultSchema.parse({
     schema_version: "causal_debug_result_v1",
     generated_at: "2026-04-06T17:15:00.000Z",

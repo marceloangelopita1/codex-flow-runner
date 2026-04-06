@@ -574,7 +574,9 @@ test("CodexCliTargetInvestigateCaseRoundPreparer executa root-cause-review apos 
   const codexClient = new StubCodexClient(
     async (request) => {
       await materializeRoundArtifacts(request.targetProject.path, request.roundDirectory, "json", null);
-      await writeCausalDebugRequest(request.targetProject.path, request.roundDirectory, "ready");
+      await writeCausalDebugRequest(request.targetProject.path, request.roundDirectory, "ready", {
+        includeExtractorStageAnalysis: true,
+      });
       await writeRootCauseReviewRequest(request.targetProject.path, request.roundDirectory, "ready");
     },
     undefined,
@@ -672,6 +674,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer executa root-cause-review apos 
   assert.equal(result.status, "prepared", JSON.stringify(result));
   assert.deepEqual(callOrder, ["causal-debug", "root-cause-review"]);
   assert.equal(codexClient.causalDebugCalls.length, 1);
+  assert.match(codexClient.causalDebugCalls[0]?.debugRequestJson ?? "", /"extractor_stage_analysis"/u);
   assert.equal(codexClient.rootCauseReviewCalls.length, 1);
 
   const persisted = JSON.parse(
@@ -1878,6 +1881,9 @@ const writeCausalDebugRequest = async (
   projectPath: string,
   roundDirectory: string,
   status: "ready" | "blocked",
+  options: {
+    includeExtractorStageAnalysis?: boolean;
+  } = {},
 ): Promise<void> => {
   const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
   await fs.writeFile(
@@ -1936,6 +1942,42 @@ const writeCausalDebugRequest = async (
           test_paths: ["src/workflows/extract-address.test.ts"],
           ticket_guidance_paths: ["tickets/templates/internal-ticket-template.md"],
         },
+        ...(options.includeExtractorStageAnalysis
+          ? {
+              extractor_stage_analysis: [
+                {
+                  stage: "cache/versionamento",
+                  focus: "revisar cache e replay antes de fechar a menor causa local",
+                  paths: ["src/workflows/extract-address.ts"],
+                },
+                {
+                  stage: "prompts do extractor",
+                  focus: "validar clareza do prompt principal diante do sintoma observado",
+                  paths: ["docs/specs/example.md", "src/workflows/extract-address.ts"],
+                },
+                {
+                  stage: "QA do extractor",
+                  focus: "explicar por que o QA nao captou o problema nesta fixture",
+                  paths: ["src/workflows/extract-address.test.ts"],
+                },
+                {
+                  stage: "pos-processamento deterministico",
+                  focus: "inspecionar regras locais que possam distorcer a saida final",
+                  paths: ["src/workflows/extract-address.ts"],
+                },
+                {
+                  stage: "consolidacao final",
+                  focus: "verificar se a consolidacao final aceita um valor plausivel demais",
+                  paths: ["src/workflows/extract-address.ts"],
+                },
+                {
+                  stage: "cobertura de testes",
+                  focus: "confirmar se a suite atual cobre a combinacao causal observada",
+                  paths: ["src/workflows/extract-address.test.ts"],
+                },
+              ],
+            }
+          : {}),
         supporting_refs: [
           {
             ref: "src/workflows/extract-address.ts",

@@ -3060,6 +3060,14 @@ const targetInvestigateCaseCausalDebugWorkflowSchema = z
   })
   .strict();
 
+const targetInvestigateCaseCausalDebugRequestStageAnalysisEntrySchema = z
+  .object({
+    stage: trimmedString,
+    focus: trimmedString,
+    paths: z.array(relativePathSchema),
+  })
+  .strict();
+
 export const targetInvestigateCaseCausalDebugRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_SCHEMA_VERSION),
@@ -3109,6 +3117,10 @@ export const targetInvestigateCaseCausalDebugRequestSchema = z
         ticket_guidance_paths: z.array(relativePathSchema),
       })
       .strict(),
+    extractor_stage_analysis: z
+      .array(targetInvestigateCaseCausalDebugRequestStageAnalysisEntrySchema)
+      .min(1)
+      .optional(),
     supporting_refs: z.array(
       z
         .object({
