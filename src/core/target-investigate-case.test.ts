@@ -331,30 +331,98 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
   assert.equal(causalDebugResult.minimal_cause?.root_cause_classification, "validation");
   assert.equal(causalDebugResult.ticket_seed.ticket_scope, "generalizable");
 
-  const ticketProposal = targetInvestigateCaseTicketProposalSchema.parse({
-    ...buildTicketProposalFixture({
+  const rootCauseReviewResult = targetInvestigateCaseRootCauseReviewResultSchema.parse({
+    ...buildRootCauseReviewResultFixture({
+      winning_hypothesis: {
+        stage: "consolidacao final",
+        summary: "o valor final ainda aceita o complemento truncado",
+        why_selected: "a superficie local segue explicando o erro mesmo apos revisar hipoteses concorrentes",
+      },
+      stage_findings: [
+        {
+          stage: "consolidacao final",
+          status: "leading_signal",
+          summary: "a consolidacao final manteve a truncacao sem guardrail",
+          suspected_paths: ["src/workflows/extract-address.ts"],
+        },
+      ],
       competing_hypotheses: [
         {
+          stage: "cache/versionamento",
+          status: "competing",
+          hypothesis: "cache stale v10 ainda influencia a resposta",
+          summary: "o reuso historico ainda compete, mas nao explica sozinho a consolidacao final",
+        },
+      ],
+      qa_escape: {
+        summary: "o QA nao comparava a saida final contra a literalidade minima da unidade",
+        why_not_caught:
+          "o suite atual valida a extracao, mas nao um complemento truncado promovido como valor final.",
+        prompt_clarity_or_examples:
+          "o prompt principal precisa de exemplo explicito para unidade truncada em complemento.",
+        qa_prompt_gap:
+          "o QA nao pergunta se a saida final preserva a literalidade minima da unidade.",
+        missing_guardrails_or_warnings:
+          "falta um warning deterministico quando a consolidacao final reduz a unidade a um fragmento ambiguo.",
+      },
+      remaining_gaps: [
+        {
+          code: "cache-falsification-pending",
+          summary: "ainda falta replay cold controlado para encerrar a disputa com cache.",
+        },
+      ],
+      falsification_review: {
+        status: "not_falsified",
+        strongest_competing_hypothesis: "cache stale v10 ainda influencia a resposta",
+        rationale: "a superficie local domina, mas o experimento cold ainda nao foi concluido.",
+      },
+      ticket_readiness: {
+        status: "ready",
+        reason_code: "READY",
+        summary: "ha contexto suficiente para publication runner-side conservadora.",
+        next_experiments: ["monitorar reruns cold apos o fix."],
+      },
+    }),
+  });
+  assert.equal(rootCauseReviewResult.root_cause_status, "root_cause_confirmed");
+  assert.equal(rootCauseReviewResult.qa_escape?.qa_prompt_gap, "o QA nao pergunta se a saida final preserva a literalidade minima da unidade.");
+
+  const ticketProposal = targetInvestigateCaseTicketProposalSchema.parse({
+    ...buildTicketProposalFixture({
+      source_root_cause_review_artifact: TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
+      competing_hypotheses: [
+        {
+          stage: "cache/versionamento",
+          status: "competing",
           hypothesis: "cache stale v10 ainda domina a resposta",
-          disposition: "kept-as-primary",
-          rationale: "o version gate ainda reaproveita envelopes antigos",
+          summary: "o version gate ainda reaproveita envelopes antigos",
         },
       ],
       qa_escape: {
         summary: "o QA nao revisitou envelopes cacheados apos o fix local",
         why_not_caught:
           "o suite atual valida o parser, mas nao um envelope Mongo legado ainda marcado como v10.",
+        prompt_clarity_or_examples:
+          "explicitar exemplos de envelope legado no prompt de ticket projection.",
+        qa_prompt_gap: "o QA nao exige trail explicita de invalidacao de cache.",
+        missing_guardrails_or_warnings:
+          "falta warning deterministico para envelopes historicos ainda ativos.",
       },
       prompt_guardrail_opportunities: [
         {
-          area: "ticket projection",
+          area: "prompt_clarity_or_examples",
           summary: "explicitar a necessidade de descrever invalidacao de cache ao projetar o ticket.",
+        },
+        {
+          area: "qa_prompt_gap",
+          summary: "o QA precisa exigir trail explicita de invalidacao de cache.",
         },
       ],
       ticket_readiness: {
         status: "ready",
         reason_code: "READY",
         summary: "ha contexto suficiente para publication runner-side conservadora.",
+        next_experiments: ["monitorar o purge dos envelopes antigos."],
       },
       remaining_gaps: [
         {
@@ -400,6 +468,7 @@ test("schemas aceitam metadados aditivos de causal-debug e ticket-proposal sem q
       "- o suite atual valida o parser, mas nao um envelope Mongo legado ainda marcado como v10.",
       "### Prompt / guardrail opportunities",
       "- explicitar a necessidade de descrever invalidacao de cache ao projetar o ticket.",
+      "- o QA precisa exigir trail explicita de invalidacao de cache.",
       "### Ticket readiness",
       "- ready",
       "- ha contexto suficiente para publication runner-side conservadora.",

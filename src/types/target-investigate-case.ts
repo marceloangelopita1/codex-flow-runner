@@ -1933,21 +1933,37 @@ const targetInvestigateCaseTicketReadinessSchema = z
     status: trimmedString,
     reason_code: trimmedString.nullable().optional(),
     summary: trimmedString,
+    next_experiments: z.array(trimmedString).optional(),
   })
   .strict();
 
 const targetInvestigateCaseCompetingHypothesisSchema = z
   .object({
     hypothesis: trimmedString,
-    disposition: trimmedString,
-    rationale: trimmedString,
+    stage: trimmedString.optional(),
+    status: trimmedString.optional(),
+    summary: trimmedString.optional(),
+    disposition: trimmedString.optional(),
+    rationale: trimmedString.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.summary && !value.rationale) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "competing_hypotheses[] precisa declarar `summary` ou `rationale` para manter a trilha explicita.",
+      });
+    }
+  });
 
 const targetInvestigateCaseQaEscapeSchema = z
   .object({
     summary: trimmedString,
     why_not_caught: trimmedString,
+    prompt_clarity_or_examples: trimmedString.optional(),
+    qa_prompt_gap: trimmedString.optional(),
+    missing_guardrails_or_warnings: trimmedString.optional(),
   })
   .strict();
 
@@ -1955,6 +1971,31 @@ const targetInvestigateCasePromptGuardrailOpportunitySchema = z
   .object({
     area: trimmedString,
     summary: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseStageFindingSchema = z
+  .object({
+    stage: trimmedString,
+    status: trimmedString,
+    summary: trimmedString,
+    suspected_paths: z.array(relativePathSchema).optional(),
+  })
+  .strict();
+
+const targetInvestigateCaseWinningHypothesisSchema = z
+  .object({
+    stage: trimmedString,
+    summary: trimmedString,
+    why_selected: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseFalsificationReviewSchema = z
+  .object({
+    status: trimmedString,
+    strongest_competing_hypothesis: trimmedString,
+    rationale: trimmedString,
   })
   .strict();
 
@@ -1969,6 +2010,10 @@ export const targetInvestigateCaseAssessmentRootCauseReviewSchema = z
     ticket_readiness_status: trimmedString.nullable(),
     publication_blocked: z.boolean(),
     remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema),
+    stage_findings: z.array(targetInvestigateCaseStageFindingSchema).optional(),
+    competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema).optional(),
+    qa_escape: targetInvestigateCaseQaEscapeSchema.nullable().optional(),
+    next_experiments: z.array(trimmedString).optional(),
   })
   .strict();
 
@@ -3222,6 +3267,8 @@ export const targetInvestigateCaseRootCauseReviewResultSchema = z
     root_cause_status: rootCauseStatusSchema,
     confidence: confidenceSchema,
     summary: trimmedString,
+    winning_hypothesis: targetInvestigateCaseWinningHypothesisSchema.nullable().optional(),
+    stage_findings: z.array(targetInvestigateCaseStageFindingSchema).optional(),
     ticket_readiness: targetInvestigateCaseTicketReadinessSchema,
     competing_hypotheses: z.array(targetInvestigateCaseCompetingHypothesisSchema).optional(),
     qa_escape: targetInvestigateCaseQaEscapeSchema.nullable().optional(),
@@ -3229,6 +3276,7 @@ export const targetInvestigateCaseRootCauseReviewResultSchema = z
       .array(targetInvestigateCasePromptGuardrailOpportunitySchema)
       .optional(),
     remaining_gaps: z.array(targetInvestigateCaseRootCauseReviewRemainingGapSchema).optional(),
+    falsification_review: targetInvestigateCaseFalsificationReviewSchema.optional(),
     supporting_refs: z.array(
       z
         .object({
@@ -3253,6 +3301,9 @@ export const targetInvestigateCaseTicketProposalSchema = z
     generated_at: trimmedString,
     source_assessment_artifact: z.literal("assessment.json"),
     source_causal_debug_artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+    source_root_cause_review_artifact: z
+      .literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT)
+      .optional(),
     recommended_action: z.literal("publish_ticket"),
     suggested_slug: trimmedString,
     suggested_title: trimmedString,
