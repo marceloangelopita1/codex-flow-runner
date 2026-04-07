@@ -31,9 +31,12 @@ import {
   targetInvestigateCaseSemanticReviewResultSchema,
   targetInvestigateCaseTicketProposalSchema,
   TARGET_INVESTIGATE_CASE_COMMAND,
+  TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
   TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES,
   TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES,
@@ -169,6 +172,19 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
     "runArtifact",
     "workflow+window",
   ]);
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.requiresAlignedFocus,
+    true,
+  );
+  assert.deepEqual(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.focusAwareMembers,
+    [...TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES],
+  );
+  assert.deepEqual(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection
+      ?.acceptedExplicitAuthoritiesToBreakAmbiguity,
+    [...TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES],
+  );
   assert.deepEqual(loaded.manifest.replayPolicy.acceptedPurgeIdentifiers, [
     "propertyId",
     "pdfFileName",
@@ -216,7 +232,28 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
     loaded.manifest.semanticReview?.recomposition?.preserveExistingDossier,
     true,
   );
+  assert.equal(
+    loaded.manifest.semanticReview?.packetPolicy.operationalErrorSurface?.workflowBinding,
+    "errors[].key === workflow.key",
+  );
+  assert.equal(
+    loaded.manifest.semanticReview?.packetPolicy.operationalErrorSurface
+      ?.boundedTargetFieldPattern,
+    "errors[<index>]",
+  );
   assert.equal(loaded.manifest.semanticReview?.symptoms?.selectedField, "symptom");
+  assert.equal(
+    loaded.manifest.semanticReview?.symptoms?.derivedOperationalCandidate?.fieldPathPattern,
+    "errors[<index>]",
+  );
+  assert.equal(
+    loaded.manifest.semanticReview?.symptoms?.derivedOperationalCandidate?.jsonPointerPattern,
+    "/errors/<index>",
+  );
+  assert.deepEqual(
+    loaded.manifest.outputs.assessment.boundedOutcomeStatuses,
+    [...TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES],
+  );
   assert.equal(loaded.manifest.causalDebug?.owner, "target-project");
   assert.equal(
     loaded.manifest.causalDebug?.artifacts.result.optionalFields?.[0],
@@ -308,6 +345,13 @@ test("schemas aceitam metadados aditivos e o contrato atual de root-cause-review
       result_issue_type: "semantic_truncation",
       summary: "fixture bounded review already confirmed the workflow error",
     },
+    bounded_outcome: {
+      status: "semantic_error",
+      summary: "fixture bounded review isolated a semantic error without conflicting operational evidence",
+      workflow_operational_signal_declared: false,
+      deterministic_signal_actionable: false,
+      repo_aware_escalation_eligible: false,
+    },
     causal_hypothesis: {
       owner: "target-project",
       kind: "bug",
@@ -359,6 +403,7 @@ test("schemas aceitam metadados aditivos e o contrato atual de root-cause-review
     },
   });
   assert.equal(causalDebugRequest.extractor_stage_analysis?.[0]?.stage, "cache/versionamento");
+  assert.equal(causalDebugRequest.bounded_outcome?.status, "semantic_error");
 
   const causalDebugResult = targetInvestigateCaseCausalDebugResultSchema.parse({
     schema_version: "causal_debug_result_v1",
@@ -626,6 +671,144 @@ test("schemas aceitam metadados aditivos e o contrato atual de root-cause-review
       }),
     /ticket_scope=`generalizable`/u,
   );
+});
+
+test("targetInvestigateCaseAssessmentSchema preserva semantic_confirmation, bounded_outcome e causal_hypothesis do assessment rico atual", () => {
+  const assessment = targetInvestigateCaseAssessmentSchema.parse(
+    buildCurrentAssessmentFixture({
+      semantic_confirmation: {
+        status: "conflict",
+        summary:
+          "bounded semantic review found expected behavior in value fields while the workflow still exposes an actionable operational error",
+        request_status: "ready",
+        request_reason_code: "READY",
+        result_status: "valid",
+        result_verdict: "expected_behavior",
+        result_issue_type: null,
+        publication_blocked: false,
+      },
+      bounded_outcome: {
+        status: "semantic_operational_conflict",
+        summary:
+          "the bounded packet preserved a top-level operational workflow error even though the semantic subtree looked acceptable",
+        workflow_operational_signal_declared: true,
+        deterministic_signal_actionable: true,
+        repo_aware_escalation_eligible: true,
+      },
+      causal_hypothesis: {
+        owner: "target-project",
+        kind: "contract-conflict",
+        summary:
+          "the smallest current hypothesis is a bounded conflict between semantic acceptance and declared workflow error",
+        actionable: true,
+        systems: ["case-investigation", "extract_address"],
+      },
+      causal_surface: {
+        owner: "target-project",
+        kind: "contract-conflict",
+        summary:
+          "the integrated causal surface remains a bounded conflict between semantic acceptance and operational workflow error",
+        actionable: true,
+        systems: ["case-investigation", "extract_address"],
+      },
+      publication_recommendation: {
+        recommended_action: "do_not_publish",
+        reason: "the target still needs repo-aware debugging before any ticket publication",
+        proposed_ticket_scope: "hold publication until the repo-aware conflict is resolved",
+        suggested_title: "Do not publish extract_address ticket yet",
+      },
+      ticket_projection: null,
+      causal_debug: {
+        status: "pending_runner_materialization",
+        summary: "repo-aware causal debug still needs runner-side materialization",
+        request_status: "ready",
+        request_reason_code: "READY",
+        result_status: "missing",
+        result_verdict: null,
+        publication_blocked: true,
+      },
+    }),
+  );
+
+  assert.equal(assessment.semantic_confirmation?.status, "conflict");
+  assert.equal(assessment.bounded_outcome?.status, "semantic_operational_conflict");
+  assert.equal(assessment.bounded_outcome?.repo_aware_escalation_eligible, true);
+  assert.equal(assessment.causal_hypothesis?.kind, "contract-conflict");
+});
+
+test("targetInvestigateCaseSemanticReviewRequestSchema aceita target_fields operacionais em /errors/<index>", () => {
+  const request = targetInvestigateCaseSemanticReviewRequestSchema.parse(
+    buildSemanticReviewRequestFixture({
+      workflow: {
+        key: "extract_address",
+        support_status: "supported",
+        public_http_selectable: true,
+        documentation_path: "docs/specs/example.md",
+      },
+      selected_selectors: {
+        requestId: "req-001",
+        workflow: "extract_address",
+        symptom: "workflow extract_address still reports top-level error address_mismatch",
+      },
+      symptom:
+        "workflow extract_address still reports top-level error address_mismatch",
+      symptom_selection: {
+        source: "strong_candidate",
+        selected_candidate_id:
+          "extract_address_top_level_operational_error_address_mismatch_entry_0",
+        selection_reason:
+          "the target project promoted the bounded operational error as the strongest current symptom",
+      },
+      symptom_candidates: [
+        {
+          candidate_id:
+            "extract_address_top_level_operational_error_address_mismatch_entry_0",
+          workflow_key: "extract_address",
+          surface_id: "local-run-bundle",
+          artifact_path: "investigations/round-1/semantic-source.json",
+          field_path: "errors[0]",
+          json_pointer: "/errors/0",
+          symptom:
+            "workflow extract_address still reports top-level error address_mismatch",
+          issue_type: "contract_mismatch",
+          strength: "strong",
+          selection_reason:
+            "the top-level workflow error remained explicitly declared in the bounded packet",
+        },
+      ],
+      target_fields: [
+        {
+          field_path: "errors",
+          artifact_path: "investigations/round-1/semantic-source.json",
+          json_pointer: "/errors",
+          selection_reason:
+            "top-level bounded errors array remained in scope because it still contains an entry for the selected workflow",
+        },
+        {
+          field_path: "errors[0]",
+          artifact_path: "investigations/round-1/semantic-source.json",
+          json_pointer: "/errors/0",
+          selection_reason:
+            "bounded top-level workflow error entry filtered by errors[0].key === \"extract_address\"",
+        },
+      ],
+      supporting_refs: [
+        {
+          surface_id: "local-run-bundle",
+          ref: "local-run-bundle:response",
+          path: "investigations/round-1/semantic-source.json",
+          sha256: "a".repeat(64),
+          record_count: 1,
+          selection_reason: "observed workflow response with bounded top-level errors",
+          json_pointers: ["/errors", "/errors/0"],
+        },
+      ],
+    }),
+  );
+
+  assert.equal(request.target_fields[1]?.field_path, "errors[0]");
+  assert.equal(request.target_fields[1]?.json_pointer, "/errors/0");
+  assert.equal(request.symptom_candidates[0]?.field_path, "errors[0]");
 });
 
 test("parseTargetInvestigateCaseCommand normaliza o contrato canonico e rejeita flags fora da allowlist", () => {
@@ -3197,6 +3380,47 @@ const buildCurrentPilotManifestFixture = (options: {
   mutateManifest?: (manifest: any) => void;
 } = {}): any => {
   const manifest = buildPilotManifestFixture();
+  manifest.caseResolution.attemptCandidates.currentStateSelection = {
+    requiresAlignedFocus: true,
+    focusAwareMembers: [...TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES],
+    acceptedExplicitAuthoritiesToBreakAmbiguity: [
+      ...TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
+    ],
+  };
+  manifest.phaseOutputs.assessment.requiredFields = [
+    "primary_taxonomy",
+    "operational_class",
+    "next_action",
+    "blockers",
+    "causal_hypothesis",
+    "semantic_confirmation",
+    "bounded_outcome",
+    "causal_debug",
+    "root_cause_review",
+    "causal_surface",
+    "ticket_projection",
+    "publication_recommendation",
+  ];
+  manifest.phaseOutputs.assessment.boundedOutcomeStatuses = [
+    ...TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES,
+  ];
+  manifest.semanticReview.packetPolicy.operationalErrorSurface = {
+    sourceField: "errors[]",
+    workflowBinding: "errors[].key === workflow.key",
+    boundedTargetFieldPattern: "errors[<index>]",
+    issueType: "contract_mismatch",
+  };
+  manifest.semanticReview.symptoms.derivedOperationalCandidate = {
+    sourceField: "errors[]",
+    workflowBinding: "errors[].key === workflow.key",
+    candidateIdPattern:
+      "<workflow>_top_level_operational_error_<message-slug>_entry_<index>",
+    fieldPathPattern: "errors[<index>]",
+    jsonPointerPattern: "/errors/<index>",
+    symptomPattern: "workflow <workflow> still reports top-level error <message>",
+    issueType: "contract_mismatch",
+    strength: "strong",
+  };
   manifest.causalDebug.analysisStages = [
     "cache/versionamento",
     "prompts do extractor",
@@ -3609,6 +3833,13 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
     result_verdict: "confirmed_error",
     result_issue_type: "semantic_truncation",
     publication_blocked: false,
+  },
+  bounded_outcome: {
+    status: "semantic_error",
+    summary: "bounded semantic review isolated a semantic error without conflicting operational evidence",
+    workflow_operational_signal_declared: false,
+    deterministic_signal_actionable: false,
+    repo_aware_escalation_eligible: false,
   },
   causal_debug: {
     status: "minimal_cause_identified",

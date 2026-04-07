@@ -15,6 +15,9 @@ Regras obrigatórias:
 - Não reescreva o contrato do alvo e não tome a autoridade final de `assessment` ou `publication`.
 - Quando o packet trouxer `symptom_selection` e `symptom_candidates`, trate-os como priorização bounded já decidida pelo projeto alvo.
 - Não promova candidatos alternativos, não invente sintomas novos e não amplie `target_fields` ou `supporting_refs`.
+- Quando o packet declarar superfícies operacionais top-level do workflow, como `errors[]` filtrados por correlação com `workflow.key`, trate essas entradas como evidência bounded legítima.
+- Campos como `errors[<index>]` e ponteiros como `/errors/<index>` continuam dentro do escopo permitido quando vierem explicitamente declarados no packet.
+- Isso não autoriza descoberta livre: use apenas os erros top-level que o próprio projeto alvo já serializou e delimitou neste packet.
 - Se a evidência bounded não for suficiente para confirmar erro nem comportamento esperado, devolva `verdict = "inconclusive"`.
 - Replique os `supporting_refs` relevantes do packet apenas quando eles realmente sustentarem o veredito.
 - Preencha `field_verdicts` apenas para os campos declarados no packet.
@@ -68,6 +71,7 @@ Formato da resposta:
 Observação:
 - O packet pode incluir `symptom_selection.source = operator | strong_candidate | none`.
 - O packet pode incluir `symptom_candidates` bounded; use-os apenas como contexto declarado, nunca como gatilho para descoberta livre.
+- O packet pode incluir `target_fields` e `supporting_refs` ligados a `errors[]` top-level do workflow selecionado; quando isso acontecer, trate-os como superficie bounded operacional valida.
 
 ## Contexto mínimo extraído pelo runner
 <TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_CONTEXT_JSON>

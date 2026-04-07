@@ -620,6 +620,75 @@ test("CodexCliTargetInvestigateCaseRoundPreparer chama o Codex em packet ready e
   assert.equal(persisted.verdict, "confirmed_error");
 });
 
+test("CodexCliTargetInvestigateCaseRoundPreparer executa causal-debug quando o target libera ready por semantic_operational_conflict", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.manifest.causalDebug = {
+    owner: "target-project",
+    runnerExecutor: "codex-flow-runner",
+    promptPath: "docs/workflows/target-case-investigation-causal-debug.md",
+    artifacts: {
+      request: {
+        artifact: "causal-debug.request.json",
+        schemaVersion: "causal_debug_request_v1",
+      },
+      result: {
+        artifact: "causal-debug.result.json",
+        schemaVersion: "causal_debug_result_v1",
+      },
+      ticketProposal: {
+        artifact: "ticket-proposal.json",
+        schemaVersion: "ticket_proposal_v1",
+      },
+    },
+    debugPolicy: {
+      repoReadAllowed: true,
+      readableSurfaces: ["code", "prompts", "tests", "docs", "config"],
+      externalEvidenceDiscoveryAllowed: false,
+      boundedSemanticConfirmationRequired: true,
+      targetProjectOwnsMinimalCause: true,
+      runnerRemainsPublicationAuthority: true,
+    },
+  };
+
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeRoundArtifacts(request.targetProject.path, request.roundDirectory, "json", null);
+    await writeCausalDebugRequest(request.targetProject.path, request.roundDirectory, "ready", {
+      useSemanticOperationalConflict: true,
+    });
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared", JSON.stringify(result));
+  assert.equal(codexClient.causalDebugCalls.length, 1);
+  assert.equal(codexClient.rootCauseReviewCalls.length, 0);
+  assert.match(
+    codexClient.causalDebugCalls[0]?.debugRequestJson ?? "",
+    /"semantic_operational_conflict"/u,
+  );
+  assert.match(
+    codexClient.causalDebugCalls[0]?.debugRequestJson ?? "",
+    /"bounded_outcome"/u,
+  );
+
+  const persisted = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        ...fixture.request.artifactPaths.causalDebugResultPath.split("/"),
+      ),
+      "utf8",
+    ),
+  ) as { schema_version?: string; verdict?: string };
+  assert.equal(persisted.schema_version, "causal_debug_result_v1");
+  assert.equal(persisted.verdict, "minimal_cause_identified");
+});
+
 test("CodexCliTargetInvestigateCaseRoundPreparer executa root-cause-review apos causal-debug e persiste o resultado canonico", async () => {
   const fixture = await createRoundPreparerFixture();
   const callOrder: string[] = [];
@@ -1986,9 +2055,11 @@ const writeCausalDebugRequest = async (
   status: "ready" | "blocked",
   options: {
     includeExtractorStageAnalysis?: boolean;
+    useSemanticOperationalConflict?: boolean;
   } = {},
 ): Promise<void> => {
   const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  const useSemanticOperationalConflict = options.useSemanticOperationalConflict === true;
   await fs.writeFile(
     path.join(roundPath, "causal-debug.request.json"),
     JSON.stringify(
@@ -2007,21 +2078,40 @@ const writeCausalDebugRequest = async (
           symptom: "timeout on save",
         },
         semantic_confirmation: {
-          status: "confirmed_error",
-          result_verdict: "confirmed_error",
-          result_issue_type: "semantic_truncation",
-          summary: "fixture",
+          status: useSemanticOperationalConflict ? "conflict" : "confirmed_error",
+          result_verdict: useSemanticOperationalConflict ? "expected_behavior" : "confirmed_error",
+          result_issue_type: useSemanticOperationalConflict ? null : "semantic_truncation",
+          summary:
+            useSemanticOperationalConflict
+              ? "fixture bounded review found expected behavior in value fields while the workflow still exposes an actionable operational error"
+              : "fixture bounded semantic review confirmed the workflow error",
+        },
+        bounded_outcome: {
+          status: useSemanticOperationalConflict
+            ? "semantic_operational_conflict"
+            : "semantic_error",
+          workflow_operational_signal_declared: useSemanticOperationalConflict,
+          deterministic_signal_actionable: useSemanticOperationalConflict,
+          repo_aware_escalation_eligible: useSemanticOperationalConflict,
+          summary:
+            useSemanticOperationalConflict
+              ? "fixture preserved a bounded operational workflow error even though the semantic subtree looked acceptable"
+              : "fixture bounded semantic review isolated a semantic error without conflicting operational evidence",
         },
         causal_hypothesis: {
           owner: "target-project",
-          kind: "bug",
-          summary: "fixture bounded semantic signal already suggests a reusable local bug",
+          kind: useSemanticOperationalConflict ? "contract-conflict" : "bug",
+          summary: useSemanticOperationalConflict
+            ? "fixture bounded evidence currently points to a semantic-operational contract conflict"
+            : "fixture bounded semantic signal already suggests a reusable local bug",
         },
         causal_surface: {
           owner: "target-project",
-          kind: "bug",
+          kind: useSemanticOperationalConflict ? "contract-conflict" : "bug",
           actionable: true,
-          summary: "fixture",
+          summary: useSemanticOperationalConflict
+            ? "fixture bounded packet still exposes a semantic-operational contract conflict"
+            : "fixture",
         },
         evidence_sufficiency: "sufficient",
         generalization_basis: [

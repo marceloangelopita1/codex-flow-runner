@@ -475,6 +475,13 @@ test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto mi
             field_path: "extract_address.value.current.complemento",
             extracted_value: "apartamento n",
           },
+          {
+            field_path: "errors[0]",
+            extracted_value: {
+              key: "extract_address",
+              message: "address_mismatch",
+            },
+          },
         ],
       },
       null,
@@ -498,6 +505,7 @@ test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto mi
     capturedPrompt,
     /Nao descubra novas evidencias nem leia arquivos fora do contexto serializado neste prompt\./u,
   );
+  assert.match(capturedPrompt, /"field_path": "errors\[0\]"/u);
 });
 
 test("prompt de semantic-review documenta o schema estrito de field_verdicts", () => {
@@ -521,6 +529,10 @@ test("prompt de semantic-review documenta o schema estrito de field_verdicts", (
     /`verdict`: `supports_error \| supports_expected_behavior \| not_assessed`/u,
   );
   assert.match(promptTemplate, /inclua chaves extras em `field_verdicts`/u);
+  assert.match(
+    promptTemplate,
+    /Campos como `errors\[<index>\]` e ponteiros como `\/errors\/<index>` continuam dentro do escopo permitido/u,
+  );
 });
 
 test("runTargetInvestigateCaseCausalDebug reforca o schema estrito de supporting_refs", async () => {

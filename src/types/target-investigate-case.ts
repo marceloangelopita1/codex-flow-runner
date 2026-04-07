@@ -276,6 +276,20 @@ export const TARGET_INVESTIGATE_CASE_VERSIONED_ARTIFACT_VALUES = uniqueValues(
   ["ticket"] as const,
   "versioned-artifacts",
 );
+export const TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES = uniqueValues(
+  [
+    "symptom",
+    "errors",
+    "warnings",
+    "cache_observability",
+    "observed_workflow_version",
+  ] as const,
+  "current-state-focus-aware-members",
+);
+export const TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES = uniqueValues(
+  ["--symptom", "--request-id", "--run-artifact"] as const,
+  "current-state-explicit-authorities",
+);
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES = uniqueValues(
   ["ready", "blocked"] as const,
   "semantic-review-readiness-status",
@@ -312,6 +326,33 @@ export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_FIELD_VERDICT_VALUES = uniq
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES = uniqueValues(
   ["missing", "blocked", "failed", "completed"] as const,
   "semantic-review-trace-status",
+);
+export const TARGET_INVESTIGATE_CASE_SEMANTIC_CONFIRMATION_STATUS_VALUES = uniqueValues(
+  [
+    "not_requested",
+    "blocked",
+    "pending_runner_materialization",
+    "invalid_result",
+    "inconclusive",
+    "confirmed_error",
+    "confirmed_expected_behavior",
+    "conflict",
+  ] as const,
+  "semantic-confirmation-status",
+);
+export const TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES = uniqueValues(
+  [
+    "not_requested",
+    "blocked",
+    "pending_runner_materialization",
+    "invalid_result",
+    "inconclusive",
+    "semantic_error",
+    "expected_behavior",
+    "workflow_operational_error",
+    "semantic_operational_conflict",
+  ] as const,
+  "bounded-outcome-status",
 );
 export const TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_READINESS_STATUS_VALUES = uniqueValues(
   ["ready", "blocked"] as const,
@@ -495,6 +536,12 @@ const semanticReviewFieldVerdictSchema = z.enum(
 const semanticReviewTraceStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES,
 );
+const semanticConfirmationStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_SEMANTIC_CONFIRMATION_STATUS_VALUES,
+);
+const boundedOutcomeStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES,
+);
 const causalDebugReadinessStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_READINESS_STATUS_VALUES,
 );
@@ -524,6 +571,12 @@ const ticketProjectionStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES,
 );
 const caseIdentityMemberSchema = z.union([targetProjectSelectorSchema, purgeIdentifierSchema]);
+const currentStateFocusAwareMemberSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES,
+);
+const currentStateExplicitAuthoritySchema = z.enum(
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
+);
 
 const selectorValueSchema = trimmedString;
 const jsonPointerSchema = trimmedString.refine((value) => value.startsWith("/"), {
@@ -539,6 +592,46 @@ export const targetInvestigateCaseNormalizedInputSchema = z
     window: selectorValueSchema.optional(),
     symptom: selectorValueSchema.optional(),
     canonicalCommand: trimmedString,
+  })
+  .strict();
+
+const targetInvestigateCaseManifestCurrentStateSelectionSchema = z
+  .object({
+    requiresAlignedFocus: z.literal(true),
+    focusAwareMembers: uniqueNonEmptyArray(
+      currentStateFocusAwareMemberSchema,
+      "caseResolution.attemptCandidates.currentStateSelection.focusAwareMembers",
+    ),
+    acceptedExplicitAuthoritiesToBreakAmbiguity: uniqueNonEmptyArray(
+      currentStateExplicitAuthoritySchema,
+      "caseResolution.attemptCandidates.currentStateSelection.acceptedExplicitAuthoritiesToBreakAmbiguity",
+    ),
+  })
+  .strict();
+
+const targetInvestigateCaseManifestOperationalErrorSurfaceSchema = z
+  .object({
+    sourceField: z.literal("errors[]"),
+    workflowBinding: z.literal("errors[].key === workflow.key"),
+    boundedTargetFieldPattern: z.literal("errors[<index>]"),
+    issueType: z.literal("contract_mismatch"),
+  })
+  .strict();
+
+const targetInvestigateCaseManifestDerivedOperationalCandidateSchema = z
+  .object({
+    sourceField: z.literal("errors[]"),
+    workflowBinding: z.literal("errors[].key === workflow.key"),
+    candidateIdPattern: z.literal(
+      "<workflow>_top_level_operational_error_<message-slug>_entry_<index>",
+    ),
+    fieldPathPattern: z.literal("errors[<index>]"),
+    jsonPointerPattern: z.literal("/errors/<index>"),
+    symptomPattern: z.literal(
+      "workflow <workflow> still reports top-level error <message>",
+    ),
+    issueType: z.literal("contract_mismatch"),
+    strength: z.literal("strong"),
   })
   .strict();
 
@@ -565,6 +658,8 @@ const targetInvestigateCaseManifestSemanticReviewSymptomsSchema = z
           .strict(),
       )
       .min(1),
+    derivedOperationalCandidate:
+      targetInvestigateCaseManifestDerivedOperationalCandidateSchema.optional(),
   })
   .strict();
 
@@ -600,6 +695,8 @@ const targetInvestigateCaseManifestSemanticReviewSchema = z
         newEvidenceDiscoveryAllowed: z.literal(false),
         allowRawPayloadEmbedding: z.literal(false),
         boundedByWorkflowContract: z.literal(true),
+        operationalErrorSurface:
+          targetInvestigateCaseManifestOperationalErrorSurfaceSchema.optional(),
         targetProjectRemainsAssessmentAuthority: z.literal(true),
         runnerRemainsPublicationAuthority: z.literal(true),
       })
@@ -962,6 +1059,8 @@ export const targetInvestigateCaseManifestSchema = z
           attemptRefAuthoritySchema,
           "caseResolutionPolicy.attemptRefAuthorities",
         ).optional(),
+        currentStateSelection:
+          targetInvestigateCaseManifestCurrentStateSelectionSchema.optional(),
       })
       .strict(),
     evidenceCollection: z
@@ -1008,6 +1107,10 @@ export const targetInvestigateCaseManifestSchema = z
           .object({
             artifactPath: z.literal("assessment.json"),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
+            boundedOutcomeStatuses: uniqueNonEmptyArray(
+              boundedOutcomeStatusSchema,
+              "outputs.assessment.boundedOutcomeStatuses",
+            ).optional(),
           })
           .strict(),
         publicationDecision: z
@@ -1175,6 +1278,8 @@ export const targetInvestigateCasePilotManifestSchema = z
             discoveryMode: z.literal("case-identity"),
             selectionPolicy: z.literal("no-silent-selection-on-ambiguity"),
             historicalEvidenceMayReuseSingleCandidate: z.boolean(),
+            currentStateSelection:
+              targetInvestigateCaseManifestCurrentStateSelectionSchema.optional(),
           })
           .strict()
           .optional(),
@@ -1261,6 +1366,10 @@ export const targetInvestigateCasePilotManifestSchema = z
             operationalClassValues: uniqueNonEmptyArray(
               operationalClassSchema,
               "phaseOutputs.assessment.operationalClassValues",
+            ).optional(),
+            boundedOutcomeStatuses: uniqueNonEmptyArray(
+              boundedOutcomeStatusSchema,
+              "phaseOutputs.assessment.boundedOutcomeStatuses",
             ).optional(),
           })
           .strict(),
@@ -1550,6 +1659,21 @@ const normalizePilotManifestToInternal = (
       allowAttemptlessCases: manifest.selectors.attemptResolution.strategy === "explicit-or-null",
       caseRefAuthorities: [...manifest.caseResolution.caseRefAuthorities],
       attemptRefAuthorities: [...manifest.caseResolution.attemptRefAuthorities],
+      currentStateSelection: manifest.caseResolution.attemptCandidates?.currentStateSelection
+        ? {
+            requiresAlignedFocus:
+              manifest.caseResolution.attemptCandidates.currentStateSelection
+                .requiresAlignedFocus,
+            focusAwareMembers: [
+              ...manifest.caseResolution.attemptCandidates.currentStateSelection
+                .focusAwareMembers,
+            ],
+            acceptedExplicitAuthoritiesToBreakAmbiguity: [
+              ...manifest.caseResolution.attemptCandidates.currentStateSelection
+                .acceptedExplicitAuthoritiesToBreakAmbiguity,
+            ],
+          }
+        : undefined,
     },
     evidenceCollection: {
       surfaces: manifest.evidenceSurfaces.map((entry) => ({
@@ -1571,6 +1695,9 @@ const normalizePilotManifestToInternal = (
       assessment: {
         artifactPath: manifest.phaseOutputs.assessment.artifact,
         schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+        boundedOutcomeStatuses: manifest.phaseOutputs.assessment.boundedOutcomeStatuses
+          ? [...manifest.phaseOutputs.assessment.boundedOutcomeStatuses]
+          : undefined,
       },
       publicationDecision: {
         artifactPath: manifest.phaseOutputs.publication.artifact,
@@ -1607,6 +1734,23 @@ const normalizePilotManifestToInternal = (
               manifest.semanticReview.packetPolicy.allowRawPayloadEmbedding,
             boundedByWorkflowContract:
               manifest.semanticReview.packetPolicy.boundedByWorkflowContract,
+            operationalErrorSurface:
+              manifest.semanticReview.packetPolicy.operationalErrorSurface
+                ? {
+                    sourceField:
+                      manifest.semanticReview.packetPolicy.operationalErrorSurface
+                        .sourceField,
+                    workflowBinding:
+                      manifest.semanticReview.packetPolicy.operationalErrorSurface
+                        .workflowBinding,
+                    boundedTargetFieldPattern:
+                      manifest.semanticReview.packetPolicy.operationalErrorSurface
+                        .boundedTargetFieldPattern,
+                    issueType:
+                      manifest.semanticReview.packetPolicy.operationalErrorSurface
+                        .issueType,
+                  }
+                : undefined,
             targetProjectRemainsAssessmentAuthority:
               manifest.semanticReview.packetPolicy.targetProjectRemainsAssessmentAuthority,
             runnerRemainsPublicationAuthority:
@@ -1642,6 +1786,35 @@ const normalizePilotManifestToInternal = (
                       strength: entry.strength,
                     }),
                   ),
+                derivedOperationalCandidate:
+                  manifest.semanticReview.symptoms.derivedOperationalCandidate
+                    ? {
+                        sourceField:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .sourceField,
+                        workflowBinding:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .workflowBinding,
+                        candidateIdPattern:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .candidateIdPattern,
+                        fieldPathPattern:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .fieldPathPattern,
+                        jsonPointerPattern:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .jsonPointerPattern,
+                        symptomPattern:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .symptomPattern,
+                        issueType:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .issueType,
+                        strength:
+                          manifest.semanticReview.symptoms.derivedOperationalCandidate
+                            .strength,
+                      }
+                    : undefined,
               }
             : undefined,
         }
@@ -1899,6 +2072,29 @@ export const targetInvestigateCaseCapabilityLimitSchema = z
   })
   .strict();
 
+export const targetInvestigateCaseAssessmentSemanticConfirmationSchema = z
+  .object({
+    status: semanticConfirmationStatusSchema,
+    summary: trimmedString,
+    request_status: trimmedString,
+    request_reason_code: trimmedString.nullable(),
+    result_status: trimmedString,
+    result_verdict: semanticReviewVerdictSchema.nullable(),
+    result_issue_type: semanticReviewIssueTypeSchema.nullable(),
+    publication_blocked: z.boolean(),
+  })
+  .strict();
+
+export const targetInvestigateCaseAssessmentBoundedOutcomeSchema = z
+  .object({
+    status: boundedOutcomeStatusSchema,
+    summary: trimmedString,
+    workflow_operational_signal_declared: z.boolean(),
+    deterministic_signal_actionable: z.boolean(),
+    repo_aware_escalation_eligible: z.boolean(),
+  })
+  .strict();
+
 export const targetInvestigateCaseAssessmentCausalDebugSchema = z
   .object({
     status: causalDebugStatusSchema,
@@ -2094,6 +2290,9 @@ const targetInvestigateCaseInternalAssessmentSchema = z
     operational_class: operationalClassSchema.nullable(),
     next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
     blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema),
+    causal_hypothesis: targetInvestigateCaseCausalSurfaceSchema.nullable(),
+    semantic_confirmation: targetInvestigateCaseAssessmentSemanticConfirmationSchema.nullable(),
+    bounded_outcome: targetInvestigateCaseAssessmentBoundedOutcomeSchema.nullable(),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
     generalization_basis: z.array(targetInvestigateCaseGeneralizationBasisSchema),
     overfit_vetoes: z.array(targetInvestigateCaseOverfitVetoSchema),
@@ -2128,6 +2327,11 @@ const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAss
     operational_class: operationalClassSchema.nullable().optional(),
     next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable().optional(),
     blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema).optional(),
+    causal_hypothesis: targetInvestigateCaseCausalSurfaceSchema.nullable().optional(),
+    semantic_confirmation:
+      targetInvestigateCaseAssessmentSemanticConfirmationSchema.nullable().optional(),
+    bounded_outcome:
+      targetInvestigateCaseAssessmentBoundedOutcomeSchema.nullable().optional(),
     capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema).optional(),
     causal_debug: targetInvestigateCaseAssessmentCausalDebugSchema.nullable().optional(),
     root_cause_review: targetInvestigateCaseAssessmentRootCauseReviewSchema.nullable().optional(),
@@ -2145,6 +2349,9 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
       operational_class: null,
       next_action: null,
       blockers: [],
+      causal_hypothesis: null,
+      semantic_confirmation: null,
+      bounded_outcome: null,
       capability_limits: [],
       causal_debug: null,
       root_cause_review: null,
@@ -2189,6 +2396,9 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
     operational_class: rich.data.operational_class ?? null,
     next_action: rich.data.next_action ?? null,
     blockers: rich.data.blockers ?? [],
+    causal_hypothesis: rich.data.causal_hypothesis ?? null,
+    semantic_confirmation: rich.data.semantic_confirmation ?? null,
+    bounded_outcome: rich.data.bounded_outcome ?? null,
     causal_surface: rich.data.causal_surface,
     generalization_basis: rich.data.generalization_basis,
     overfit_vetoes: rich.data.overfit_vetoes,
@@ -3084,6 +3294,7 @@ export const targetInvestigateCaseCausalDebugRequestSchema = z
         summary: trimmedString,
       })
       .strict(),
+    bounded_outcome: targetInvestigateCaseAssessmentBoundedOutcomeSchema.optional(),
     causal_hypothesis: z
       .object({
         owner: causalSurfaceOwnerSchema,
