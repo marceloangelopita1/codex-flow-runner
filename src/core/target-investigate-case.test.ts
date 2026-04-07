@@ -267,6 +267,14 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
     loaded.manifest.causalDebug?.artifacts.ticketProposal.optionalFields?.[0],
     "publication_hints.ticket_scope",
   );
+  assert.deepEqual(
+    loaded.manifest.causalDebug?.debugPolicy.acceptedBoundedOutcomesForReadiness,
+    [
+      "semantic_error",
+      "workflow_operational_error",
+      "semantic_operational_conflict",
+    ],
+  );
   assert.equal(loaded.manifest.causalDebug?.debugPolicy.narrativeLanguage, "pt-BR");
   assert.equal(loaded.manifest.rootCauseReview?.owner, "target-project");
   assert.equal(
@@ -283,6 +291,24 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   ]);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.targetProjectOwnsRootCauseDecision, true);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.narrativeLanguage, "pt-BR");
+});
+
+test("loadTargetInvestigateCaseManifest prioriza erros do manifesto pilot quando o documento rico atual esta invalido", async () => {
+  const fixture = await createTargetRepoFixture({
+    manifestDocument: buildCurrentPilotManifestFixture({
+      mutateManifest: (manifest) => {
+        manifest.causalDebug.debugPolicy.acceptedBoundedOutcomesForReadiness = [
+          "unsupported-readiness-status",
+        ];
+      },
+    }),
+  });
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path);
+  assert.equal(loaded.status, "invalid");
+  assert.match(loaded.reason, /^pilot: /u);
+  assert.match(loaded.reason, /unsupported-readiness-status/u);
+  assert.doesNotMatch(loaded.reason, /normalized:/u);
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com o shape pilot anterior sem entrypoint e sem preflight.artifact", async () => {
@@ -3428,6 +3454,11 @@ const buildCurrentPilotManifestFixture = (options: {
     "pos-processamento deterministico",
     "consolidacao final",
     "cobertura de testes",
+  ];
+  manifest.causalDebug.debugPolicy.acceptedBoundedOutcomesForReadiness = [
+    "semantic_error",
+    "workflow_operational_error",
+    "semantic_operational_conflict",
   ];
   manifest.rootCauseReview.artifacts.ticketProposal = {
     artifact: "ticket-proposal.json",

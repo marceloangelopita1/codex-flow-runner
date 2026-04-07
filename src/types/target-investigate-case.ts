@@ -761,6 +761,10 @@ const targetInvestigateCaseManifestCausalDebugSchema = z
         readableSurfaces: uniqueNonEmptyArray(trimmedString, "causalDebug.debugPolicy.readableSurfaces"),
         externalEvidenceDiscoveryAllowed: z.literal(false),
         boundedSemanticConfirmationRequired: z.literal(true),
+        acceptedBoundedOutcomesForReadiness: uniqueNonEmptyArray(
+          boundedOutcomeStatusSchema,
+          "causalDebug.debugPolicy.acceptedBoundedOutcomesForReadiness",
+        ).optional(),
         targetProjectOwnsMinimalCause: z.literal(true),
         runnerRemainsPublicationAuthority: z.literal(true),
         narrativeLanguage: trimmedString.optional(),
@@ -884,6 +888,10 @@ const targetInvestigateCasePilotManifestCausalDebugSchema = z
         ),
         externalEvidenceDiscoveryAllowed: z.literal(false),
         boundedSemanticConfirmationRequired: z.literal(true),
+        acceptedBoundedOutcomesForReadiness: uniqueNonEmptyArray(
+          boundedOutcomeStatusSchema,
+          "causalDebug.debugPolicy.acceptedBoundedOutcomesForReadiness",
+        ).optional(),
         targetProjectOwnsMinimalCause: z.literal(true),
         runnerRemainsPublicationAuthority: z.literal(true),
         narrativeLanguage: trimmedString.optional(),
@@ -1591,6 +1599,43 @@ const normalizePilotDossierSensitivity = (
   return "restricted";
 };
 
+const looksLikePilotTargetInvestigateCaseManifest = (decoded: unknown): boolean => {
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    return false;
+  }
+
+  const manifest = decoded as Record<string, unknown>;
+  return (
+    "investigableWorkflows" in manifest ||
+    "caseResolution" in manifest ||
+    "phaseOutputs" in manifest ||
+    "operationalReferences" in manifest ||
+    ("capability" in manifest &&
+      typeof manifest.capability === "object" &&
+      manifest.capability !== null &&
+      !Array.isArray(manifest.capability))
+  );
+};
+
+const looksLikeNormalizedTargetInvestigateCaseManifest = (decoded: unknown): boolean => {
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) {
+    return false;
+  }
+
+  const manifest = decoded as Record<string, unknown>;
+  return (
+    "schemaVersion" in manifest ||
+    "workflows" in manifest ||
+    "outputs" in manifest ||
+    ("capability" in manifest && typeof manifest.capability === "string")
+  );
+};
+
+const formatManifestParseIssues = (
+  variant: "normalized" | "pilot",
+  issues: readonly z.ZodIssue[],
+): string => issues.map((issue) => `${variant}: ${issue.message}`).join(" | ");
+
 const buildPilotEvidenceStrategies = (
   manifest: z.infer<typeof targetInvestigateCasePilotManifestSchema>,
 ): Array<{ id: string; kind: string; reference: string }> => {
@@ -1872,6 +1917,13 @@ const normalizePilotManifestToInternal = (
               manifest.causalDebug.debugPolicy.externalEvidenceDiscoveryAllowed,
             boundedSemanticConfirmationRequired:
               manifest.causalDebug.debugPolicy.boundedSemanticConfirmationRequired,
+            acceptedBoundedOutcomesForReadiness:
+              manifest.causalDebug.debugPolicy.acceptedBoundedOutcomesForReadiness
+                ? [
+                    ...manifest.causalDebug.debugPolicy
+                      .acceptedBoundedOutcomesForReadiness,
+                  ]
+                : undefined,
             targetProjectOwnsMinimalCause:
               manifest.causalDebug.debugPolicy.targetProjectOwnsMinimalCause,
             runnerRemainsPublicationAuthority:
@@ -2007,6 +2059,14 @@ export const normalizeTargetInvestigateCaseManifestDocument = (
   const pilot = targetInvestigateCasePilotManifestSchema.safeParse(decoded);
   if (pilot.success) {
     return normalizePilotManifestToInternal(pilot.data);
+  }
+
+  if (looksLikePilotTargetInvestigateCaseManifest(decoded)) {
+    throw new Error(formatManifestParseIssues("pilot", pilot.error.issues));
+  }
+
+  if (looksLikeNormalizedTargetInvestigateCaseManifest(decoded)) {
+    throw new Error(formatManifestParseIssues("normalized", normalized.error.issues));
   }
 
   const normalizedIssues = normalized.error.issues.map((issue) => `normalized: ${issue.message}`);
