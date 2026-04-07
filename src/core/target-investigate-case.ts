@@ -207,6 +207,12 @@ export interface TargetInvestigateCaseExecutor {
   ): Promise<TargetInvestigateCaseExecutionResult>;
 }
 
+export interface TargetInvestigateCaseCaseResolutionCompatibilityIssue {
+  code: "round-id-promoted-to-request-id";
+  message: string;
+  context?: Record<string, unknown>;
+}
+
 interface ValidatedDossierArtifact {
   path: string;
   format: "markdown" | "json";
@@ -426,12 +432,12 @@ export const evaluateTargetInvestigateCaseRound = async (
 
   validateInputAgainstManifest(manifestLoad.manifest, normalizedInput);
   const artifactPaths = normalizeArtifactPaths(request.artifacts);
-  const caseResolution = await readJsonArtifact(
-    request.targetProject.path,
-    artifactPaths.caseResolutionPath,
-    targetInvestigateCaseCaseResolutionSchema,
-    "case-resolution.json",
-  );
+  const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
+    projectPath: request.targetProject.path,
+    relativePath: artifactPaths.caseResolutionPath,
+    normalizedInput,
+    roundId: path.posix.basename(path.posix.dirname(artifactPaths.caseResolutionPath)),
+  });
   const evidenceBundle = await readJsonArtifact(
     request.targetProject.path,
     artifactPaths.evidenceBundlePath,
@@ -2519,22 +2525,166 @@ const readJsonArtifact = async <SchemaOutput>(
   schema: z.ZodType<SchemaOutput, z.ZodTypeDef, unknown>,
   label: string,
 ): Promise<SchemaOutput> => {
-  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, label);
-  const raw = await fs.readFile(absolutePath, "utf8");
-
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${label} contem JSON invalido: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
+  const decoded = await readJsonArtifactDecoded(projectPath, relativePath, label);
   const parsed = schema.safeParse(decoded);
   if (!parsed.success) {
     throw new Error(`${label} contem schema invalido: ${renderZodIssues(parsed.error.issues)}`);
   }
 
   return parsed.data;
+};
+
+export const readTargetInvestigateCaseCaseResolutionArtifact = async (params: {
+  projectPath: string;
+  relativePath: string;
+  normalizedInput: TargetInvestigateCaseNormalizedInput;
+  roundId: string;
+  onCompatibilityIssue?: (issue: TargetInvestigateCaseCaseResolutionCompatibilityIssue) => void;
+}): Promise<TargetInvestigateCaseCaseResolution> => {
+  const decoded = await readJsonArtifactDecoded(
+    params.projectPath,
+    params.relativePath,
+    "case-resolution.json",
+  );
+  const parsed = targetInvestigateCaseCaseResolutionSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new Error(
+      `case-resolution.json contem schema invalido: ${renderZodIssues(parsed.error.issues)}`,
+    );
+  }
+
+  return applyCaseResolutionCompatibilityBridge({
+    caseResolution: parsed.data,
+    decoded,
+    normalizedInput: params.normalizedInput,
+    roundId: params.roundId,
+    onCompatibilityIssue: params.onCompatibilityIssue,
+  });
+};
+
+const readJsonArtifactDecoded = async (
+  projectPath: string,
+  relativePath: string,
+  label: string,
+): Promise<unknown> => {
+  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, label);
+  const raw = await fs.readFile(absolutePath, "utf8");
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `${label} contem JSON invalido: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+};
+
+const applyCaseResolutionCompatibilityBridge = (params: {
+  caseResolution: TargetInvestigateCaseCaseResolution;
+  decoded: unknown;
+  normalizedInput: TargetInvestigateCaseNormalizedInput;
+  roundId: string;
+  onCompatibilityIssue?: (issue: TargetInvestigateCaseCaseResolutionCompatibilityIssue) => void;
+}): TargetInvestigateCaseCaseResolution => {
+  if (params.normalizedInput.requestId || !params.roundId) {
+    return params.caseResolution;
+  }
+
+  const decoded = params.decoded;
+  if (typeof decoded !== "object" || decoded === null) {
+    return params.caseResolution;
+  }
+
+  const selectedSelectors =
+    "selected_selectors" in decoded &&
+    typeof decoded.selected_selectors === "object" &&
+    decoded.selected_selectors !== null
+      ? decoded.selected_selectors
+      : null;
+  if (!selectedSelectors) {
+    return params.caseResolution;
+  }
+
+  const selectedRequestId =
+    "requestId" in selectedSelectors && typeof selectedSelectors.requestId === "string"
+      ? selectedSelectors.requestId.trim()
+      : null;
+  const selectedPropertyId =
+    "propertyId" in selectedSelectors && typeof selectedSelectors.propertyId === "string"
+      ? selectedSelectors.propertyId.trim()
+      : null;
+  if (
+    selectedRequestId !== params.roundId ||
+    selectedPropertyId !== params.normalizedInput.caseRef
+  ) {
+    return params.caseResolution;
+  }
+  if (
+    params.caseResolution.case_ref !== params.roundId &&
+    params.caseResolution.attempt_resolution.attempt_ref !== params.roundId
+  ) {
+    return params.caseResolution;
+  }
+
+  const { request_id: _ignoredRequestId, ...selectorsWithoutPromotedRequestId } =
+    params.caseResolution.selectors;
+  const bridgedAttemptResolution =
+    params.caseResolution.attempt_resolution.attempt_ref === params.roundId
+      ? {
+          status: "not-required" as const,
+          attempt_ref: null,
+          reason:
+            "Runner compatibility bridge ignored the round id that was promoted to selected requestId without explicit operator input.",
+        }
+      : params.caseResolution.attempt_resolution;
+
+  params.onCompatibilityIssue?.({
+    code: "round-id-promoted-to-request-id",
+    message:
+      "case-resolution.json promoted the round id to selected requestId even though /target_investigate_case was executed without --request-id; the runner ignored that selector via a bounded compatibility bridge.",
+    context: {
+      roundId: params.roundId,
+      caseRef: params.normalizedInput.caseRef,
+      selectedRequestId,
+    },
+  });
+
+  return {
+    ...params.caseResolution,
+    case_ref: params.normalizedInput.caseRef,
+    selectors: selectorsWithoutPromotedRequestId,
+    resolved_case: {
+      ...params.caseResolution.resolved_case,
+      ref: params.normalizedInput.caseRef,
+      summary: appendCompatibilitySentence(
+        params.caseResolution.resolved_case.summary,
+        "Runner compatibility bridge ignored the promoted round id selector and preserved the canonical case-ref from operator input.",
+      ),
+    },
+    attempt_resolution: bridgedAttemptResolution,
+    resolution_reason: appendCompatibilitySentence(
+      params.caseResolution.resolution_reason,
+      "Runner compatibility bridge ignored the round id promoted to selected requestId.",
+    ),
+  };
+};
+
+const appendCompatibilitySentence = (value: string, sentence: string): string => {
+  const normalizedValue = value.trim();
+  const normalizedSentence = sentence.trim();
+  if (!normalizedSentence) {
+    return normalizedValue;
+  }
+  if (!normalizedValue) {
+    return normalizedSentence;
+  }
+  if (normalizedValue.includes(normalizedSentence)) {
+    return normalizedValue;
+  }
+
+  return normalizedValue.endsWith(".")
+    ? `${normalizedValue} ${normalizedSentence}`
+    : `${normalizedValue}. ${normalizedSentence}`;
 };
 
 const writeJsonArtifact = async (

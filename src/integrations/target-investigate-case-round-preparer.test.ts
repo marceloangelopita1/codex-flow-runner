@@ -26,6 +26,18 @@ class SilentLogger extends Logger {
   override error(): void {}
 }
 
+class CapturingLogger extends Logger {
+  public readonly warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
+
+  override info(): void {}
+
+  override warn(message: string, context?: Record<string, unknown>): void {
+    this.warnings.push({ message, context });
+  }
+
+  override error(): void {}
+}
+
 class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexClient {
   public readonly calls: TargetInvestigateCaseRoundMaterializationCodexRequest[] = [];
   public readonly semanticReviewCalls: TargetInvestigateCaseSemanticReviewCodexRequest[] = [];
@@ -341,6 +353,79 @@ test("CodexCliTargetInvestigateCaseRoundPreparer aceita o shape rico atual dos a
 
   assert.equal(result.dossierPath, "investigations/2026-04-03T19-00-00Z/dossier.md");
   assert.ok(result.ticketPublisher);
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer registra warning quando o roundId foi promovido a requestId sem input explicito", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.normalizedInput = {
+    ...fixture.request.normalizedInput,
+    requestId: undefined,
+    window: undefined,
+    symptom: undefined,
+    canonicalCommand:
+      "/target_investigate_case alpha-project case-001 --workflow extract_address",
+  };
+  const logger = new CapturingLogger();
+
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger,
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () =>
+      new StubCodexClient(async (request) => {
+        await materializeRoundArtifacts(request.targetProject.path, request.roundDirectory, "json");
+        const caseResolutionPath = path.join(
+          request.targetProject.path,
+          ...request.artifactPaths.caseResolutionPath.split("/"),
+        );
+        const caseResolution = JSON.parse(await fs.readFile(caseResolutionPath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        caseResolution.selected_selectors = {
+          propertyId: "case-001",
+          requestId: request.roundId,
+          workflow: "extract_address",
+        };
+        caseResolution.resolved_case = {
+          status: "invalid",
+          authority: null,
+          value: null,
+          request_id: null,
+          run_artifact: null,
+          resolution_reason:
+            "fixture promoted the runner round id to requestId even though the operator did not provide one",
+          provided_authorities: ["propertyId", "requestId"],
+        };
+        caseResolution.resolved_attempt = {
+          authority: "requestId",
+          status: "resolved",
+          request_id: request.roundId,
+          run_artifact: null,
+          workflow: "extract_address",
+          window: null,
+          resolution_reason: "requestId is an explicit attempt authority",
+        };
+        caseResolution.attempt_candidates = {
+          discovery_mode: "not-run",
+          status: "not-run",
+          silent_selection_blocked: false,
+          resolution_reason:
+            "attempt candidate discovery was skipped because an explicit attempt authority was already supplied",
+          selected_for_historical_evidence_request_id: null,
+          candidate_request_ids: [],
+          next_step: null,
+        };
+        await fs.writeFile(caseResolutionPath, `${JSON.stringify(caseResolution, null, 2)}\n`, "utf8");
+      }),
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared", JSON.stringify(result));
+  assert.equal(logger.warnings.length, 1);
+  assert.match(logger.warnings[0]?.message ?? "", /promoted the round id to selected requestId/u);
+  assert.equal(logger.warnings[0]?.context?.compatibilityCode, "round-id-promoted-to-request-id");
+  assert.equal(logger.warnings[0]?.context?.roundId, "2026-04-03T19-00-00Z");
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo antes da validacao e neutraliza drift runner-side", async () => {

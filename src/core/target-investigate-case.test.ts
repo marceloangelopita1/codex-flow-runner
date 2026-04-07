@@ -1390,6 +1390,81 @@ test("evaluateTargetInvestigateCaseRound aceita os artefatos ricos atuais do pil
   assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
 });
 
+test("evaluateTargetInvestigateCaseRound aplica bridge bounded quando o roundId foi promovido a requestId sem input explicito", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.workflows = {
+        investigable: ["extract_address"],
+      };
+    },
+    caseResolutionDocument: {
+      ...buildCurrentCaseResolutionFixture(),
+      selected_selectors: {
+        propertyId: "case-001",
+        requestId: "round-1",
+        workflow: "extract_address",
+      },
+      resolved_case: {
+        status: "invalid",
+        authority: null,
+        value: null,
+        request_id: null,
+        run_artifact: null,
+        resolution_reason:
+          "fixture promoted the runner round id to requestId even though the operator did not provide one",
+        provided_authorities: ["propertyId", "requestId"],
+      },
+      resolved_attempt: {
+        authority: "requestId",
+        status: "resolved",
+        request_id: "round-1",
+        run_artifact: null,
+        workflow: "extract_address",
+        window: null,
+        resolution_reason: "requestId is an explicit attempt authority",
+      },
+      attempt_candidates: {
+        discovery_mode: "not-run",
+        status: "not-run",
+        silent_selection_blocked: false,
+        resolution_reason:
+          "attempt candidate discovery was skipped because an explicit attempt authority was already supplied",
+        selected_for_historical_evidence_request_id: null,
+        candidate_request_ids: [],
+        next_step: null,
+      },
+      replay_readiness: {
+        state: "ready",
+        required: false,
+        summary: "fixture historical evidence already closed the case",
+        reason_code: "HISTORICAL_BUNDLE_SUFFICIENT",
+        blockers: [],
+        next_step: null,
+      },
+    },
+    evidenceBundleDocument: buildRichEvidenceBundleFixture(),
+    assessmentDocument: buildRichAssessmentFixture(),
+  });
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "extract_address",
+      requestId: null,
+    },
+    artifacts: fixture.artifactPaths,
+  });
+
+  assert.equal(result.caseResolution.case_ref, "case-001");
+  assert.equal(result.caseResolution.selectors.request_id, undefined);
+  assert.equal(result.caseResolution.attempt_resolution.status, "not-required");
+  assert.equal(result.caseResolution.attempt_resolution.attempt_ref, null);
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+  assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
+});
+
 test("evaluateTargetInvestigateCaseRound publica ticket quando o caso e elegivel com evidencia strong", async () => {
   const fixture = await createTargetRepoFixture();
   const publisher = new StubTargetInvestigateCaseTicketPublisher();

@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Logger } from "../core/logger.js";
 import {
+  readTargetInvestigateCaseCaseResolutionArtifact,
   TargetInvestigateCaseRoundPreparer,
   TargetInvestigateCaseRoundPreparationRequest,
   TargetInvestigateCaseRoundPreparationResult,
@@ -11,7 +12,6 @@ import type { ProjectRef } from "../types/project.js";
 import {
   normalizeTargetInvestigateCaseRelativePath,
   targetInvestigateCaseAssessmentSchema,
-  targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
@@ -179,12 +179,20 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     try {
       await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
       dossierPath = await resolvePreparedDossierPath(request);
-      await readJsonArtifact(
-        request.targetProject.path,
-        request.artifactPaths.caseResolutionPath,
-        targetInvestigateCaseCaseResolutionSchema,
-        "case-resolution.json",
-      );
+      await readTargetInvestigateCaseCaseResolutionArtifact({
+        projectPath: request.targetProject.path,
+        relativePath: request.artifactPaths.caseResolutionPath,
+        normalizedInput: request.normalizedInput,
+        roundId: request.roundId,
+        onCompatibilityIssue: (issue) => {
+          this.dependencies.logger.warn(issue.message, {
+            targetProjectName: request.targetProject.name,
+            artifactPath: request.artifactPaths.caseResolutionPath,
+            compatibilityCode: issue.code,
+            ...(issue.context ?? {}),
+          });
+        },
+      });
       await readJsonArtifact(
         request.targetProject.path,
         request.artifactPaths.evidenceBundlePath,

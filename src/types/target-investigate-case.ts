@@ -2385,7 +2385,7 @@ const targetInvestigateCaseRichCaseResolutionSchema = z
         silent_selection_blocked: z.boolean().optional(),
         selected_for_historical_evidence_request_id: trimmedString.nullable().optional(),
         candidate_request_ids: z.array(trimmedString).optional(),
-        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.optional(),
+        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.nullable().optional(),
       })
       .passthrough()
       .optional(),
@@ -2404,7 +2404,7 @@ const targetInvestigateCaseRichCaseResolutionSchema = z
               .passthrough(),
           )
           .optional(),
-        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.optional(),
+        next_step: targetInvestigateCaseCaseResolutionNextStepSchema.nullable().optional(),
       })
       .passthrough()
       .optional(),
