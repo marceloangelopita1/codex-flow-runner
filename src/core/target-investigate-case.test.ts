@@ -1621,6 +1621,110 @@ test("evaluateTargetInvestigateCaseRound aceita promotion para evidence_sufficie
   assert.equal(result.publicationDecision.ticket_path, publisher.ticketPath);
 });
 
+test("evaluateTargetInvestigateCaseRound aceita promotion semantica para evidence_sufficiency=strong mesmo quando root-cause-review ainda bloqueia publication", async () => {
+  const fixture = await createTargetRepoFixture({
+    mutateManifest: (manifest) => {
+      manifest.semanticReview = buildPilotManifestFixture().semanticReview;
+      manifest.rootCauseReview = buildPilotManifestFixture().rootCauseReview;
+    },
+    evidenceBundleDocument: buildRichEvidenceBundleFixture(),
+    assessmentDocument: buildCurrentAssessmentFixture({
+      merece_ticket_generalizavel: "inconclusive",
+      evidence_sufficiency: "strong",
+      generalization_basis: [
+        {
+          code: "correlated_local_bundle",
+          summary: "request, response and headers remained correlated to the same attempt",
+        },
+        {
+          code: "semantic_review_confirmed_error",
+          summary: "bounded semantic review confirmed the workflow error",
+        },
+        {
+          code: "repo_aware_minimal_cause",
+          summary: "repo-aware causal debug isolated a smallest plausible local cause",
+        },
+      ],
+      overfit_vetoes: [
+        {
+          code: "root_cause_review_plausible_but_unfalsified",
+          reason:
+            "the leading hypothesis remains plausible but not falsified strongly enough, so publication stays blocked",
+          blocking: true,
+        },
+      ],
+      ticket_projection: {
+        status: "blocked",
+        summary: "ticket projection stayed blocked until root-cause-review confirms the cause",
+        ticket_proposal_artifact: null,
+      },
+      root_cause_review: {
+        status: "plausible_but_unfalsified",
+        summary: "root-cause-review kept publication blocked pending falsification experiments",
+        request_status: "ready",
+        request_reason_code: "READY",
+        result_status: "valid",
+        root_cause_status: "plausible_but_unfalsified",
+        ticket_readiness_status: "needs_more_falsification",
+        publication_blocked: true,
+        remaining_gaps: [
+          {
+            code: "upstream-origin-not-observed",
+            summary: "the upstream origin of the truncation still has not been observed directly",
+          },
+        ],
+      },
+      publication_recommendation: {
+        recommended_action: "inconclusive",
+        reason:
+          "root-cause-review marked the cause as plausible_but_unfalsified, so publication stays blocked",
+        proposed_ticket_scope: "hold publication and keep the local dossier as supporting evidence only",
+        suggested_title: "Do not publish billing-core ticket yet",
+      },
+      ticket_decision_reason:
+        "root-cause-review kept publication blocked even though bounded semantic evidence stayed strong",
+    }),
+    semanticReviewRequestDocument: buildSemanticReviewRequestFixture(),
+    semanticReviewResultDocument: buildSemanticReviewResultFixture(),
+    rootCauseReviewRequestDocument: buildRootCauseReviewRequestFixture(),
+    rootCauseReviewResultDocument: buildRootCauseReviewResultFixture({
+      root_cause_status: "plausible_but_unfalsified",
+      ticket_readiness: {
+        status: "needs_more_falsification",
+        reason_code: "UPSTREAM_ORIGIN_NOT_OBSERVED",
+        summary: "A leading cause exists, but competing hypotheses still need falsification.",
+      },
+      remaining_gaps: [
+        {
+          code: "upstream-origin-not-observed",
+          summary: "the upstream origin of the truncation still has not been observed directly",
+        },
+      ],
+    }),
+    ticketProposalDocument: null,
+  });
+  const ticketPublisher = new StubTargetInvestigateCaseTicketPublisher();
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+    ticketPublisher,
+  });
+
+  assert.equal(result.publicationDecision.publication_status, "not_eligible");
+  assert.equal(result.publicationDecision.overall_outcome, "inconclusive-case");
+  assert.deepEqual(result.publicationDecision.blocked_gates, []);
+  assert.equal(ticketPublisher.calls.length, 0);
+});
+
 test("evaluateTargetInvestigateCaseRound rejeita promotion de evidence_sufficiency sem semantic-review confirmado", async () => {
   const fixture = await createTargetRepoFixture({
     mutateEvidenceBundle: (artifact) => {

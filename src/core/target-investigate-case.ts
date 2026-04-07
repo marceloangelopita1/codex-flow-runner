@@ -1948,19 +1948,28 @@ const validateEvidenceCoherence = (
   assessment: TargetInvestigateCaseAssessment,
   semanticReview?: DiscoveredSemanticReviewArtifacts,
 ): void => {
+  const semanticPromotionBasisCodes = new Set(
+    assessment.generalization_basis.map((entry) => entry.code),
+  );
   const allowsSemanticPromotion =
     evidenceBundle.collection_sufficiency === "sufficient" &&
     assessment.evidence_sufficiency === "strong" &&
     assessment.primary_taxonomy === "bug_confirmed" &&
-    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !evidenceBundle.normative_conflicts.some((conflict) => conflict.blocking) &&
     semanticReview?.result?.verdict === "confirmed_error";
+  const semanticPromotionUsesLegacyPublicationGate =
+    assessment.publication_recommendation.recommended_action === "publish_ticket";
+  const semanticPromotionUsesBoundedCorrelationGate =
+    semanticPromotionBasisCodes.has("correlated_local_bundle") &&
+    semanticPromotionBasisCodes.has("semantic_review_confirmed_error");
 
   if (
     compareTargetInvestigateCaseEvidenceSufficiency(
       assessment.evidence_sufficiency,
       evidenceBundle.collection_sufficiency,
     ) > 0 &&
-    !allowsSemanticPromotion
+    !(allowsSemanticPromotion &&
+      (semanticPromotionUsesLegacyPublicationGate || semanticPromotionUsesBoundedCorrelationGate))
   ) {
     throw new Error(
       "assessment.json nao pode declarar evidence_sufficiency acima da coleta factual registrada em evidence-bundle.json.",
