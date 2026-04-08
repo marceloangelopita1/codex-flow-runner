@@ -413,6 +413,28 @@ export const TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES = uniqueVal
   ["not_requested", "blocked", "ready"] as const,
   "ticket-projection-status",
 );
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES = uniqueValues(
+  ["not_available", "candidate", "recommended"] as const,
+  "primary-remediation-status",
+);
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES =
+  uniqueValues(
+    ["blocked", "needs_more_evidence", "ready"] as const,
+    "primary-remediation-execution-readiness",
+  );
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES =
+  uniqueValues(
+    ["independent", "publication_only", "shared"] as const,
+    "primary-remediation-publication-dependency",
+  );
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_SOURCE_VALUES = uniqueValues(
+  ["causal_debug", "root_cause_review"] as const,
+  "primary-remediation-source",
+);
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_FOLLOW_UP_SCOPE_VALUES =
+  uniqueValues(["publication_only", "shared"] as const, "primary-remediation-follow-up-scope");
+export const TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT =
+  "assessment.primary_remediation";
 
 export type TargetInvestigateCaseAllowedSelector =
   (typeof TARGET_INVESTIGATE_CASE_ALLOWED_SELECTORS)[number];
@@ -577,6 +599,24 @@ const ticketSlugStrategySchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_SLUG_STRA
 const ticketQualityGateSchema = z.enum(TARGET_INVESTIGATE_CASE_TICKET_QUALITY_GATE_VALUES);
 const ticketProjectionStatusSchema = z.enum(
   TARGET_INVESTIGATE_CASE_TICKET_PROJECTION_STATUS_VALUES,
+);
+const primaryRemediationStatusSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES,
+);
+const primaryRemediationExecutionReadinessSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES,
+);
+const primaryRemediationPublicationDependencySchema = z.enum(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES,
+);
+const primaryRemediationSourceSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_SOURCE_VALUES,
+);
+const primaryRemediationFollowUpScopeSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_FOLLOW_UP_SCOPE_VALUES,
+);
+const primaryRemediationCanonicalArtifactSchema = z.literal(
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
 );
 const caseIdentityMemberSchema = z.union([targetProjectSelectorSchema, purgeIdentifierSchema]);
 const currentStateFocusAwareMemberSchema = z.enum(
@@ -875,6 +915,7 @@ const targetInvestigateCaseManifestRootCauseReviewSchema = z
         targetProjectOwnsRootCauseDecision: z.literal(true),
         runnerRemainsPublicationAuthority: z.literal(true),
         narrativeLanguage: trimmedString.optional(),
+        primaryRemediationCanonicalArtifact: primaryRemediationCanonicalArtifactSchema.optional(),
       })
       .strict(),
     recomposition: z
@@ -996,6 +1037,7 @@ const targetInvestigateCasePilotManifestRootCauseReviewCurrentPolicySchema = z
     ),
     runnerRemainsPublicationAuthority: z.literal(true),
     narrativeLanguage: trimmedString.optional(),
+    primaryRemediationCanonicalArtifact: primaryRemediationCanonicalArtifactSchema.optional(),
   })
   .strict();
 
@@ -1170,6 +1212,18 @@ export const targetInvestigateCaseManifestSchema = z
             boundedOutcomeStatuses: uniqueNonEmptyArray(
               boundedOutcomeStatusSchema,
               "outputs.assessment.boundedOutcomeStatuses",
+            ).optional(),
+            primaryRemediationStatusValues: uniqueNonEmptyArray(
+              primaryRemediationStatusSchema,
+              "outputs.assessment.primaryRemediationStatusValues",
+            ).optional(),
+            primaryRemediationExecutionReadinessValues: uniqueNonEmptyArray(
+              primaryRemediationExecutionReadinessSchema,
+              "outputs.assessment.primaryRemediationExecutionReadinessValues",
+            ).optional(),
+            primaryRemediationPublicationDependencyValues: uniqueNonEmptyArray(
+              primaryRemediationPublicationDependencySchema,
+              "outputs.assessment.primaryRemediationPublicationDependencyValues",
             ).optional(),
           })
           .strict(),
@@ -1430,6 +1484,18 @@ export const targetInvestigateCasePilotManifestSchema = z
             boundedOutcomeStatuses: uniqueNonEmptyArray(
               boundedOutcomeStatusSchema,
               "phaseOutputs.assessment.boundedOutcomeStatuses",
+            ).optional(),
+            primaryRemediationStatusValues: uniqueNonEmptyArray(
+              primaryRemediationStatusSchema,
+              "phaseOutputs.assessment.primaryRemediationStatusValues",
+            ).optional(),
+            primaryRemediationExecutionReadinessValues: uniqueNonEmptyArray(
+              primaryRemediationExecutionReadinessSchema,
+              "phaseOutputs.assessment.primaryRemediationExecutionReadinessValues",
+            ).optional(),
+            primaryRemediationPublicationDependencyValues: uniqueNonEmptyArray(
+              primaryRemediationPublicationDependencySchema,
+              "phaseOutputs.assessment.primaryRemediationPublicationDependencyValues",
             ).optional(),
           })
           .strict(),
@@ -1804,6 +1870,18 @@ const normalizePilotManifestToInternal = (
         boundedOutcomeStatuses: manifest.phaseOutputs.assessment.boundedOutcomeStatuses
           ? [...manifest.phaseOutputs.assessment.boundedOutcomeStatuses]
           : undefined,
+        primaryRemediationStatusValues:
+          manifest.phaseOutputs.assessment.primaryRemediationStatusValues
+            ? [...manifest.phaseOutputs.assessment.primaryRemediationStatusValues]
+            : undefined,
+        primaryRemediationExecutionReadinessValues:
+          manifest.phaseOutputs.assessment.primaryRemediationExecutionReadinessValues
+            ? [...manifest.phaseOutputs.assessment.primaryRemediationExecutionReadinessValues]
+            : undefined,
+        primaryRemediationPublicationDependencyValues:
+          manifest.phaseOutputs.assessment.primaryRemediationPublicationDependencyValues
+            ? [...manifest.phaseOutputs.assessment.primaryRemediationPublicationDependencyValues]
+            : undefined,
       },
       publicationDecision: {
         artifactPath: manifest.phaseOutputs.publication.artifact,
@@ -2036,6 +2114,10 @@ const normalizePilotManifestToInternal = (
             runnerRemainsPublicationAuthority:
               manifest.rootCauseReview.reviewPolicy.runnerRemainsPublicationAuthority,
             narrativeLanguage: manifest.rootCauseReview.reviewPolicy.narrativeLanguage,
+            primaryRemediationCanonicalArtifact:
+              "primaryRemediationCanonicalArtifact" in manifest.rootCauseReview.reviewPolicy
+                ? manifest.rootCauseReview.reviewPolicy.primaryRemediationCanonicalArtifact
+                : undefined,
           },
           recomposition: manifest.rootCauseReview.recomposition
             ? {
@@ -2238,6 +2320,53 @@ export const targetInvestigateCaseAssessmentTicketProjectionSchema = z
   })
   .strict();
 
+const targetInvestigateCaseAssessmentPrimaryRemediationFollowUpSchema = z
+  .object({
+    summary: trimmedString,
+    scope: primaryRemediationFollowUpScopeSchema,
+  })
+  .strict();
+
+const targetInvestigateCaseAssessmentPrimaryRemediationBlockerSchema = z
+  .object({
+    code: trimmedString,
+    summary: trimmedString,
+    scope: primaryRemediationFollowUpScopeSchema,
+  })
+  .strict();
+
+export const targetInvestigateCaseAssessmentPrimaryRemediationSchema = z
+  .object({
+    status: primaryRemediationStatusSchema,
+    execution_readiness: primaryRemediationExecutionReadinessSchema,
+    publication_dependency: primaryRemediationPublicationDependencySchema,
+    source: primaryRemediationSourceSchema,
+    confidence: confidenceSchema,
+    summary: trimmedString,
+    rationale: trimmedString,
+    stage: trimmedString.nullable(),
+    suggested_fix_surface: z.array(relativePathSchema),
+    follow_ups: z.array(targetInvestigateCaseAssessmentPrimaryRemediationFollowUpSchema),
+    blockers: z.array(targetInvestigateCaseAssessmentPrimaryRemediationBlockerSchema),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "not_available" && value.suggested_fix_surface.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "primary_remediation.status=not_available nao pode expor suggested_fix_surface.",
+      });
+    }
+    if (value.execution_readiness === "blocked" && value.status === "recommended") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "primary_remediation nao pode ficar recommended quando execution_readiness=blocked.",
+      });
+    }
+  });
+
 export const targetInvestigateCaseRootCauseReviewRemainingGapSchema = z
   .object({
     code: trimmedString,
@@ -2422,6 +2551,7 @@ const targetInvestigateCaseInternalAssessmentSchema = z
     capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
     causal_debug: targetInvestigateCaseAssessmentCausalDebugSchema.nullable(),
     root_cause_review: targetInvestigateCaseAssessmentRootCauseReviewSchema.nullable(),
+    primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
     ticket_projection: targetInvestigateCaseAssessmentTicketProjectionSchema.nullable(),
   })
   .strict();
@@ -2456,6 +2586,8 @@ const targetInvestigateCaseRichAssessmentSchema = targetInvestigateCaseLegacyAss
     capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema).optional(),
     causal_debug: targetInvestigateCaseAssessmentCausalDebugSchema.nullable().optional(),
     root_cause_review: targetInvestigateCaseAssessmentRootCauseReviewSchema.nullable().optional(),
+    primary_remediation:
+      targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable().optional(),
     ticket_projection: targetInvestigateCaseAssessmentTicketProjectionSchema.nullable().optional(),
   }).passthrough();
 
@@ -2476,6 +2608,7 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
       capability_limits: [],
       causal_debug: null,
       root_cause_review: null,
+      primary_remediation: null,
       ticket_projection: null,
     });
 
@@ -2528,6 +2661,7 @@ const normalizeTargetInvestigateCaseAssessmentDocument = (
     capability_limits: rich.data.capability_limits ?? [],
     causal_debug: rich.data.causal_debug ?? null,
     root_cause_review: rich.data.root_cause_review ?? null,
+    primary_remediation: rich.data.primary_remediation ?? null,
     ticket_projection: rich.data.ticket_projection ?? null,
   });
 

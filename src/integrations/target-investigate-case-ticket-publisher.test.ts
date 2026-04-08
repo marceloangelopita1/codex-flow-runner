@@ -536,6 +536,7 @@ const createPublisherFixture = async (): Promise<{
         capability_limits: [],
         causal_debug: null,
         root_cause_review: null,
+        primary_remediation: null,
         ticket_projection: null,
         causal_surface: {
           owner: "target-project",

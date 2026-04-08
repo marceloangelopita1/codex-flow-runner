@@ -46,6 +46,10 @@ import {
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES,
   TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES,
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES,
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES,
+  TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES,
   TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES,
   TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES,
@@ -268,6 +272,18 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
     loaded.manifest.outputs.assessment.boundedOutcomeStatuses,
     [...TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES],
   );
+  assert.deepEqual(
+    loaded.manifest.outputs.assessment.primaryRemediationStatusValues,
+    [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES],
+  );
+  assert.deepEqual(
+    loaded.manifest.outputs.assessment.primaryRemediationExecutionReadinessValues,
+    [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES],
+  );
+  assert.deepEqual(
+    loaded.manifest.outputs.assessment.primaryRemediationPublicationDependencyValues,
+    [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES],
+  );
   assert.equal(loaded.manifest.causalDebug?.owner, "target-project");
   assert.equal(
     loaded.manifest.causalDebug?.artifacts.result.optionalFields?.[0],
@@ -305,6 +321,10 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   ]);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.targetProjectOwnsRootCauseDecision, true);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.narrativeLanguage, "pt-BR");
+  assert.equal(
+    loaded.manifest.rootCauseReview?.reviewPolicy.primaryRemediationCanonicalArtifact,
+    TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
+  );
 });
 
 test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com currentStateSelection hardenizado legado", async () => {
@@ -752,7 +772,7 @@ test("schemas aceitam metadados aditivos e o contrato atual de root-cause-review
   );
 });
 
-test("targetInvestigateCaseAssessmentSchema preserva semantic_confirmation, bounded_outcome e causal_hypothesis do assessment rico atual", () => {
+test("targetInvestigateCaseAssessmentSchema preserva semantic_confirmation, bounded_outcome, causal_hypothesis e primary_remediation do assessment rico atual", () => {
   const assessment = targetInvestigateCaseAssessmentSchema.parse(
     buildCurrentAssessmentFixture({
       semantic_confirmation: {
@@ -797,6 +817,22 @@ test("targetInvestigateCaseAssessmentSchema preserva semantic_confirmation, boun
         suggested_title: "Do not publish extract_address ticket yet",
       },
       ticket_projection: null,
+      primary_remediation: buildPrimaryRemediationFixture({
+        status: "candidate",
+        execution_readiness: "needs_more_evidence",
+        publication_dependency: "publication_only",
+        source: "root_cause_review",
+        summary: "a primary remediation candidate exists, but it still depends on more evidence",
+        rationale:
+          "the repo-aware review isolated a candidate remediation, but publication should stay blocked until the remaining falsification finishes",
+        stage: "consolidacao final",
+        follow_ups: [
+          {
+            summary: "finish the remaining falsification before publication",
+            scope: "publication_only",
+          },
+        ],
+      }),
       causal_debug: {
         status: "pending_runner_materialization",
         summary: "repo-aware causal debug still needs runner-side materialization",
@@ -813,6 +849,8 @@ test("targetInvestigateCaseAssessmentSchema preserva semantic_confirmation, boun
   assert.equal(assessment.bounded_outcome?.status, "semantic_operational_conflict");
   assert.equal(assessment.bounded_outcome?.repo_aware_escalation_eligible, true);
   assert.equal(assessment.causal_hypothesis?.kind, "contract-conflict");
+  assert.equal(assessment.primary_remediation?.status, "candidate");
+  assert.equal(assessment.primary_remediation?.publication_dependency, "publication_only");
 });
 
 test("targetInvestigateCaseSemanticReviewRequestSchema aceita target_fields operacionais em /errors/<index>", () => {
@@ -965,6 +1003,27 @@ test("assessment.json, publication-decision.json e root-cause-review.result.json
   for (const value of TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES) {
     const nextAssessment = structuredClone(richAssessment);
     nextAssessment.operational_class = value;
+    targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
+  }
+  for (const value of TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES) {
+    const nextAssessment = structuredClone(richAssessment);
+    nextAssessment.primary_remediation.status = value;
+    if (value === "not_available") {
+      nextAssessment.primary_remediation.suggested_fix_surface = [];
+    }
+    targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
+  }
+  for (const value of TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES) {
+    const nextAssessment = structuredClone(richAssessment);
+    nextAssessment.primary_remediation.execution_readiness = value;
+    if (value === "blocked") {
+      nextAssessment.primary_remediation.status = "candidate";
+    }
+    targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
+  }
+  for (const value of TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES) {
+    const nextAssessment = structuredClone(richAssessment);
+    nextAssessment.primary_remediation.publication_dependency = value;
     targetInvestigateCaseAssessmentSchema.parse(nextAssessment);
   }
 
@@ -1648,6 +1707,7 @@ test("evaluateTargetInvestigateCaseRound aceita os artefatos ricos atuais do pil
   assert.equal(result.evidenceBundle.replay.used, false);
   assert.equal(result.assessment.houve_gap_real, "no");
   assert.equal(result.assessment.evidence_sufficiency, "sufficient");
+  assert.equal(result.assessment.primary_remediation?.status, "not_available");
   assert.equal(result.publicationDecision.publication_status, "not_applicable");
   assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
 });
@@ -3479,12 +3539,22 @@ const buildCurrentPilotManifestFixture = (options: {
     "bounded_outcome",
     "causal_debug",
     "root_cause_review",
+    "primary_remediation",
     "causal_surface",
     "ticket_projection",
     "publication_recommendation",
   ];
   manifest.phaseOutputs.assessment.boundedOutcomeStatuses = [
     ...TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES,
+  ];
+  manifest.phaseOutputs.assessment.primaryRemediationStatusValues = [
+    ...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES,
+  ];
+  manifest.phaseOutputs.assessment.primaryRemediationExecutionReadinessValues = [
+    ...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES,
+  ];
+  manifest.phaseOutputs.assessment.primaryRemediationPublicationDependencyValues = [
+    ...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES,
   ];
   manifest.semanticReview.packetPolicy.operationalErrorSurface = {
     sourceField: "errors[]",
@@ -3534,6 +3604,8 @@ const buildCurrentPilotManifestFixture = (options: {
     causalDebugMustStayComplementary: true,
     acceptedVerdicts: [...TARGET_INVESTIGATE_CASE_ROOT_CAUSE_STATUS_VALUES],
     ticketReadinessValues: ["ready", "needs_more_falsification", "blocked"],
+    primaryRemediationCanonicalArtifact:
+      TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
     analysisStages: [...manifest.causalDebug.analysisStages],
     runnerRemainsPublicationAuthority: true,
     narrativeLanguage: "pt-BR",
@@ -3780,6 +3852,28 @@ const buildAssessmentFixture = (): any => ({
   },
 });
 
+const buildPrimaryRemediationFixture = (
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  status: "recommended",
+  execution_readiness: "ready",
+  publication_dependency: "shared",
+  source: "causal_debug",
+  confidence: "high",
+  summary: "fix the reusable semantic bug in extract_address",
+  rationale: "the target project already isolated a stable local remediation surface",
+  stage: "consolidacao final",
+  suggested_fix_surface: ["src/workflows/extract-address.ts"],
+  follow_ups: [
+    {
+      summary: "keep the publication narrative aligned with the target-owned remediation",
+      scope: "shared",
+    },
+  ],
+  blockers: [],
+  ...overrides,
+});
+
 const buildRichAssessmentFixture = (): any => ({
   schema_version: "assessment_v1",
   generated_at: "2026-04-04T18:38:30.743Z",
@@ -3819,6 +3913,23 @@ const buildRichAssessmentFixture = (): any => ({
         "no compare report was available for this round, so phase/step corroboration stayed limited to local runtime traces",
     },
   ],
+  primary_remediation: buildPrimaryRemediationFixture({
+    status: "not_available",
+    execution_readiness: "blocked",
+    publication_dependency: "publication_only",
+    source: "root_cause_review",
+    summary: "no primary remediation is recommended for this expected-behavior round",
+    rationale:
+      "the current local evidence did not justify a reusable remediation beyond preserving the dossier",
+    stage: null,
+    suggested_fix_surface: [],
+    follow_ups: [
+      {
+        summary: "keep the dossier only as supporting evidence for the operator review",
+        scope: "publication_only",
+      },
+    ],
+  }),
   causal_debug: null,
   root_cause_review: null,
   ticket_projection: null,
@@ -3944,6 +4055,7 @@ const buildCurrentAssessmentFixture = (overrides: Record<string, unknown> = {}):
     actionable: true,
     systems: ["case-investigation", "extract_address"],
   },
+  primary_remediation: buildPrimaryRemediationFixture(),
   ticket_projection: {
     status: "ready",
     summary: "ticket projection is ready and stored in ticket-proposal.json for runner-side publication review",
