@@ -6,14 +6,16 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-08 21:12Z
+- Last reviewed at (UTC): 2026-04-08 22:07Z
 - Source: technical-evolution
 - Related tickets:
-  - nenhum ainda
+  - tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related execplans:
   - nenhum ainda
 - Related commits:
-  - local changeset not yet committed
+  - changeset desta triagem versionado neste commit
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -335,7 +337,7 @@
 - o primeiro conjunto de tickets derivados desta spec será aberto no runner; a aderência dos targets virá em uma segunda onda de derivação;
 - o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2.
 
-## Nao-escopo
+## Não-escopo
 - migrar retroativamente todos os rounds históricos da v1;
 - exigir que todo target implemente todos os estágios opcionais desde o primeiro dia;
 - transformar o runner em catálogo operacional de cada target;
@@ -344,7 +346,7 @@
 - tratar `deep-dive` como fase obrigatória do caminho mínimo;
 - substituir julgamento humano por gates cegos de artifact completeness.
 
-## Criterios de aceitacao (observaveis)
+## Critérios de aceitação (observáveis)
 - [ ] CA-01 - existe um contrato v2 explícito, com nome próprio, estágios canônicos e manifesto cross-repo para runner e target.
 - [ ] CA-02 - o caminho mínimo da v2 materializa `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json` sem exigir `deep-dive`, `ticket-proposal.json` nem `publication-decision.json`.
 - [ ] CA-03 - `diagnosis.md` responde claramente se o caso está ok ou não está, por quê, o que precisa mudar e qual é a superfície provável de correção.
@@ -354,57 +356,96 @@
 - [ ] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
 - [ ] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
 
-## Gate de validacao dos tickets derivados
-- Veredito atual: n/a
+## Gate de validação dos tickets derivados
+- Veredito atual: GO
 - Gaps encontrados:
-  - n/a
+  - nenhum
 - Correções aplicadas:
-  - n/a
+  - atualização dos `Closure criteria` do ticket de contrato runner-side para exigir observabilidade do shape mínimo do manifesto v2, da fronteira target-owned/runner-side, da `publicationPolicy` e da convenção de `promptPath` por estágio;
+  - atualização dos `Closure criteria` do ticket de continuações opcionais para exigir `ticket-proposal.json` e evidência objetiva de aderência às convenções declaradas pelo projeto alvo.
 - Causa-raiz provável:
-  - n/a
+  - a primeira redação dos tickets aplicou de forma incompleta o contrato de triagem aos `Closure criteria`, e a lacuna foi corrigida na revalidação.
 - Ciclos executados:
-  - n/a
+  - 2 (`initial-validation` + `revalidation`)
 - Nota de uso: quando a spec vier de `/run_specs`, preencher esta seção apenas com o veredito, os gaps, as correções e o histórico funcional do gate formal; fora desse fluxo, registrar `n/a` quando não se aplicar.
 - Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
 
-## Retrospectiva sistemica da derivacao dos tickets
-- Executada: sim
-- Motivo de ativação ou skip:
-  - executada porque a spec nasce de uma releitura crítica cross-repo do fluxo atual, das responsabilidades entre runner e target e de artefatos reais de investigação.
-- Classificação final:
-  - systemic
-- Confiança:
-  - alta
-- Frente causal analisada:
-  - a v1 passou a otimizar cadeia operacional e publication mais do que o produto primário do fluxo, que deveria ser um diagnóstico claro do caso.
-- Achados sistêmicos:
-  - a fronteira runner-target da v1 tem méritos, mas o contrato ficou concentrado em fases tardias demais;
-  - o fluxo precisava explicitar estágios anteriores ao diagnóstico, especialmente resolução do caso e montagem de evidências;
-  - o target precisa declarar melhor como reunir insumos relevantes sem transferir esse conhecimento para o runner;
-  - a ausência de um prompt principal simples de diagnóstico contribuiu para a deriva publication-first;
-  - a v2 precisa padronizar nomes de prompts e slots de estágio para evitar ambiguidade entre projetos.
-- Artefatos do workflow consultados:
-  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
-  - `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`
-  - `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`
-  - `prompts/16-target-investigate-case-round-materialization.md`
-  - `prompts/17-target-investigate-case-semantic-review.md`
-  - `src/core/target-investigate-case.ts`
-  - `src/integrations/target-investigate-case-round-preparer.ts`
-  - `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`
-  - `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md`
-  - `../guiadomus-matricula/docs/workflows/target-case-investigation-causal-debug.md`
-  - `../guiadomus-matricula/docs/workflows/target-case-investigation-root-cause-review.md`
-  - `../guiadomus-matricula/output/case-investigation/2026-04-06T21-57-45Z/dossier.md`
-  - `../guiadomus-matricula/output/case-investigation/2026-04-08T04-02-02Z/dossier.md`
-- Elegibilidade de publicação:
-  - a spec deliberadamente rebaixa publication a etapa tardia e secundária.
-- Resultado do ticket transversal ou limitação operacional:
-  - ainda não derivado; por decisão desta rodada, a saída fica restrita à spec revisada.
-- Nota de uso: quando esta spec vier de `/run_specs`, esta seção deve registrar a retrospectiva pre-run-all como superfície distinta do gate funcional e continua canônica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`. Com a flag desligada, a seção pode permanecer `n/a` e não recebe write-back automático. Se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execução ocorrer no próprio `codex-flow-runner`, write-back nesta seção é permitido. Em projeto externo, a fonte observável desta fase é trace/log/resumo, e não a spec do projeto alvo.
-- Política anti-duplicação: a retrospectiva sistêmica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto histórico, mas não deve reavaliar nem reticketar a mesma frente causal.
+### Última execução registrada
+- Executada em (UTC): 2026-04-08T21:59:25.628Z
+- Veredito: GO
+- Confiança final: high
+- Motivo final: go-with-high-confidence
+- Resumo: GO: houve progresso real em relação ao passe anterior. A quantidade total de gaps caiu de 2 para 0, e os dois `closure-criteria-gap` anteriores nos mesmos tickets foram efetivamente resolvidos nesta revalidação: o ticket de contrato agora torna observáveis o shape mínimo do manifesto v2, a fronteira target-owned/runner-side, `publicationPolicy` e a convenção de `promptPath`; o ticket de continuações opcionais agora torna observáveis `ticket-proposal.json` e a aderência às convenções declaradas pelo projeto alvo.
+- Ciclos executados no pacote: 2
+- Thread da validação: 019d6f14-2a6a-7932-96aa-a404a970da1d
+- Contexto de triagem herdado: não
+- Linhagem do pacote: hybrid
+- Tickets avaliados:
+  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md [fonte=source-spec]
+  - tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md [fonte=source-spec]
+  - tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md [fonte=source-spec]
 
-## Validacoes pendentes ou manuais
+#### Histórico por ciclo
+- Ciclo 0 [initial-validation]: NO_GO (high)
+  - Resumo: NO_GO: o pacote cobre as três frentes principais da spec runner-side, mas ainda deixa dois requisitos herdados sem fechamento observável suficiente. O ticket de contrato não prova o shape mínimo do manifesto v2 nem a semântica target-owned/promptPath exigidas pela spec, e o ticket de continuações opcionais não torna observável a saída e o contrato de `ticket-projection` para o projeto alvo.
+  - Thread: 019d6f14-2a6a-7932-96aa-a404a970da1d
+  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md|ca-05&rf-21, closure-criteria-gap|tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md|ca-06&rf-05&rf-09&rf-11
+  - Redução real de gaps vs. ciclo anterior: n/a
+  - Correções deste ciclo: 0
+- Ciclo 1 [revalidation]: GO (high)
+  - Resumo: GO: houve progresso real em relação ao passe anterior. A quantidade total de gaps caiu de 2 para 0, e os dois `closure-criteria-gap` anteriores nos mesmos tickets foram efetivamente resolvidos nesta revalidação: o ticket de contrato agora torna observáveis o shape mínimo do manifesto v2, a fronteira target-owned/runner-side, `publicationPolicy` e a convenção de `promptPath`; o ticket de continuações opcionais agora torna observáveis `ticket-proposal.json` e a aderência às convenções declaradas pelo projeto alvo.
+  - Thread: 019d6f14-2a6a-7932-96aa-a404a970da1d
+  - Fingerprints abertos: nenhum
+  - Redução real de gaps vs. ciclo anterior: sim
+  - Correções deste ciclo: 2
+    - Atualizados os Closure criteria do ticket de contrato runner-side para exigir observabilidade do shape mínimo do manifesto v2, da fronteira target-owned/runner-side, da `publicationPolicy` e da convenção de `promptPath` por estágio. [applied]
+    - Atualizados os Closure criteria do ticket de continuações opcionais para exigir que `ticket-projection` materialize `ticket-proposal.json` e registre evidência objetiva de aderência às convenções declaradas pelo projeto alvo. [applied]
+
+#### Gaps encontrados
+- Nenhum.
+
+#### Correções aplicadas
+- Atualizados os Closure criteria do ticket de contrato runner-side para exigir observabilidade do shape mínimo do manifesto v2, da fronteira target-owned/runner-side, da `publicationPolicy` e da convenção de `promptPath` por estágio.
+  - Artefatos afetados: tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+- Atualizados os Closure criteria do ticket de continuações opcionais para exigir que `ticket-projection` materialize `ticket-proposal.json` e registre evidência objetiva de aderência às convenções declaradas pelo projeto alvo.
+  - Artefatos afetados: tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - Gaps relacionados: closure-criteria-gap
+  - Resultado: applied
+
+## Retrospectiva sistêmica da derivação dos tickets
+- Executada: sim
+- Motivo de ativação ou skip: executada porque o gate funcional revisou gaps em pelo menos um ciclo.
+- Classificação final: not-systemic
+- Confiança: high
+- Frente causal analisada: a primeira redação dos tickets aplicou de forma incompleta um contrato de triagem já existente para herança observável de requisitos e `Closure criteria`; não houve lacuna material nas instruções, validações ou ordem do workflow.
+- Achados sistêmicos:
+  - nenhum
+- Artefatos do workflow consultados:
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - INTERNAL_TICKETS.md
+  - PLANS.md
+  - SPECS.md
+  - docs/workflows/codex-quality-gates.md
+  - docs/workflows/target-project-compatibility-contract.md
+  - docs/workflows/target-case-investigation-manifest.json
+  - prompts/01-avaliar-spec-e-gerar-tickets.md
+  - prompts/09-validar-tickets-derivados-da-spec.md
+  - prompts/10-autocorrigir-tickets-derivados-da-spec.md
+  - prompts/12-retrospectiva-derivação-tickets-pre-run-all.md
+  - prompts/16-target-investigate-case-round-materialization.md
+  - src/core/runner.ts
+  - src/core/spec-ticket-validation.ts
+  - src/types/spec-ticket-validation.ts
+- Elegibilidade de publicação: não
+- Resultado do ticket transversal ou limitação operacional:
+  - Nenhum ticket transversal publicado nesta rodada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta seção deve registrar a retrospectiva pre-run-all como superfície distinta do gate funcional. Se a execução ocorrer no próprio `codex-flow-runner`, write-back nesta seção é permitido. Em projeto externo, a fonte observável desta fase é trace/log/resumo, e não a spec do projeto alvo.
+- Política anti-duplicação: a retrospectiva sistêmica pós-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto histórico, mas não deve reavaliar nem reticketar a mesma frente causal.
+
+## Validações pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
   - validar o contrato de manifesto v2 e os novos schemas canônicos no runner;
   - validar a legibilidade de `diagnosis.md` em casos reais;
@@ -421,13 +462,14 @@
   - fluxo mínimo diagnosis-first definido;
   - prompts canônicos e artefatos da v2 definidos.
 - Pendências em aberto:
-  - implementar o contrato v2 no runner;
-  - definir os schemas concretos dos novos artefatos;
-  - derivar tickets do runner;
-  - derivar tickets de adoção para targets aderentes.
+  - `tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`: introduzir o contrato `/target_investigate_case_v2`, os estágios canônicos, o caminho mínimo e a rastreabilidade v1 -> v2 sem manter a cadeia v1 como backbone obrigatório.
+  - `tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`: materializar `diagnosis.md`/`diagnosis.json` e tornar summary, trace e Telegram diagnosis-first.
+  - `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`: rebaixar publication e continuações opcionais a etapas tardias com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
+  - a escolha do primeiro target de adoção da v2 continua pendente e deliberadamente fora deste pacote runner-side, porque depende de decisão manual em repositório externo depois que o contrato local estiver estável.
 - Evidências de validação:
   - análise documental cross-repo concluída;
-  - revisão crítica da v1 consolidada nesta spec.
+  - revisão crítica da v1 consolidada nesta spec;
+  - comparação objetiva com `src/types/target-investigate-case.ts`, `src/types/target-flow.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md` e `docs/workflows/target-case-investigation-manifest.json`.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -451,12 +493,14 @@
   - fazer a primeira onda de implementação no runner antes da adoção em targets;
   - exigir blockers explícitos em `resolve-case` e `assemble-evidence` quando o target não conseguir fechar o caso com segurança.
 
-## Decisoes e trade-offs
+## Decisões e trade-offs
 - 2026-04-08 - manter `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` como continuações opcionais - reduz custo cognitivo do caminho mínimo e preserva evolução tardia quando necessária.
 - 2026-04-08 - tratar `resolve-case` e `assemble-evidence` como estágios formais da v2 - evita que a coleta de contexto fique implícita, improvisada ou escondida dentro do diagnóstico.
 - 2026-04-08 - definir prompts canônicos por estágio no target - mantém o runner target-agnostic sem perder direcionamento semântico do projeto alvo.
 - 2026-04-08 - eleger o namespace do projeto alvo como fonte autoritativa da rodada - reduz duplicação semântica e mantém o conhecimento operacional perto das evidências reais.
 
-## Historico de atualizacao
+## Histórico de atualização
 - 2026-04-08 20:25Z - Versão inicial da spec.
 - 2026-04-08 21:12Z - Reescrita estrutural da spec para explicitar contrato runner-target, estágios formais anteriores ao diagnóstico, prompts canônicos e artefatos obrigatórios da v2.
+- 2026-04-08 21:44Z - Triagem runner-side concluída com comparação contra o código atual, derivação de três tickets em `tickets/open/`, atualização de `Related tickets`, `Last reviewed at (UTC)` e pendências objetivas no `Status de atendimento`, mantendo `Status: approved`.
+- 2026-04-08 22:07Z - Validação final da triagem com normalização documental, deduplicação do histórico do gate e manutenção de `Status: approved` / `Spec treatment: pending` por existirem tickets abertos.
