@@ -1,0 +1,208 @@
+{
+  "contractVersion": "1.0",
+  "schemaVersion": "1.0",
+  "capability": "case-investigation",
+  "flow": "target-investigate-case-v2",
+  "command": "/target_investigate_case_v2",
+  "entrypoint": {
+    "command": "npm run case-investigation --",
+    "scriptPath": "scripts/materialize-case-investigation-round.js",
+    "defaultReplayMode": "historical-only",
+    "defaultIncludeWorkflowDebug": false
+  },
+  "selectors": {
+    "accepted": ["case-ref", "workflow", "request-id", "window", "symptom"],
+    "required": ["case-ref"],
+    "targetProjectAccepted": [
+      "propertyId",
+      "requestId",
+      "workflow",
+      "window",
+      "runArtifact",
+      "symptom"
+    ]
+  },
+  "workflows": {
+    "investigable": ["workflow-canonicamente-declarado-pelo-projeto-alvo"]
+  },
+  "caseResolutionPolicy": {
+    "requireExplicitAttemptResolution": true,
+    "allowAttemptlessCases": true,
+    "caseRefAuthorities": ["propertyId", "requestId", "runArtifact"],
+    "attemptRefAuthorities": ["requestId", "runArtifact", "workflow+window"]
+  },
+  "evidenceCollection": {
+    "surfaces": [
+      {
+        "id": "historical-evidence",
+        "kind": "manifest-guided-surface",
+        "description": "A coleta historica precisa ocorrer apenas por superficies declaradas pela capability v2."
+      }
+    ],
+    "strategies": [
+      {
+        "id": "canonical-manifest-guided-collection",
+        "kind": "query-template",
+        "reference": "docs/workflows/target-case-investigation-v2-manifest.json"
+      }
+    ]
+  },
+  "outputs": {
+    "caseResolution": {
+      "artifactPath": "case-resolution.json",
+      "schemaVersion": "1.0"
+    },
+    "evidenceIndex": {
+      "artifactPath": "evidence-index.json",
+      "schemaVersion": "1.0"
+    },
+    "evidenceBundle": {
+      "artifactPath": "case-bundle.json",
+      "schemaVersion": "1.0"
+    },
+    "assessment": {
+      "artifactPath": "assessment.json",
+      "schemaVersion": "1.0"
+    },
+    "publicationDecision": {
+      "artifactPath": "publication-decision.json",
+      "schemaVersion": "1.0"
+    },
+    "dossier": {
+      "artifactPathPattern": "dossier.md|dossier.json",
+      "schemaVersion": "1.0",
+      "preferredArtifact": "dossier.md"
+    }
+  },
+  "replayPolicy": {
+    "supported": true,
+    "safeModeRequired": true,
+    "requireUpdateDbFalse": true,
+    "requireDedicatedRequestId": true,
+    "allowWorkflowDebugWhenSafe": true,
+    "cachePurgePolicy": "Declarar cache e purge scoped de forma auditavel no projeto alvo."
+  },
+  "dossierPolicy": {
+    "localPathTemplate": "output/case-investigation/<round-id>",
+    "sensitivity": "restricted",
+    "retention": "Definir politica de retencao local explicita por capability."
+  },
+  "supportingArtifacts": {
+    "docs": ["docs/workflows/target-case-investigation-v2-manifest.json"],
+    "prompts": [
+      "docs/workflows/target-investigate-case-v2-resolve-case.md",
+      "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+      "docs/workflows/target-investigate-case-v2-diagnosis.md"
+    ],
+    "scripts": []
+  },
+  "precedence": {
+    "fixedLayers": [
+      "canonical-contract",
+      "structured-contracts",
+      "runtime-guardrails"
+    ],
+    "projectCustomizableLayers": [
+      "active-decisions",
+      "tests-and-goldens",
+      "historical-evidence-and-replay"
+    ]
+  },
+  "publicationPolicy": {
+    "allowAutomaticPublication": true,
+    "requireStrongEvidenceByDefault": true,
+    "allowSufficientWithNormativeConflict": true,
+    "requireGeneralizationBasis": true,
+    "requireZeroBlockingVetoes": true,
+    "blockedReason": null,
+    "semanticAuthority": "target-project",
+    "finalPublicationAuthority": "runner"
+  },
+  "roundDirectories": {
+    "authoritative": "output/case-investigation/<round-id>",
+    "mirror": "investigations/<round-id>"
+  },
+  "minimumPath": [
+    "preflight",
+    "resolve-case",
+    "assemble-evidence",
+    "diagnosis"
+  ],
+  "stages": {
+    "resolveCase": {
+      "stage": "resolve-case",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-resolve-case.md",
+      "entrypoint": {
+        "command": "npm run case-investigation -- resolve-case",
+        "scriptPath": "scripts/materialize-case-investigation-round.js"
+      },
+      "artifacts": ["case-resolution.json"],
+      "policy": {
+        "semanticAuthority": "target-project",
+        "entrypointRemainsOperationalAuthority": true
+      }
+    },
+    "assembleEvidence": {
+      "stage": "assemble-evidence",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+      "artifacts": ["evidence-index.json", "case-bundle.json"],
+      "policy": {
+        "declaredSurfacesOnly": true,
+        "bundleMustReferenceEvidenceIndex": true
+      }
+    },
+    "diagnosis": {
+      "stage": "diagnosis",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-diagnosis.md",
+      "artifacts": ["diagnosis.md", "diagnosis.json", "assessment.json"],
+      "policy": {
+        "semanticAuthority": "target-project",
+        "compatibilityAssessmentArtifactAllowed": true
+      }
+    },
+    "deepDive": {
+      "stage": "deep-dive",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "artifacts": ["deep-dive.request.json", "deep-dive.result.json"],
+      "policy": {
+        "optional": true
+      }
+    },
+    "improvementProposal": {
+      "stage": "improvement-proposal",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "artifacts": ["improvement-proposal.json"],
+      "policy": {
+        "optional": true
+      }
+    },
+    "ticketProjection": {
+      "stage": "ticket-projection",
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "artifacts": ["ticket-proposal.json"],
+      "policy": {
+        "optional": true
+      }
+    },
+    "publication": {
+      "stage": "publication",
+      "owner": "codex-flow-runner",
+      "runnerExecutor": "codex-flow-runner",
+      "artifacts": ["publication-decision.json"],
+      "policy": {
+        "semanticAuthority": "target-project",
+        "finalPublicationAuthority": "runner",
+        "optional": true
+      }
+    }
+  }
+}

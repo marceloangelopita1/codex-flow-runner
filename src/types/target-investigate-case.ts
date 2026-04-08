@@ -23,6 +23,7 @@ const relativePathSchema = trimmedString.refine(
   },
 );
 
+
 const uniqueValues = <const Values extends readonly [string, ...string[]]>(
   values: Values,
   label: string,
@@ -77,9 +78,17 @@ export const TARGET_INVESTIGATE_CASE_CONTRACT_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_SCHEMA_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_MANIFEST_PATH =
   "docs/workflows/target-case-investigation-manifest.json";
+export const TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH =
+  "docs/workflows/target-case-investigation-v2-manifest.json";
 export const TARGET_INVESTIGATE_CASE_CAPABILITY = "case-investigation";
 export const TARGET_INVESTIGATE_CASE_COMMAND = "/target_investigate_case";
+export const TARGET_INVESTIGATE_CASE_V2_FLOW = "target-investigate-case-v2";
+export const TARGET_INVESTIGATE_CASE_V2_COMMAND = "/target_investigate_case_v2";
 export const TARGET_INVESTIGATE_CASE_ROUNDS_DIR = "investigations";
+export const TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR = "output/case-investigation";
+export const TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR = "investigations";
+export const TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT = "evidence-index.json";
+export const TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT = "case-bundle.json";
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT =
   "semantic-review.request.json";
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT =
@@ -134,6 +143,22 @@ export const TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES = uniqueValues(
 export const TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES = uniqueValues(
   ["ok", "not_ok", "inconclusive"] as const,
   "diagnosis-verdict",
+);
+export const TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES = uniqueValues(
+  [
+    "resolve-case",
+    "assemble-evidence",
+    "diagnosis",
+    "deep-dive",
+    "improvement-proposal",
+    "ticket-projection",
+    "publication",
+  ] as const,
+  "target-investigate-case-v2-stages",
+);
+export const TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES = uniqueValues(
+  ["preflight", "resolve-case", "assemble-evidence", "diagnosis"] as const,
+  "target-investigate-case-v2-minimum-path",
 );
 export const TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS = uniqueValues(
   [
@@ -273,6 +298,11 @@ export const TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES = uniqueValues(
   ["historical-only", "safe-replay", "mixed"] as const,
   "replay-mode",
 );
+
+const targetInvestigateCaseManifestPathSchema = z.union([
+  z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+  z.literal(TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH),
+]);
 export const TARGET_INVESTIGATE_CASE_DOSSIER_SENSITIVITY_VALUES = uniqueValues(
   ["restricted", "confidential"] as const,
   "dossier-sensitivity",
@@ -1193,6 +1223,8 @@ export const targetInvestigateCaseManifestSchema = z
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
     schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
     capability: z.literal(TARGET_INVESTIGATE_CASE_CAPABILITY),
+    flow: z.literal(TARGET_INVESTIGATE_CASE_V2_FLOW).optional(),
+    command: z.literal(TARGET_INVESTIGATE_CASE_V2_COMMAND).optional(),
     entrypoint: z
       .object({
         command: trimmedString,
@@ -1286,9 +1318,16 @@ export const targetInvestigateCaseManifestSchema = z
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
           })
           .strict(),
+        evidenceIndex: z
+          .object({
+            artifactPath: z.literal(TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT),
+            schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
+          })
+          .strict()
+          .optional(),
         evidenceBundle: z
           .object({
-            artifactPath: z.literal("evidence-bundle.json"),
+            artifactPath: z.enum(["evidence-bundle.json", TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT]),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
           })
           .strict(),
@@ -1393,8 +1432,155 @@ export const targetInvestigateCaseManifestSchema = z
         requireGeneralizationBasis: z.boolean(),
         requireZeroBlockingVetoes: z.boolean(),
         blockedReason: trimmedString.nullable(),
+        semanticAuthority: z.literal("target-project").optional(),
+        finalPublicationAuthority: z.literal("runner").optional(),
       })
       .strict(),
+    roundDirectories: z
+      .object({
+        authoritative: trimmedString,
+        mirror: trimmedString.nullable(),
+      })
+      .strict()
+      .optional(),
+    minimumPath: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES[1]),
+        z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES[2]),
+        z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES[3]),
+      ])
+      .readonly()
+      .optional(),
+    stages: z
+      .object({
+        resolveCase: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[0]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.resolveCase.artifacts"),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+        assembleEvidence: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[1]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema,
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(
+              relativePathSchema,
+              "stages.assembleEvidence.artifacts",
+            ),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+        diagnosis: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[2]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema,
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.diagnosis.artifacts"),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+        deepDive: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[3]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.deepDive.artifacts"),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict()
+          .optional(),
+        improvementProposal: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[4]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(
+              relativePathSchema,
+              "stages.improvementProposal.artifacts",
+            ),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict()
+          .optional(),
+        ticketProjection: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[5]),
+            owner: z.literal("target-project"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: z
+              .object({
+                command: trimmedString.optional(),
+                scriptPath: relativePathSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            artifacts: uniqueNonEmptyArray(
+              relativePathSchema,
+              "stages.ticketProjection.artifacts",
+            ),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict()
+          .optional(),
+        publication: z
+          .object({
+            stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[6]),
+            owner: z.literal("codex-flow-runner"),
+            runnerExecutor: z.literal("codex-flow-runner"),
+            artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.publication.artifacts"),
+            policy: z.record(z.string(), z.unknown()),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     ticketPublicationPolicy: z
       .object({
         internalTicketTemplatePath: relativePathSchema,
@@ -1418,7 +1604,133 @@ export const targetInvestigateCaseManifestSchema = z
       .nullable()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.flow) {
+      return;
+    }
+
+    if (value.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["flow"],
+        message: `flow invalido para v2: ${value.flow}.`,
+      });
+    }
+
+    if (value.command !== TARGET_INVESTIGATE_CASE_V2_COMMAND) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["command"],
+        message: `command precisa ser ${TARGET_INVESTIGATE_CASE_V2_COMMAND} quando flow=v2.`,
+      });
+    }
+
+    if (!value.outputs.evidenceIndex) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputs", "evidenceIndex"],
+        message: "Manifesto v2 exige outputs.evidenceIndex.",
+      });
+    }
+
+    if (value.outputs.evidenceBundle.artifactPath !== TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputs", "evidenceBundle", "artifactPath"],
+        message: `Manifesto v2 exige ${TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT}.`,
+      });
+    }
+
+    if (
+      value.publicationPolicy.semanticAuthority !== "target-project" ||
+      value.publicationPolicy.finalPublicationAuthority !== "runner"
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["publicationPolicy"],
+        message:
+          "Manifesto v2 exige publicationPolicy.semanticAuthority=target-project e finalPublicationAuthority=runner.",
+      });
+    }
+
+    if (!value.roundDirectories) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["roundDirectories"],
+        message: "Manifesto v2 exige roundDirectories com namespace autoritativo e espelho.",
+      });
+    }
+
+    if (
+      value.roundDirectories?.authoritative !==
+      `${TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR}/<round-id>`
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["roundDirectories", "authoritative"],
+        message:
+          "Manifesto v2 exige roundDirectories.authoritative=output/case-investigation/<round-id>.",
+      });
+    }
+
+    if (
+      value.roundDirectories?.mirror !==
+      `${TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR}/<round-id>`
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["roundDirectories", "mirror"],
+        message: "Manifesto v2 exige roundDirectories.mirror=investigations/<round-id>.",
+      });
+    }
+
+    if (
+      !value.minimumPath ||
+      value.minimumPath.join("|") !== TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES.join("|")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minimumPath"],
+        message: "Manifesto v2 exige o caminho minimo canonico completo.",
+      });
+    }
+
+    if (!value.stages) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stages"],
+        message: "Manifesto v2 exige a matriz de estagios canonicos.",
+      });
+      return;
+    }
+
+    const requiredPromptConventions: Array<[string, string | undefined]> = [
+      ["resolve-case", value.stages.resolveCase.promptPath],
+      ["assemble-evidence", value.stages.assembleEvidence.promptPath],
+      ["diagnosis", value.stages.diagnosis.promptPath],
+    ];
+
+    for (const [stage, promptPath] of requiredPromptConventions) {
+      if (!promptPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["stages"],
+          message: `Manifesto v2 exige promptPath em ${stage}.`,
+        });
+        continue;
+      }
+
+      const expectedPath = `docs/workflows/target-investigate-case-v2-${stage}.md`;
+      if (promptPath !== expectedPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["stages"],
+          message: `promptPath de ${stage} precisa ser ${expectedPath}.`,
+        });
+      }
+    }
+  });
 
 export const targetInvestigateCasePilotManifestSchema = z
   .object({
@@ -1426,7 +1738,7 @@ export const targetInvestigateCasePilotManifestSchema = z
     capability: z
       .object({
         key: z.literal(TARGET_INVESTIGATE_CASE_CAPABILITY),
-        manifestPath: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+        manifestPath: targetInvestigateCaseManifestPathSchema,
         compatibleRunnerFlow: z.literal("target-investigate-case"),
       })
       .strict(),
@@ -3232,7 +3544,7 @@ const targetInvestigateCaseLegacyEvidenceBundleSchema = z
   .object({
     collection_plan: z
       .object({
-        manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+        manifest_path: targetInvestigateCaseManifestPathSchema,
         strategy_ids: uniqueStringArray(trimmedString, "collection-plan.strategy-ids"),
       })
       .strict(),
@@ -3328,6 +3640,40 @@ export const targetInvestigateCaseEvidenceBundleSchema: z.ZodType<
   unknown
 > = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseEvidenceBundleDocument);
 
+export const targetInvestigateCaseCaseBundleSchema = targetInvestigateCaseEvidenceBundleSchema;
+
+export const targetInvestigateCaseEvidenceIndexSchema = z
+  .object({
+    schema_version: trimmedString,
+    bundle_artifact: relativePathSchema,
+    entries: z
+      .array(
+        z
+          .object({
+            id: trimmedString,
+            locator: trimmedString,
+            acquired_via: trimmedString,
+            relevance: trimmedString,
+          })
+          .strict(),
+      )
+      .min(1),
+    lineage: z
+      .array(
+        z.union([
+          trimmedString,
+          z
+            .record(z.string(), z.unknown())
+            .refine((value) => Object.keys(value).length > 0, {
+              message: "lineage do evidence-index exige ao menos uma propriedade.",
+            }),
+        ]),
+      )
+      .min(1)
+      .optional(),
+  })
+  .strict();
+
 export const targetInvestigateCaseDossierJsonSchema = z
   .object({
     case_ref: trimmedString,
@@ -3394,7 +3740,7 @@ export const targetInvestigateCaseSemanticReviewRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_SCHEMA_VERSION),
     generated_at: trimmedString,
-    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    manifest_path: targetInvestigateCaseManifestPathSchema,
     dossier_local_path: relativePathSchema,
     dossier_request_id: trimmedString.nullable(),
     workflow: targetInvestigateCaseSemanticReviewWorkflowSchema.nullable(),
@@ -3650,7 +3996,7 @@ export const targetInvestigateCaseCausalDebugRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_SCHEMA_VERSION),
     generated_at: trimmedString,
-    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    manifest_path: targetInvestigateCaseManifestPathSchema,
     dossier_local_path: relativePathSchema,
     workflow: targetInvestigateCaseCausalDebugWorkflowSchema.nullable(),
     selected_selectors: z.record(z.string(), trimmedString),
@@ -3812,7 +4158,7 @@ const targetInvestigateCaseLegacyRootCauseReviewRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION),
     generated_at: trimmedString,
-    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    manifest_path: targetInvestigateCaseManifestPathSchema,
     dossier_local_path: relativePathSchema,
     workflow: targetInvestigateCaseCausalDebugWorkflowSchema.nullable(),
     selected_selectors: z.record(z.string(), trimmedString),
@@ -3859,7 +4205,7 @@ const targetInvestigateCaseCurrentRootCauseReviewRequestSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION),
     generated_at: trimmedString,
-    manifest_path: z.literal(TARGET_INVESTIGATE_CASE_MANIFEST_PATH),
+    manifest_path: targetInvestigateCaseManifestPathSchema,
     dossier_local_path: relativePathSchema,
     workflow: targetInvestigateCaseCausalDebugWorkflowSchema.nullable(),
     review_readiness: targetInvestigateCaseRootCauseReviewReadinessSchema,
@@ -4468,6 +4814,12 @@ export type TargetInvestigateCaseCaseResolution = z.infer<
 export type TargetInvestigateCaseEvidenceBundle = z.infer<
   typeof targetInvestigateCaseEvidenceBundleSchema
 >;
+export type TargetInvestigateCaseCaseBundle = z.infer<
+  typeof targetInvestigateCaseCaseBundleSchema
+>;
+export type TargetInvestigateCaseEvidenceIndex = z.infer<
+  typeof targetInvestigateCaseEvidenceIndexSchema
+>;
 export type TargetInvestigateCaseAssessment = z.infer<typeof targetInvestigateCaseAssessmentSchema>;
 export type TargetInvestigateCaseSemanticReviewRequest = z.infer<
   typeof targetInvestigateCaseSemanticReviewRequestSchema
@@ -4511,6 +4863,7 @@ export type TargetInvestigateCaseFinalSummary = z.infer<
 
 export interface TargetInvestigateCaseArtifactSet {
   caseResolutionPath: string;
+  evidenceIndexPath: string;
   evidenceBundlePath: string;
   assessmentPath: string;
   diagnosisJsonPath: string;

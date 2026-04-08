@@ -358,6 +358,7 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
     officialTargetEntrypointScriptPath: "scripts/materialize-case-investigation-round.js",
     artifactPaths: {
       caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+      evidenceIndexPath: "",
       evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
       assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
       diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
@@ -421,6 +422,100 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
   assert.match(capturedPrompt, /"diagnosisMdPath": "investigations\/2026-04-03T19-00-00Z\/diagnosis\.md"/u);
   assert.match(capturedPrompt, /"extract_condominium_info"/u);
   assert.match(capturedPrompt, /"officialTargetEntrypointScriptPath": "scripts\/materialize-case-investigation-round\.js"/u);
+});
+
+test("runTargetInvestigateCaseRoundMaterialization expõe artefatos e namespace canonicos da v2", async () => {
+  let capturedPrompt = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async () =>
+      [
+        "# Prompt",
+        "Manifest: <TARGET_INVESTIGATE_CASE_MANIFEST_PATH>",
+        "Round directory: <TARGET_INVESTIGATE_CASE_ROUND_DIRECTORY>",
+        "Artifacts:",
+        "<TARGET_INVESTIGATE_CASE_ARTIFACT_PATHS_JSON>",
+        "Facts:",
+        "<TARGET_INVESTIGATE_CASE_FACTS_JSON>",
+      ].join("\n"),
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "materialized", stderr: "" };
+    },
+  });
+
+  await client.runTargetInvestigateCaseRoundMaterialization({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-v2-manifest.json",
+    runbookPath: "docs/workflows/target-case-investigation-v2-manifest.json",
+    canonicalCommand:
+      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
+    roundId: "2026-04-03T19-00-00Z",
+    roundDirectory: "output/case-investigation/2026-04-03T19-00-00Z",
+    officialTargetEntrypointCommand: "npm run case-investigation --",
+    officialTargetEntrypointScriptPath: "scripts/materialize-case-investigation-round.js",
+    artifactPaths: {
+      caseResolutionPath: "output/case-investigation/2026-04-03T19-00-00Z/case-resolution.json",
+      evidenceIndexPath: "output/case-investigation/2026-04-03T19-00-00Z/evidence-index.json",
+      evidenceBundlePath: "output/case-investigation/2026-04-03T19-00-00Z/case-bundle.json",
+      assessmentPath: "output/case-investigation/2026-04-03T19-00-00Z/assessment.json",
+      diagnosisJsonPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.json",
+      diagnosisMdPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.md",
+      dossierPath: "output/case-investigation/2026-04-03T19-00-00Z/dossier.md",
+      semanticReviewRequestPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.request.json",
+      semanticReviewResultPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.result.json",
+      causalDebugRequestPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.request.json",
+      causalDebugResultPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.result.json",
+      rootCauseReviewRequestPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.request.json",
+      rootCauseReviewResultPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.result.json",
+      remediationProposalPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/remediation-proposal.json",
+      ticketProposalPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/ticket-proposal.json",
+      publicationDecisionPath:
+        "output/case-investigation/2026-04-03T19-00-00Z/publication-decision.json",
+    },
+    caseRefAuthorities: ["propertyId", "requestId", "runArtifact"],
+    attemptRefAuthorities: ["requestId", "runArtifact", "workflow+window"],
+    targetProjectAcceptedSelectors: [
+      "propertyId",
+      "requestId",
+      "workflow",
+      "window",
+      "runArtifact",
+    ],
+    investigableWorkflows: ["extract_address"],
+    acceptedPurgeIdentifiers: ["propertyId"],
+    dossierLocalPathTemplate: "output/case-investigation/<round-id>",
+    authoritativeDossierLocalPath: "output/case-investigation/2026-04-03T19-00-00Z",
+  });
+
+  assert.match(
+    capturedPrompt,
+    /Manifest: docs\/workflows\/target-case-investigation-v2-manifest\.json/u,
+  );
+  assert.match(
+    capturedPrompt,
+    /Round directory: output\/case-investigation\/2026-04-03T19-00-00Z/u,
+  );
+  assert.match(capturedPrompt, /"evidenceIndexPath": "output\/case-investigation\/2026-04-03T19-00-00Z\/evidence-index\.json"/u);
+  assert.match(capturedPrompt, /"evidenceBundlePath": "output\/case-investigation\/2026-04-03T19-00-00Z\/case-bundle\.json"/u);
+  assert.match(capturedPrompt, /"canonicalCommand": "\/target_investigate_case_v2 alpha-project case-001/u);
+  assert.match(
+    capturedPrompt,
+    /"authoritativeDossierLocalPath": "output\/case-investigation\/2026-04-03T19-00-00Z"/u,
+  );
 });
 
 test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto minimo serializado", async () => {

@@ -271,7 +271,7 @@ export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
 };
 
 export type TargetInvestigateCaseFlowSummary = TargetFlowSummaryBase<
-  "target-investigate-case",
+  "target-investigate-case" | "target-investigate-case-v2",
   TargetInvestigateCaseMilestone,
   TargetInvestigateCaseFinalSummary,
   TargetInvestigateCaseFlowCompletionReason

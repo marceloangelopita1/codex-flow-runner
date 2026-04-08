@@ -9749,32 +9749,33 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
               roundDirectory: "investigations/2026-04-03T19-00-00Z",
               canonicalCommand:
                 "/target_investigate_case beta-target case-001 --workflow billing-core --request-id req-001",
-	              artifactPaths: {
-	                caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
-	                evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
-	                assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
-	                diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
-	                diagnosisMdPath: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
-	                dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
-	                semanticReviewRequestPath:
-	                  "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
-	                semanticReviewResultPath:
-	                  "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
-	                causalDebugRequestPath:
-	                  "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
-	                causalDebugResultPath:
-	                  "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
-	                rootCauseReviewRequestPath:
-	                  "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
-	                rootCauseReviewResultPath:
-	                  "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
-	                remediationProposalPath:
-	                  "investigations/2026-04-03T19-00-00Z/remediation-proposal.json",
-	                ticketProposalPath:
-	                  "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
-	                publicationDecisionPath:
-	                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
-	              },
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+                evidenceIndexPath: "",
+                evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+                diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+                diagnosisMdPath: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
+                dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T19-00-00Z/semantic-review.result.json",
+                causalDebugRequestPath:
+                  "investigations/2026-04-03T19-00-00Z/causal-debug.request.json",
+                causalDebugResultPath:
+                  "investigations/2026-04-03T19-00-00Z/causal-debug.result.json",
+                rootCauseReviewRequestPath:
+                  "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
+                rootCauseReviewResultPath:
+                  "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
+                remediationProposalPath:
+                  "investigations/2026-04-03T19-00-00Z/remediation-proposal.json",
+                ticketProposalPath:
+                  "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T19-00-00Z/publication-decision.json",
+              },
               realizedArtifactPaths: [
                 "investigations/2026-04-03T19-00-00Z/assessment.json",
                 "investigations/2026-04-03T19-00-00Z/case-resolution.json",
@@ -10017,6 +10018,89 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
   assert.equal(flowSummaries[0]?.summary?.overall_outcome, "no-real-gap");
 });
 
+test("requestTargetInvestigateCase preserva flow e comando v2 no lifecycle ativo e no resumo final", async () => {
+  const logger = new SpyLogger();
+  const roundDependencies = createRoundDependencies({
+    activeProject: activeProjectA,
+    queue: defaultQueue,
+    codexClient: new StubCodexClient(),
+    gitVersioning: new StubGitVersioning(),
+  });
+  const release = createDeferred<void>();
+  const milestoneEvents: string[] = [];
+  const { flowSummaries, runFlowEventHandlers } = createFlowSummaryCollector();
+  const runner = createRunner(logger, roundDependencies, {
+    runnerOptions: {
+      runFlowEventHandlers,
+      targetFlowEventHandlers: {
+        onMilestone: async (event) => {
+          milestoneEvents.push(`${event.flow}:${event.command}:${event.milestone}`);
+        },
+      },
+      targetInvestigateCaseExecutor: {
+        execute: async (request, hooks) => {
+          assert.notEqual(typeof request.input, "string");
+          if (typeof request.input === "string" || !("canonicalCommand" in request.input)) {
+            throw new Error("unexpected string input");
+          }
+          assert.match(request.input.canonicalCommand, /^\/target_investigate_case_v2 /u);
+          const targetProject = {
+            name: "beta-target",
+            path: "/home/mapita/projetos/beta-target",
+          };
+          await hooks?.onMilestone?.({
+            flow: "target-investigate-case-v2",
+            command: "/target_investigate_case_v2",
+            targetProject,
+            milestone: "preflight",
+            milestoneLabel: "preflight",
+            message: "Preflight concluido para beta-target.",
+            versionBoundaryState: "before-versioning",
+            recordedAtUtc: "2026-04-03T19:10:00.000Z",
+          });
+          await release.promise;
+          return {
+            status: "cancelled" as const,
+            summary: {
+              targetProject,
+              roundId: "2026-04-03T19-10-00Z",
+              roundDirectory: "output/case-investigation/2026-04-03T19-10-00Z",
+              artifactPaths: [],
+              cancelledAtMilestone: "preflight" as const,
+              nextAction: "Reexecute quando quiser continuar a investigacao v2.",
+              versionBoundaryState: "before-versioning" as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const started = await runner.requestTargetInvestigateCase(
+    "/target_investigate_case_v2 beta-target case-001 --workflow extract_address --request-id req-001",
+  );
+
+  assert.deepEqual(started, {
+    status: "started",
+    message: "Execucao /target_investigate_case_v2 iniciada para beta-target.",
+  });
+  assert.equal(runner.getState().targetFlow?.flow, "target-investigate-case-v2");
+  assert.equal(runner.getState().targetFlow?.command, "/target_investigate_case_v2");
+  assert.equal(runner.getState().activeSlots[0]?.kind, "target-investigate-case-v2");
+  assert.equal(runner.getState().phase, "target-investigate-case-v2-preflight");
+  assert.deepEqual(milestoneEvents, [
+    "target-investigate-case-v2:/target_investigate_case_v2:preflight",
+  ]);
+
+  release.resolve();
+  await waitForTargetFlowToClose(runner, 1000);
+  await waitForFlowSummaryCount(flowSummaries, 1, 1000);
+
+  assert.equal(flowSummaries[0]?.flow, "target-investigate-case-v2");
+  assert.equal(flowSummaries[0]?.command, "/target_investigate_case_v2");
+  assert.equal(flowSummaries[0]?.outcome, "cancelled");
+});
+
 test("requestTargetInvestigateCase propaga falha estrutural de semantic-review com artefatos reais", async () => {
   const logger = new SpyLogger();
   const roundDependencies = createRoundDependencies({
@@ -10165,32 +10249,33 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
               roundDirectory: "investigations/2026-04-03T20-00-00Z",
               canonicalCommand:
                 `/target_investigate_case ${normalized.projectName} ${normalized.caseRef}`,
-	              artifactPaths: {
-	                caseResolutionPath: "investigations/2026-04-03T20-00-00Z/case-resolution.json",
-	                evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
-	                assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
-	                diagnosisJsonPath: "investigations/2026-04-03T20-00-00Z/diagnosis.json",
-	                diagnosisMdPath: "investigations/2026-04-03T20-00-00Z/diagnosis.md",
-	                dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
-	                semanticReviewRequestPath:
-	                  "investigations/2026-04-03T20-00-00Z/semantic-review.request.json",
-	                semanticReviewResultPath:
-	                  "investigations/2026-04-03T20-00-00Z/semantic-review.result.json",
-	                causalDebugRequestPath:
-	                  "investigations/2026-04-03T20-00-00Z/causal-debug.request.json",
-	                causalDebugResultPath:
-	                  "investigations/2026-04-03T20-00-00Z/causal-debug.result.json",
-	                rootCauseReviewRequestPath:
-	                  "investigations/2026-04-03T20-00-00Z/root-cause-review.request.json",
-	                rootCauseReviewResultPath:
-	                  "investigations/2026-04-03T20-00-00Z/root-cause-review.result.json",
-	                remediationProposalPath:
-	                  "investigations/2026-04-03T20-00-00Z/remediation-proposal.json",
-	                ticketProposalPath:
-	                  "investigations/2026-04-03T20-00-00Z/ticket-proposal.json",
-	                publicationDecisionPath:
-	                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
-	              },
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T20-00-00Z/case-resolution.json",
+                evidenceIndexPath: "",
+                evidenceBundlePath: "investigations/2026-04-03T20-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T20-00-00Z/assessment.json",
+                diagnosisJsonPath: "investigations/2026-04-03T20-00-00Z/diagnosis.json",
+                diagnosisMdPath: "investigations/2026-04-03T20-00-00Z/diagnosis.md",
+                dossierPath: "investigations/2026-04-03T20-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T20-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T20-00-00Z/semantic-review.result.json",
+                causalDebugRequestPath:
+                  "investigations/2026-04-03T20-00-00Z/causal-debug.request.json",
+                causalDebugResultPath:
+                  "investigations/2026-04-03T20-00-00Z/causal-debug.result.json",
+                rootCauseReviewRequestPath:
+                  "investigations/2026-04-03T20-00-00Z/root-cause-review.request.json",
+                rootCauseReviewResultPath:
+                  "investigations/2026-04-03T20-00-00Z/root-cause-review.result.json",
+                remediationProposalPath:
+                  "investigations/2026-04-03T20-00-00Z/remediation-proposal.json",
+                ticketProposalPath:
+                  "investigations/2026-04-03T20-00-00Z/ticket-proposal.json",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T20-00-00Z/publication-decision.json",
+              },
               realizedArtifactPaths: [
                 "investigations/2026-04-03T20-00-00Z/assessment.json",
                 "investigations/2026-04-03T20-00-00Z/case-resolution.json",
@@ -10486,32 +10571,33 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
               roundId: "2026-04-03T21-00-00Z",
               roundDirectory: "investigations/2026-04-03T21-00-00Z",
               canonicalCommand: "/target_investigate_case alpha-project case-001",
-	              artifactPaths: {
-	                caseResolutionPath: "investigations/2026-04-03T21-00-00Z/case-resolution.json",
-	                evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
-	                assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
-	                diagnosisJsonPath: "investigations/2026-04-03T21-00-00Z/diagnosis.json",
-	                diagnosisMdPath: "investigations/2026-04-03T21-00-00Z/diagnosis.md",
-	                dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
-	                semanticReviewRequestPath:
-	                  "investigations/2026-04-03T21-00-00Z/semantic-review.request.json",
-	                semanticReviewResultPath:
-	                  "investigations/2026-04-03T21-00-00Z/semantic-review.result.json",
-	                causalDebugRequestPath:
-	                  "investigations/2026-04-03T21-00-00Z/causal-debug.request.json",
-	                causalDebugResultPath:
-	                  "investigations/2026-04-03T21-00-00Z/causal-debug.result.json",
-	                rootCauseReviewRequestPath:
-	                  "investigations/2026-04-03T21-00-00Z/root-cause-review.request.json",
-	                rootCauseReviewResultPath:
-	                  "investigations/2026-04-03T21-00-00Z/root-cause-review.result.json",
-	                ticketProposalPath:
-	                  "investigations/2026-04-03T21-00-00Z/ticket-proposal.json",
-	                publicationDecisionPath:
-	                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
-	                remediationProposalPath:
-	                  "investigations/2026-04-03T21-00-00Z/remediation-proposal.json",
-	              },
+              artifactPaths: {
+                caseResolutionPath: "investigations/2026-04-03T21-00-00Z/case-resolution.json",
+                evidenceIndexPath: "",
+                evidenceBundlePath: "investigations/2026-04-03T21-00-00Z/evidence-bundle.json",
+                assessmentPath: "investigations/2026-04-03T21-00-00Z/assessment.json",
+                diagnosisJsonPath: "investigations/2026-04-03T21-00-00Z/diagnosis.json",
+                diagnosisMdPath: "investigations/2026-04-03T21-00-00Z/diagnosis.md",
+                dossierPath: "investigations/2026-04-03T21-00-00Z/dossier.md",
+                semanticReviewRequestPath:
+                  "investigations/2026-04-03T21-00-00Z/semantic-review.request.json",
+                semanticReviewResultPath:
+                  "investigations/2026-04-03T21-00-00Z/semantic-review.result.json",
+                causalDebugRequestPath:
+                  "investigations/2026-04-03T21-00-00Z/causal-debug.request.json",
+                causalDebugResultPath:
+                  "investigations/2026-04-03T21-00-00Z/causal-debug.result.json",
+                rootCauseReviewRequestPath:
+                  "investigations/2026-04-03T21-00-00Z/root-cause-review.request.json",
+                rootCauseReviewResultPath:
+                  "investigations/2026-04-03T21-00-00Z/root-cause-review.result.json",
+                ticketProposalPath:
+                  "investigations/2026-04-03T21-00-00Z/ticket-proposal.json",
+                publicationDecisionPath:
+                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
+                remediationProposalPath:
+                  "investigations/2026-04-03T21-00-00Z/remediation-proposal.json",
+              },
               realizedArtifactPaths: [
                 "investigations/2026-04-03T21-00-00Z/assessment.json",
                 "investigations/2026-04-03T21-00-00Z/case-resolution.json",

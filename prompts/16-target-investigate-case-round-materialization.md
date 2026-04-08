@@ -1,12 +1,12 @@
-# Prompt: Materializar rodada real do `/target_investigate_case` no projeto alvo
+# Prompt: Materializar rodada real do `/target_investigate_case_v2` no projeto alvo
 
-Você está executando apenas a materialização da rodada real de `case-investigation` no repositório alvo atual.
+Você está executando apenas a materialização da rodada real de `case-investigation` no repositório alvo atual, seguindo o contrato explicito da v2 quando o manifesto/facts assim declararem.
 
 Objetivo:
 - consumir somente a capability declarada pelo projeto alvo;
 - acionar primeiro o entrypoint oficial do projeto alvo quando ele estiver declarado no manifesto;
-- tratar o dossier local oficial do alvo como fonte autoritativa dos artefatos da rodada;
-- preparar `investigations/<round-id>/` como um espelho runner-side desses artefatos autoritativos;
+- tratar `output/case-investigation/<round-id>/` do alvo como fonte autoritativa dos artefatos da rodada quando esse namespace estiver declarado nos fatos;
+- tratar `investigations/<round-id>/` apenas como espelho runner-side quando ele existir;
 - produzir exatamente os artefatos canônicos exigidos pelo runner, com `diagnosis.md` e `diagnosis.json` como artefatos principais operator-facing;
 - quando a capability declarar `semanticReview`, emitir apenas o packet bounded `semantic-review.request.json` no mesmo diretório da rodada;
 - deixar a decisão final de publication para o runner.
@@ -17,14 +17,15 @@ Regras obrigatórias:
 - Não descubra logs, buckets, comandos, scripts ou superfícies fora do que estiver declarado nesses artefatos.
 - Não adivinhe tentativa específica: resolva-a explicitamente ou registre ausência explícita quando o caso não puder ser desambiguado com segurança.
 - Use apenas selectors, workflows, superfícies e identificadores de purge presentes nas allowlists serializadas neste prompt.
-- Quando houver entrypoint oficial e dossier local autoritativo declarados, execute esse entrypoint para materializar a rodada oficial do alvo antes de tocar `investigations/<round-id>/`.
-- Se o dossier local autoritativo do alvo existir, copie os artefatos canônicos dele para `investigations/<round-id>/` sem reescrever semântica, sem enriquecer enums e sem reinterpretar o conteúdo.
+- Quando houver entrypoint oficial e namespace autoritativo declarados, execute esse entrypoint para materializar a rodada oficial do alvo antes de tocar qualquer espelho runner-side.
+- Se o namespace autoritativo do alvo existir, copie os artefatos canônicos dele para o espelho runner-side somente quando os fatos desta rodada pedirem esse espelho, sem reescrever semântica, sem enriquecer enums e sem reinterpretar o conteúdo.
 - `diagnosis.md` e `diagnosis.json` devem existir como dupla primária do diagnóstico; `assessment.json` e `dossier.*` continuam apenas como artefatos auxiliares de compatibilidade enquanto o runner ainda depende deles.
-- O diretório `investigations/<round-id>/` deve ser um espelho runner-side do pacote final do alvo, não uma segunda implementação criativa do `assessment`.
+- `investigations/<round-id>/`, quando existir, deve ser apenas um espelho runner-side do pacote final do alvo, não uma segunda implementação criativa do `assessment`.
 - Se usar replay, mantenha `updateDb=false`, `x-request-id` dedicado, `dryRun` antes de qualquer purge efetivo e registre isso nos artefatos da rodada.
 - Grave exatamente estes artefatos canônicos no diretório informado:
   - `case-resolution.json`
-  - `evidence-bundle.json`
+  - `evidence-index.json`
+  - `case-bundle.json`
   - `assessment.json`
   - `diagnosis.json`
   - `diagnosis.md`

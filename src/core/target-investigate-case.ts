@@ -19,6 +19,7 @@ import {
   targetInvestigateCaseCausalDebugResultSchema,
   targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseDossierJsonSchema,
+  targetInvestigateCaseEvidenceIndexSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseFinalSummarySchema,
   targetInvestigateCaseNormalizedInputSchema,
@@ -37,6 +38,7 @@ import {
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
+  TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
@@ -45,6 +47,11 @@ import {
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR,
+  TARGET_INVESTIGATE_CASE_V2_COMMAND,
+  TARGET_INVESTIGATE_CASE_V2_FLOW,
+  TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR,
   TargetInvestigateCaseCaseResolution,
   TargetInvestigateCaseCausalDebugRequest,
   TargetInvestigateCaseCausalDebugResult,
@@ -71,7 +78,7 @@ import {
   TargetInvestigateCaseTracePayload,
 } from "../types/target-investigate-case.js";
 import {
-  TARGET_INVESTIGATE_CASE_MILESTONE_LABELS,
+  renderTargetFlowMilestoneLabel,
   TargetFlowVersionBoundaryState,
   TargetInvestigateCaseMilestone,
   targetFlowKindToCommand,
@@ -88,6 +95,7 @@ export interface TargetInvestigateCaseInput {
 
 export interface TargetInvestigateCaseArtifactPaths {
   caseResolutionPath: string;
+  evidenceIndexPath: string;
   evidenceBundlePath: string;
   assessmentPath: string;
   diagnosisJsonPath: string;
@@ -277,10 +285,37 @@ const OPTIONAL_FLAG_ORDER = [
 
 const PROHIBITED_TRACE_TOKENS = ["workflow_debug", "db_payload", "transcript"];
 
+const TARGET_INVESTIGATE_CASE_ACCEPTED_COMMANDS = [
+  TARGET_INVESTIGATE_CASE_COMMAND,
+  TARGET_INVESTIGATE_CASE_V2_COMMAND,
+] as const;
+
+const isTargetInvestigateCaseV2Command = (commandText: string): boolean =>
+  commandText.trim().startsWith(`${TARGET_INVESTIGATE_CASE_V2_COMMAND} `) ||
+  commandText.trim() === TARGET_INVESTIGATE_CASE_V2_COMMAND;
+
+const resolveTargetInvestigateCaseManifestPath = (
+  canonicalCommand?: string,
+): string =>
+  canonicalCommand && isTargetInvestigateCaseV2Command(canonicalCommand)
+    ? TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH
+    : TARGET_INVESTIGATE_CASE_MANIFEST_PATH;
+
+const isTargetInvestigateCaseV2Manifest = (
+  manifest: TargetInvestigateCaseManifest,
+  manifestPath: string,
+): boolean =>
+  manifest.flow === TARGET_INVESTIGATE_CASE_V2_FLOW ||
+  manifest.command === TARGET_INVESTIGATE_CASE_V2_COMMAND ||
+  manifestPath === TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
+
 export const loadTargetInvestigateCaseManifest = async (
   projectPath: string,
+  options?: {
+    canonicalCommand?: string;
+  },
 ): Promise<TargetInvestigateCaseManifestLoadResult> => {
-  const manifestPath = TARGET_INVESTIGATE_CASE_MANIFEST_PATH;
+  const manifestPath = resolveTargetInvestigateCaseManifestPath(options?.canonicalCommand);
   const absolutePath = path.join(projectPath, ...manifestPath.split("/"));
   let raw = "";
 
@@ -356,12 +391,18 @@ export const parseTargetInvestigateCaseCommand = (
   const tokens = tokenizeCommand(commandText);
   if (tokens.length < 3) {
     throw new Error(
-      `Use ${TARGET_INVESTIGATE_CASE_COMMAND} <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...].`,
+      `Use ${TARGET_INVESTIGATE_CASE_V2_COMMAND} <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...] ou ${TARGET_INVESTIGATE_CASE_COMMAND} <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...].`,
     );
   }
 
-  if (tokens[0] !== TARGET_INVESTIGATE_CASE_COMMAND) {
-    throw new Error(`Comando invalido: esperado ${TARGET_INVESTIGATE_CASE_COMMAND}.`);
+  const command = tokens[0] ?? "";
+  if (
+    command !== TARGET_INVESTIGATE_CASE_COMMAND &&
+    command !== TARGET_INVESTIGATE_CASE_V2_COMMAND
+  ) {
+    throw new Error(
+      `Comando invalido: esperado ${TARGET_INVESTIGATE_CASE_V2_COMMAND} ou ${TARGET_INVESTIGATE_CASE_COMMAND}.`,
+    );
   }
 
   const input: TargetInvestigateCaseInput = {
@@ -401,13 +442,23 @@ export const parseTargetInvestigateCaseCommand = (
     index += 1;
   }
 
-  return normalizeTargetInvestigateCaseInput(input);
+  const normalized = normalizeTargetInvestigateCaseInput(input);
+  return targetInvestigateCaseNormalizedInputSchema.parse({
+    ...normalized,
+    canonicalCommand: renderTargetInvestigateCaseCommand(normalized, { command }),
+  });
 };
 
 export const renderTargetInvestigateCaseCommand = (
-  input: Omit<TargetInvestigateCaseNormalizedInput, "canonicalCommand"> | TargetInvestigateCaseNormalizedInput,
+  input:
+    | Omit<TargetInvestigateCaseNormalizedInput, "canonicalCommand">
+    | TargetInvestigateCaseNormalizedInput,
+  options?: {
+    command?: typeof TARGET_INVESTIGATE_CASE_ACCEPTED_COMMANDS[number];
+  },
 ): string => {
-  const parts = [TARGET_INVESTIGATE_CASE_COMMAND, input.projectName.trim(), input.caseRef.trim()];
+  const command = options?.command ?? TARGET_INVESTIGATE_CASE_COMMAND;
+  const parts = [command, input.projectName.trim(), input.caseRef.trim()];
 
   for (const [key, flag] of OPTIONAL_FLAG_ORDER) {
     const value = input[key];
@@ -422,15 +473,19 @@ export const renderTargetInvestigateCaseCommand = (
 export const evaluateTargetInvestigateCaseRound = async (
   request: TargetInvestigateCaseEvaluationRequest,
 ): Promise<TargetInvestigateCaseEvaluationResult> => {
-  const manifestLoad = await loadTargetInvestigateCaseManifest(request.targetProject.path);
-  if (manifestLoad.status !== "loaded") {
-    throw new Error(manifestLoad.reason);
-  }
-
   const normalizedInput =
     typeof request.input === "string"
       ? parseTargetInvestigateCaseCommand(request.input)
-      : normalizeTargetInvestigateCaseInput(request.input);
+      : "canonicalCommand" in request.input
+        ? targetInvestigateCaseNormalizedInputSchema.parse(request.input)
+        : normalizeTargetInvestigateCaseInput(request.input);
+
+  const manifestLoad = await loadTargetInvestigateCaseManifest(request.targetProject.path, {
+    canonicalCommand: normalizedInput.canonicalCommand,
+  });
+  if (manifestLoad.status !== "loaded") {
+    throw new Error(manifestLoad.reason);
+  }
 
   if (normalizedInput.projectName !== request.targetProject.name) {
     throw new Error(
@@ -446,11 +501,21 @@ export const evaluateTargetInvestigateCaseRound = async (
     normalizedInput,
     roundId: path.posix.basename(path.posix.dirname(artifactPaths.caseResolutionPath)),
   });
+  if (
+    await relativePathExists(request.targetProject.path, artifactPaths.evidenceIndexPath)
+  ) {
+    await readJsonArtifact(
+      request.targetProject.path,
+      artifactPaths.evidenceIndexPath,
+      targetInvestigateCaseEvidenceIndexSchema,
+      path.posix.basename(artifactPaths.evidenceIndexPath),
+    );
+  }
   const evidenceBundle = await readJsonArtifact(
     request.targetProject.path,
     artifactPaths.evidenceBundlePath,
     targetInvestigateCaseEvidenceBundleSchema,
-    "evidence-bundle.json",
+    path.posix.basename(artifactPaths.evidenceBundlePath),
   );
   const assessment = await readJsonArtifact(
     request.targetProject.path,
@@ -965,14 +1030,18 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       targetProject = await this.dependencies.targetProjectResolver.resolveProject(
         normalizedInput.projectName,
         {
-          commandLabel: TARGET_INVESTIGATE_CASE_COMMAND,
+          commandLabel: isTargetInvestigateCaseV2Command(normalizedInput.canonicalCommand)
+            ? TARGET_INVESTIGATE_CASE_V2_COMMAND
+            : TARGET_INVESTIGATE_CASE_COMMAND,
         },
       );
     } catch (error) {
       return mapTargetInvestigateCaseResolutionError(error);
     }
 
-    const manifestLoad = await loadTargetInvestigateCaseManifest(targetProject.path);
+    const manifestLoad = await loadTargetInvestigateCaseManifest(targetProject.path, {
+      canonicalCommand: normalizedInput.canonicalCommand,
+    });
     if (manifestLoad.status === "missing") {
       return {
         status: "blocked",
@@ -991,10 +1060,22 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
 
     const startedAt = this.now();
     const roundId = buildTargetInvestigateCaseRoundId(startedAt);
-    const roundDirectory = normalizeTargetInvestigateCaseRelativePath(
-      path.join(TARGET_INVESTIGATE_CASE_ROUNDS_DIR, roundId),
+    const isV2Contract = isTargetInvestigateCaseV2Manifest(
+      manifestLoad.manifest,
+      manifestLoad.manifestPath,
     );
-    let artifactPaths = buildTargetInvestigateCaseArtifactSet(roundDirectory);
+    const flowKind = isV2Contract
+      ? ("target-investigate-case-v2" as const)
+      : ("target-investigate-case" as const);
+    const roundDirectory = buildTargetInvestigateCaseRoundDirectory(
+      roundId,
+      manifestLoad.manifest,
+      manifestLoad.manifestPath,
+    );
+    let artifactPaths = buildTargetInvestigateCaseArtifactSet(
+      roundDirectory,
+      manifestLoad.manifest,
+    );
     let finalVersionBoundaryState: TargetFlowVersionBoundaryState = "before-versioning";
 
     await fs.mkdir(path.join(targetProject.path, ...roundDirectory.split("/")), {
@@ -1023,6 +1104,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
+      flow: flowKind,
       targetProject,
       milestone: "preflight",
       message: `Preflight concluido para ${targetProject.name}.`,
@@ -1071,13 +1153,14 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
 
     if (preparation.status === "failed") {
       return buildFailure({
-        failedAtMilestone: preparation.failedAtMilestone ?? "case-resolution",
+        failedAtMilestone:
+          preparation.failedAtMilestone ?? (isV2Contract ? "resolve-case" : "case-resolution"),
         failureSurface: preparation.failureSurface ?? "round-materialization",
         failureKind: preparation.failureKind ?? "artifact-validation-failed",
         message: preparation.message,
         nextAction:
           preparation.nextAction ??
-          "Revise a materializacao local da rodada e rerode /target_investigate_case.",
+          `Revise a materializacao local da rodada e rerode ${isV2Contract ? TARGET_INVESTIGATE_CASE_V2_COMMAND : TARGET_INVESTIGATE_CASE_COMMAND}.`,
       });
     }
 
@@ -1090,8 +1173,9 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
+      flow: flowKind,
       targetProject,
-      milestone: "case-resolution",
+      milestone: isV2Contract ? "resolve-case" : "case-resolution",
       message: `Resolucao de caso pronta para ${normalizedInput.caseRef}.`,
       versionBoundaryState: "before-versioning",
       now: this.now,
@@ -1104,7 +1188,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       );
     } catch (error) {
       return buildFailure({
-        failedAtMilestone: "case-resolution",
+        failedAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
         failureSurface: "round-materialization",
         failureKind: "artifact-validation-failed",
         message: error instanceof Error ? error.message : String(error),
@@ -1118,33 +1202,41 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         roundId,
         roundDirectory,
         artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
-        cancelledAtMilestone: "case-resolution",
+        cancelledAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
         versionBoundaryState: "before-versioning",
       });
     }
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
+      flow: flowKind,
       targetProject,
-      milestone: "evidence-collection",
+      milestone: isV2Contract ? "assemble-evidence" : "evidence-collection",
       message: `Coleta de evidencias pronta para ${normalizedInput.caseRef}.`,
       versionBoundaryState: "before-versioning",
       now: this.now,
     });
     try {
+      if (artifactPaths.evidenceIndexPath) {
+        await assertRelativeArtifactExists(
+          targetProject.path,
+          artifactPaths.evidenceIndexPath,
+          TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+        );
+      }
       await assertRelativeArtifactExists(
         targetProject.path,
         artifactPaths.evidenceBundlePath,
-        "evidence-bundle.json",
+        path.posix.basename(artifactPaths.evidenceBundlePath),
       );
     } catch (error) {
       return buildFailure({
-        failedAtMilestone: "evidence-collection",
+        failedAtMilestone: isV2Contract ? "assemble-evidence" : "evidence-collection",
         failureSurface: "round-materialization",
         failureKind: "artifact-validation-failed",
         message: error instanceof Error ? error.message : String(error),
         nextAction:
-          "Garanta que evidence-bundle.json seja materializado no namespace canonico antes de rerodar.",
+          `Garanta que ${artifactPaths.evidenceIndexPath ? `${TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT} e ` : ""}${path.posix.basename(artifactPaths.evidenceBundlePath)} sejam materializados no namespace canonico antes de rerodar.`,
       });
     }
     if (hooks?.isCancellationRequested?.()) {
@@ -1153,15 +1245,16 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         roundId,
         roundDirectory,
         artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
-        cancelledAtMilestone: "evidence-collection",
+        cancelledAtMilestone: isV2Contract ? "assemble-evidence" : "evidence-collection",
         versionBoundaryState: "before-versioning",
       });
     }
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
+      flow: flowKind,
       targetProject,
-      milestone: "assessment",
+      milestone: isV2Contract ? "diagnosis" : "assessment",
       message: `Diagnostico diagnosis-first pronto para ${normalizedInput.caseRef}.`,
       versionBoundaryState: "before-versioning",
       now: this.now,
@@ -1185,7 +1278,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       await assertRelativeArtifactExists(targetProject.path, artifactPaths.dossierPath, "dossier");
     } catch (error) {
       return buildFailure({
-        failedAtMilestone: "assessment",
+        failedAtMilestone: isV2Contract ? "diagnosis" : "assessment",
         failureSurface: "round-materialization",
         failureKind: "artifact-validation-failed",
         message: error instanceof Error ? error.message : String(error),
@@ -1199,13 +1292,14 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         roundId,
         roundDirectory,
         artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
-        cancelledAtMilestone: "assessment",
+        cancelledAtMilestone: isV2Contract ? "diagnosis" : "assessment",
         versionBoundaryState: "before-versioning",
       });
     }
 
     await emitTargetInvestigateCaseMilestone({
       hooks,
+      flow: flowKind,
       targetProject,
       milestone: "publication",
       message: `Publication runner-side em avaliacao para ${normalizedInput.caseRef}.`,
@@ -1228,6 +1322,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
           finalVersionBoundaryState = "after-versioning";
           await emitTargetInvestigateCaseMilestone({
             hooks,
+            flow: flowKind,
             targetProject,
             milestone: "publication",
             message: `Publication cruzou a fronteira de versionamento para ${normalizedInput.caseRef}.`,
@@ -2798,6 +2893,9 @@ const normalizeArtifactPaths = (
   paths: TargetInvestigateCaseArtifactPaths,
 ): Required<TargetInvestigateCaseArtifactPaths> => {
   const caseResolutionPath = normalizeRelativePath(paths.caseResolutionPath, "caseResolutionPath");
+  const evidenceIndexPath = paths.evidenceIndexPath
+    ? normalizeRelativePath(paths.evidenceIndexPath, "evidenceIndexPath")
+    : "";
   const evidenceBundlePath = normalizeRelativePath(paths.evidenceBundlePath, "evidenceBundlePath");
   const assessmentPath = normalizeRelativePath(paths.assessmentPath, "assessmentPath");
   const diagnosisJsonPath = normalizeRelativePath(paths.diagnosisJsonPath, "diagnosisJsonPath");
@@ -2858,6 +2956,7 @@ const normalizeArtifactPaths = (
 
   return {
     caseResolutionPath,
+    evidenceIndexPath,
     evidenceBundlePath,
     assessmentPath,
     diagnosisJsonPath,
@@ -3116,17 +3215,45 @@ const normalizeTargetInvestigateCaseExecuteInput = (
 const buildTargetInvestigateCaseRoundId = (value: Date): string =>
   value.toISOString().replace(/\.\d{3}Z$/u, "Z").replace(/:/gu, "-");
 
+const buildTargetInvestigateCaseRoundDirectory = (
+  roundId: string,
+  manifest: TargetInvestigateCaseManifest,
+  manifestPath: string,
+): string => {
+  if (isTargetInvestigateCaseV2Manifest(manifest, manifestPath)) {
+    const authoritativeTemplate =
+      manifest.roundDirectories?.authoritative ??
+      `${TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR}/<round-id>`;
+    return normalizeTargetInvestigateCaseRelativePath(
+      authoritativeTemplate.replace(/<round-id>/gu, roundId).replace(/<request-id>/gu, roundId),
+    );
+  }
+
+  return normalizeTargetInvestigateCaseRelativePath(
+    path.join(TARGET_INVESTIGATE_CASE_ROUNDS_DIR, roundId),
+  );
+};
+
 const buildTargetInvestigateCaseArtifactSet = (
   roundDirectory: string,
+  manifest?: TargetInvestigateCaseManifest,
 ): TargetInvestigateCaseArtifactSet => ({
   caseResolutionPath: normalizeTargetInvestigateCaseRelativePath(
-    path.join(roundDirectory, "case-resolution.json"),
+    path.join(roundDirectory, manifest?.outputs.caseResolution.artifactPath ?? "case-resolution.json"),
   ),
+  evidenceIndexPath: manifest?.outputs.evidenceIndex?.artifactPath
+    ? normalizeTargetInvestigateCaseRelativePath(
+        path.join(roundDirectory, manifest.outputs.evidenceIndex.artifactPath),
+      )
+    : "",
   evidenceBundlePath: normalizeTargetInvestigateCaseRelativePath(
-    path.join(roundDirectory, "evidence-bundle.json"),
+    path.join(
+      roundDirectory,
+      manifest?.outputs.evidenceBundle.artifactPath ?? "evidence-bundle.json",
+    ),
   ),
   assessmentPath: normalizeTargetInvestigateCaseRelativePath(
-    path.join(roundDirectory, "assessment.json"),
+    path.join(roundDirectory, manifest?.outputs.assessment.artifactPath ?? "assessment.json"),
   ),
   diagnosisJsonPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, "diagnosis.json"),
@@ -3134,7 +3261,9 @@ const buildTargetInvestigateCaseArtifactSet = (
   diagnosisMdPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, "diagnosis.md"),
   ),
-  dossierPath: normalizeTargetInvestigateCaseRelativePath(path.join(roundDirectory, "dossier.md")),
+  dossierPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, manifest?.outputs.dossier.preferredArtifact ?? "dossier.md"),
+  ),
   semanticReviewRequestPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT),
   ),
@@ -3166,6 +3295,7 @@ const buildTargetInvestigateCaseArtifactSet = (
 
 const emitTargetInvestigateCaseMilestone = async (params: {
   hooks?: TargetInvestigateCaseLifecycleHooks;
+  flow: "target-investigate-case" | "target-investigate-case-v2";
   targetProject: ProjectRef;
   milestone: TargetInvestigateCaseMilestone;
   message: string;
@@ -3173,11 +3303,11 @@ const emitTargetInvestigateCaseMilestone = async (params: {
   now: () => Date;
 }): Promise<void> => {
   await params.hooks?.onMilestone?.({
-    flow: "target-investigate-case",
-    command: targetFlowKindToCommand("target-investigate-case"),
+    flow: params.flow,
+    command: targetFlowKindToCommand(params.flow),
     targetProject: params.targetProject,
     milestone: params.milestone,
-    milestoneLabel: TARGET_INVESTIGATE_CASE_MILESTONE_LABELS[params.milestone],
+    milestoneLabel: renderTargetFlowMilestoneLabel(params.flow, params.milestone),
     message: params.message,
     versionBoundaryState: params.versionBoundaryState,
     recordedAtUtc: params.now().toISOString(),
@@ -3214,6 +3344,10 @@ const listExistingTargetInvestigateCaseArtifacts = async (
 };
 
 const relativePathExists = async (projectPath: string, relativePath: string): Promise<boolean> => {
+  if (!relativePath.trim()) {
+    return false;
+  }
+
   try {
     await fs.access(path.join(projectPath, ...relativePath.split("/")));
     return true;

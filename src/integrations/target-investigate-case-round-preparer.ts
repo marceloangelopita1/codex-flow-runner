@@ -15,16 +15,22 @@ import {
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseDossierJsonSchema,
+  targetInvestigateCaseEvidenceIndexSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseRootCauseReviewRequestSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
+  TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_V2_COMMAND,
+  TARGET_INVESTIGATE_CASE_V2_FLOW,
+  TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseCausalDebugRequest,
   TargetInvestigateCaseFailureKind,
@@ -89,6 +95,10 @@ class TargetInvestigateCaseRoundPreparationFailureError extends Error {
 
 const buildRoundPreparationFailedResult = (
   error: unknown,
+  options?: {
+    commandLabel?: string;
+    failedAtMilestone?: TargetInvestigateCaseMilestone;
+  },
 ): Extract<TargetInvestigateCaseRoundPreparationResult, { status: "failed" }> => {
   if (error instanceof TargetInvestigateCaseRoundPreparationFailureError) {
     return {
@@ -106,9 +116,9 @@ const buildRoundPreparationFailedResult = (
     message: error instanceof Error ? error.message : String(error),
     failureSurface: "round-materialization",
     failureKind: "artifact-validation-failed",
-    failedAtMilestone: "case-resolution",
+    failedAtMilestone: options?.failedAtMilestone ?? "case-resolution",
     nextAction:
-      "Revise os artefatos canonicos materializados nesta rodada antes de rerodar /target_investigate_case.",
+      `Revise os artefatos canonicos materializados nesta rodada antes de rerodar ${options?.commandLabel ?? "/target_investigate_case"}.`,
   };
 };
 
@@ -143,6 +153,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       request.manifest.dossierPolicy.localPathTemplate,
       request.roundId,
     );
+    const isV2Contract = request.manifest.flow === TARGET_INVESTIGATE_CASE_V2_FLOW;
+    const commandLabel = isV2Contract
+      ? TARGET_INVESTIGATE_CASE_V2_COMMAND
+      : TARGET_INVESTIGATE_CASE_COMMAND;
 
     try {
       await fixedCodexClient.runTargetInvestigateCaseRoundMaterialization({
@@ -171,9 +185,9 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         message: error instanceof Error ? error.message : String(error),
         failureSurface: "round-materialization",
         failureKind: "codex-execution-failed",
-        failedAtMilestone: "case-resolution",
+        failedAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
         nextAction:
-          "Revise a execucao runner-side da materializacao inicial e rerode /target_investigate_case.",
+          `Revise a execucao runner-side da materializacao inicial e rerode ${commandLabel}.`,
       };
     }
 
@@ -195,11 +209,19 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           });
         },
       });
+      if (request.artifactPaths.evidenceIndexPath) {
+        await readJsonArtifact(
+          request.targetProject.path,
+          request.artifactPaths.evidenceIndexPath,
+          targetInvestigateCaseEvidenceIndexSchema,
+          TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+        );
+      }
       await readJsonArtifact(
         request.targetProject.path,
         request.artifactPaths.evidenceBundlePath,
         targetInvestigateCaseEvidenceBundleSchema,
-        "evidence-bundle.json",
+        path.posix.basename(request.artifactPaths.evidenceBundlePath),
       );
       await readJsonArtifact(
         request.targetProject.path,
@@ -218,21 +240,32 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         request.artifactPaths.diagnosisMdPath,
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
-      await this.completeSemanticReviewIfSupported(
-        request,
-        fixedCodexClient,
-        authoritativeDossierLocalPath,
-      );
-      await this.completeCausalDebugIfSupported(
-        request,
-        fixedCodexClient,
-        authoritativeDossierLocalPath,
-      );
-      await this.completeRootCauseReviewIfSupported(
-        request,
-        fixedCodexClient,
-        authoritativeDossierLocalPath,
-      );
+      if (isV2Contract) {
+        this.dependencies.logger.info(
+          "Contrato v2 detectado: semantic-review, causal-debug e root-cause-review permanecem opcionais e nao sao disparados automaticamente no caminho minimo",
+          {
+            targetProjectName: request.targetProject.name,
+            roundId: request.roundId,
+            authoritativeRoundDirectory: authoritativeDossierLocalPath,
+          },
+        );
+      } else {
+        await this.completeSemanticReviewIfSupported(
+          request,
+          fixedCodexClient,
+          authoritativeDossierLocalPath,
+        );
+        await this.completeCausalDebugIfSupported(
+          request,
+          fixedCodexClient,
+          authoritativeDossierLocalPath,
+        );
+        await this.completeRootCauseReviewIfSupported(
+          request,
+          fixedCodexClient,
+          authoritativeDossierLocalPath,
+        );
+      }
       await readJsonArtifact(
         request.targetProject.path,
         request.artifactPaths.assessmentPath,
@@ -251,7 +284,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
     } catch (error) {
-      return buildRoundPreparationFailedResult(error);
+      return buildRoundPreparationFailedResult(error, {
+        commandLabel,
+        failedAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
+      });
     }
 
     return {
@@ -1530,7 +1566,14 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
       destinationPath: request.artifactPaths.caseResolutionPath,
     },
     {
-      sourcePath: path.posix.join(authoritativeDossierLocalPath, "evidence-bundle.json"),
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT),
+      destinationPath: request.artifactPaths.evidenceIndexPath,
+    },
+    {
+      sourcePath: path.posix.join(
+        authoritativeDossierLocalPath,
+        path.posix.basename(request.artifactPaths.evidenceBundlePath),
+      ),
       destinationPath: request.artifactPaths.evidenceBundlePath,
     },
     {
@@ -1604,13 +1647,34 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
     },
   ];
 
+  const mirrorArtifactCopies =
+    request.manifest.flow === TARGET_INVESTIGATE_CASE_V2_FLOW
+      ? artifactMirrors
+          .filter((artifactMirror) => artifactMirror.destinationPath)
+          .map((artifactMirror) => ({
+            sourcePath: artifactMirror.sourcePath,
+            destinationPath: normalizeTargetInvestigateCaseRelativePath(
+              path.posix.join(
+                TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR,
+                request.roundId,
+                path.posix.basename(artifactMirror.destinationPath),
+              ),
+            ),
+          }))
+      : [];
+
   for (const destinationPath of uniquePaths(
-    artifactMirrors.map((artifactMirror) => artifactMirror.destinationPath),
+    [...artifactMirrors, ...mirrorArtifactCopies]
+      .filter((artifactMirror) => artifactMirror.destinationPath !== artifactMirror.sourcePath)
+      .map((artifactMirror) => artifactMirror.destinationPath),
   )) {
     await removeRelativePathIfExists(request.targetProject.path, destinationPath);
   }
 
-  for (const artifactMirror of artifactMirrors) {
+  for (const artifactMirror of [...artifactMirrors, ...mirrorArtifactCopies]) {
+    if (!artifactMirror.destinationPath || artifactMirror.destinationPath === artifactMirror.sourcePath) {
+      continue;
+    }
     if (!(await relativePathExists(request.targetProject.path, artifactMirror.sourcePath))) {
       continue;
     }

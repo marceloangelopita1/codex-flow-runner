@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 ainda não existe como contrato runner-side nem como caminho mínimo diagnosis-first
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -38,9 +38,9 @@
 - Inherited pending/manual validations (when applicable):
   - validar o contrato de manifesto v2 e os novos schemas canônicos no runner;
   - validar a separação entre namespace autoritativo do target e espelho runner-side durante migração.
-- Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): N/A
-- Smallest plausible explanation (audit/review only): N/A
-- Remediation scope (audit/review only): N/A
+- Workflow root cause (required for tickets created from workflow retrospectives or post-implementation audit/review): execution
+- Smallest plausible explanation (audit/review only): a implementacao adicionou o contrato v2, o namespace autoritativo e o caminho minimo diagnosis-first, mas deixou `lineage` efetivamente observavel apenas em `diagnosis.json` e `evidence-index.json`; `case-resolution.json` segue normalizado sem prova explicita de `lineage`, e `case-bundle.json` ainda reaproveita o schema estrito legado sem esse campo.
+- Remediation scope (audit/review only): local
 - Related artifacts:
   - Request file: docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md
   - Response file: docs/workflows/target-case-investigation-manifest.json
@@ -136,8 +136,23 @@ O runner deve expor `target-investigate-case-v2` como contrato próprio, com com
 - 2026-04-08 - Ownership dividido com fronteira observável: este ticket fica dono do contrato, manifesto, estágios e caminho mínimo; o ticket irmão de diagnosis fica dono do conteúdo/UX diagnosis-first; o ticket irmão de continuações opcionais fica dono dos adaptadores tardios e guardrails de migração.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-08 23:48Z
+- Closure reason: split-follow-up
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`; commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): tickets/open/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+- Final decision: NO_GO
+- Closure evidence:
+  - Critério `RF-01, RF-09, RF-10, RF-11, CA-01`: `src/types/target-investigate-case.ts`, `src/types/target-flow.ts` e `src/core/target-investigate-case.test.ts` aceitam `target-investigate-case-v2` / `/target_investigate_case_v2`, validam exatamente os estágios `resolve-case`, `assemble-evidence`, `diagnosis`, `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication`, e rejeitam `case-resolution` como estágio canônico legado fora do conjunto.
+  - Critério `RF-02, RF-05, RF-09, RF-11, CA-06`: `docs/workflows/target-case-investigation-v2-manifest.json` e `src/types/target-investigate-case.ts` tornam o manifesto v2 a fonte de verdade cross-repo com `owner`, `runnerExecutor`, `artifacts`, `policy`, `promptPath` canônico e `publicationPolicy.semanticAuthority = "target-project"` / `finalPublicationAuthority = "runner"`; `src/core/target-investigate-case.test.ts` valida o carregamento desse contrato.
+  - Critério `RF-06, RF-07, RF-12, RF-13, RF-14, CA-02, CA-04`: `src/core/target-investigate-case.test.ts` e `src/integrations/target-investigate-case-round-preparer.test.ts` provam o caminho `preflight -> resolve-case -> assemble-evidence -> diagnosis`, a materialização de `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json`, e a ausência de disparo automático de `semantic-review`, `causal-debug` e `root-cause-review` no contrato v2.
+  - Critério `RF-23, RF-24, RF-25, parcela runner-side de CA-06`: parcial. `src/integrations/target-investigate-case-round-preparer.test.ts` comprova `output/case-investigation/<round-id>/` como namespace autoritativo e `investigations/<round-id>/` apenas como espelho secundário, mas a exigência de `lineage` não ficou completa: `src/types/target-investigate-case.ts` não valida `lineage` em `case-resolution.json`, e `targetInvestigateCaseCaseBundleSchema` ainda reusa o schema estrito de `evidence-bundle.json` sem `lineage`. Os testes atuais só deixam `lineage` objetivamente coberta em `diagnosis.json` e `evidence-index.json`.
+  - Critério `validações pendentes herdadas`: o manifesto v2, os novos schemas e a separação entre namespace autoritativo e espelho ficaram validados; a validação runner-side de `lineage` em `case-resolution.json` e `case-bundle.json` permaneceu incompleta.
+  - Critério `validação automatizada do pacote`: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` -> `exit 0` (a suíte executou `src/**/*.test.ts` e reportou `624` testes passando); `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> `exit 0`.
+- NO_GO rationale:
+  - o pacote ficou tecnicamente consistente para contrato v2, manifesto, caminho mínimo e namespace;
+  - o aceite deste ticket exigia cobertura positiva de `lineage` em `case-resolution.json`, `case-bundle.json` e `diagnosis.json`, sem consolidação substitutiva;
+  - a evidência atual não fecha `case-resolution.json` nem `case-bundle.json`, então o ticket não atende integralmente o closure criterion explícito de `RF-23`.
+- Root cause taxonomy: `execution`
+- Remediation scope: `local`
+- Manual validation pending recorded on closed ticket: nao

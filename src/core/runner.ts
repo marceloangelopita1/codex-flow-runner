@@ -3024,7 +3024,10 @@ export class TicketRunner {
     commandText: string,
   ): Promise<TargetInvestigateCaseRequestResult> => {
     const trimmedCommand = commandText.trim();
-    this.logger.info("Solicitacao de /target_investigate_case recebida", {
+    const requestedCommand = trimmedCommand.startsWith("/target_investigate_case_v2")
+      ? "/target_investigate_case_v2"
+      : "/target_investigate_case";
+    this.logger.info(`Solicitacao de ${requestedCommand} recebida`, {
       commandText: trimmedCommand,
       phase: this.state.phase,
       isRunning: this.state.isRunning,
@@ -3038,13 +3041,13 @@ export class TicketRunner {
     });
 
     if (this.isShuttingDown) {
-      return this.buildShutdownBlockedResult("/target_investigate_case");
+      return this.buildShutdownBlockedResult(requestedCommand);
     }
 
     if (!this.targetInvestigateCaseExecutor) {
       return {
         status: "failed",
-        message: "Executor de /target_investigate_case nao configurado nesta instancia do runner.",
+        message: `Executor de ${requestedCommand} nao configurado nesta instancia do runner.`,
       };
     }
 
@@ -3226,10 +3229,17 @@ export class TicketRunner {
   private async startTargetInvestigateCaseFlow(
     normalizedInput: ReturnType<typeof parseTargetInvestigateCaseCommand>,
   ): Promise<TargetInvestigateCaseRequestResult> {
+    const command = normalizedInput.canonicalCommand.startsWith("/target_investigate_case_v2")
+      ? "/target_investigate_case_v2"
+      : "/target_investigate_case";
+    const flow =
+      command === "/target_investigate_case_v2"
+        ? ("target-investigate-case-v2" as const)
+        : ("target-investigate-case" as const);
     const startedAt = this.now();
     const reservation = this.reserveTargetFlowProjectSlot({
-      command: "/target_investigate_case",
-      flow: "target-investigate-case",
+      command,
+      flow,
       projectName: normalizedInput.projectName,
       projectPath: null,
       startedAt,
@@ -3242,7 +3252,7 @@ export class TicketRunner {
       TargetInvestigateCaseMilestone,
       TargetInvestigateCaseExecutionResult
     >({
-      flow: "target-investigate-case",
+      flow,
       startedAt,
       reservation: reservation.reservation,
       inputs: {
@@ -3274,7 +3284,7 @@ export class TicketRunner {
 
     return {
       status: "started",
-      message: `Execucao /target_investigate_case iniciada para ${active.targetProject.name}.`,
+      message: `Execucao ${command} iniciada para ${active.targetProject.name}.`,
     };
   }
 
@@ -3560,17 +3570,18 @@ export class TicketRunner {
     }
 
     const activeTargetFlow = resolution.targetFlow;
+    const activeCommand = activeTargetFlow.command;
     if (activeTargetFlow.versionBoundaryState === "after-versioning") {
       return {
         status: "late",
-        message: `${command} ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.`,
+        message: `${activeCommand} ja cruzou a fronteira de versionamento; cancelamento tardio nao sera aplicado automaticamente.`,
       };
     }
 
     if (!activeTargetFlow.cancelRequestedAt) {
       activeTargetFlow.cancelRequestedAt = this.now();
       activeTargetFlow.updatedAt = this.now();
-      activeTargetFlow.lastMessage = `Cancelamento solicitado para ${command}.`;
+      activeTargetFlow.lastMessage = `Cancelamento solicitado para ${activeCommand}.`;
       this.syncStateFromSlots();
       this.state.lastMessage = activeTargetFlow.lastMessage;
       this.state.updatedAt = activeTargetFlow.updatedAt;
@@ -3578,7 +3589,7 @@ export class TicketRunner {
 
     return {
       status: "accepted",
-      message: `Cancelamento de ${command} solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.`,
+      message: `Cancelamento de ${activeCommand} solicitado. O fluxo sera encerrado no proximo checkpoint seguro antes de versionar.`,
     };
   }
 
@@ -3874,8 +3885,8 @@ export class TicketRunner {
 
     if (result.status === "completed") {
       return {
-        flow: "target-investigate-case",
-        command: "/target_investigate_case",
+        flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+        command: active.command,
         outcome: "success",
         finalStage: "publication",
         completionReason: "completed",
@@ -3901,8 +3912,8 @@ export class TicketRunner {
 
     if (result.status === "cancelled") {
       return {
-        flow: "target-investigate-case",
-        command: "/target_investigate_case",
+        flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+        command: active.command,
         outcome: "cancelled",
         finalStage: result.summary.cancelledAtMilestone,
         completionReason: "cancelled",
@@ -3914,14 +3925,14 @@ export class TicketRunner {
         artifactPaths: [...result.summary.artifactPaths],
         versionedArtifactPaths: [],
         details:
-          `Cancelado em ${renderTargetFlowMilestoneLabel("target-investigate-case", result.summary.cancelledAtMilestone)}.`,
+          `Cancelado em ${renderTargetFlowMilestoneLabel(active.flow, result.summary.cancelledAtMilestone)}.`,
         timing,
       };
     }
 
     return {
-      flow: "target-investigate-case",
-      command: "/target_investigate_case",
+      flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+      command: active.command,
       outcome: result.status === "blocked" ? "blocked" : "failure",
       finalStage:
         result.status === "failed"
@@ -4071,6 +4082,31 @@ export class TicketRunner {
         return "target-investigate-case-assessment";
       }
       return "target-investigate-case-publication";
+    }
+
+    if (flow === "target-investigate-case-v2") {
+      if (milestone === "preflight") {
+        return "target-investigate-case-v2-preflight";
+      }
+      if (milestone === "resolve-case") {
+        return "target-investigate-case-v2-resolve-case";
+      }
+      if (milestone === "assemble-evidence") {
+        return "target-investigate-case-v2-assemble-evidence";
+      }
+      if (milestone === "diagnosis") {
+        return "target-investigate-case-v2-diagnosis";
+      }
+      if (milestone === "deep-dive") {
+        return "target-investigate-case-v2-deep-dive";
+      }
+      if (milestone === "improvement-proposal") {
+        return "target-investigate-case-v2-improvement-proposal";
+      }
+      if (milestone === "ticket-projection") {
+        return "target-investigate-case-v2-ticket-projection";
+      }
+      return "target-investigate-case-v2-publication";
     }
 
     if (milestone === "preflight") {
@@ -12411,10 +12447,15 @@ export class TicketRunner {
         status: "ambiguous";
         message: string;
       } {
+    const matchesFlow = (candidateFlow: TargetFlowKind): boolean =>
+      flow === "target-investigate-case"
+        ? candidateFlow === "target-investigate-case" ||
+          candidateFlow === "target-investigate-case-v2"
+        : candidateFlow === flow;
     const activeProjectName = this.state.activeProject?.name;
     if (activeProjectName) {
       const scopedTargetFlow = this.activeTargetFlows.get(this.buildTargetSlotKey(activeProjectName));
-      if (scopedTargetFlow?.flow === flow) {
+      if (scopedTargetFlow && matchesFlow(scopedTargetFlow.flow)) {
         return {
           status: "active",
           targetFlow: scopedTargetFlow,
@@ -12422,7 +12463,9 @@ export class TicketRunner {
       }
     }
 
-    const matchingTargetFlows = this.getActiveTargetFlows().filter((targetFlow) => targetFlow.flow === flow);
+    const matchingTargetFlows = this.getActiveTargetFlows().filter((targetFlow) =>
+      matchesFlow(targetFlow.flow),
+    );
     if (matchingTargetFlows.length === 0) {
       return { status: "inactive" };
     }
@@ -12480,6 +12523,10 @@ export class TicketRunner {
       return "/target_investigate_case";
     }
 
+    if (kind === "target-investigate-case-v2") {
+      return "/target_investigate_case_v2";
+    }
+
     return "/plan_spec";
   }
 
@@ -12498,7 +12545,11 @@ export class TicketRunner {
 
   private mapTargetFlowKindToSlotKind(flow: TargetFlowKind): Extract<
     RunnerSlotKind,
-    "target-prepare" | "target-checkup" | "target-derive" | "target-investigate-case"
+    | "target-prepare"
+    | "target-checkup"
+    | "target-derive"
+    | "target-investigate-case"
+    | "target-investigate-case-v2"
   > {
     if (flow === "target-prepare") {
       return "target-prepare";
@@ -12510,6 +12561,10 @@ export class TicketRunner {
 
     if (flow === "target-derive") {
       return "target-derive";
+    }
+
+    if (flow === "target-investigate-case-v2") {
+      return "target-investigate-case-v2";
     }
 
     return "target-investigate-case";

@@ -9,7 +9,12 @@ import {
   TargetInvestigateCaseTicketPublicationRequest,
 } from "../core/target-investigate-case.js";
 import { ProjectRef } from "../types/project.js";
-import { targetInvestigateCaseManifestSchema } from "../types/target-investigate-case.js";
+import {
+  targetInvestigateCaseManifestSchema,
+  TARGET_INVESTIGATE_CASE_V2_COMMAND,
+  TARGET_INVESTIGATE_CASE_V2_FLOW,
+  TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
+} from "../types/target-investigate-case.js";
 import {
   TargetInvestigateCaseCausalDebugCodexRequest,
   TargetInvestigateCaseRootCauseReviewCodexRequest,
@@ -526,6 +531,190 @@ test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo 
     ),
   ) as { review_readiness?: { status?: string } };
   assert.equal(mirroredSemanticReviewRequest.review_readiness?.status, "blocked");
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigation como namespace autoritativo v2 e nao dispara a cadeia opcional", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.manifest = targetInvestigateCaseManifestSchema.parse({
+    ...fixture.request.manifest,
+    flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
+    command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
+    outputs: {
+      ...fixture.request.manifest.outputs,
+      evidenceIndex: {
+        artifactPath: "evidence-index.json",
+        schemaVersion: "1.0",
+      },
+      evidenceBundle: {
+        artifactPath: "case-bundle.json",
+        schemaVersion: "1.0",
+      },
+    },
+    dossierPolicy: {
+      ...fixture.request.manifest.dossierPolicy,
+      localPathTemplate: "output/case-investigation/<round-id>",
+    },
+    publicationPolicy: {
+      ...fixture.request.manifest.publicationPolicy,
+      semanticAuthority: "target-project",
+      finalPublicationAuthority: "runner",
+    },
+    roundDirectories: {
+      authoritative: "output/case-investigation/<round-id>",
+      mirror: "investigations/<round-id>",
+    },
+    minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
+    stages: {
+      resolveCase: {
+        stage: "resolve-case",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-resolve-case.md",
+        artifacts: ["case-resolution.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      assembleEvidence: {
+        stage: "assemble-evidence",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+        artifacts: ["evidence-index.json", "case-bundle.json"],
+        policy: {
+          declaredSurfacesOnly: true,
+        },
+      },
+      diagnosis: {
+        stage: "diagnosis",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
+        artifacts: ["diagnosis.md", "diagnosis.json", "assessment.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      deepDive: {
+        stage: "deep-dive",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["deep-dive.request.json", "deep-dive.result.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      improvementProposal: {
+        stage: "improvement-proposal",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["improvement-proposal.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      ticketProjection: {
+        stage: "ticket-projection",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["ticket-proposal.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      publication: {
+        stage: "publication",
+        owner: "codex-flow-runner",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["publication-decision.json"],
+        policy: {
+          semanticAuthority: "target-project",
+          finalPublicationAuthority: "runner",
+        },
+      },
+    },
+    semanticReview: undefined,
+    causalDebug: undefined,
+    rootCauseReview: undefined,
+  });
+  fixture.request.manifestPath = TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
+  fixture.request.normalizedInput = {
+    ...fixture.request.normalizedInput,
+    canonicalCommand:
+      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
+  };
+  fixture.request.roundDirectory = "output/case-investigation/2026-04-03T19-00-00Z";
+  fixture.request.artifactPaths = {
+    ...fixture.request.artifactPaths,
+    caseResolutionPath: "output/case-investigation/2026-04-03T19-00-00Z/case-resolution.json",
+    evidenceIndexPath: "output/case-investigation/2026-04-03T19-00-00Z/evidence-index.json",
+    evidenceBundlePath: "output/case-investigation/2026-04-03T19-00-00Z/case-bundle.json",
+    assessmentPath: "output/case-investigation/2026-04-03T19-00-00Z/assessment.json",
+    diagnosisJsonPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.json",
+    diagnosisMdPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.md",
+    dossierPath: "output/case-investigation/2026-04-03T19-00-00Z/dossier.md",
+    semanticReviewRequestPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.request.json",
+    semanticReviewResultPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.result.json",
+    causalDebugRequestPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.request.json",
+    causalDebugResultPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.result.json",
+    rootCauseReviewRequestPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.request.json",
+    rootCauseReviewResultPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.result.json",
+    remediationProposalPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/remediation-proposal.json",
+    ticketProposalPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/ticket-proposal.json",
+    publicationDecisionPath:
+      "output/case-investigation/2026-04-03T19-00-00Z/publication-decision.json",
+  };
+
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeV2RoundArtifacts(request.targetProject.path, request.roundDirectory);
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "prepared", JSON.stringify(result));
+  if (result.status !== "prepared") {
+    return;
+  }
+
+  assert.equal(result.dossierPath, "output/case-investigation/2026-04-03T19-00-00Z/dossier.md");
+  assert.equal(codexClient.semanticReviewCalls.length, 0);
+  assert.equal(codexClient.causalDebugCalls.length, 0);
+  assert.equal(codexClient.rootCauseReviewCalls.length, 0);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "evidence-index.json",
+      ),
+    ),
+    true,
+  );
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "case-bundle.json",
+      ),
+    ),
+    true,
+  );
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando semantic-review.request.json esta ausente", async () => {
@@ -1485,6 +1674,7 @@ const createRoundPreparerFixture = async (): Promise<{
       roundDirectory: "investigations/2026-04-03T19-00-00Z",
       artifactPaths: {
         caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+        evidenceIndexPath: "",
         evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
         assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
         diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
@@ -1758,6 +1948,207 @@ const materializeRoundArtifacts = async (
   if (semanticReviewStatus) {
     await writeSemanticReviewRequest(projectPath, roundDirectory, semanticReviewStatus);
   }
+};
+
+const materializeV2RoundArtifacts = async (
+  projectPath: string,
+  roundDirectory: string,
+): Promise<void> => {
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  await fs.mkdir(roundPath, { recursive: true });
+  await fs.writeFile(
+    path.join(roundPath, "case-resolution.json"),
+    JSON.stringify(
+      {
+        case_ref: "case-001",
+        selectors: {
+          workflow: "extract_address",
+          request_id: "req-001",
+        },
+        resolved_case: {
+          ref: "case-001",
+          summary: "Caso resolvido no namespace autoritativo v2.",
+        },
+        attempt_resolution: {
+          status: "absent-explicitly",
+          attempt_ref: null,
+          reason: "Nao ha tentativa segura para desambiguar o caso.",
+        },
+        relevant_workflows: ["extract_address"],
+        replay_decision: {
+          status: "not-required",
+          reason: "Base historica suficiente.",
+        },
+        resolution_reason: "O caso foi resolvido sem depender da cadeia repo-aware opcional.",
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "evidence-index.json"),
+    JSON.stringify(
+      {
+        schema_version: "evidence_index_v1",
+        bundle_artifact: `${roundDirectory}/case-bundle.json`,
+        entries: [
+          {
+            id: "historical-bundle",
+            locator: `${roundDirectory}/case-bundle.json`,
+            acquired_via: "manifest-guided-collection",
+            relevance: "Bundle curado necessario para o diagnostico.",
+          },
+        ],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "case-bundle.json"),
+    JSON.stringify(
+      {
+        collection_plan: {
+          manifest_path: "docs/workflows/target-case-investigation-v2-manifest.json",
+          strategy_ids: ["allowed-query-1"],
+        },
+        historical_sources: [
+          {
+            source_id: "local-run-bundle",
+            surface: "local-artifacts",
+            consulted: true,
+          },
+        ],
+        sensitive_artifact_refs: [
+          {
+            ref: "dossier-ref",
+            path: `${roundDirectory}/dossier.md`,
+            sha256: "a".repeat(64),
+            record_count: 1,
+          },
+        ],
+        replay: {
+          used: false,
+          mode: "historical-only",
+          request_id: null,
+          update_db: null,
+          include_workflow_debug: null,
+          cache_policy: null,
+          purge_policy: null,
+          namespace: null,
+        },
+        collection_sufficiency: "strong",
+        normative_conflicts: [],
+        factual_sufficiency_reason: "A rodada reuniu evidencia suficiente no contrato v2.",
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "assessment.json"),
+    JSON.stringify(
+      {
+        houve_gap_real: "no",
+        era_evitavel_internamente: "not_applicable",
+        merece_ticket_generalizavel: "not_applicable",
+        confidence: "high",
+        evidence_sufficiency: "strong",
+        causal_surface: {
+          owner: "target-project",
+          kind: "expected-behavior",
+          summary: "O caso confirma o comportamento esperado no contrato v2.",
+          actionable: false,
+          systems: ["extract_address"],
+        },
+        generalization_basis: [],
+        overfit_vetoes: [],
+        ticket_decision_reason: "Nao ha gap real para publication.",
+        publication_recommendation: {
+          recommended_action: "do_not_publish",
+          reason: "Caso valido sem gap real.",
+          proposed_ticket_scope: "Nenhum ticket necessario.",
+          suggested_title: "Nao publicar ticket para este caso.",
+        },
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.json"),
+    JSON.stringify(
+      {
+        schema_version: "diagnosis_v1",
+        bundle_artifact: `${roundDirectory}/case-bundle.json`,
+        verdict: "ok",
+        summary: "O caso esta OK no contrato v2.",
+        why: "A evidencia diagnosis-first confirmou comportamento esperado.",
+        expected_behavior: "Preservar o comportamento esperado do workflow extract_address.",
+        observed_behavior: "O bundle autoritativo nao mostra desvio funcional.",
+        confidence: "high",
+        behavior_to_change: "Nenhuma correcao necessaria para este caso.",
+        probable_fix_surface: ["N/A"],
+        evidence_used: [
+          {
+            ref: "dossier-ref",
+            path: `${roundDirectory}/case-bundle.json`,
+            summary: "Bundle principal usado no diagnostico.",
+          },
+        ],
+        next_action: "Encerrar a rodada sem publication automatica.",
+        lineage: [
+          {
+            source: "legacy-target-investigate-case",
+            artifact: "assessment.json",
+            path: `${roundDirectory}/assessment.json`,
+          },
+        ],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.md"),
+    [
+      "# Veredito",
+      "O caso esta OK no contrato v2.",
+      "",
+      "# Workflow avaliado",
+      "extract_address",
+      "",
+      "# Objetivo esperado",
+      "Preservar o comportamento esperado do workflow extract_address.",
+      "",
+      "# O que a evidência mostra",
+      "O case-bundle.json e o evidence-index.json ficaram coerentes.",
+      "",
+      "# Por que o caso está ok ou não está",
+      "Nao ha divergencia funcional relevante nesta rodada.",
+      "",
+      "# Comportamento que precisa mudar",
+      "Nenhuma correcao necessaria para este caso.",
+      "",
+      "# Superfície provável de correção",
+      "N/A",
+      "",
+      "# Próxima ação",
+      "Encerrar a rodada sem publication automatica.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "dossier.md"),
+    "# dossier\n\nResumo local e sensivel sob retencao controlada.\n",
+    "utf8",
+  );
 };
 
 const materializeRichRoundArtifacts = async (
