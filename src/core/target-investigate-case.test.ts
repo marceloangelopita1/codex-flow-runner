@@ -35,8 +35,10 @@ import {
   TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_DEFAULT_SELECTION_BASIS_VALUES,
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES,
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
   TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES,
   TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES,
@@ -174,7 +176,19 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   ]);
   assert.equal(
     loaded.manifest.caseResolutionPolicy.currentStateSelection?.requiresAlignedFocus,
+    false,
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.defaultSelectionBasis,
+    TARGET_INVESTIGATE_CASE_CURRENT_STATE_DEFAULT_SELECTION_BASIS_VALUES[0],
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.divergenceRemainsObservable,
     true,
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.latestIneligiblePolicy,
+    TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES[0],
   );
   assert.deepEqual(
     loaded.manifest.caseResolutionPolicy.currentStateSelection?.focusAwareMembers,
@@ -291,6 +305,45 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   ]);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.targetProjectOwnsRootCauseDecision, true);
   assert.equal(loaded.manifest.rootCauseReview?.reviewPolicy.narrativeLanguage, "pt-BR");
+});
+
+test("loadTargetInvestigateCaseManifest preserva retrocompatibilidade com currentStateSelection hardenizado legado", async () => {
+  const fixture = await createTargetRepoFixture({
+    manifestDocument: buildCurrentPilotManifestFixture({
+      mutateManifest: (manifest) => {
+        manifest.caseResolution.attemptCandidates.currentStateSelection = {
+          requiresAlignedFocus: true,
+          focusAwareMembers: [...TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES],
+          acceptedExplicitAuthoritiesToBreakAmbiguity: [
+            ...TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
+          ],
+        };
+      },
+    }),
+  });
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path);
+  assert.equal(loaded.status, "loaded");
+  if (loaded.status !== "loaded") {
+    return;
+  }
+
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.requiresAlignedFocus,
+    true,
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.defaultSelectionBasis,
+    undefined,
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.divergenceRemainsObservable,
+    undefined,
+  );
+  assert.equal(
+    loaded.manifest.caseResolutionPolicy.currentStateSelection?.latestIneligiblePolicy,
+    undefined,
+  );
 });
 
 test("loadTargetInvestigateCaseManifest prioriza erros do manifesto pilot quando o documento rico atual esta invalido", async () => {
@@ -3407,7 +3460,10 @@ const buildCurrentPilotManifestFixture = (options: {
 } = {}): any => {
   const manifest = buildPilotManifestFixture();
   manifest.caseResolution.attemptCandidates.currentStateSelection = {
-    requiresAlignedFocus: true,
+    requiresAlignedFocus: false,
+    defaultSelectionBasis: TARGET_INVESTIGATE_CASE_CURRENT_STATE_DEFAULT_SELECTION_BASIS_VALUES[0],
+    divergenceRemainsObservable: true,
+    latestIneligiblePolicy: TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES[0],
     focusAwareMembers: [...TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES],
     acceptedExplicitAuthoritiesToBreakAmbiguity: [
       ...TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,

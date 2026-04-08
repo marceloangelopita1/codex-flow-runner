@@ -290,6 +290,14 @@ export const TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES = u
   ["--symptom", "--request-id", "--run-artifact"] as const,
   "current-state-explicit-authorities",
 );
+export const TARGET_INVESTIGATE_CASE_CURRENT_STATE_DEFAULT_SELECTION_BASIS_VALUES = uniqueValues(
+  ["recency"] as const,
+  "current-state-default-selection-basis",
+);
+export const TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES = uniqueValues(
+  ["require-replay-or-explicit-override"] as const,
+  "current-state-latest-ineligible-policy",
+);
 export const TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_READINESS_STATUS_VALUES = uniqueValues(
   ["ready", "blocked"] as const,
   "semantic-review-readiness-status",
@@ -577,6 +585,12 @@ const currentStateFocusAwareMemberSchema = z.enum(
 const currentStateExplicitAuthoritySchema = z.enum(
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
 );
+const currentStateDefaultSelectionBasisSchema = z.enum(
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_DEFAULT_SELECTION_BASIS_VALUES,
+);
+const currentStateLatestIneligiblePolicySchema = z.enum(
+  TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES,
+);
 
 const selectorValueSchema = trimmedString;
 const jsonPointerSchema = trimmedString.refine((value) => value.startsWith("/"), {
@@ -597,7 +611,10 @@ export const targetInvestigateCaseNormalizedInputSchema = z
 
 const targetInvestigateCaseManifestCurrentStateSelectionSchema = z
   .object({
-    requiresAlignedFocus: z.literal(true),
+    requiresAlignedFocus: z.boolean(),
+    defaultSelectionBasis: currentStateDefaultSelectionBasisSchema.optional(),
+    divergenceRemainsObservable: z.literal(true).optional(),
+    latestIneligiblePolicy: currentStateLatestIneligiblePolicySchema.optional(),
     focusAwareMembers: uniqueNonEmptyArray(
       currentStateFocusAwareMemberSchema,
       "caseResolution.attemptCandidates.currentStateSelection.focusAwareMembers",
@@ -607,7 +624,42 @@ const targetInvestigateCaseManifestCurrentStateSelectionSchema = z
       "caseResolution.attemptCandidates.currentStateSelection.acceptedExplicitAuthoritiesToBreakAmbiguity",
     ),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const richPolicyFields = [
+      "defaultSelectionBasis",
+      "divergenceRemainsObservable",
+      "latestIneligiblePolicy",
+    ] as const;
+    const presentRichPolicyFieldCount = richPolicyFields.filter(
+      (field) => value[field] !== undefined,
+    ).length;
+
+    if (
+      presentRichPolicyFieldCount > 0 &&
+      presentRichPolicyFieldCount < richPolicyFields.length
+    ) {
+      richPolicyFields.forEach((field) => {
+        if (value[field] === undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message:
+              "currentStateSelection exige a trilha completa da policy rica quando um desses membros estiver presente.",
+          });
+        }
+      });
+    }
+
+    if (value.requiresAlignedFocus === false && presentRichPolicyFieldCount === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["requiresAlignedFocus"],
+        message:
+          "currentStateSelection com requiresAlignedFocus=false exige policy explicita de recency/fallback.",
+      });
+    }
+  });
 
 const targetInvestigateCaseManifestOperationalErrorSurfaceSchema = z
   .object({
@@ -1709,6 +1761,15 @@ const normalizePilotManifestToInternal = (
             requiresAlignedFocus:
               manifest.caseResolution.attemptCandidates.currentStateSelection
                 .requiresAlignedFocus,
+            defaultSelectionBasis:
+              manifest.caseResolution.attemptCandidates.currentStateSelection
+                .defaultSelectionBasis,
+            divergenceRemainsObservable:
+              manifest.caseResolution.attemptCandidates.currentStateSelection
+                .divergenceRemainsObservable,
+            latestIneligiblePolicy:
+              manifest.caseResolution.attemptCandidates.currentStateSelection
+                .latestIneligiblePolicy,
             focusAwareMembers: [
               ...manifest.caseResolution.attemptCandidates.currentStateSelection
                 .focusAwareMembers,
