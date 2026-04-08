@@ -1,0 +1,462 @@
+# [SPEC] /target_investigate_case_v2 diagnosis-first com contrato explícito entre runner e target project
+
+## Metadata
+- Spec ID: 2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction
+- Status: approved
+- Spec treatment: pending
+- Owner: mapita
+- Created at (UTC): 2026-04-08 20:25Z
+- Last reviewed at (UTC): 2026-04-08 21:12Z
+- Source: technical-evolution
+- Related tickets:
+  - nenhum ainda
+- Related execplans:
+  - nenhum ainda
+- Related commits:
+  - local changeset not yet committed
+- Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
+
+## Objetivo e contexto
+- Problema que esta spec resolve:
+  o desenho atual de `/target_investigate_case` ficou estruturalmente pesado demais para responder a pergunta principal de um caso real: o workflow está certo ou está errado neste caso, por quê e o que precisa mudar. A v1 preservou bem publication conservadora, rastreabilidade e ownership mecânico, mas degradou o valor principal do fluxo ao tornar diagnóstico claro uma consequência tardia, em vez do produto padrão.
+- Resultado esperado:
+  reconstruir o fluxo como `target-investigate-case-v2`, diagnosis-first, com contrato explícito entre `codex-flow-runner` e projeto alvo. O caminho padrão deve resolver o caso, reunir as evidências necessárias, produzir um diagnóstico humano-legível e só depois escalar, quando necessário, para aprofundamento causal, proposta de melhoria, projeção de ticket e publication.
+- Contexto funcional:
+  esta spec é intencionalmente cross-repo. Ela descreve tanto o comportamento que o runner deve orquestrar quanto o comportamento que o projeto alvo deve expor para ser compatível com a v2. A derivação inicial de tickets deverá começar no runner para introduzir o novo contrato e a nova orquestração. Depois disso, cada projeto alvo que quiser aderir à v2 deverá derivar seus próprios tickets de compatibilização a partir desta mesma spec.
+- Restrições técnicas relevantes:
+  - preservar linhagem explícita com a v1;
+  - preservar publication runner-side conservadora, anti-overfit e rastreabilidade cross-repo;
+  - não acoplar o runner à lógica, aos dados e aos scripts de um projeto alvo específico;
+  - manter o projeto alvo como autoridade semântica do caso, dos insumos relevantes e do framing do workflow;
+  - não transformar a v2 em mais uma camada obrigatória sobre a cadeia completa da v1;
+  - reduzir custo cognitivo e deixar a resposta principal entendível por um humano em menos de 2 minutos.
+
+## Diagnóstico crítico da v1
+- O que a v1 otimizou bem:
+  - fronteira explícita entre autoridade semântica do target e autoridade mecânica do runner;
+  - publication conservadora com gates fortes e baixo risco de ticket automático fraco;
+  - rastreabilidade cross-repo e separação entre artefatos locais sensíveis e artefatos versionados;
+  - capacidade repo-aware real no piloto para localizar causa plausível e superfície de correção.
+- O que a v1 otimizou mal:
+  - clareza diagnóstica;
+  - velocidade de entendimento humano;
+  - prioridade do artefato principal;
+  - simplicidade estrutural;
+  - distinção entre resposta do caso e pipeline de publication;
+  - legibilidade operacional em poucos minutos.
+- Conclusão explícita:
+  a crítica central procede. A v1 deslocou o centro de gravidade do sistema para contrato, recomposição, gates e publication. Isso não é um detalhe cosmético. É um erro de hierarquia do fluxo. O humano quer primeiro um bom diagnóstico do caso. A v1 passou a entregar isso tarde demais e de forma pouco nítida.
+
+## Modelo de responsabilidades
+- Responsabilidades do `codex-flow-runner`:
+  - receber a requisição do operador e validar que existe um target compatível;
+  - normalizar referências de entrada e abrir uma rodada rastreável;
+  - executar as etapas do fluxo na ordem correta;
+  - carregar prompts do target pelos slots canônicos declarados em manifesto;
+  - injetar contexto operacional padrão, paths, round id e artefatos esperados;
+  - validar schemas, persistir traces, refletir status em logs e Telegram e manter a publication runner-side;
+  - permanecer target-agnostic: o runner não deve embutir heurísticas sobre onde estão os logs, como ler banco, qual script consulta GCP, qual arquivo do workflow é relevante ou qual é a semântica esperada de cada domínio.
+- Responsabilidades do projeto alvo:
+  - declarar em manifesto os estágios suportados, seus prompts canônicos, artefatos e políticas;
+  - resolver a execução exata do caso a partir das referências recebidas;
+  - saber quais insumos e fontes de dados são necessários para avaliar aquele workflow naquele caso;
+  - declarar como esses insumos devem ser coletados, inclusive scripts, comandos, fontes locais, fontes remotas, banco e logs;
+  - montar o `case-bundle.json` e contextualizar o workflow para o diagnóstico;
+  - fornecer o framing semântico do diagnóstico e dos estágios opcionais;
+  - manter autoridade semântica sobre causa, comportamento esperado, mudança necessária e conteúdo do ticket do próprio projeto.
+- Responsabilidades compartilhadas:
+  - preservar rastreabilidade;
+  - manter limites claros de evidência e sensibilidade;
+  - evitar overfit a um caso isolado;
+  - permitir rollout incremental a partir da v1.
+- Não-responsabilidades explícitas:
+  - o runner não deve virar um catálogo de procedimentos operacionais específicos de target;
+  - o target não deve tomar a decisão final de publication runner-side;
+  - nem runner nem target devem exigir `deep-dive`, `ticket-projection` ou `publication` para responder o diagnóstico inicial do caso.
+
+## Jornada de uso
+1. O operador, via Telegram, aciona `target-investigate-case-v2` informando projeto alvo e referências do caso.
+2. O runner valida a compatibilidade do target, abre a rodada e registra o pedido de forma rastreável.
+3. O runner executa o estágio `resolve-case`, target-owned, para identificar exatamente qual execução, request, attempt ou rodada está sendo investigada.
+4. O runner executa o estágio `assemble-evidence`, target-owned, para coletar ou referenciar os insumos necessários e consolidar o `case-bundle.json`.
+5. O runner executa o estágio `diagnosis`, usando o prompt canônico do target para produzir `diagnosis.md` e `diagnosis.json`.
+6. Se o diagnóstico já for suficiente, a rodada encerra com próxima ação clara.
+7. Se ainda houver ambiguidade causal relevante, o runner pode escalar para `deep-dive`.
+8. Se a mudança necessária já estiver clara, o target pode materializar `improvement-proposal.json`.
+9. Se a mudança estiver estabilizada e fizer sentido projetar um ticket do projeto alvo, o runner pode executar `ticket-projection`.
+10. Só depois, e de forma tardia, runner-side e separada, a rodada pode atravessar `publication`.
+
+## Fluxo canônico da v2
+- Estágio `preflight`
+  - owner: `codex-flow-runner`
+  - objetivo: validar projeto, manifesto, comando, referências mínimas e condições operacionais.
+  - prompt: não se aplica como prompt semântico target-owned.
+  - saída mínima: contexto operacional da rodada pronto para execução.
+- Estágio `resolve-case`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: transformar referências recebidas em uma resolução explícita do caso investigado.
+  - pergunta que precisa responder: qual é exatamente a execução, request, attempt ou rodada que estamos avaliando.
+  - saída mínima: `case-resolution.json`.
+- Estágio `assemble-evidence`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: decidir quais dados são necessários para o caso, coletá-los ou referenciá-los de forma auditável e consolidar o bundle.
+  - pergunta que precisa responder: quais evidências realmente precisamos para diagnosticar este caso e onde elas estão.
+  - saída mínima: `evidence-index.json` e `case-bundle.json`.
+- Estágio `diagnosis`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: avaliar o caso com base no bundle já montado e responder o veredito principal.
+  - pergunta que precisa responder: o caso está ok ou não está, por quê e qual é a superfície provável de correção.
+  - saída mínima: `diagnosis.md` e `diagnosis.json`.
+- Estágio `deep-dive`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: aprofundar apenas os pontos ainda em aberto depois do diagnóstico.
+  - condição de uso: opcional; não entra no caminho mínimo.
+  - saída mínima: `deep-dive.request.json` e `deep-dive.result.json`, quando acionado.
+- Estágio `improvement-proposal`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: explicitar qual comportamento precisa mudar, por que e qual é a menor superfície provável de correção.
+  - condição de uso: opcional; só depois de diagnóstico suficiente.
+  - saída mínima: `improvement-proposal.json`, quando acionado.
+- Estágio `ticket-projection`
+  - owner: `target-project`
+  - executor: `codex-flow-runner`
+  - objetivo: transformar um diagnóstico e uma proposta de melhoria já estabilizados em ticket candidato do projeto alvo.
+  - condição de uso: opcional; não pode reabrir o diagnóstico.
+  - saída mínima: `ticket-proposal.json`, quando acionado.
+- Estágio `publication`
+  - owner: `codex-flow-runner`
+  - objetivo: aplicar a política conservadora de publication e decidir se existe publicação runner-side.
+  - condição de uso: opcional e tardia.
+  - saída mínima: `publication-decision.json`, quando acionado.
+
+## Contrato de manifesto da v2
+- O manifesto v2 deve ser a fonte de verdade para o contrato entre runner e target.
+- O runner deve conhecer apenas os nomes canônicos dos estágios e ler do manifesto:
+  - `flow = "target-investigate-case-v2"`
+  - `entrypoint` global quando houver;
+  - `stages.resolveCase`
+  - `stages.assembleEvidence`
+  - `stages.diagnosis`
+  - `stages.deepDive` quando suportado
+  - `stages.improvementProposal` quando suportado
+  - `stages.ticketProjection` quando suportado
+  - `publicationPolicy`
+- Cada estágio target-owned deve declarar, no mínimo:
+  - `owner = "target-project"`
+  - `runnerExecutor = "codex-flow-runner"`
+  - `promptPath` quando o estágio usar instrução semântica via Codex
+  - `entrypoint` quando houver comando/script oficial
+  - `artifacts` de request/result/output
+  - `policy` ou equivalente com limites de leitura, evidência e sensibilidade
+- Regra canônica de execução:
+  - quando `promptPath` e `entrypoint` coexistirem no mesmo estágio, o prompt do target deve usar primeiro o `entrypoint` oficial e tratá-lo como autoridade operacional daquele estágio;
+  - quando houver apenas `entrypoint`, o runner pode executá-lo sem prompt target-owned adicional;
+  - quando houver apenas `promptPath`, o target assume responsabilidade por instruir com clareza como resolver o estágio sem extrapolar superfícies.
+- Exemplo diagnóstico de shape mínimo:
+
+```json
+{
+  "flow": "target-investigate-case-v2",
+  "stages": {
+    "resolveCase": {
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-resolve-case.md",
+      "entrypoint": {
+        "command": "npm run case-investigation -- resolve-case"
+      }
+    },
+    "assembleEvidence": {
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-assemble-evidence.md"
+    },
+    "diagnosis": {
+      "owner": "target-project",
+      "runnerExecutor": "codex-flow-runner",
+      "promptPath": "docs/workflows/target-investigate-case-v2-diagnosis.md"
+    }
+  },
+  "publicationPolicy": {
+    "semanticAuthority": "target-project",
+    "finalPublicationAuthority": "runner"
+  }
+}
+```
+
+## Prompts canônicos e convenção de nomes
+- A v2 deve padronizar os slots de prompt por estágio para que o runner saiba exatamente qual contexto está executando.
+- Nomes canônicos de estágio:
+  - `resolve-case`
+  - `assemble-evidence`
+  - `diagnosis`
+  - `deep-dive`
+  - `improvement-proposal`
+  - `ticket-projection`
+- Convenção recomendada de arquivos no projeto alvo:
+  - `docs/workflows/target-investigate-case-v2-resolve-case.md`
+  - `docs/workflows/target-investigate-case-v2-assemble-evidence.md`
+  - `docs/workflows/target-investigate-case-v2-diagnosis.md`
+  - `docs/workflows/target-investigate-case-v2-deep-dive.md`
+  - `docs/workflows/target-investigate-case-v2-improvement-proposal.md`
+  - `docs/workflows/target-investigate-case-v2-ticket-projection.md`
+- Função de cada prompt:
+  - `resolve-case`: ensinar o runner a transformar referências de entrada em uma resolução inequívoca do caso, usando apenas as superfícies declaradas pelo target.
+  - `assemble-evidence`: ensinar o runner a descobrir quais evidências são necessárias para aquele caso, como coletá-las, onde salvá-las e como indexá-las; este é o prompt que deve mencionar scripts, banco, logs locais, logs remotos, GCP, comandos e critérios de suficiência.
+  - `diagnosis`: avaliar o `case-bundle.json` e produzir o veredito principal do caso.
+  - `deep-dive`: refinar causa e superfície de correção apenas quando o diagnóstico não bastar.
+  - `improvement-proposal`: materializar a mudança necessária sem reabrir a análise inteira.
+  - `ticket-projection`: transformar um diagnóstico já estabilizado em ticket candidato do projeto alvo.
+- Regra de clareza:
+  - `assemble-evidence` é o lugar correto para o target explicar como encontrar logs, quando usar scripts, como consultar banco e como agrupar insumos na rodada;
+  - `diagnosis` não deve repetir instruções operacionais longas de coleta; ele deve assumir que o bundle já está montado;
+  - `deep-dive` não deve virar um segundo diagnóstico inteiro; ele deve focar apenas o que ficou em aberto.
+
+## Artefatos canônicos da v2
+- Namespace autoritativo da rodada:
+  - `output/case-investigation/<round-id>/` no projeto alvo.
+- Namespace runner-side durante migração:
+  - `investigations/<round-id>/` pode existir como espelho leve de rastreabilidade e compatibilidade;
+  - ele não pode se tornar uma segunda autoridade semântica.
+- Artefatos obrigatórios do caminho mínimo:
+  - `case-resolution.json`
+    - registra como as referências recebidas foram resolvidas;
+    - deve dizer se o caso foi resolvido, ficou ambíguo ou indisponível;
+    - deve apontar claramente a execução selecionada ou o blocker.
+  - `evidence-index.json`
+    - inventário factual das evidências coletadas ou referenciadas;
+    - deve dizer o que foi coletado, onde está, como foi obtido e por que é relevante;
+    - pode apontar para arquivos locais, outputs de scripts, registros de banco, locators remotos e notas curtas.
+  - `case-bundle.json`
+    - pacote curado para diagnóstico;
+    - deve conter apenas o contexto necessário para responder o caso;
+    - deve referenciar `evidence-index.json`, não duplicar indiscriminadamente todo o inventário bruto.
+  - `diagnosis.md`
+    - artefato principal para leitura humana;
+    - deve ser compreensível em menos de 2 minutos;
+    - deve responder de forma direta se o caso está ok ou não está, por quê e o que precisa mudar.
+  - `diagnosis.json`
+    - equivalente estruturado do diagnóstico;
+    - fonte canônica machine-readable para summary, Telegram e automações.
+- Diretório local reservado para evidências:
+  - `evidence/` dentro da rodada do target, criado quando a coleta materializar arquivos locais;
+  - o conteúdo pode ser local-only e não versionado por default;
+  - `evidence-index.json` é quem indexa esse diretório e os locators externos relacionados.
+- Artefatos opcionais:
+  - `deep-dive.request.json`
+  - `deep-dive.result.json`
+  - `improvement-proposal.json`
+  - `ticket-proposal.json`
+  - `publication-decision.json`
+- Conteúdo mínimo esperado em `diagnosis.json`:
+  - `schema_version`
+  - `bundle_artifact`
+  - `verdict = ok | not_ok | inconclusive`
+  - `summary`
+  - `why`
+  - `expected_behavior`
+  - `observed_behavior`
+  - `confidence = low | medium | high`
+  - `behavior_to_change`
+  - `probable_fix_surface`
+  - `evidence_used`
+  - `next_action`
+  - `lineage`
+
+## Formato esperado de `diagnosis.md`
+- O artefato principal para humanos deve abrir com um veredito explícito.
+- Estrutura recomendada:
+  - `Veredito`
+  - `Workflow avaliado`
+  - `Objetivo esperado`
+  - `O que a evidência mostra`
+  - `Por que o caso está ok ou não está`
+  - `Comportamento que precisa mudar`
+  - `Superfície provável de correção`
+  - `Próxima ação`
+- Regra de qualidade:
+  - o operador deve conseguir ler `diagnosis.md` isoladamente e sair com entendimento suficiente do caso sem depender de abrir cinco JSONs auxiliares.
+
+## Requisitos funcionais
+- RF-01: a nova linha do fluxo deve se chamar explicitamente `target-investigate-case-v2` ou `/target_investigate_case_v2`.
+- RF-02: esta spec deve ser tratada como contrato cross-repo, descrevendo comportamento obrigatório tanto do runner quanto do projeto alvo compatível.
+- RF-03: a derivação inicial de tickets desta spec deve começar no runner, mas a adoção completa da v2 exige tickets posteriores nos projetos alvo aderentes.
+- RF-04: o runner deve permanecer target-agnostic e não pode embutir lógica específica de coleta, resolução de caso, código relevante ou semântica de workflow de um target.
+- RF-05: o projeto alvo deve ser a autoridade para resolver o caso, declarar insumos necessários, instruir coleta, contextualizar o workflow e definir a semântica dos prompts da v2.
+- RF-06: o caminho mínimo da v2 deve ser `preflight -> resolve-case -> assemble-evidence -> diagnosis`.
+- RF-07: `resolve-case`, `assemble-evidence` e `diagnosis` são estágios obrigatórios da v2.
+- RF-08: `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` são estágios opcionais e escalonados.
+- RF-09: o target deve declarar no manifesto da v2 os slots canônicos de prompt por estágio suportado.
+- RF-10: a nomenclatura canônica de estágios deve ser exatamente:
+  - `resolve-case`
+  - `assemble-evidence`
+  - `diagnosis`
+  - `deep-dive`
+  - `improvement-proposal`
+  - `ticket-projection`
+- RF-11: a convenção recomendada de arquivos para prompts v2 no target deve usar o prefixo `target-investigate-case-v2-<stage>.md`.
+- RF-12: `resolve-case` deve materializar `case-resolution.json` com resolução explícita ou blocker explícito; ele não pode selecionar silenciosamente uma execução ambígua.
+- RF-13: `assemble-evidence` deve materializar `evidence-index.json` e `case-bundle.json`.
+- RF-14: `assemble-evidence` deve ser o estágio responsável por instruções operacionais de coleta, incluindo scripts, banco, logs locais, logs remotos, cloud, GCP e critérios de suficiência, quando aplicável ao target.
+- RF-15: `diagnosis` deve produzir `diagnosis.md` e `diagnosis.json` como artefatos principais do caso.
+- RF-16: `diagnosis.md` deve responder explicitamente:
+  - o caso está ok ou não está;
+  - qual é o objetivo esperado do workflow;
+  - o que a evidência mostra;
+  - por que isso é satisfatório ou insatisfatório;
+  - qual comportamento precisa mudar, se houver;
+  - qual é a superfície provável de correção;
+  - qual é a próxima ação recomendada.
+- RF-17: `diagnosis.json` deve usar `verdict = ok | not_ok | inconclusive`.
+- RF-18: `diagnosis` não pode depender de `deep-dive`, `ticket-projection` ou `publication` para existir.
+- RF-19: `deep-dive` só pode ser acionado quando houver ambiguidade causal, baixa confiança ou necessidade real de localizar a menor mudança plausível.
+- RF-20: `improvement-proposal` só pode nascer depois que o diagnóstico já tiver definido com clareza o comportamento que precisa mudar.
+- RF-21: `ticket-projection` deve produzir ticket para o projeto alvo, respeitando as convenções do target, sem reabrir a análise diagnóstica.
+- RF-22: `publication` deve permanecer runner-side, conservadora e tardia.
+- RF-23: a v2 deve preservar rastreabilidade com a v1 por meio de `lineage` em `case-resolution.json`, `case-bundle.json` e `diagnosis.json`, quando a rodada nascer de artefatos ou comandos legados.
+- RF-24: o namespace autoritativo da rodada deve ser o do projeto alvo; espelhos runner-side, quando existirem, devem ser secundários.
+- RF-25: a v2 deve reduzir a necessidade de recomposições obrigatórias entre fases; o caminho mínimo não pode depender da cadeia `semantic-review -> causal-debug -> root-cause-review`.
+- RF-26: artefatos e summaries operator-facing no runner e no Telegram devem ser diagnosis-first, não publication-first.
+- RF-27: a v2 pode reaproveitar etapas da v1 apenas como adaptadores opcionais, nunca como espinha dorsal obrigatória.
+- RF-28: a spec deve permanecer diagnóstica e normativa, sem ficar acoplada a um projeto alvo específico; exemplos de piloto são apenas ilustrativos.
+
+<!-- Heading canônico: use exatamente "## Assumptions and defaults" nas specs locais. O workflow aceita "## Premissas e defaults" apenas como alias de compatibilidade de leitura para specs externas ou legadas. -->
+## Assumptions and defaults
+- a v2 será introduzida como novo contrato explícito, não como mutação silenciosa da v1;
+- o caminho mínimo da v2 não exige `deep-dive`, `improvement-proposal`, `ticket-projection` nem `publication`;
+- o namespace autoritativo da rodada fica no projeto alvo;
+- `investigations/<round-id>/` pode continuar existindo durante a migração apenas como espelho secundário de rastreabilidade;
+- `diagnosis.md` e `diagnosis.json` são os artefatos principais da rodada por default;
+- o primeiro conjunto de tickets derivados desta spec será aberto no runner; a aderência dos targets virá em uma segunda onda de derivação;
+- o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2.
+
+## Nao-escopo
+- migrar retroativamente todos os rounds históricos da v1;
+- exigir que todo target implemente todos os estágios opcionais desde o primeiro dia;
+- transformar o runner em catálogo operacional de cada target;
+- fundir runner e target em uma única autoridade semântica;
+- reabrir publication automática por default;
+- tratar `deep-dive` como fase obrigatória do caminho mínimo;
+- substituir julgamento humano por gates cegos de artifact completeness.
+
+## Criterios de aceitacao (observaveis)
+- [ ] CA-01 - existe um contrato v2 explícito, com nome próprio, estágios canônicos e manifesto cross-repo para runner e target.
+- [ ] CA-02 - o caminho mínimo da v2 materializa `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json` sem exigir `deep-dive`, `ticket-proposal.json` nem `publication-decision.json`.
+- [ ] CA-03 - `diagnosis.md` responde claramente se o caso está ok ou não está, por quê, o que precisa mudar e qual é a superfície provável de correção.
+- [ ] CA-04 - o estágio `assemble-evidence` é explicitamente responsável por instruções de coleta e por indexar as evidências necessárias do caso.
+- [ ] CA-05 - `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` existem como continuações opcionais e tardias.
+- [ ] CA-06 - a semântica do caso continua target-owned, enquanto a publication final continua runner-side.
+- [ ] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
+- [ ] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
+
+## Gate de validacao dos tickets derivados
+- Veredito atual: n/a
+- Gaps encontrados:
+  - n/a
+- Correções aplicadas:
+  - n/a
+- Causa-raiz provável:
+  - n/a
+- Ciclos executados:
+  - n/a
+- Nota de uso: quando a spec vier de `/run_specs`, preencher esta seção apenas com o veredito, os gaps, as correções e o histórico funcional do gate formal; fora desse fluxo, registrar `n/a` quando não se aplicar.
+- Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
+
+## Retrospectiva sistemica da derivacao dos tickets
+- Executada: sim
+- Motivo de ativação ou skip:
+  - executada porque a spec nasce de uma releitura crítica cross-repo do fluxo atual, das responsabilidades entre runner e target e de artefatos reais de investigação.
+- Classificação final:
+  - systemic
+- Confiança:
+  - alta
+- Frente causal analisada:
+  - a v1 passou a otimizar cadeia operacional e publication mais do que o produto primário do fluxo, que deveria ser um diagnóstico claro do caso.
+- Achados sistêmicos:
+  - a fronteira runner-target da v1 tem méritos, mas o contrato ficou concentrado em fases tardias demais;
+  - o fluxo precisava explicitar estágios anteriores ao diagnóstico, especialmente resolução do caso e montagem de evidências;
+  - o target precisa declarar melhor como reunir insumos relevantes sem transferir esse conhecimento para o runner;
+  - a ausência de um prompt principal simples de diagnóstico contribuiu para a deriva publication-first;
+  - a v2 precisa padronizar nomes de prompts e slots de estágio para evitar ambiguidade entre projetos.
+- Artefatos do workflow consultados:
+  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+  - `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`
+  - `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`
+  - `prompts/16-target-investigate-case-round-materialization.md`
+  - `prompts/17-target-investigate-case-semantic-review.md`
+  - `src/core/target-investigate-case.ts`
+  - `src/integrations/target-investigate-case-round-preparer.ts`
+  - `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`
+  - `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md`
+  - `../guiadomus-matricula/docs/workflows/target-case-investigation-causal-debug.md`
+  - `../guiadomus-matricula/docs/workflows/target-case-investigation-root-cause-review.md`
+  - `../guiadomus-matricula/output/case-investigation/2026-04-06T21-57-45Z/dossier.md`
+  - `../guiadomus-matricula/output/case-investigation/2026-04-08T04-02-02Z/dossier.md`
+- Elegibilidade de publicação:
+  - a spec deliberadamente rebaixa publication a etapa tardia e secundária.
+- Resultado do ticket transversal ou limitação operacional:
+  - ainda não derivado; por decisão desta rodada, a saída fica restrita à spec revisada.
+- Nota de uso: quando esta spec vier de `/run_specs`, esta seção deve registrar a retrospectiva pre-run-all como superfície distinta do gate funcional e continua canônica mesmo quando `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=false`. Com a flag desligada, a seção pode permanecer `n/a` e não recebe write-back automático. Se `RUN_SPECS_WORKFLOW_IMPROVEMENT_ENABLED=true` e a execução ocorrer no próprio `codex-flow-runner`, write-back nesta seção é permitido. Em projeto externo, a fonte observável desta fase é trace/log/resumo, e não a spec do projeto alvo.
+- Política anti-duplicação: a retrospectiva sistêmica pos-`spec-audit` pode referenciar achados ou tickets desta etapa como contexto histórico, mas não deve reavaliar nem reticketar a mesma frente causal.
+
+## Validacoes pendentes ou manuais
+- Validações obrigatórias ainda não automatizadas:
+  - validar o contrato de manifesto v2 e os novos schemas canônicos no runner;
+  - validar a legibilidade de `diagnosis.md` em casos reais;
+  - validar a separação entre namespace autoritativo do target e espelho runner-side durante migração.
+- Validações manuais pendentes:
+  - escolher o primeiro target de adoção da v2 depois que o runner suportar o novo contrato;
+  - confirmar se algum estágio opcional precisa nascer já na primeira implementação runner-side ou pode ser deixado para a onda de adoção do target.
+
+## Status de atendimento (documento vivo)
+- Estado geral: approved
+- Itens atendidos:
+  - crítica central da v1 consolidada em contrato explícito;
+  - responsabilidades entre runner e target descritas de forma normativa;
+  - fluxo mínimo diagnosis-first definido;
+  - prompts canônicos e artefatos da v2 definidos.
+- Pendências em aberto:
+  - implementar o contrato v2 no runner;
+  - definir os schemas concretos dos novos artefatos;
+  - derivar tickets do runner;
+  - derivar tickets de adoção para targets aderentes.
+- Evidências de validação:
+  - análise documental cross-repo concluída;
+  - revisão crítica da v1 consolidada nesta spec.
+
+## Auditoria final de entrega
+- Auditoria executada em:
+  - n/a
+- Resultado:
+  - n/a
+- Tickets/follow-ups abertos a partir da auditoria:
+  - nenhum ainda
+- Causas-raiz sistêmicas identificadas:
+  - n/a
+- Ajustes genéricos promovidos ao workflow:
+  - n/a
+
+## Riscos e impacto
+- Risco funcional:
+  - targets aderentes podem implementar somente parte do contrato e produzir bundles fracos ou diagnósticos inconsistentes.
+- Risco operacional:
+  - se `assemble-evidence` ficar vago, a complexidade da v1 pode reaparecer disfarçada de coleta improvisada.
+- Mitigação:
+  - padronizar slots de prompt, artefatos, manifesto e responsabilidades;
+  - fazer a primeira onda de implementação no runner antes da adoção em targets;
+  - exigir blockers explícitos em `resolve-case` e `assemble-evidence` quando o target não conseguir fechar o caso com segurança.
+
+## Decisoes e trade-offs
+- 2026-04-08 - manter `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` como continuações opcionais - reduz custo cognitivo do caminho mínimo e preserva evolução tardia quando necessária.
+- 2026-04-08 - tratar `resolve-case` e `assemble-evidence` como estágios formais da v2 - evita que a coleta de contexto fique implícita, improvisada ou escondida dentro do diagnóstico.
+- 2026-04-08 - definir prompts canônicos por estágio no target - mantém o runner target-agnostic sem perder direcionamento semântico do projeto alvo.
+- 2026-04-08 - eleger o namespace do projeto alvo como fonte autoritativa da rodada - reduz duplicação semântica e mantém o conhecimento operacional perto das evidências reais.
+
+## Historico de atualizacao
+- 2026-04-08 20:25Z - Versão inicial da spec.
+- 2026-04-08 21:12Z - Reescrita estrutural da spec para explicitar contrato runner-target, estágios formais anteriores ao diagnóstico, prompts canônicos e artefatos obrigatórios da v2.
