@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 ainda não materializa o diagnóstico como artefato principal nem como UX operator-facing
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -127,8 +127,31 @@ O runner deve tratar `diagnosis.md` e `diagnosis.json` como o produto primário 
 - 2026-04-08 - Ownership dividido com fronteira observável: este ticket fica dono dos artefatos `diagnosis.*` e das surfaces operator-facing; o ticket irmão de contrato fica dono do manifesto/caminho mínimo; o ticket irmão de continuações opcionais fica dono dos adaptadores tardios e dos guardrails de migração.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-04-08 22:46Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: execplans/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - Commit: mesmo changeset de fechamento versionado pelo runner nesta etapa posterior
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+
+## Closure validation
+- Decisão final: `GO`
+- RF-15, RF-17, CA-02:
+  - `src/types/target-investigate-case.ts` passou a declarar `TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES = ok | not_ok | inconclusive`, schema dedicado para `diagnosis.json` e paths obrigatórios `diagnosisJsonPath` / `diagnosisMdPath`.
+  - `src/core/target-investigate-case.ts` agora lê `diagnosis.json`, valida `diagnosis.md`, exige coerência de `bundle_artifact` com `evidence-bundle.json` e inclui `diagnosis.*` no `TargetInvestigateCaseArtifactSet`.
+  - Evidência automatizada: `targetInvestigateCaseDiagnosisSchema aceita exatamente os verdicts canonicos e rejeita valores fora do conjunto` em `src/core/target-investigate-case.test.ts`, além de `npx tsx --test ...`, `npm run check` e `npm test` com `exit 0` em 2026-04-08.
+- RF-16, CA-03:
+  - `src/core/target-investigate-case.ts` e `src/integrations/target-investigate-case-round-preparer.ts` validam explicitamente as oito seções obrigatórias de `diagnosis.md` e rejeitam heading renomeado, repetido ou vazio.
+  - `prompts/16-target-investigate-case-round-materialization.md` passou a exigir `diagnosis.md` e `diagnosis.json` como artefatos principais operator-facing.
+  - Evidência automatizada: `evaluateTargetInvestigateCaseRound exige diagnosis.md com as secoes canonicas obrigatorias` em `src/core/target-investigate-case.test.ts`, mais fixtures/round-preparer atualizados em `src/integrations/target-investigate-case-round-preparer.test.ts`; suites focadas, `npm run check` e `npm test` terminaram com `exit 0`.
+- RF-18, RF-26, CA-07:
+  - `src/core/target-investigate-case.ts` migrou `finalSummary`, `tracePayload` e `renderTargetInvestigateCaseFinalSummary(...)` para abrir com `diagnosis.verdict`, `diagnosis.summary`, `diagnosis.why` e `diagnosis.next_action`, mantendo publication como informação secundária.
+  - `src/core/runner.ts` passou a abrir `RunnerFlowSummary.details` com o diagnóstico, e `src/integrations/telegram-bot.ts` agora destaca veredito, resumo, justificativa, próxima ação e os paths de `diagnosis.*` antes dos detalhes de publication.
+  - Evidência automatizada: asserts diagnosis-first em `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`, `src/integrations/codex-client.test.ts` e `src/integrations/target-investigate-case-ticket-publisher.test.ts`; `npx tsx --test ...`, `npm run check` e `npm test` terminaram com `exit 0`.
+- Validação manual pendente herdada:
+  - Entrega técnica concluída; o bloqueio remanescente não é de implementação.
+  - Validação ainda necessária: spot-check operacional em caso real para confirmar que `diagnosis.md` permanece legível em menos de 2 minutos e que a mensagem final do Telegram preserva o mesmo veredito diagnosis-first.
+  - Como executar: rodar uma investigação real em target aderente a `diagnosis.*` e anexar ao histórico do ticket/execplan o `diagnosis.json.verdict`, trechos redigidos de `diagnosis.md` e a mensagem final do Telegram.
+  - Responsável operacional: `workflow-core` / operador da próxima rodada real compatível.
+  - Classificação da pendência: validação manual externa ao agente; não bloqueia `GO` técnico segundo `INTERNAL_TICKETS.md` e `docs/workflows/codex-quality-gates.md`.

@@ -22,6 +22,7 @@ import {
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseCausalDebugResultSchema,
+  targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseManifestSchema,
   targetInvestigateCasePublicationDecisionSchema,
@@ -39,6 +40,8 @@ import {
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_EXPLICIT_AUTHORITY_VALUES,
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_FOCUS_AWARE_MEMBER_VALUES,
   TARGET_INVESTIGATE_CASE_CURRENT_STATE_LATEST_INELIGIBLE_POLICY_VALUES,
+  TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
+  TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES,
   TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES,
   TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES,
@@ -70,6 +73,8 @@ interface TargetRepoFixture {
     caseResolutionPath: string;
     evidenceBundlePath: string;
     assessmentPath: string;
+    diagnosisJsonPath: string;
+    diagnosisMdPath: string;
     dossierPath: string;
     semanticReviewRequestPath: string;
     semanticReviewResultPath: string;
@@ -325,6 +330,95 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   assert.equal(
     loaded.manifest.rootCauseReview?.reviewPolicy.primaryRemediationCanonicalArtifact,
     TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
+  );
+});
+
+test("targetInvestigateCaseDiagnosisSchema aceita exatamente os verdicts canonicos e rejeita valores fora do conjunto", () => {
+  for (const verdict of TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES) {
+    const parsed = targetInvestigateCaseDiagnosisSchema.parse(
+      buildDiagnosisFixture("investigations/round-1/evidence-bundle.json", { verdict }),
+    );
+    assert.equal(parsed.verdict, verdict);
+  }
+
+  assert.throws(
+    () =>
+      targetInvestigateCaseDiagnosisSchema.parse(
+        buildDiagnosisFixture("investigations/round-1/evidence-bundle.json", {
+          verdict: "unexpected",
+        }),
+      ),
+    /Invalid enum value|invalid_enum_value/u,
+  );
+});
+
+test("evaluateTargetInvestigateCaseRound exige diagnosis.md com as secoes canonicas obrigatorias", async () => {
+  const fixture = await createTargetRepoFixture();
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: {
+      projectName: fixture.project.name,
+      caseRef: "case-001",
+      workflow: "billing-core",
+      requestId: "req-001",
+      window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+      symptom: "timeout on save",
+    },
+    artifacts: fixture.artifactPaths,
+  });
+  assert.equal(result.summary.diagnosis.verdict, "not_ok");
+  assert.deepEqual([...TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS], [
+    "Veredito",
+    "Workflow avaliado",
+    "Objetivo esperado",
+    "O que a evidência mostra",
+    "Por que o caso está ok ou não está",
+    "Comportamento que precisa mudar",
+    "Superfície provável de correção",
+    "Próxima ação",
+  ]);
+
+  const renamedHeadingFixture = await createTargetRepoFixture({
+    diagnosisMarkdown: buildDiagnosisMarkdownFixture().replace(
+      "# Próxima ação",
+      "# Ação seguinte",
+    ),
+  });
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: renamedHeadingFixture.project,
+        input: {
+          projectName: renamedHeadingFixture.project.name,
+          caseRef: "case-001",
+          workflow: "billing-core",
+          requestId: "req-001",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
+        },
+        artifacts: renamedHeadingFixture.artifactPaths,
+      }),
+    /diagnosis\.md precisa conter a secao obrigatoria `Próxima ação`/u,
+  );
+
+  const emptySectionFixture = await createTargetRepoFixture({
+    diagnosisMarkdown: buildDiagnosisMarkdownFixture({ nextAction: "" }),
+  });
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: emptySectionFixture.project,
+        input: {
+          projectName: emptySectionFixture.project.name,
+          caseRef: "case-001",
+          workflow: "billing-core",
+          requestId: "req-001",
+          window: "2026-04-03T00:00Z/2026-04-03T01:00Z",
+          symptom: "timeout on save",
+        },
+        artifacts: emptySectionFixture.artifactPaths,
+      }),
+    /diagnosis\.md precisa preencher a secao obrigatoria `Próxima ação`/u,
   );
 });
 
@@ -2340,7 +2434,10 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
     caseResolution: result.caseResolution,
     evidenceBundle: result.evidenceBundle,
     assessment: result.assessment,
+    diagnosis: result.diagnosis,
     publicationDecision: result.publicationDecision,
+    diagnosisMdPath: result.artifactPaths.diagnosisMdPath,
+    diagnosisJsonPath: result.artifactPaths.diagnosisJsonPath,
     dossierPath: result.artifactPaths.dossierPath,
   });
   const tracePayload = buildTargetInvestigateCaseTracePayload({
@@ -2356,7 +2453,10 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
     caseResolution: result.caseResolution,
     evidenceBundle: result.evidenceBundle,
     assessment: result.assessment,
+    diagnosis: result.diagnosis,
     publicationDecision: result.publicationDecision,
+    diagnosisMdPath: result.artifactPaths.diagnosisMdPath,
+    diagnosisJsonPath: result.artifactPaths.diagnosisJsonPath,
     dossierPath: result.artifactPaths.dossierPath,
     semanticReview: result.tracePayload.semantic_review,
     rootCauseReview: result.tracePayload.root_cause_review,
@@ -2428,6 +2528,19 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
         );
         await copyInvestigationArtifact(
           fixture.project.path,
+          fixture.artifactPaths.diagnosisJsonPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisJsonPath,
+          { rewriteDiagnosisBundleArtifact: request.artifactPaths.evidenceBundlePath },
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.diagnosisMdPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisMdPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
           fixture.artifactPaths.dossierPath,
           request.targetProject.path,
           request.artifactPaths.dossierPath,
@@ -2476,6 +2589,8 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
       caseResolutionPath: "investigations/2026-04-03T18-00-00Z/case-resolution.json",
       evidenceBundlePath: "investigations/2026-04-03T18-00-00Z/evidence-bundle.json",
       assessmentPath: "investigations/2026-04-03T18-00-00Z/assessment.json",
+      diagnosisJsonPath: "investigations/2026-04-03T18-00-00Z/diagnosis.json",
+      diagnosisMdPath: "investigations/2026-04-03T18-00-00Z/diagnosis.md",
       dossierPath: "investigations/2026-04-03T18-00-00Z/dossier.md",
       semanticReviewRequestPath:
         "investigations/2026-04-03T18-00-00Z/semantic-review.request.json",
@@ -2538,6 +2653,19 @@ test("ControlledTargetInvestigateCaseExecutor cruza a fronteira de versionamento
           fixture.artifactPaths.assessmentPath,
           request.targetProject.path,
           request.artifactPaths.assessmentPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.diagnosisJsonPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisJsonPath,
+          { rewriteDiagnosisBundleArtifact: request.artifactPaths.evidenceBundlePath },
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.diagnosisMdPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisMdPath,
         );
         await copyInvestigationArtifact(
           fixture.project.path,
@@ -2738,6 +2866,19 @@ test("ControlledTargetInvestigateCaseExecutor falha explicitamente quando semant
         );
         await copyInvestigationArtifact(
           fixture.project.path,
+          fixture.artifactPaths.diagnosisJsonPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisJsonPath,
+          { rewriteDiagnosisBundleArtifact: request.artifactPaths.evidenceBundlePath },
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.diagnosisMdPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisMdPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
           fixture.artifactPaths.dossierPath,
           request.targetProject.path,
           request.artifactPaths.dossierPath,
@@ -2786,6 +2927,8 @@ test("ControlledTargetInvestigateCaseExecutor falha explicitamente quando semant
   assert.deepEqual(result.summary.artifactPaths, [
     "investigations/2026-04-06T05-35-50Z/assessment.json",
     "investigations/2026-04-06T05-35-50Z/case-resolution.json",
+    "investigations/2026-04-06T05-35-50Z/diagnosis.json",
+    "investigations/2026-04-06T05-35-50Z/diagnosis.md",
     "investigations/2026-04-06T05-35-50Z/dossier.md",
     "investigations/2026-04-06T05-35-50Z/evidence-bundle.json",
     "investigations/2026-04-06T05-35-50Z/semantic-review.request.json",
@@ -2894,6 +3037,19 @@ test("ControlledTargetInvestigateCaseExecutor preserva detalhes de schema quando
         );
         await copyInvestigationArtifact(
           fixture.project.path,
+          fixture.artifactPaths.diagnosisJsonPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisJsonPath,
+          { rewriteDiagnosisBundleArtifact: request.artifactPaths.evidenceBundlePath },
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
+          fixture.artifactPaths.diagnosisMdPath,
+          request.targetProject.path,
+          request.artifactPaths.diagnosisMdPath,
+        );
+        await copyInvestigationArtifact(
+          fixture.project.path,
           fixture.artifactPaths.dossierPath,
           request.targetProject.path,
           request.artifactPaths.dossierPath,
@@ -2967,6 +3123,7 @@ const createTargetRepoFixture = async (options: {
   mutateCaseResolution?: (artifact: any) => void;
   mutateEvidenceBundle?: (artifact: any) => void;
   mutateAssessment?: (artifact: any) => void;
+  mutateDiagnosis?: (artifact: any) => void;
   mutateSemanticReviewRequest?: (artifact: any) => void;
   mutateSemanticReviewResult?: (artifact: any) => void;
   mutateRootCauseReviewRequest?: (artifact: any) => void;
@@ -2976,6 +3133,8 @@ const createTargetRepoFixture = async (options: {
   caseResolutionDocument?: any;
   evidenceBundleDocument?: any;
   assessmentDocument?: any;
+  diagnosisDocument?: any;
+  diagnosisMarkdown?: string | null;
   semanticReviewRequestDocument?: any | null;
   semanticReviewResultDocument?: any | null;
   rootCauseReviewRequestDocument?: any | null;
@@ -2991,6 +3150,8 @@ const createTargetRepoFixture = async (options: {
     caseResolutionPath: `${roundDir}/case-resolution.json`,
     evidenceBundlePath: `${roundDir}/evidence-bundle.json`,
     assessmentPath: `${roundDir}/assessment.json`,
+    diagnosisJsonPath: `${roundDir}/diagnosis.json`,
+    diagnosisMdPath: `${roundDir}/diagnosis.md`,
     dossierPath: `${roundDir}/dossier.${options.dossierFormat === "json" ? "json" : "md"}`,
     semanticReviewRequestPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT}`,
     semanticReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT}`,
@@ -3053,6 +3214,30 @@ const createTargetRepoFixture = async (options: {
     `${JSON.stringify(assessment, null, 2)}\n`,
     "utf8",
   );
+
+  if (options.diagnosisDocument !== null) {
+    const diagnosis =
+      options.diagnosisDocument ?? buildDiagnosisFixture(artifactPaths.evidenceBundlePath);
+    options.mutateDiagnosis?.(diagnosis);
+    targetInvestigateCaseDiagnosisSchema.parse(diagnosis);
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.diagnosisJsonPath.split("/")),
+      `${JSON.stringify(diagnosis, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  if (options.diagnosisMarkdown !== null) {
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.diagnosisMdPath.split("/")),
+      options.diagnosisMarkdown ??
+        buildDiagnosisMarkdownFixture({
+          verdict: "O caso nao esta OK; o workflow billing-core falhou com evidência suficiente.",
+          workflow: "billing-core",
+        }),
+      "utf8",
+    );
+  }
 
   if (options.semanticReviewRequestDocument !== null && options.semanticReviewRequestDocument !== undefined) {
     const semanticReviewRequest =
@@ -3902,6 +4087,81 @@ const buildAssessmentFixture = (): any => ({
   },
 });
 
+const buildDiagnosisFixture = (
+  bundleArtifactPath = "investigations/round-1/evidence-bundle.json",
+  overrides: Record<string, unknown> = {},
+): any => ({
+  schema_version: "diagnosis_v1",
+  bundle_artifact: bundleArtifactPath,
+  verdict: "not_ok",
+  summary: "O caso nao esta OK e a rodada ja identifica uma superficie local plausivel de correcao.",
+  why: "A evidência mostra divergência reproduzível entre o comportamento esperado e o observado.",
+  expected_behavior: "O workflow billing-core deve preservar o guardrail local sem truncar o estado final.",
+  observed_behavior: "O guardrail local falhou e permitiu uma saida inconsistente para o operador.",
+  confidence: "high",
+  behavior_to_change: "Repor o guardrail local antes da consolidacao final do billing-core.",
+  probable_fix_surface: ["src/workflows/billing-core.ts"],
+  evidence_used: [
+    {
+      ref: "local-bundle",
+      path: bundleArtifactPath,
+      summary: "Bundle historico curado para o diagnostico.",
+    },
+  ],
+  next_action: "Corrigir a superficie local e rerodar a investigacao para confirmar o diagnostico.",
+  lineage: [
+    {
+      source: "legacy-target-investigate-case",
+      artifact: "assessment.json",
+      path: "investigations/round-1/assessment.json",
+    },
+  ],
+  ...overrides,
+});
+
+const buildDiagnosisMarkdownFixture = (overrides: {
+  verdict?: string;
+  workflow?: string;
+  expectedBehavior?: string;
+  evidence?: string;
+  why?: string;
+  behaviorToChange?: string;
+  probableFixSurface?: string;
+  nextAction?: string;
+} = {}): string =>
+  [
+    "# Veredito",
+    overrides.verdict ??
+      "O caso nao esta OK; o workflow billing-core falhou com evidência suficiente.",
+    "",
+    "# Workflow avaliado",
+    overrides.workflow ?? "billing-core",
+    "",
+    "# Objetivo esperado",
+    overrides.expectedBehavior ??
+      "Preservar o guardrail local e devolver um resultado coerente ao operador.",
+    "",
+    "# O que a evidência mostra",
+    overrides.evidence ??
+      "O bundle historico mostra divergência reproduzível entre a saída esperada e a saída observada.",
+    "",
+    "# Por que o caso está ok ou não está",
+    overrides.why ??
+      "A resposta observada viola o comportamento esperado e confirma a necessidade de correção local.",
+    "",
+    "# Comportamento que precisa mudar",
+    overrides.behaviorToChange ??
+      "O guardrail local precisa voltar a bloquear a saída inconsistente.",
+    "",
+    "# Superfície provável de correção",
+    overrides.probableFixSurface ?? "src/workflows/billing-core.ts",
+    "",
+    "# Próxima ação",
+    overrides.nextAction ??
+      "Corrigir a superfície local e rerodar a investigação diagnosis-first.",
+    "",
+  ].join("\n");
+
 const buildPrimaryRemediationFixture = (
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> => ({
@@ -4513,6 +4773,7 @@ const copyInvestigationArtifact = async (
   targetRelativePath: string,
   options: {
     rewriteDossierLocalPath?: string;
+    rewriteDiagnosisBundleArtifact?: string;
   } = {},
 ): Promise<void> => {
   const sourcePath = path.join(sourceProjectPath, ...sourceRelativePath.split("/"));
@@ -4524,6 +4785,15 @@ const copyInvestigationArtifact = async (
       local_path?: string;
     };
     decoded.local_path = options.rewriteDossierLocalPath;
+    await fs.writeFile(targetPath, `${JSON.stringify(decoded, null, 2)}\n`, "utf8");
+    return;
+  }
+
+  if (options.rewriteDiagnosisBundleArtifact) {
+    const decoded = JSON.parse(await fs.readFile(sourcePath, "utf8")) as {
+      bundle_artifact?: string;
+    };
+    decoded.bundle_artifact = options.rewriteDiagnosisBundleArtifact;
     await fs.writeFile(targetPath, `${JSON.stringify(decoded, null, 2)}\n`, "utf8");
     return;
   }

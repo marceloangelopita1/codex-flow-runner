@@ -131,6 +131,23 @@ export const TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES = uniqueValues(
   ["low", "medium", "high"] as const,
   "confidence",
 );
+export const TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES = uniqueValues(
+  ["ok", "not_ok", "inconclusive"] as const,
+  "diagnosis-verdict",
+);
+export const TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS = uniqueValues(
+  [
+    "Veredito",
+    "Workflow avaliado",
+    "Objetivo esperado",
+    "O que a evidência mostra",
+    "Por que o caso está ok ou não está",
+    "Comportamento que precisa mudar",
+    "Superfície provável de correção",
+    "Próxima ação",
+  ] as const,
+  "diagnosis-required-sections",
+);
 export const TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES = uniqueValues(
   ["insufficient", "partial", "sufficient", "strong"] as const,
   "evidence-sufficiency",
@@ -514,6 +531,8 @@ export type TargetInvestigateCaseSemanticReviewFieldVerdict =
   (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_FIELD_VERDICT_VALUES)[number];
 export type TargetInvestigateCaseSemanticReviewTraceStatus =
   (typeof TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_TRACE_STATUS_VALUES)[number];
+export type TargetInvestigateCaseDiagnosisVerdict =
+  (typeof TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES)[number];
 export type TargetInvestigateCaseCausalDebugReadinessStatus =
   (typeof TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_READINESS_STATUS_VALUES)[number];
 export type TargetInvestigateCaseCausalDebugReadinessReasonCode =
@@ -536,6 +555,7 @@ const houveGapRealSchema = z.enum(TARGET_INVESTIGATE_CASE_HOUVE_GAP_REAL_VALUES)
 const evitabilidadeSchema = z.enum(TARGET_INVESTIGATE_CASE_EVITABILIDADE_VALUES);
 const generalizacaoSchema = z.enum(TARGET_INVESTIGATE_CASE_GENERALIZACAO_VALUES);
 const confidenceSchema = z.enum(TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES);
+const diagnosisVerdictSchema = z.enum(TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES);
 const evidenceSufficiencySchema = z.enum(TARGET_INVESTIGATE_CASE_EVIDENCE_SUFFICIENCY_VALUES);
 const primaryTaxonomySchema = z.enum(TARGET_INVESTIGATE_CASE_PRIMARY_TAXONOMY_VALUES);
 const operationalClassSchema = z.enum(TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_VALUES);
@@ -4263,6 +4283,50 @@ export const targetInvestigateCaseRootCauseReviewTraceSchema = z
   })
   .strict();
 
+const targetInvestigateCaseDiagnosisFlexibleEntrySchema = z.union([
+  trimmedString,
+  z
+    .record(z.string(), z.unknown())
+    .refine((value) => Object.keys(value).length > 0, {
+      message: "Entradas estruturadas de diagnosis exigem ao menos uma propriedade.",
+    }),
+]);
+
+export const targetInvestigateCaseDiagnosisSchema = z
+  .object({
+    schema_version: trimmedString,
+    bundle_artifact: relativePathSchema,
+    verdict: diagnosisVerdictSchema,
+    summary: trimmedString,
+    why: trimmedString,
+    expected_behavior: trimmedString,
+    observed_behavior: trimmedString,
+    confidence: confidenceSchema,
+    behavior_to_change: trimmedString,
+    probable_fix_surface: uniqueStringArray(trimmedString, "probable_fix_surface"),
+    evidence_used: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+    next_action: trimmedString,
+    lineage: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+  })
+  .strict();
+
+const targetInvestigateCaseDiagnosisSurfaceSchema = z
+  .object({
+    verdict: diagnosisVerdictSchema,
+    summary: trimmedString,
+    why: trimmedString,
+    expected_behavior: trimmedString,
+    observed_behavior: trimmedString,
+    confidence: confidenceSchema,
+    behavior_to_change: trimmedString,
+    probable_fix_surface: uniqueStringArray(trimmedString, "diagnosis.probable_fix_surface"),
+    next_action: trimmedString,
+    bundle_artifact: relativePathSchema,
+    diagnosis_md_path: relativePathSchema,
+    diagnosis_json_path: relativePathSchema,
+  })
+  .strict();
+
 export const targetInvestigateCaseTracePayloadSchema = z
   .object({
     selectors: z
@@ -4304,6 +4368,10 @@ export const targetInvestigateCaseTracePayloadSchema = z
           .strict(),
       )
       .min(1),
+    diagnosis: targetInvestigateCaseDiagnosisSurfaceSchema.extend({
+      evidence_used: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+      lineage: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+    }),
     verdicts: z
       .object({
         houve_gap_real: houveGapRealSchema,
@@ -4363,6 +4431,7 @@ export const targetInvestigateCaseFinalSummarySchema = z
     attempt_candidates_status: trimmedString.nullable(),
     replay_readiness_state: replayReadinessStateSchema.nullable(),
     replay_used: z.boolean(),
+    diagnosis: targetInvestigateCaseDiagnosisSurfaceSchema,
     houve_gap_real: houveGapRealSchema,
     era_evitavel_internamente: evitabilidadeSchema,
     merece_ticket_generalizavel: generalizacaoSchema,
@@ -4424,6 +4493,9 @@ export type TargetInvestigateCaseRootCauseReviewRequest = z.infer<
 export type TargetInvestigateCaseRootCauseReviewResult = z.infer<
   typeof targetInvestigateCaseRootCauseReviewResultSchema
 >;
+export type TargetInvestigateCaseDiagnosis = z.infer<
+  typeof targetInvestigateCaseDiagnosisSchema
+>;
 export type TargetInvestigateCaseTicketProposal = z.infer<
   typeof targetInvestigateCaseTicketProposalSchema
 >;
@@ -4441,6 +4513,8 @@ export interface TargetInvestigateCaseArtifactSet {
   caseResolutionPath: string;
   evidenceBundlePath: string;
   assessmentPath: string;
+  diagnosisJsonPath: string;
+  diagnosisMdPath: string;
   dossierPath: string;
   semanticReviewRequestPath: string;
   semanticReviewResultPath: string;

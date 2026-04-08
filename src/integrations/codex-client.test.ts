@@ -360,6 +360,8 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
       caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
       evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
       assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+      diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+      diagnosisMdPath: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
       dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
       semanticReviewRequestPath:
         "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
@@ -415,6 +417,8 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
   );
   assert.match(capturedPrompt, /"attemptRefAuthorities": \[/u);
   assert.match(capturedPrompt, /"acceptedPurgeIdentifiers": \[/u);
+  assert.match(capturedPrompt, /"diagnosisJsonPath": "investigations\/2026-04-03T19-00-00Z\/diagnosis\.json"/u);
+  assert.match(capturedPrompt, /"diagnosisMdPath": "investigations\/2026-04-03T19-00-00Z\/diagnosis\.md"/u);
   assert.match(capturedPrompt, /"extract_condominium_info"/u);
   assert.match(capturedPrompt, /"officialTargetEntrypointScriptPath": "scripts\/materialize-case-investigation-round\.js"/u);
 });

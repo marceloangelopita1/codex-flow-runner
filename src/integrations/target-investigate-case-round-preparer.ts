@@ -13,12 +13,14 @@ import {
   normalizeTargetInvestigateCaseRelativePath,
   targetInvestigateCaseAssessmentSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
+  targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseRootCauseReviewRequestSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
+  TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
@@ -205,6 +207,16 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         targetInvestigateCaseAssessmentSchema,
         "assessment.json",
       );
+      await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.diagnosisJsonPath,
+        targetInvestigateCaseDiagnosisSchema,
+        "diagnosis.json",
+      );
+      await validateDiagnosisMarkdownArtifact(
+        request.targetProject.path,
+        request.artifactPaths.diagnosisMdPath,
+      );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
       await this.completeSemanticReviewIfSupported(
         request,
@@ -226,6 +238,16 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         request.artifactPaths.assessmentPath,
         targetInvestigateCaseAssessmentSchema,
         "assessment.json",
+      );
+      await readJsonArtifact(
+        request.targetProject.path,
+        request.artifactPaths.diagnosisJsonPath,
+        targetInvestigateCaseDiagnosisSchema,
+        "diagnosis.json",
+      );
+      await validateDiagnosisMarkdownArtifact(
+        request.targetProject.path,
+        request.artifactPaths.diagnosisMdPath,
       );
       await validateDossierArtifact(request.targetProject.path, dossierPath);
     } catch (error) {
@@ -1516,6 +1538,14 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
       destinationPath: request.artifactPaths.assessmentPath,
     },
     {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "diagnosis.json"),
+      destinationPath: request.artifactPaths.diagnosisJsonPath,
+    },
+    {
+      sourcePath: path.posix.join(authoritativeDossierLocalPath, "diagnosis.md"),
+      destinationPath: request.artifactPaths.diagnosisMdPath,
+    },
+    {
       sourcePath: path.posix.join(
         authoritativeDossierLocalPath,
         TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_REQUEST_ARTIFACT,
@@ -1629,6 +1659,59 @@ const uniquePaths = (values: Array<string | null | undefined>): string[] => {
     result.push(value);
   }
   return result;
+};
+
+const DIAGNOSIS_MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s+(.+?)\s*$/u;
+
+const validateDiagnosisMarkdownArtifact = async (
+  projectPath: string,
+  diagnosisMdPath: string,
+): Promise<void> => {
+  const absolutePath = path.join(projectPath, ...diagnosisMdPath.split("/"));
+  const raw = await fs.readFile(absolutePath, "utf8");
+
+  if (!raw.trim()) {
+    throw new Error("diagnosis.md nao pode estar vazio.");
+  }
+
+  const sections = new Map<string, string[]>();
+  let currentHeading: string | null = null;
+
+  for (const line of raw.split(/\r?\n/u)) {
+    const headingMatch = line.match(DIAGNOSIS_MARKDOWN_HEADING_PATTERN);
+    if (headingMatch) {
+      const heading = headingMatch[1].trim();
+      if (
+        TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS.includes(
+          heading as (typeof TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS)[number],
+        )
+      ) {
+        if (sections.has(heading)) {
+          throw new Error(`diagnosis.md nao pode repetir a secao obrigatoria \`${heading}\`.`);
+        }
+        sections.set(heading, []);
+      }
+      currentHeading = heading;
+      continue;
+    }
+
+    if (!currentHeading || !sections.has(currentHeading)) {
+      continue;
+    }
+
+    sections.get(currentHeading)?.push(line);
+  }
+
+  for (const heading of TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS) {
+    if (!sections.has(heading)) {
+      throw new Error(`diagnosis.md precisa conter a secao obrigatoria \`${heading}\`.`);
+    }
+
+    const content = sections.get(heading)?.join("\n").trim() ?? "";
+    if (!content) {
+      throw new Error(`diagnosis.md precisa preencher a secao obrigatoria \`${heading}\`.`);
+    }
+  }
 };
 
 const validateDossierArtifact = async (projectPath: string, dossierPath: string): Promise<void> => {

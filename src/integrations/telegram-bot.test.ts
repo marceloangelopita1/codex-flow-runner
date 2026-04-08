@@ -990,6 +990,8 @@ const createController = (options: ControllerOptions = {}) => {
 	            caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
 	            evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
 	            assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+	            diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+	            diagnosisMdPath: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
 	            dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
 	            semanticReviewRequestPath:
 	              "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
@@ -1013,6 +1015,8 @@ const createController = (options: ControllerOptions = {}) => {
           realizedArtifactPaths: [
             "investigations/2026-04-03T19-00-00Z/assessment.json",
             "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+            "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+            "investigations/2026-04-03T19-00-00Z/diagnosis.md",
             "investigations/2026-04-03T19-00-00Z/dossier.md",
             "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
             "investigations/2026-04-03T19-00-00Z/publication-decision.json",
@@ -1034,6 +1038,20 @@ const createController = (options: ControllerOptions = {}) => {
             attempt_candidates_status: null,
             replay_readiness_state: null,
             replay_used: false,
+            diagnosis: {
+              verdict: "ok" as const,
+              summary: "O caso esta OK e nao exige correcao local.",
+              why: "A evidencia confirmou comportamento esperado com base suficiente.",
+              expected_behavior: "Preservar o comportamento esperado do workflow billing-core.",
+              observed_behavior: "A rodada nao encontrou divergencia reutilizavel no projeto alvo.",
+              confidence: "high" as const,
+              behavior_to_change: "Nenhuma mudanca local e necessaria para este caso.",
+              probable_fix_surface: ["nenhuma-superficie-local"],
+              next_action: "Encerrar a rodada como no-op local.",
+              bundle_artifact: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+              diagnosis_md_path: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
+              diagnosis_json_path: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+            },
             houve_gap_real: "no" as const,
             era_evitavel_internamente: "not_applicable" as const,
             merece_ticket_generalizavel: "not_applicable" as const,
@@ -1094,6 +1112,32 @@ const createController = (options: ControllerOptions = {}) => {
                 record_count: 1,
               },
             ],
+            diagnosis: {
+              verdict: "ok" as const,
+              summary: "O caso esta OK e nao exige correcao local.",
+              why: "A evidencia confirmou comportamento esperado com base suficiente.",
+              expected_behavior: "Preservar o comportamento esperado do workflow billing-core.",
+              observed_behavior: "A rodada nao encontrou divergencia reutilizavel no projeto alvo.",
+              confidence: "high" as const,
+              behavior_to_change: "Nenhuma mudanca local e necessaria para este caso.",
+              probable_fix_surface: ["nenhuma-superficie-local"],
+              next_action: "Encerrar a rodada como no-op local.",
+              bundle_artifact: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+              diagnosis_md_path: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
+              diagnosis_json_path: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+              evidence_used: [
+                {
+                  ref: "evidence-log-001",
+                  path: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+                },
+              ],
+              lineage: [
+                {
+                  artifact: "assessment.json",
+                  path: "investigations/2026-04-03T19-00-00Z/assessment.json",
+                },
+              ],
+            },
             verdicts: {
               houve_gap_real: "no" as const,
               era_evitavel_internamente: "not_applicable" as const,
@@ -3865,8 +3909,10 @@ test("handleTargetInvestigateCaseCommand encaminha o contrato canonico inteiro a
   assert.equal(controlState.targetInvestigateCaseCalls, 1);
   assert.deepEqual(controlState.targetInvestigateCaseArgs, [commandText]);
   assert.match(replies[0] ?? "", /\/target_investigate_case concluido para alpha-project/u);
+  assert.match(replies[0] ?? "", /Veredito do diagnostico: ok/u);
   assert.match(replies[0] ?? "", /Case-ref: case-001/u);
   assert.match(replies[0] ?? "", /Resultado investigativo: Nao ha gap real a corrigir neste caso\./u);
+  assert.match(replies[0] ?? "", /Diagnosis markdown: investigations\/2026-04-03T19-00-00Z\/diagnosis.md/u);
   assert.match(replies[0] ?? "", /Dossier local: investigations\/2026-04-03T19-00-00Z\/dossier.md/u);
 });
 
@@ -3892,6 +3938,16 @@ test("buildTargetInvestigateCaseReply destaca remediacao acionavel antes do gati
         case_ref: "case-001",
         resolved_attempt_ref: null,
         attempt_resolution_status: "absent-explicitly",
+        diagnosis: {
+          verdict: "not_ok",
+          summary: "O caso nao esta OK e a remediacao local ja esta clara.",
+          why: "A evidencia confirma falha do comparador local.",
+          behavior_to_change: "Corrigir o comparador local de logradouro.",
+          probable_fix_surface: ["src/workflows/compare-address.ts"],
+          next_action: "Executar a remediacao principal localmente.",
+          diagnosis_md_path: "investigations/2026-04-08T01-39-50Z/diagnosis.md",
+          diagnosis_json_path: "investigations/2026-04-08T01-39-50Z/diagnosis.json",
+        },
         investigation_outcome: "actionable-remediation-identified",
         primary_remediation: {
           summary: "Corrigir o comparador local de logradouro.",
@@ -3909,6 +3965,7 @@ test("buildTargetInvestigateCaseReply destaca remediacao acionavel antes do gati
     reply,
     /Resultado investigativo: Ha remediacao acionavel identificada; publication automatica segue bloqueada\./u,
   );
+  assert.match(reply, /Veredito do diagnostico: not_ok/u);
   assert.match(reply, /Primary remediation: Corrigir o comparador local de logradouro\./u);
   assert.match(reply, /Execution readiness: ready/u);
   assert.match(reply, /Publication dependency: publication_only/u);

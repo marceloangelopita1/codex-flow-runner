@@ -17,6 +17,7 @@ import {
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseCausalDebugResultSchema,
+  targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseFinalSummarySchema,
@@ -35,6 +36,7 @@ import {
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
+  TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
@@ -47,6 +49,7 @@ import {
   TargetInvestigateCaseCausalDebugRequest,
   TargetInvestigateCaseCausalDebugResult,
   TargetInvestigateCaseCompletedSummary,
+  TargetInvestigateCaseDiagnosis,
   TargetInvestigateCaseEvidenceBundle,
   TargetInvestigateCaseExecutionResult,
   TargetInvestigateCaseFailureKind,
@@ -87,6 +90,8 @@ export interface TargetInvestigateCaseArtifactPaths {
   caseResolutionPath: string;
   evidenceBundlePath: string;
   assessmentPath: string;
+  diagnosisJsonPath: string;
+  diagnosisMdPath: string;
   dossierPath: string;
   semanticReviewRequestPath?: string;
   semanticReviewResultPath?: string;
@@ -151,6 +156,7 @@ export interface TargetInvestigateCaseEvaluationResult {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  diagnosis: TargetInvestigateCaseDiagnosis;
   publicationDecision: TargetInvestigateCasePublicationDecision;
   summary: TargetInvestigateCaseFinalSummary;
   tracePayload: TargetInvestigateCaseTracePayload;
@@ -452,6 +458,16 @@ export const evaluateTargetInvestigateCaseRound = async (
     targetInvestigateCaseAssessmentSchema,
     "assessment.json",
   );
+  const diagnosis = await readJsonArtifact(
+    request.targetProject.path,
+    artifactPaths.diagnosisJsonPath,
+    targetInvestigateCaseDiagnosisSchema,
+    "diagnosis.json",
+  );
+  await validateDiagnosisMarkdownArtifact(
+    request.targetProject.path,
+    artifactPaths.diagnosisMdPath,
+  );
   const dossier = await validateDossierArtifact(request.targetProject.path, artifactPaths.dossierPath);
   const semanticReview = await discoverTargetInvestigateCaseSemanticReviewArtifacts(
     request.targetProject.path,
@@ -478,6 +494,7 @@ export const evaluateTargetInvestigateCaseRound = async (
   assertOperationalSubflowsReady(semanticReview, causalDebug, rootCauseReview, assessment);
   validateAssessmentConsistency(assessment, semanticReview, causalDebug, rootCauseReview);
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
+  validateDiagnosisCoherence(diagnosis, artifactPaths);
 
   const decision = await buildPublicationDecision({
     targetProject: request.targetProject,
@@ -487,6 +504,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     assessment,
+    diagnosis,
     rootCauseReview,
     dossier,
     ticketProposal: causalDebug.ticketProposal,
@@ -497,7 +515,10 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     assessment,
+    diagnosis,
     publicationDecision: decision,
+    diagnosisMdPath: artifactPaths.diagnosisMdPath,
+    diagnosisJsonPath: artifactPaths.diagnosisJsonPath,
     dossierPath: artifactPaths.dossierPath,
     remediationProposalPath,
   });
@@ -507,7 +528,10 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     assessment,
+    diagnosis,
     publicationDecision: decision,
+    diagnosisMdPath: artifactPaths.diagnosisMdPath,
+    diagnosisJsonPath: artifactPaths.diagnosisJsonPath,
     dossierPath: artifactPaths.dossierPath,
     remediationProposalPath,
     semanticReview: semanticReview.trace,
@@ -526,6 +550,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     assessment,
+    diagnosis,
     publicationDecision: decision,
     summary,
     tracePayload,
@@ -538,7 +563,10 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  diagnosis: TargetInvestigateCaseDiagnosis;
   publicationDecision: TargetInvestigateCasePublicationDecision;
+  diagnosisMdPath: string;
+  diagnosisJsonPath: string;
   dossierPath: string;
   remediationProposalPath?: string | null;
   semanticReview: TargetInvestigateCaseSemanticReviewTrace;
@@ -580,6 +608,22 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
       sha256: entry.sha256 ?? null,
       record_count: entry.record_count,
     })),
+    diagnosis: {
+      verdict: params.diagnosis.verdict,
+      summary: params.diagnosis.summary,
+      why: params.diagnosis.why,
+      expected_behavior: params.diagnosis.expected_behavior,
+      observed_behavior: params.diagnosis.observed_behavior,
+      confidence: params.diagnosis.confidence,
+      behavior_to_change: params.diagnosis.behavior_to_change,
+      probable_fix_surface: [...params.diagnosis.probable_fix_surface],
+      next_action: params.diagnosis.next_action,
+      bundle_artifact: params.diagnosis.bundle_artifact,
+      diagnosis_md_path: params.diagnosisMdPath,
+      diagnosis_json_path: params.diagnosisJsonPath,
+      evidence_used: [...params.diagnosis.evidence_used],
+      lineage: [...params.diagnosis.lineage],
+    },
     verdicts: {
       houve_gap_real: params.assessment.houve_gap_real,
       era_evitavel_internamente: params.assessment.era_evitavel_internamente,
@@ -625,7 +669,10 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  diagnosis: TargetInvestigateCaseDiagnosis;
   publicationDecision: TargetInvestigateCasePublicationDecision;
+  diagnosisMdPath: string;
+  diagnosisJsonPath: string;
   dossierPath: string;
   remediationProposalPath?: string | null;
 }): TargetInvestigateCaseFinalSummary => {
@@ -642,6 +689,20 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
     attempt_candidates_status: params.caseResolution.attempt_candidates?.status ?? null,
     replay_readiness_state: params.caseResolution.replay_readiness?.state ?? null,
     replay_used: params.evidenceBundle.replay.used,
+    diagnosis: {
+      verdict: params.diagnosis.verdict,
+      summary: params.diagnosis.summary,
+      why: params.diagnosis.why,
+      expected_behavior: params.diagnosis.expected_behavior,
+      observed_behavior: params.diagnosis.observed_behavior,
+      confidence: params.diagnosis.confidence,
+      behavior_to_change: params.diagnosis.behavior_to_change,
+      probable_fix_surface: [...params.diagnosis.probable_fix_surface],
+      next_action: params.diagnosis.next_action,
+      bundle_artifact: params.diagnosis.bundle_artifact,
+      diagnosis_md_path: params.diagnosisMdPath,
+      diagnosis_json_path: params.diagnosisJsonPath,
+    },
     houve_gap_real: params.assessment.houve_gap_real,
     era_evitavel_internamente: params.assessment.era_evitavel_internamente,
     merece_ticket_generalizavel: params.assessment.merece_ticket_generalizavel,
@@ -803,6 +864,20 @@ export const describeTargetInvestigateCaseInvestigationOutcome = (
   return "A investigacao permanece inconclusiva.";
 };
 
+export const describeTargetInvestigateCaseDiagnosisVerdict = (
+  verdict: TargetInvestigateCaseDiagnosis["verdict"],
+): string => {
+  if (verdict === "ok") {
+    return "O diagnostico do target concluiu que o caso esta OK.";
+  }
+
+  if (verdict === "not_ok") {
+    return "O diagnostico do target concluiu que o caso nao esta OK.";
+  }
+
+  return "O diagnostico do target permaneceu inconclusivo.";
+};
+
 export const renderTargetInvestigateCaseFinalSummary = (
   summary: TargetInvestigateCaseFinalSummary,
 ): string => {
@@ -817,11 +892,24 @@ export const renderTargetInvestigateCaseFinalSummary = (
   const lines = [
     "# Target investigate case",
     "",
+    `- Diagnosis verdict: ${summary.diagnosis.verdict}`,
+    `- Diagnosis summary: ${summary.diagnosis.summary}`,
+    `- Diagnosis why: ${summary.diagnosis.why}`,
+    `- Diagnosis verdict detail: ${describeTargetInvestigateCaseDiagnosisVerdict(summary.diagnosis.verdict)}`,
+    `- Diagnosis next action: ${summary.diagnosis.next_action}`,
+    `- Behavior to change: ${summary.diagnosis.behavior_to_change}`,
+    `- Probable fix surface: ${summary.diagnosis.probable_fix_surface.join(", ")}`,
+    `- Diagnosis markdown path: ${summary.diagnosis.diagnosis_md_path}`,
+    `- Diagnosis JSON path: ${summary.diagnosis.diagnosis_json_path}`,
     `- Case-ref: ${summary.case_ref}`,
     `- Resolved attempt: ${attempt}`,
     `- Attempt candidates status: ${summary.attempt_candidates_status ?? "N/A"}`,
     `- Replay readiness state: ${summary.replay_readiness_state ?? "N/A"}`,
     `- Replay used: ${summary.replay_used ? "yes" : "no"}`,
+    `- Diagnosis confidence: ${summary.diagnosis.confidence}`,
+    `- Expected behavior: ${summary.diagnosis.expected_behavior}`,
+    `- Observed behavior: ${summary.diagnosis.observed_behavior}`,
+    `- Diagnosis bundle artifact: ${summary.diagnosis.bundle_artifact}`,
     `- Houve gap real: ${summary.houve_gap_real}`,
     `- Era evitavel internamente: ${summary.era_evitavel_internamente}`,
     `- Merece ticket generalizavel: ${summary.merece_ticket_generalizavel}`,
@@ -1074,7 +1162,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       hooks,
       targetProject,
       milestone: "assessment",
-      message: `Assessment semantico pronto para ${normalizedInput.caseRef}.`,
+      message: `Diagnostico diagnosis-first pronto para ${normalizedInput.caseRef}.`,
       versionBoundaryState: "before-versioning",
       now: this.now,
     });
@@ -1084,6 +1172,16 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         artifactPaths.assessmentPath,
         "assessment.json",
       );
+      await assertRelativeArtifactExists(
+        targetProject.path,
+        artifactPaths.diagnosisJsonPath,
+        "diagnosis.json",
+      );
+      await assertRelativeArtifactExists(
+        targetProject.path,
+        artifactPaths.diagnosisMdPath,
+        "diagnosis.md",
+      );
       await assertRelativeArtifactExists(targetProject.path, artifactPaths.dossierPath, "dossier");
     } catch (error) {
       return buildFailure({
@@ -1092,7 +1190,7 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
         failureKind: "artifact-validation-failed",
         message: error instanceof Error ? error.message : String(error),
         nextAction:
-          "Garanta que assessment.json e dossier local existam e estejam coerentes antes de rerodar.",
+          "Garanta que assessment.json, diagnosis.json, diagnosis.md e dossier local existam e estejam coerentes antes de rerodar.",
       });
     }
     if (hooks?.isCancellationRequested?.()) {
@@ -1197,6 +1295,7 @@ const buildPublicationDecision = async (params: {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundle;
   assessment: TargetInvestigateCaseAssessment;
+  diagnosis: TargetInvestigateCaseDiagnosis;
   rootCauseReview: DiscoveredRootCauseReviewArtifacts;
   dossier: ValidatedDossierArtifact;
   ticketProposal?: TargetInvestigateCaseTicketProposal | null;
@@ -1407,6 +1506,7 @@ const buildPublicationDecision = async (params: {
         caseResolution: params.caseResolution,
         evidenceBundle: params.evidenceBundle,
         assessment: params.assessment,
+        diagnosis: params.diagnosis,
         publicationDecision: {
           publication_status: "eligible",
           overall_outcome: "ticket-published",
@@ -1419,6 +1519,8 @@ const buildPublicationDecision = async (params: {
           next_action:
             "Revisar o ticket publicado no projeto alvo e seguir o fluxo sequencial normal.",
         },
+        diagnosisMdPath: params.artifactPaths.diagnosisMdPath,
+        diagnosisJsonPath: params.artifactPaths.diagnosisJsonPath,
         dossierPath: params.artifactPaths.dossierPath,
       });
       const publication = await params.ticketPublisher.publish({
@@ -1738,6 +1840,17 @@ const classifyTargetInvestigateCaseEvaluationFailure = (error: unknown): {
         message.includes("ticket-proposal.json")
           ? "Materialize root-cause-review.result.json e ticket-proposal.json coerentes antes de nova publication runner-side."
           : "Materialize causal-debug.result.json e ticket-proposal.json validos antes de nova publication runner-side.",
+      };
+  }
+
+  if (message.includes("diagnosis.")) {
+    return {
+      failedAtMilestone: "assessment",
+      failureSurface: "round-materialization",
+      failureKind: "artifact-validation-failed",
+      message,
+      nextAction:
+        "Corrija diagnosis.json e diagnosis.md no namespace canonico antes de rerodar a rodada.",
     };
   }
 
@@ -2159,6 +2272,70 @@ const validateEvidenceCoherence = (
     evidenceBundle.replay.update_db !== false
   ) {
     throw new Error("Replay seguro para publication positiva exige update_db=false.");
+  }
+};
+
+const validateDiagnosisCoherence = (
+  diagnosis: TargetInvestigateCaseDiagnosis,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): void => {
+  if (diagnosis.bundle_artifact !== artifactPaths.evidenceBundlePath) {
+    throw new Error(
+      `diagnosis.json precisa apontar bundle_artifact=${artifactPaths.evidenceBundlePath}.`,
+    );
+  }
+};
+
+const DIAGNOSIS_MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s+(.+?)\s*$/u;
+
+const validateDiagnosisMarkdownArtifact = async (
+  projectPath: string,
+  relativePath: string,
+): Promise<void> => {
+  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, "diagnosis");
+  const raw = await fs.readFile(absolutePath, "utf8");
+
+  if (!raw.trim()) {
+    throw new Error("diagnosis.md nao pode estar vazio.");
+  }
+
+  const sections = new Map<string, string[]>();
+  let currentHeading: string | null = null;
+
+  for (const line of raw.split(/\r?\n/u)) {
+    const headingMatch = line.match(DIAGNOSIS_MARKDOWN_HEADING_PATTERN);
+    if (headingMatch) {
+      const heading = headingMatch[1].trim();
+      if (
+        TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS.includes(
+          heading as (typeof TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS)[number],
+        )
+      ) {
+        if (sections.has(heading)) {
+          throw new Error(`diagnosis.md nao pode repetir a secao obrigatoria \`${heading}\`.`);
+        }
+        sections.set(heading, []);
+      }
+      currentHeading = heading;
+      continue;
+    }
+
+    if (!currentHeading || !sections.has(currentHeading)) {
+      continue;
+    }
+
+    sections.get(currentHeading)?.push(line);
+  }
+
+  for (const heading of TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS) {
+    if (!sections.has(heading)) {
+      throw new Error(`diagnosis.md precisa conter a secao obrigatoria \`${heading}\`.`);
+    }
+
+    const content = sections.get(heading)?.join("\n").trim() ?? "";
+    if (!content) {
+      throw new Error(`diagnosis.md precisa preencher a secao obrigatoria \`${heading}\`.`);
+    }
   }
 };
 
@@ -2623,6 +2800,8 @@ const normalizeArtifactPaths = (
   const caseResolutionPath = normalizeRelativePath(paths.caseResolutionPath, "caseResolutionPath");
   const evidenceBundlePath = normalizeRelativePath(paths.evidenceBundlePath, "evidenceBundlePath");
   const assessmentPath = normalizeRelativePath(paths.assessmentPath, "assessmentPath");
+  const diagnosisJsonPath = normalizeRelativePath(paths.diagnosisJsonPath, "diagnosisJsonPath");
+  const diagnosisMdPath = normalizeRelativePath(paths.diagnosisMdPath, "diagnosisMdPath");
   const dossierPath = normalizeRelativePath(paths.dossierPath, "dossierPath");
   const roundDirectory = path.posix.dirname(caseResolutionPath);
   const semanticReviewRequestPath = normalizeRelativePath(
@@ -2681,6 +2860,8 @@ const normalizeArtifactPaths = (
     caseResolutionPath,
     evidenceBundlePath,
     assessmentPath,
+    diagnosisJsonPath,
+    diagnosisMdPath,
     dossierPath,
     semanticReviewRequestPath,
     semanticReviewResultPath,
@@ -2946,6 +3127,12 @@ const buildTargetInvestigateCaseArtifactSet = (
   ),
   assessmentPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, "assessment.json"),
+  ),
+  diagnosisJsonPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "diagnosis.json"),
+  ),
+  diagnosisMdPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, "diagnosis.md"),
   ),
   dossierPath: normalizeTargetInvestigateCaseRelativePath(path.join(roundDirectory, "dossier.md")),
   semanticReviewRequestPath: normalizeTargetInvestigateCaseRelativePath(

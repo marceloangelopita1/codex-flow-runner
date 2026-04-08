@@ -1487,6 +1487,8 @@ const createRoundPreparerFixture = async (): Promise<{
         caseResolutionPath: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
         evidenceBundlePath: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
         assessmentPath: "investigations/2026-04-03T19-00-00Z/assessment.json",
+        diagnosisJsonPath: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
+        diagnosisMdPath: "investigations/2026-04-03T19-00-00Z/diagnosis.md",
         dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
         semanticReviewRequestPath:
           "investigations/2026-04-03T19-00-00Z/semantic-review.request.json",
@@ -1668,6 +1670,72 @@ const materializeRoundArtifacts = async (
       null,
       2,
     ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.json"),
+    JSON.stringify(
+      {
+        schema_version: "diagnosis_v1",
+        bundle_artifact: `${roundDirectory}/evidence-bundle.json`,
+        verdict: "not_ok",
+        summary: "O caso nao esta OK e a rodada ja identifica a superficie local de correcao.",
+        why: "A evidencia reproduz a falha do guardrail local com sinal forte.",
+        expected_behavior:
+          "O workflow extract_address deveria preservar o guardrail local antes da saida final.",
+        observed_behavior: "O guardrail local falhou e liberou uma saida inconsistente.",
+        confidence: "high",
+        behavior_to_change: "Restaurar o guardrail local antes da consolidacao final.",
+        probable_fix_surface: ["src/workflows/extract-address.ts"],
+        evidence_used: [
+          {
+            ref: "dossier-ref",
+            path: `${roundDirectory}/evidence-bundle.json`,
+            summary: "Bundle principal usado no diagnostico.",
+          },
+        ],
+        next_action: "Corrigir a superficie local e rerodar a investigacao diagnosis-first.",
+        lineage: [
+          {
+            source: "legacy-target-investigate-case",
+            artifact: "assessment.json",
+            path: `${roundDirectory}/assessment.json`,
+          },
+        ],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.md"),
+    [
+      "# Veredito",
+      "O caso nao esta OK; a evidencia confirma falha do guardrail local.",
+      "",
+      "# Workflow avaliado",
+      "extract_address",
+      "",
+      "# Objetivo esperado",
+      "Preservar o guardrail local antes da saida final.",
+      "",
+      "# O que a evidência mostra",
+      "A rodada reuniu evidencia forte o bastante para diagnostico conclusivo.",
+      "",
+      "# Por que o caso está ok ou não está",
+      "O comportamento observado diverge do esperado e pede correcao local.",
+      "",
+      "# Comportamento que precisa mudar",
+      "Restaurar o guardrail local antes da consolidacao final.",
+      "",
+      "# Superfície provável de correção",
+      "src/workflows/extract-address.ts",
+      "",
+      "# Próxima ação",
+      "Corrigir a superficie local e rerodar a investigacao diagnosis-first.",
+      "",
+    ].join("\n"),
     "utf8",
   );
 
@@ -1878,6 +1946,73 @@ const materializeRichRoundArtifacts = async (
       null,
       2,
     ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.json"),
+    JSON.stringify(
+      {
+        schema_version: "diagnosis_v1",
+        bundle_artifact: `${roundDirectory}/evidence-bundle.json`,
+        verdict: "ok",
+        summary: "O caso esta OK e nao ha gap real reutilizavel no projeto alvo.",
+        why: "A evidencia local nao mostra divergencia suficiente para um gap generalizavel.",
+        expected_behavior:
+          "O workflow extract_address deve manter o comportamento esperado neste caso.",
+        observed_behavior:
+          "A rodada confirma comportamento esperado e limita publication a informacao secundaria.",
+        confidence: "medium",
+        behavior_to_change: "Nenhuma mudanca local e necessaria para este caso.",
+        probable_fix_surface: ["nenhuma-superficie-local"],
+        evidence_used: [
+          {
+            ref: "local-run-bundle",
+            path: `${roundDirectory}/evidence-bundle.json`,
+            summary: "Bundle historico suficiente para o diagnostico.",
+          },
+        ],
+        next_action: "Encerrar a rodada como no-op local e preservar apenas o trace minimizado.",
+        lineage: [
+          {
+            source: "legacy-target-investigate-case",
+            artifact: "assessment.json",
+            path: `${roundDirectory}/assessment.json`,
+          },
+        ],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(roundPath, "diagnosis.md"),
+    [
+      "# Veredito",
+      "O caso esta OK e nao exige mudanca local.",
+      "",
+      "# Workflow avaliado",
+      "extract_address",
+      "",
+      "# Objetivo esperado",
+      "Manter o comportamento esperado sem abrir publication automatica.",
+      "",
+      "# O que a evidência mostra",
+      "A rodada reuniu evidencia suficiente para confirmar expected behavior.",
+      "",
+      "# Por que o caso está ok ou não está",
+      "Nao houve divergencia reutilizavel no projeto alvo.",
+      "",
+      "# Comportamento que precisa mudar",
+      "Nenhuma mudanca local e necessaria para este caso.",
+      "",
+      "# Superfície provável de correção",
+      "nenhuma-superficie-local",
+      "",
+      "# Próxima ação",
+      "Encerrar a rodada como no-op local e preservar apenas o trace minimizado.",
+      "",
+    ].join("\n"),
     "utf8",
   );
 

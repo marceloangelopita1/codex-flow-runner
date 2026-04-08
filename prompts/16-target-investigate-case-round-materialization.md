@@ -7,7 +7,7 @@ Objetivo:
 - acionar primeiro o entrypoint oficial do projeto alvo quando ele estiver declarado no manifesto;
 - tratar o dossier local oficial do alvo como fonte autoritativa dos artefatos da rodada;
 - preparar `investigations/<round-id>/` como um espelho runner-side desses artefatos autoritativos;
-- produzir exatamente os artefatos canônicos exigidos pelo runner;
+- produzir exatamente os artefatos canônicos exigidos pelo runner, com `diagnosis.md` e `diagnosis.json` como artefatos principais operator-facing;
 - quando a capability declarar `semanticReview`, emitir apenas o packet bounded `semantic-review.request.json` no mesmo diretório da rodada;
 - deixar a decisão final de publication para o runner.
 
@@ -19,12 +19,15 @@ Regras obrigatórias:
 - Use apenas selectors, workflows, superfícies e identificadores de purge presentes nas allowlists serializadas neste prompt.
 - Quando houver entrypoint oficial e dossier local autoritativo declarados, execute esse entrypoint para materializar a rodada oficial do alvo antes de tocar `investigations/<round-id>/`.
 - Se o dossier local autoritativo do alvo existir, copie os artefatos canônicos dele para `investigations/<round-id>/` sem reescrever semântica, sem enriquecer enums e sem reinterpretar o conteúdo.
+- `diagnosis.md` e `diagnosis.json` devem existir como dupla primária do diagnóstico; `assessment.json` e `dossier.*` continuam apenas como artefatos auxiliares de compatibilidade enquanto o runner ainda depende deles.
 - O diretório `investigations/<round-id>/` deve ser um espelho runner-side do pacote final do alvo, não uma segunda implementação criativa do `assessment`.
 - Se usar replay, mantenha `updateDb=false`, `x-request-id` dedicado, `dryRun` antes de qualquer purge efetivo e registre isso nos artefatos da rodada.
 - Grave exatamente estes artefatos canônicos no diretório informado:
   - `case-resolution.json`
   - `evidence-bundle.json`
   - `assessment.json`
+  - `diagnosis.json`
+  - `diagnosis.md`
   - `dossier.md` ou `dossier.json`
 - Se a capability declarar `semanticReview`, grave também `semantic-review.request.json` no mesmo diretório da rodada quando houver packet bounded pronto ou bloqueado.
 - Não grave `semantic-review.result.json`; esse artefato pertence ao runner como executor mecânico do Codex.

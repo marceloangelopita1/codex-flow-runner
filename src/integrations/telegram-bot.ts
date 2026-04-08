@@ -4,7 +4,10 @@ import {
   ProjectSelectionSnapshot,
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
-import { describeTargetInvestigateCaseInvestigationOutcome } from "../core/target-investigate-case.js";
+import {
+  describeTargetInvestigateCaseDiagnosisVerdict,
+  describeTargetInvestigateCaseInvestigationOutcome,
+} from "../core/target-investigate-case.js";
 import type {
   CodexChatSessionCancelOptions,
   CodexChatSessionCancelResult,
@@ -7060,6 +7063,13 @@ export class TelegramController {
       const primaryRemediation = result.summary.finalSummary.primary_remediation;
       return [
         `✅ /target_investigate_case concluido para ${result.summary.targetProject.name}.`,
+        `Veredito do diagnostico: ${result.summary.finalSummary.diagnosis.verdict}`,
+        `Resumo do diagnostico: ${result.summary.finalSummary.diagnosis.summary}`,
+        `Por que: ${result.summary.finalSummary.diagnosis.why}`,
+        `Leitura rapida: ${describeTargetInvestigateCaseDiagnosisVerdict(result.summary.finalSummary.diagnosis.verdict)}`,
+        `Comportamento a mudar: ${result.summary.finalSummary.diagnosis.behavior_to_change}`,
+        `Superficie provavel de correcao: ${result.summary.finalSummary.diagnosis.probable_fix_surface.join(", ")}`,
+        `Proxima acao do diagnostico: ${result.summary.finalSummary.diagnosis.next_action}`,
         `Case-ref: ${result.summary.finalSummary.case_ref}`,
         `Resolved attempt: ${
           result.summary.finalSummary.resolved_attempt_ref ??
@@ -7074,6 +7084,8 @@ export class TelegramController {
         `Publication dependency: ${primaryRemediation?.publication_dependency ?? "(nao aplicavel)"}`,
         `Remediation proposal: ${result.summary.finalSummary.remediation_proposal_path ?? "(nenhum)"}`,
         `Publication automatica: ${result.summary.publicationDecision.publication_status} (${result.summary.publicationDecision.overall_outcome})`,
+        `Diagnosis markdown: ${result.summary.finalSummary.diagnosis.diagnosis_md_path}`,
+        `Diagnosis JSON: ${result.summary.finalSummary.diagnosis.diagnosis_json_path}`,
         `Dossier local: ${result.summary.artifactPaths.dossierPath}`,
         `Ticket path: ${result.summary.publicationDecision.ticket_path ?? "(nenhum)"}`,
         `Proxima acao: ${result.summary.nextAction}`,
