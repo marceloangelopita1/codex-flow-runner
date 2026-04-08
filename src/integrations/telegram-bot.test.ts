@@ -3031,6 +3031,29 @@ const createTelegramLongPollingConflictError = (): Error & {
     },
   });
 
+const createTelegramLongPollingTimeoutError = (): Error & {
+  code: string;
+  type: string;
+} =>
+  Object.assign(new Error("request to https://api.telegram.org/bot[REDACTED]/getMe failed, reason: "), {
+    code: "ETIMEDOUT",
+    type: "system",
+  });
+
+const createTelegramUnauthorizedError = (): Error & {
+  response: { error_code: number; description: string };
+  on: { method: string };
+} =>
+  Object.assign(new Error("401: Unauthorized"), {
+    response: {
+      error_code: 401,
+      description: "Unauthorized",
+    },
+    on: {
+      method: "getMe",
+    },
+  });
+
 const createTelegramSendMessageError = (options: {
   errorCode: number;
   description: string;
@@ -3118,6 +3141,126 @@ test("start trata conflito 409 de getUpdates sem lancar erro fatal", async () =>
       "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running",
   });
   assert.equal(logger.errors.length, 0);
+});
+
+test("start agenda retry bounded e registra diagnostico quando o long polling falha por timeout", async () => {
+  const { controller, logger } = createController();
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const scheduledTimeouts: Array<{
+    callback: () => void;
+    delayMs: number;
+    cleared: boolean;
+  }> = [];
+  let launchCalls = 0;
+  const internalController = controller as unknown as {
+    bot: {
+      launch: (config?: unknown, onLaunch?: () => void) => Promise<void>;
+    };
+  };
+
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    const [callback, delay, ...callbackArgs] = args;
+    const timeoutRecord = {
+      callback: () => {
+        if (typeof callback === "function") {
+          callback(...callbackArgs);
+        }
+      },
+      delayMs: typeof delay === "number" ? delay : 0,
+      cleared: false,
+    };
+    scheduledTimeouts.push(timeoutRecord);
+    return timeoutRecord as unknown as NodeJS.Timeout;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((handle?: NodeJS.Timeout) => {
+    const timeoutRecord = handle as unknown as { cleared?: boolean } | undefined;
+    if (timeoutRecord) {
+      timeoutRecord.cleared = true;
+    }
+  }) as typeof clearTimeout;
+
+  try {
+    internalController.bot.launch = (_config?: unknown, onLaunch?: () => void) => {
+      launchCalls += 1;
+
+      if (launchCalls === 1) {
+        return Promise.reject(createTelegramLongPollingTimeoutError());
+      }
+
+      onLaunch?.();
+      return new Promise<void>(() => undefined);
+    };
+
+    await controller.start();
+    await flushAsyncWork();
+
+    assert.equal(launchCalls, 1);
+    assert.equal(logger.errors.length, 1);
+    assert.equal(logger.errors[0]?.message, "Falha no long polling do Telegram");
+    assert.deepEqual(logger.errors[0]?.context, {
+      error: "request to https://api.telegram.org/bot[REDACTED]/getMe failed, reason: ",
+      errorName: "Error",
+      errorCode: "ETIMEDOUT",
+      errorType: "system",
+      retryable: true,
+      failureStreak: 1,
+      retryDelayMs: 1000,
+    });
+    assert.equal(logger.warnings.at(-1)?.message, "Nova tentativa de long polling do Telegram agendada apos falha transitoria");
+    assert.deepEqual(logger.warnings.at(-1)?.context, {
+      failureStreak: 1,
+      retryDelayMs: 1000,
+    });
+    assert.equal(scheduledTimeouts.length, 1);
+    assert.equal(scheduledTimeouts[0]?.delayMs, 1000);
+
+    scheduledTimeouts[0]?.callback();
+    await flushAsyncWork();
+
+    assert.equal(launchCalls, 2);
+    assert.equal(logger.infos.at(-1)?.message, "Telegram bot iniciado em long polling");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});
+
+test("start nao agenda retry para erro definitivo do Telegram no bootstrap", async () => {
+  const { controller, logger } = createController();
+  let rejectLaunch: (reason?: unknown) => void = () => undefined;
+  const internalController = controller as unknown as {
+    bot: {
+      launch: (config?: unknown, onLaunch?: () => void) => Promise<void>;
+    };
+  };
+
+  internalController.bot.launch = () =>
+    new Promise<void>((_resolve, reject) => {
+      rejectLaunch = reject;
+    });
+
+  await controller.start();
+  rejectLaunch(createTelegramUnauthorizedError());
+  await flushAsyncWork();
+
+  assert.equal(logger.errors.length, 1);
+  assert.equal(logger.errors[0]?.message, "Falha no long polling do Telegram");
+  assert.deepEqual(logger.errors[0]?.context, {
+    error: "401: Unauthorized",
+    errorName: "Error",
+    telegramErrorCode: 401,
+    telegramDescription: "Unauthorized",
+    telegramMethod: "getMe",
+    retryable: false,
+  });
+  assert.equal(
+    logger.warnings.some(
+      ({ message }) =>
+        message === "Nova tentativa de long polling do Telegram agendada apos falha transitoria",
+    ),
+    false,
+  );
 });
 
 test("stop nao falha quando bot nao estava em execucao", async () => {

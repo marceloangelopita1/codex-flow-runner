@@ -508,6 +508,13 @@ interface TelegramApiErrorLike {
   };
 }
 
+interface ErrorWithCodeLike {
+  code?: unknown;
+  errno?: unknown;
+  type?: unknown;
+  cause?: unknown;
+}
+
 type PlanSpecCallbackContextValidationResult<TContext> =
   | {
       status: "passed";
@@ -742,6 +749,21 @@ const TELEGRAM_LONG_POLLING_CONFLICT_CODE = 409;
 const TELEGRAM_GET_UPDATES_METHOD = "getUpdates";
 const TELEGRAM_LONG_POLLING_CONFLICT_SNIPPET = "other getupdates request";
 const TELEGRAM_BOT_NOT_RUNNING_MESSAGE = "Bot is not running!";
+const TELEGRAM_LONG_POLLING_RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNABORTED",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "ETIMEDOUT",
+  "ENETDOWN",
+  "ENETRESET",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+]);
+const TELEGRAM_LONG_POLLING_RETRY_BASE_DELAY_MS = 1000;
+const TELEGRAM_LONG_POLLING_RETRY_MAX_DELAY_MS = 10000;
 const TICKET_TIMING_STAGE_ORDER = ["plan", "implement", "close-and-version"] as const;
 const RUN_SPECS_TRIAGE_TIMING_STAGE_ORDER = [
   "spec-triage",
@@ -844,6 +866,8 @@ export class TelegramController {
   private readonly planSpecQuestionCallbackContexts = new Map<string, PlanSpecQuestionCallbackContextState>();
   private readonly planSpecFinalCallbackContexts = new Map<string, PlanSpecFinalCallbackContextState>();
   private launchPromise: Promise<void> | null = null;
+  private launchRetryTimeout: NodeJS.Timeout | null = null;
+  private longPollingFailureStreak = 0;
   private isStopping = false;
 
   constructor(
@@ -876,9 +900,22 @@ export class TelegramController {
       return;
     }
 
+    if (this.launchRetryTimeout) {
+      this.logger.warn("Start do Telegram ignorado: nova tentativa de long polling ja esta agendada");
+      return;
+    }
+
     this.isStopping = false;
+    this.startLongPolling();
+  }
+
+  private startLongPolling(): void {
+    if (this.isStopping || this.launchPromise) {
+      return;
+    }
 
     const launchPromise = this.bot.launch({}, () => {
+      this.longPollingFailureStreak = 0;
       this.logger.info("Telegram bot iniciado em long polling");
     });
     this.launchPromise = launchPromise;
@@ -890,6 +927,7 @@ export class TelegramController {
         }
 
         if (this.isLongPollingConflictError(error)) {
+          this.longPollingFailureStreak = 0;
           this.logger.warn(
             "Conflito no long polling do Telegram: outra instancia do bot esta ativa para este token",
             this.buildLongPollingConflictContext(error),
@@ -897,9 +935,23 @@ export class TelegramController {
           return;
         }
 
+        const retryable = this.isRetryableLongPollingError(error);
+        const retryDelayMs = retryable ? this.registerLongPollingRetryFailure() : null;
+
         this.logger.error("Falha no long polling do Telegram", {
-          error: error instanceof Error ? error.message : String(error),
+          ...this.buildLongPollingFailureContext(error),
+          retryable,
+          ...(retryDelayMs === null
+            ? {}
+            : {
+                failureStreak: this.longPollingFailureStreak,
+                retryDelayMs,
+              }),
         });
+
+        if (retryDelayMs !== null) {
+          this.scheduleLongPollingRetry(retryDelayMs);
+        }
       })
       .finally(() => {
         if (this.launchPromise === launchPromise) {
@@ -910,6 +962,8 @@ export class TelegramController {
 
   async stop(signal = "SIGTERM"): Promise<void> {
     this.isStopping = true;
+    this.clearLongPollingRetry();
+    this.longPollingFailureStreak = 0;
 
     try {
       this.bot.stop(signal as "SIGINT" | "SIGTERM");
@@ -968,6 +1022,156 @@ export class TelegramController {
       method: typeof method === "string" ? method : undefined,
       description: typeof description === "string" ? description : undefined,
     };
+  }
+
+  private buildLongPollingFailureContext(error: unknown): Record<string, unknown> {
+    if (!error || typeof error !== "object") {
+      return {
+        error: String(error),
+      };
+    }
+
+    const context: Record<string, unknown> = {};
+
+    if (error instanceof Error) {
+      context.error = error.message;
+      context.errorName = error.name;
+    } else {
+      context.error = String(error);
+    }
+
+    const maybeError = error as ErrorWithCodeLike;
+    if (typeof maybeError.code === "string" || typeof maybeError.code === "number") {
+      context.errorCode = maybeError.code;
+    }
+    if (typeof maybeError.errno === "string" || typeof maybeError.errno === "number") {
+      context.errorErrno = maybeError.errno;
+    }
+    if (typeof maybeError.type === "string") {
+      context.errorType = maybeError.type;
+    }
+
+    const maybeTelegramError = error as TelegramApiErrorLike;
+    if (
+      typeof maybeTelegramError.response?.error_code === "number" ||
+      typeof maybeTelegramError.response?.error_code === "string"
+    ) {
+      context.telegramErrorCode = maybeTelegramError.response.error_code;
+    }
+    if (typeof maybeTelegramError.response?.description === "string") {
+      context.telegramDescription = maybeTelegramError.response.description;
+    }
+    if (typeof maybeTelegramError.on?.method === "string") {
+      context.telegramMethod = maybeTelegramError.on.method;
+    }
+
+    const cause = maybeError.cause;
+    if (!cause || typeof cause !== "object") {
+      return context;
+    }
+
+    if (cause instanceof Error) {
+      context.causeMessage = cause.message;
+      context.causeName = cause.name;
+    }
+
+    const maybeCause = cause as ErrorWithCodeLike;
+    if (typeof maybeCause.code === "string" || typeof maybeCause.code === "number") {
+      context.causeCode = maybeCause.code;
+    }
+    if (typeof maybeCause.errno === "string" || typeof maybeCause.errno === "number") {
+      context.causeErrno = maybeCause.errno;
+    }
+    if (typeof maybeCause.type === "string") {
+      context.causeType = maybeCause.type;
+    }
+
+    const maybeCauseTelegramError = cause as TelegramApiErrorLike;
+    if (
+      typeof maybeCauseTelegramError.response?.error_code === "number" ||
+      typeof maybeCauseTelegramError.response?.error_code === "string"
+    ) {
+      context.causeTelegramErrorCode = maybeCauseTelegramError.response.error_code;
+    }
+    if (typeof maybeCauseTelegramError.response?.description === "string") {
+      context.causeTelegramDescription = maybeCauseTelegramError.response.description;
+    }
+    if (typeof maybeCauseTelegramError.on?.method === "string") {
+      context.causeTelegramMethod = maybeCauseTelegramError.on.method;
+    }
+
+    return context;
+  }
+
+  private isRetryableLongPollingError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const maybeTelegramError = error as TelegramApiErrorLike;
+    const telegramErrorCode = maybeTelegramError.response?.error_code;
+    if (typeof telegramErrorCode === "number") {
+      return telegramErrorCode === 429 || telegramErrorCode >= 500;
+    }
+
+    const maybeError = error as ErrorWithCodeLike;
+    if (this.isRetryableNetworkCode(maybeError.code) || this.isRetryableNetworkCode(maybeError.errno)) {
+      return true;
+    }
+
+    const cause = maybeError.cause;
+    if (!cause || typeof cause !== "object") {
+      return false;
+    }
+
+    const maybeCause = cause as ErrorWithCodeLike;
+    return (
+      this.isRetryableNetworkCode(maybeCause.code) ||
+      this.isRetryableNetworkCode(maybeCause.errno)
+    );
+  }
+
+  private isRetryableNetworkCode(code: unknown): boolean {
+    return typeof code === "string" && TELEGRAM_LONG_POLLING_RETRYABLE_NETWORK_CODES.has(code);
+  }
+
+  private registerLongPollingRetryFailure(): number {
+    this.longPollingFailureStreak += 1;
+    const exponentialFactor = 2 ** Math.max(this.longPollingFailureStreak - 1, 0);
+    return Math.min(
+      TELEGRAM_LONG_POLLING_RETRY_BASE_DELAY_MS * exponentialFactor,
+      TELEGRAM_LONG_POLLING_RETRY_MAX_DELAY_MS,
+    );
+  }
+
+  private scheduleLongPollingRetry(delayMs: number): void {
+    if (this.isStopping || this.launchRetryTimeout) {
+      return;
+    }
+
+    this.logger.warn("Nova tentativa de long polling do Telegram agendada apos falha transitoria", {
+      failureStreak: this.longPollingFailureStreak,
+      retryDelayMs: delayMs,
+    });
+
+    this.launchRetryTimeout = setTimeout(() => {
+      this.launchRetryTimeout = null;
+
+      if (this.isStopping) {
+        return;
+      }
+
+      this.startLongPolling();
+    }, delayMs);
+  }
+
+  private clearLongPollingRetry(): void {
+    if (!this.launchRetryTimeout) {
+      return;
+    }
+
+    clearTimeout(this.launchRetryTimeout);
+    this.launchRetryTimeout = null;
   }
 
   private isBotNotRunningError(error: unknown): boolean {
