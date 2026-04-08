@@ -165,6 +165,7 @@ import {
 import { TargetDeriveExecutionResult } from "../types/target-derive.js";
 import { TargetDeriveLifecycleHooks } from "../types/target-derive.js";
 import {
+  describeTargetInvestigateCaseInvestigationOutcome,
   parseTargetInvestigateCaseCommand,
   TargetInvestigateCaseExecutor,
 } from "./target-investigate-case.js";
@@ -3888,8 +3889,8 @@ export class TicketRunner {
         ]),
         versionedArtifactPaths: [...result.summary.publicationDecision.versioned_artifact_paths],
         details:
-          `Publication: ${result.summary.publicationDecision.publication_status}; ` +
-          `Outcome: ${result.summary.publicationDecision.overall_outcome}.`,
+          `Investigacao: ${describeTargetInvestigateCaseInvestigationOutcome(result.summary.finalSummary)} ` +
+          `Publication: ${result.summary.publicationDecision.publication_status}/${result.summary.publicationDecision.overall_outcome}.`,
         timing,
         summary: result.summary.finalSummary,
       };

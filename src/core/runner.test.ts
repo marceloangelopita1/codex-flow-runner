@@ -9766,6 +9766,8 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
 	                  "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
 	                rootCauseReviewResultPath:
 	                  "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
+	                remediationProposalPath:
+	                  "investigations/2026-04-03T19-00-00Z/remediation-proposal.json",
 	                ticketProposalPath:
 	                  "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
 	                publicationDecisionPath:
@@ -9805,6 +9807,10 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
                 root_cause_status: null,
                 ticket_readiness_status: null,
                 assessment_next_action: null,
+                investigation_outcome: "no-real-gap",
+                investigation_reason: "Nao ha melhoria local necessaria para este caso.",
+                primary_remediation: null,
+                remediation_proposal_path: null,
                 blocker_codes: [],
                 remaining_gap_codes: [],
                 causal_surface: {
@@ -9864,6 +9870,13 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
                   next_action: null,
                   blockers: [],
                   capability_limits: [],
+                  primary_remediation: null,
+                },
+                investigation: {
+                  outcome: "no-real-gap",
+                  reason: "Nao ha melhoria local necessaria para este caso.",
+                  primary_remediation: null,
+                  remediation_proposal_path: null,
                 },
                 causal_surface: {
                   owner: "target-project",
@@ -9953,6 +9966,10 @@ test("requestTargetInvestigateCase inicia lifecycle com milestones canonicos e s
   assert.equal(flowSummaries[0]?.flow, "target-investigate-case");
   assert.equal(flowSummaries[0]?.outcome, "success");
   assert.equal(flowSummaries[0]?.finalStage, "publication");
+  assert.match(
+    flowSummaries[0]?.details ?? "",
+    /Investigacao: Nao ha gap real a corrigir neste caso\./u,
+  );
   assert.equal(flowSummaries[0]?.summary?.overall_outcome, "no-real-gap");
 });
 
@@ -10121,6 +10138,8 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
 	                  "investigations/2026-04-03T20-00-00Z/root-cause-review.request.json",
 	                rootCauseReviewResultPath:
 	                  "investigations/2026-04-03T20-00-00Z/root-cause-review.result.json",
+	                remediationProposalPath:
+	                  "investigations/2026-04-03T20-00-00Z/remediation-proposal.json",
 	                ticketProposalPath:
 	                  "investigations/2026-04-03T20-00-00Z/ticket-proposal.json",
 	                publicationDecisionPath:
@@ -10160,6 +10179,10 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
                 root_cause_status: null,
                 ticket_readiness_status: null,
                 assessment_next_action: null,
+                investigation_outcome: "inconclusive",
+                investigation_reason: "A rodada segue inconclusiva neste cenario de teste.",
+                primary_remediation: null,
+                remediation_proposal_path: null,
                 blocker_codes: [],
                 remaining_gap_codes: [],
                 causal_surface: {
@@ -10219,6 +10242,13 @@ test("requestTargetInvestigateCase bloqueia o mesmo projeto, permite outro proje
                   next_action: null,
                   blockers: [],
                   capability_limits: [],
+                  primary_remediation: null,
+                },
+                investigation: {
+                  outcome: "inconclusive",
+                  reason: "A rodada segue inconclusiva neste cenario de teste.",
+                  primary_remediation: null,
+                  remediation_proposal_path: null,
                 },
                 causal_surface: {
                   owner: "target-project",
@@ -10394,6 +10424,8 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
 	                  "investigations/2026-04-03T21-00-00Z/ticket-proposal.json",
 	                publicationDecisionPath:
 	                  "investigations/2026-04-03T21-00-00Z/publication-decision.json",
+	                remediationProposalPath:
+	                  "investigations/2026-04-03T21-00-00Z/remediation-proposal.json",
 	              },
               realizedArtifactPaths: [
                 "investigations/2026-04-03T21-00-00Z/assessment.json",
@@ -10431,6 +10463,28 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
                 root_cause_status: null,
                 ticket_readiness_status: null,
                 assessment_next_action: null,
+                investigation_outcome: "actionable-remediation-identified",
+                investigation_reason: "O target ja isolou uma remediacao local reutilizavel.",
+                primary_remediation: {
+                  status: "recommended",
+                  execution_readiness: "ready",
+                  publication_dependency: "shared",
+                  source: "causal_debug",
+                  confidence: "high",
+                  summary: "Corrigir o guardrail local reutilizavel.",
+                  rationale: "A causa ja foi isolada no projeto alvo.",
+                  stage: "consolidacao final",
+                  suggested_fix_surface: ["src/workflows/billing-core.ts"],
+                  follow_ups: [
+                    {
+                      summary: "Validar o ticket publicado.",
+                      scope: "shared",
+                    },
+                  ],
+                  blockers: [],
+                },
+                remediation_proposal_path:
+                  "investigations/2026-04-03T21-00-00Z/remediation-proposal.json",
                 blocker_codes: [],
                 remaining_gap_codes: [],
                 causal_surface: {
@@ -10490,6 +10544,48 @@ test("cancelTargetInvestigateCase responde cancelamento tardio apenas apos publi
                   next_action: null,
                   blockers: [],
                   capability_limits: [],
+                  primary_remediation: {
+                    status: "recommended",
+                    execution_readiness: "ready",
+                    publication_dependency: "shared",
+                    source: "causal_debug",
+                    confidence: "high",
+                    summary: "Corrigir o guardrail local reutilizavel.",
+                    rationale: "A causa ja foi isolada no projeto alvo.",
+                    stage: "consolidacao final",
+                    suggested_fix_surface: ["src/workflows/billing-core.ts"],
+                    follow_ups: [
+                      {
+                        summary: "Validar o ticket publicado.",
+                        scope: "shared",
+                      },
+                    ],
+                    blockers: [],
+                  },
+                },
+                investigation: {
+                  outcome: "actionable-remediation-identified",
+                  reason: "O target ja isolou uma remediacao local reutilizavel.",
+                  primary_remediation: {
+                    status: "recommended",
+                    execution_readiness: "ready",
+                    publication_dependency: "shared",
+                    source: "causal_debug",
+                    confidence: "high",
+                    summary: "Corrigir o guardrail local reutilizavel.",
+                    rationale: "A causa ja foi isolada no projeto alvo.",
+                    stage: "consolidacao final",
+                    suggested_fix_surface: ["src/workflows/billing-core.ts"],
+                    follow_ups: [
+                      {
+                        summary: "Validar o ticket publicado.",
+                        scope: "shared",
+                      },
+                    ],
+                    blockers: [],
+                  },
+                  remediation_proposal_path:
+                    "investigations/2026-04-03T21-00-00Z/remediation-proposal.json",
                 },
                 causal_surface: {
                   owner: "target-project",

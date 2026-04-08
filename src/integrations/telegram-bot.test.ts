@@ -1003,6 +1003,8 @@ const createController = (options: ControllerOptions = {}) => {
 	              "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
 	            rootCauseReviewResultPath:
 	              "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
+	            remediationProposalPath:
+	              "investigations/2026-04-03T19-00-00Z/remediation-proposal.json",
 	            ticketProposalPath:
 	              "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
 	            publicationDecisionPath:
@@ -1042,6 +1044,10 @@ const createController = (options: ControllerOptions = {}) => {
             root_cause_status: null,
             ticket_readiness_status: null,
             assessment_next_action: null,
+            investigation_outcome: "no-real-gap" as const,
+            investigation_reason: "Nao ha melhoria local necessaria para este caso.",
+            primary_remediation: null,
+            remediation_proposal_path: null,
             blocker_codes: [],
             remaining_gap_codes: [],
             causal_surface: {
@@ -1101,6 +1107,13 @@ const createController = (options: ControllerOptions = {}) => {
               next_action: null,
               blockers: [],
               capability_limits: [],
+              primary_remediation: null,
+            },
+            investigation: {
+              outcome: "no-real-gap" as const,
+              reason: "Nao ha melhoria local necessaria para este caso.",
+              primary_remediation: null,
+              remediation_proposal_path: null,
             },
             causal_surface: {
               owner: "target-project" as const,
@@ -3710,7 +3723,53 @@ test("handleTargetInvestigateCaseCommand encaminha o contrato canonico inteiro a
   assert.deepEqual(controlState.targetInvestigateCaseArgs, [commandText]);
   assert.match(replies[0] ?? "", /\/target_investigate_case concluido para alpha-project/u);
   assert.match(replies[0] ?? "", /Case-ref: case-001/u);
+  assert.match(replies[0] ?? "", /Resultado investigativo: Nao ha gap real a corrigir neste caso\./u);
   assert.match(replies[0] ?? "", /Dossier local: investigations\/2026-04-03T19-00-00Z\/dossier.md/u);
+});
+
+test("buildTargetInvestigateCaseReply destaca remediacao acionavel antes do gating de publication", () => {
+  const { controller } = createController();
+
+  const reply = (controller as any).buildTargetInvestigateCaseReply({
+    status: "completed",
+    summary: {
+      targetProject: {
+        name: "alpha-project",
+        path: "/home/mapita/projetos/alpha-project",
+      },
+      artifactPaths: {
+        dossierPath: "investigations/2026-04-08T01-39-50Z/dossier.md",
+      },
+      publicationDecision: {
+        publication_status: "not_eligible",
+        overall_outcome: "inconclusive-case",
+        ticket_path: null,
+      },
+      finalSummary: {
+        case_ref: "case-001",
+        resolved_attempt_ref: null,
+        attempt_resolution_status: "absent-explicitly",
+        investigation_outcome: "actionable-remediation-identified",
+        primary_remediation: {
+          summary: "Corrigir o comparador local de logradouro.",
+          execution_readiness: "ready",
+          publication_dependency: "publication_only",
+        },
+        remediation_proposal_path:
+          "investigations/2026-04-08T01-39-50Z/remediation-proposal.json",
+      },
+      nextAction: "Executar a remediacao principal localmente.",
+    },
+  });
+
+  assert.match(
+    reply,
+    /Resultado investigativo: Ha remediacao acionavel identificada; publication automatica segue bloqueada\./u,
+  );
+  assert.match(reply, /Primary remediation: Corrigir o comparador local de logradouro\./u);
+  assert.match(reply, /Execution readiness: ready/u);
+  assert.match(reply, /Publication dependency: publication_only/u);
+  assert.match(reply, /Publication automatica: not_eligible \(inconclusive-case\)/u);
 });
 
 test("handleTargetInvestigateCaseCommand responde com CTA de acompanhamento quando o fluxo inicia", async () => {

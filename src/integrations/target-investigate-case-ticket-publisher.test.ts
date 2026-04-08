@@ -536,7 +536,24 @@ const createPublisherFixture = async (): Promise<{
         capability_limits: [],
         causal_debug: null,
         root_cause_review: null,
-        primary_remediation: null,
+        primary_remediation: {
+          status: "recommended",
+          execution_readiness: "ready",
+          publication_dependency: "shared",
+          source: "causal_debug",
+          confidence: "high",
+          summary: "Corrigir o guardrail local reutilizavel do billing-core.",
+          rationale: "A investigacao ja isolou a menor superficie local de correcao.",
+          stage: "consolidacao final",
+          suggested_fix_surface: ["src/workflows/billing-core.ts"],
+          follow_ups: [
+            {
+              summary: "Revisar o ticket publicado.",
+              scope: "shared",
+            },
+          ],
+          blockers: [],
+        },
         ticket_projection: null,
         causal_surface: {
           owner: "target-project",
@@ -577,6 +594,27 @@ const createPublisherFixture = async (): Promise<{
         root_cause_status: null,
         ticket_readiness_status: null,
         assessment_next_action: null,
+        investigation_outcome: "actionable-remediation-identified",
+        investigation_reason: "A investigacao ja isolou uma remediacao local reutilizavel.",
+        primary_remediation: {
+          status: "recommended",
+          execution_readiness: "ready",
+          publication_dependency: "shared",
+          source: "causal_debug",
+          confidence: "high",
+          summary: "Corrigir o guardrail local reutilizavel do billing-core.",
+          rationale: "A investigacao ja isolou a menor superficie local de correcao.",
+          stage: "consolidacao final",
+          suggested_fix_surface: ["src/workflows/billing-core.ts"],
+          follow_ups: [
+            {
+              summary: "Revisar o ticket publicado.",
+              scope: "shared",
+            },
+          ],
+          blockers: [],
+        },
+        remediation_proposal_path: "investigations/round-1/remediation-proposal.json",
         blocker_codes: [],
         remaining_gap_codes: [],
         causal_surface: {

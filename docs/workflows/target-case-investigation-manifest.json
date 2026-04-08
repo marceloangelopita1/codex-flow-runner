@@ -42,6 +42,10 @@
       "artifactPath": "assessment.json",
       "schemaVersion": "1.0"
     },
+    "remediationProposal": {
+      "artifactPath": "remediation-proposal.json",
+      "schemaVersion": "1.0"
+    },
     "publicationDecision": {
       "artifactPath": "publication-decision.json",
       "schemaVersion": "1.0"
@@ -143,6 +147,11 @@
           "prompt_guardrail_opportunities",
           "remaining_gaps"
         ]
+      },
+      "remediationProposal": {
+        "artifact": "remediation-proposal.json",
+        "schemaVersion": "remediation_proposal_v1",
+        "owner": "target-project"
       }
     },
     "reviewPolicy": {
@@ -157,7 +166,11 @@
       ],
       "externalEvidenceDiscoveryAllowed": false,
       "targetProjectOwnsRootCauseDecision": true,
-      "runnerRemainsPublicationAuthority": true
+      "runnerRemainsPublicationAuthority": true,
+      "primaryRemediationCanonicalArtifact": "assessment.primary_remediation",
+      "primaryRemediationProposalArtifact": "remediation-proposal.json",
+      "remediationFirstNextActionWhenExecutionReady": true,
+      "ticketReadinessIsNotRemediationVeto": true
     }
   },
   "replayPolicy": {

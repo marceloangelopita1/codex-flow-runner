@@ -36,6 +36,7 @@ import {
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
   TARGET_INVESTIGATE_CASE_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_ROUNDS_DIR,
@@ -93,6 +94,7 @@ export interface TargetInvestigateCaseArtifactPaths {
   causalDebugResultPath?: string;
   rootCauseReviewRequestPath?: string;
   rootCauseReviewResultPath?: string;
+  remediationProposalPath?: string;
   ticketProposalPath?: string;
   publicationDecisionPath?: string;
 }
@@ -466,6 +468,11 @@ export const evaluateTargetInvestigateCaseRound = async (
     manifestLoad.manifest,
     artifactPaths,
   );
+  const remediationProposalPath =
+    artifactPaths.remediationProposalPath &&
+    (await relativePathExists(request.targetProject.path, artifactPaths.remediationProposalPath))
+      ? artifactPaths.remediationProposalPath
+      : null;
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
   assertOperationalSubflowsReady(semanticReview, causalDebug, rootCauseReview, assessment);
@@ -492,6 +499,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     assessment,
     publicationDecision: decision,
     dossierPath: artifactPaths.dossierPath,
+    remediationProposalPath,
   });
   const tracePayload = buildTargetInvestigateCaseTracePayload({
     normalizedInput,
@@ -501,6 +509,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     assessment,
     publicationDecision: decision,
     dossierPath: artifactPaths.dossierPath,
+    remediationProposalPath,
     semanticReview: semanticReview.trace,
     rootCauseReview: rootCauseReview.trace,
   });
@@ -531,10 +540,17 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
   assessment: TargetInvestigateCaseAssessment;
   publicationDecision: TargetInvestigateCasePublicationDecision;
   dossierPath: string;
+  remediationProposalPath?: string | null;
   semanticReview: TargetInvestigateCaseSemanticReviewTrace;
   rootCauseReview: TargetInvestigateCaseRootCauseReviewTrace;
-}): TargetInvestigateCaseTracePayload =>
-  targetInvestigateCaseTracePayloadSchema.parse({
+}): TargetInvestigateCaseTracePayload => {
+  const investigation = buildTargetInvestigateCaseInvestigationSnapshot({
+    assessment: params.assessment,
+    publicationDecision: params.publicationDecision,
+    remediationProposalPath: params.remediationProposalPath ?? null,
+  });
+
+  return targetInvestigateCaseTracePayloadSchema.parse({
     selectors: {
       caseRef: params.normalizedInput.caseRef,
       workflow: params.normalizedInput.workflow ?? null,
@@ -577,6 +593,13 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
       next_action: params.assessment.next_action,
       blockers: params.assessment.blockers,
       capability_limits: params.assessment.capability_limits,
+      primary_remediation: params.assessment.primary_remediation,
+    },
+    investigation: {
+      outcome: investigation.outcome,
+      reason: investigation.reason,
+      primary_remediation: investigation.primaryRemediation,
+      remediation_proposal_path: investigation.remediationProposalPath,
     },
     causal_surface: params.assessment.causal_surface,
     publication: {
@@ -596,6 +619,7 @@ export const buildTargetInvestigateCaseTracePayload = (params: {
     semantic_review: params.semanticReview,
     root_cause_review: params.rootCauseReview,
   });
+};
 
 export const buildTargetInvestigateCaseFinalSummary = (params: {
   caseResolution: TargetInvestigateCaseCaseResolution;
@@ -603,8 +627,15 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
   assessment: TargetInvestigateCaseAssessment;
   publicationDecision: TargetInvestigateCasePublicationDecision;
   dossierPath: string;
-}): TargetInvestigateCaseFinalSummary =>
-  targetInvestigateCaseFinalSummarySchema.parse({
+  remediationProposalPath?: string | null;
+}): TargetInvestigateCaseFinalSummary => {
+  const investigation = buildTargetInvestigateCaseInvestigationSnapshot({
+    assessment: params.assessment,
+    publicationDecision: params.publicationDecision,
+    remediationProposalPath: params.remediationProposalPath ?? null,
+  });
+
+  return targetInvestigateCaseFinalSummarySchema.parse({
     case_ref: params.caseResolution.case_ref,
     resolved_attempt_ref: params.caseResolution.attempt_resolution.attempt_ref,
     attempt_resolution_status: params.caseResolution.attempt_resolution.status,
@@ -622,6 +653,10 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
     ticket_readiness_status:
       params.assessment.root_cause_review?.ticket_readiness_status ?? null,
     assessment_next_action: params.assessment.next_action,
+    investigation_outcome: investigation.outcome,
+    investigation_reason: investigation.reason,
+    primary_remediation: investigation.primaryRemediation,
+    remediation_proposal_path: investigation.remediationProposalPath,
     blocker_codes: params.assessment.blockers.map((entry) => entry.code),
     remaining_gap_codes:
       params.assessment.root_cause_review?.remaining_gaps.map((entry) => entry.code) ?? [],
@@ -633,6 +668,140 @@ export const buildTargetInvestigateCaseFinalSummary = (params: {
     ticket_path: params.publicationDecision.ticket_path,
     next_action: params.publicationDecision.next_action,
   });
+};
+
+const hasActionablePrimaryRemediation = (
+  assessment: TargetInvestigateCaseAssessment,
+): boolean =>
+  assessment.primary_remediation?.status === "recommended" &&
+  assessment.primary_remediation.execution_readiness === "ready";
+
+const buildTargetInvestigateCaseInvestigationSnapshot = (params: {
+  assessment: TargetInvestigateCaseAssessment;
+  publicationDecision: TargetInvestigateCasePublicationDecision;
+  remediationProposalPath: string | null;
+}): {
+  outcome: TargetInvestigateCaseFinalSummary["investigation_outcome"];
+  reason: string;
+  primaryRemediation: TargetInvestigateCaseFinalSummary["primary_remediation"];
+  remediationProposalPath: string | null;
+} => {
+  const primaryRemediation = params.assessment.primary_remediation ?? null;
+
+  if (hasActionablePrimaryRemediation(params.assessment) && primaryRemediation) {
+    return {
+      outcome: "actionable-remediation-identified",
+      reason: primaryRemediation.rationale,
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  if (
+    params.assessment.primary_taxonomy === "expected_behavior" ||
+    params.assessment.houve_gap_real === "no"
+  ) {
+    return {
+      outcome: "no-real-gap",
+      reason:
+        "A autoridade semantica do projeto alvo concluiu que nao ha melhoria local necessaria neste caso.",
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  if (params.assessment.causal_surface.owner === "runner") {
+    return {
+      outcome: "runner-limitation",
+      reason:
+        "A limitacao principal desta rodada pertence ao proprio runner, nao ao projeto alvo.",
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  if (
+    params.assessment.houve_gap_real === "yes" &&
+    params.assessment.era_evitavel_internamente === "no"
+  ) {
+    return {
+      outcome: "real-gap-not-internally-avoidable",
+      reason:
+        "O caso foi confirmado como gap real, mas sem superficie causal executavel dentro do projeto alvo.",
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  if (
+    params.assessment.houve_gap_real === "yes" &&
+    params.assessment.era_evitavel_internamente === "yes" &&
+    params.assessment.merece_ticket_generalizavel === "no"
+  ) {
+    return {
+      outcome: "real-gap-not-generalizable",
+      reason:
+        "O gap real e local ao projeto alvo, mas ainda sem base declarada para generalizacao automatica.",
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  if (params.assessment.primary_taxonomy === "capability_gap") {
+    return {
+      outcome: "project-capability-gap",
+      reason:
+        "A propria capability local do projeto alvo permaneceu insuficiente para fechar a investigacao.",
+      primaryRemediation,
+      remediationProposalPath: params.remediationProposalPath,
+    };
+  }
+
+  return {
+    outcome: "inconclusive",
+    reason: params.publicationDecision.outcome_reason,
+    primaryRemediation,
+    remediationProposalPath: params.remediationProposalPath,
+  };
+};
+
+export const describeTargetInvestigateCaseInvestigationOutcome = (
+  summary: Pick<
+    TargetInvestigateCaseFinalSummary,
+    | "investigation_outcome"
+    | "publication_status"
+    | "primary_remediation"
+    | "remediation_proposal_path"
+  >,
+): string => {
+  if (summary.investigation_outcome === "actionable-remediation-identified") {
+    return summary.publication_status === "eligible"
+      ? "Ha remediacao acionavel identificada e a publication automatica ja foi concluida."
+      : "Ha remediacao acionavel identificada; publication automatica segue bloqueada.";
+  }
+
+  if (summary.investigation_outcome === "no-real-gap") {
+    return "Nao ha gap real a corrigir neste caso.";
+  }
+
+  if (summary.investigation_outcome === "real-gap-not-internally-avoidable") {
+    return "Ha gap real, mas sem superficie causal executavel dentro do projeto alvo.";
+  }
+
+  if (summary.investigation_outcome === "real-gap-not-generalizable") {
+    return "Ha gap local, mas sem base suficiente para publication automatica.";
+  }
+
+  if (summary.investigation_outcome === "project-capability-gap") {
+    return "A investigacao esbarrou em um capability gap local do projeto alvo.";
+  }
+
+  if (summary.investigation_outcome === "runner-limitation") {
+    return "A limitacao principal desta rodada esta no runner.";
+  }
+
+  return "A investigacao permanece inconclusiva.";
+};
 
 export const renderTargetInvestigateCaseFinalSummary = (
   summary: TargetInvestigateCaseFinalSummary,
@@ -642,6 +811,9 @@ export const renderTargetInvestigateCaseFinalSummary = (
     (summary.attempt_resolution_status === "absent-explicitly"
       ? "ausencia explicita de tentativa"
       : "nao aplicavel");
+  const primaryRemediationLine = summary.primary_remediation
+    ? `${summary.primary_remediation.summary} [readiness=${summary.primary_remediation.execution_readiness}; publication_dependency=${summary.primary_remediation.publication_dependency}]`
+    : "not available";
   const lines = [
     "# Target investigate case",
     "",
@@ -660,6 +832,11 @@ export const renderTargetInvestigateCaseFinalSummary = (
     `- Root cause status: ${summary.root_cause_status ?? "legacy-not-declared"}`,
     `- Ticket readiness status: ${summary.ticket_readiness_status ?? "legacy-not-declared"}`,
     `- Assessment next action: ${summary.assessment_next_action ? `${summary.assessment_next_action.code} (${summary.assessment_next_action.source}) - ${summary.assessment_next_action.summary}` : "N/A"}`,
+    `- Investigation outcome: ${summary.investigation_outcome}`,
+    `- Investigation summary: ${describeTargetInvestigateCaseInvestigationOutcome(summary)}`,
+    `- Investigation reason: ${summary.investigation_reason}`,
+    `- Primary remediation: ${primaryRemediationLine}`,
+    `- Remediation proposal path: ${summary.remediation_proposal_path ?? "(none)"}`,
     `- Blockers: ${summary.blocker_codes.length > 0 ? summary.blocker_codes.join(", ") : "none"}`,
     `- Remaining gap codes: ${summary.remaining_gap_codes.length > 0 ? summary.remaining_gap_codes.join(", ") : "none"}`,
     `- Causal surface: ${summary.causal_surface.owner}/${summary.causal_surface.kind} - ${summary.causal_surface.summary}`,
@@ -2484,6 +2661,11 @@ const normalizeArtifactPaths = (
       ),
     "rootCauseReviewResultPath",
   );
+  const remediationProposalPath = normalizeRelativePath(
+    paths.remediationProposalPath ??
+      path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+    "remediationProposalPath",
+  );
   const ticketProposalPath = normalizeRelativePath(
     paths.ticketProposalPath ??
       path.posix.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
@@ -2506,6 +2688,7 @@ const normalizeArtifactPaths = (
     causalDebugResultPath,
     rootCauseReviewRequestPath,
     rootCauseReviewResultPath,
+    remediationProposalPath,
     ticketProposalPath,
     publicationDecisionPath,
   };
@@ -2783,6 +2966,9 @@ const buildTargetInvestigateCaseArtifactSet = (
   rootCauseReviewResultPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT),
   ),
+  remediationProposalPath: normalizeTargetInvestigateCaseRelativePath(
+    path.join(roundDirectory, TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+  ),
   ticketProposalPath: normalizeTargetInvestigateCaseRelativePath(
     path.join(roundDirectory, TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
   ),
@@ -2829,6 +3015,9 @@ const listExistingTargetInvestigateCaseArtifacts = async (
 ): Promise<string[]> => {
   const existing: string[] = [];
   for (const artifactPath of Object.values(artifactPaths)) {
+    if (!artifactPath) {
+      continue;
+    }
     if (await relativePathExists(projectPath, artifactPath)) {
       existing.push(artifactPath);
     }

@@ -104,6 +104,10 @@ export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_SCHEMA_VERSION =
   "root_cause_review_request_v1";
 export const TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION =
   "root_cause_review_result_v1";
+export const TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT =
+  "remediation-proposal.json";
+export const TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION =
+  "remediation_proposal_v1";
 export const TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT = "ticket-proposal.json";
 export const TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION = "ticket_proposal_v1";
 
@@ -197,6 +201,18 @@ export const TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES = uniqueValues(
     "ticket-eligible-but-blocked-by-policy",
   ] as const,
   "overall-outcome",
+);
+export const TARGET_INVESTIGATE_CASE_INVESTIGATION_OUTCOME_VALUES = uniqueValues(
+  [
+    "no-real-gap",
+    "actionable-remediation-identified",
+    "real-gap-not-internally-avoidable",
+    "real-gap-not-generalizable",
+    "project-capability-gap",
+    "runner-limitation",
+    "inconclusive",
+  ] as const,
+  "investigation-outcome",
 );
 export const TARGET_INVESTIGATE_CASE_NORMATIVE_CONFLICT_KIND_VALUES = uniqueValues(
   [
@@ -526,6 +542,7 @@ const operationalClassSchema = z.enum(TARGET_INVESTIGATE_CASE_OPERATIONAL_CLASS_
 const recommendedActionSchema = z.enum(TARGET_INVESTIGATE_CASE_RECOMMENDED_ACTION_VALUES);
 const publicationStatusSchema = z.enum(TARGET_INVESTIGATE_CASE_PUBLICATION_STATUS_VALUES);
 const overallOutcomeSchema = z.enum(TARGET_INVESTIGATE_CASE_OVERALL_OUTCOME_VALUES);
+const investigationOutcomeSchema = z.enum(TARGET_INVESTIGATE_CASE_INVESTIGATION_OUTCOME_VALUES);
 const causalSurfaceOwnerSchema = z.enum(TARGET_INVESTIGATE_CASE_CAUSAL_SURFACE_OWNER_VALUES);
 const causalSurfaceKindSchema = z.enum(TARGET_INVESTIGATE_CASE_CAUSAL_SURFACE_KIND_VALUES);
 const normativeConflictKindSchema = z.enum(TARGET_INVESTIGATE_CASE_NORMATIVE_CONFLICT_KIND_VALUES);
@@ -845,6 +862,16 @@ const targetInvestigateCaseManifestCausalDebugSchema = z
             qualityGate: ticketQualityGateSchema.optional(),
           })
           .strict(),
+        remediationProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION,
+            ),
+            owner: z.literal("target-project").optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
     debugPolicy: z
@@ -902,6 +929,16 @@ const targetInvestigateCaseManifestRootCauseReviewSchema = z
             ).optional(),
           })
           .strict(),
+        remediationProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION,
+            ),
+            owner: z.literal("target-project").optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
     reviewPolicy: z
@@ -916,6 +953,11 @@ const targetInvestigateCaseManifestRootCauseReviewSchema = z
         runnerRemainsPublicationAuthority: z.literal(true),
         narrativeLanguage: trimmedString.optional(),
         primaryRemediationCanonicalArtifact: primaryRemediationCanonicalArtifactSchema.optional(),
+        primaryRemediationProposalArtifact: z
+          .literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT)
+          .optional(),
+        remediationFirstNextActionWhenExecutionReady: z.boolean().optional(),
+        ticketReadinessIsNotRemediationVeto: z.boolean().optional(),
       })
       .strict(),
     recomposition: z
@@ -967,6 +1009,16 @@ const targetInvestigateCasePilotManifestCausalDebugSchema = z
               "causalDebug.artifacts.ticketProposal.optionalFields",
             ).optional(),
             qualityGate: ticketQualityGateSchema.optional(),
+          })
+          .strict()
+          .optional(),
+        remediationProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION,
+            ),
+            owner: z.literal("target-project").optional(),
           })
           .strict()
           .optional(),
@@ -1038,6 +1090,11 @@ const targetInvestigateCasePilotManifestRootCauseReviewCurrentPolicySchema = z
     runnerRemainsPublicationAuthority: z.literal(true),
     narrativeLanguage: trimmedString.optional(),
     primaryRemediationCanonicalArtifact: primaryRemediationCanonicalArtifactSchema.optional(),
+    primaryRemediationProposalArtifact: z
+      .literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT)
+      .optional(),
+    remediationFirstNextActionWhenExecutionReady: z.boolean().optional(),
+    ticketReadinessIsNotRemediationVeto: z.boolean().optional(),
   })
   .strict();
 
@@ -1082,6 +1139,16 @@ const targetInvestigateCasePilotManifestRootCauseReviewSchema = z
               "rootCauseReview.artifacts.ticketProposal.optionalFields",
             ).optional(),
             qualityGate: ticketQualityGateSchema.optional(),
+          })
+          .strict()
+          .optional(),
+        remediationProposal: z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION,
+            ),
+            owner: z.literal("target-project").optional(),
           })
           .strict()
           .optional(),
@@ -1227,6 +1294,13 @@ export const targetInvestigateCaseManifestSchema = z
             ).optional(),
           })
           .strict(),
+        remediationProposal: z
+          .object({
+            artifactPath: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
+          })
+          .strict()
+          .optional(),
         publicationDecision: z
           .object({
             artifactPath: z.literal("publication-decision.json"),
@@ -1532,6 +1606,19 @@ export const targetInvestigateCasePilotManifestSchema = z
             schemaVersion: z.literal(
               TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_SCHEMA_VERSION,
             ),
+          })
+          .strict()
+          .optional(),
+        "remediation-proposal": z
+          .object({
+            artifact: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
+            schemaVersion: z.literal(
+              TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_SCHEMA_VERSION,
+            ),
+            requiredFields: uniqueNonEmptyArray(
+              trimmedString,
+              "phaseOutputs.remediation-proposal.requiredFields",
+            ).optional(),
           })
           .strict()
           .optional(),
@@ -1883,6 +1970,12 @@ const normalizePilotManifestToInternal = (
             ? [...manifest.phaseOutputs.assessment.primaryRemediationPublicationDependencyValues]
             : undefined,
       },
+      remediationProposal: manifest.phaseOutputs["remediation-proposal"]
+        ? {
+            artifactPath: manifest.phaseOutputs["remediation-proposal"].artifact,
+            schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+          }
+        : undefined,
       publicationDecision: {
         artifactPath: manifest.phaseOutputs.publication.artifact,
         schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
@@ -4227,6 +4320,15 @@ export const targetInvestigateCaseTracePayloadSchema = z
         next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
         blockers: z.array(targetInvestigateCaseAssessmentBlockerSchema),
         capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
+        primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
+      })
+      .strict(),
+    investigation: z
+      .object({
+        outcome: investigationOutcomeSchema,
+        reason: trimmedString,
+        primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
+        remediation_proposal_path: relativePathSchema.nullable(),
       })
       .strict(),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
@@ -4271,6 +4373,10 @@ export const targetInvestigateCaseFinalSummarySchema = z
     root_cause_status: rootCauseStatusSchema.nullable(),
     ticket_readiness_status: trimmedString.nullable(),
     assessment_next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
+    investigation_outcome: investigationOutcomeSchema,
+    investigation_reason: trimmedString,
+    primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
+    remediation_proposal_path: relativePathSchema.nullable(),
     blocker_codes: z.array(trimmedString),
     remaining_gap_codes: z.array(trimmedString),
     causal_surface: targetInvestigateCaseCausalSurfaceSchema,
@@ -4342,6 +4448,7 @@ export interface TargetInvestigateCaseArtifactSet {
   causalDebugResultPath: string;
   rootCauseReviewRequestPath: string;
   rootCauseReviewResultPath: string;
+  remediationProposalPath: string;
   ticketProposalPath: string;
   publicationDecisionPath: string;
 }

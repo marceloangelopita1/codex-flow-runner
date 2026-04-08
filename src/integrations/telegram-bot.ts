@@ -4,6 +4,7 @@ import {
   ProjectSelectionSnapshot,
 } from "../core/project-selection.js";
 import { Logger } from "../core/logger.js";
+import { describeTargetInvestigateCaseInvestigationOutcome } from "../core/target-investigate-case.js";
 import type {
   CodexChatSessionCancelOptions,
   CodexChatSessionCancelResult,
@@ -6852,6 +6853,7 @@ export class TelegramController {
     }
 
     if (result.status === "completed") {
+      const primaryRemediation = result.summary.finalSummary.primary_remediation;
       return [
         `✅ /target_investigate_case concluido para ${result.summary.targetProject.name}.`,
         `Case-ref: ${result.summary.finalSummary.case_ref}`,
@@ -6861,8 +6863,13 @@ export class TelegramController {
             ? "ausencia explicita de tentativa"
             : "nao aplicavel")
         }`,
-        `Publication status: ${result.summary.publicationDecision.publication_status}`,
-        `Overall outcome: ${result.summary.publicationDecision.overall_outcome}`,
+        `Resultado investigativo: ${describeTargetInvestigateCaseInvestigationOutcome(result.summary.finalSummary)}`,
+        `Investigation outcome: ${result.summary.finalSummary.investigation_outcome}`,
+        `Primary remediation: ${primaryRemediation ? primaryRemediation.summary : "(nenhuma)"}`,
+        `Execution readiness: ${primaryRemediation?.execution_readiness ?? "(nao aplicavel)"}`,
+        `Publication dependency: ${primaryRemediation?.publication_dependency ?? "(nao aplicavel)"}`,
+        `Remediation proposal: ${result.summary.finalSummary.remediation_proposal_path ?? "(nenhum)"}`,
+        `Publication automatica: ${result.summary.publicationDecision.publication_status} (${result.summary.publicationDecision.overall_outcome})`,
         `Dossier local: ${result.summary.artifactPaths.dossierPath}`,
         `Ticket path: ${result.summary.publicationDecision.ticket_path ?? "(nenhum)"}`,
         `Proxima acao: ${result.summary.nextAction}`,

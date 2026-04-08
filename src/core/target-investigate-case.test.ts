@@ -77,6 +77,7 @@ interface TargetRepoFixture {
     causalDebugResultPath: string;
     rootCauseReviewRequestPath: string;
     rootCauseReviewResultPath: string;
+    remediationProposalPath: string;
     ticketProposalPath: string;
     publicationDecisionPath: string;
   };
@@ -2023,6 +2024,10 @@ test("evaluateTargetInvestigateCaseRound aceita promotion semantica para evidenc
         },
       ],
     }),
+    remediationProposalDocument: {
+      status: "recommended",
+      summary: "fix the reusable semantic bug in extract_address",
+    },
     ticketProposalDocument: null,
   });
   const ticketPublisher = new StubTargetInvestigateCaseTicketPublisher();
@@ -2043,6 +2048,15 @@ test("evaluateTargetInvestigateCaseRound aceita promotion semantica para evidenc
 
   assert.equal(result.publicationDecision.publication_status, "not_eligible");
   assert.equal(result.publicationDecision.overall_outcome, "inconclusive-case");
+  assert.equal(result.summary.investigation_outcome, "actionable-remediation-identified");
+  assert.equal(
+    result.summary.remediation_proposal_path,
+    fixture.artifactPaths.remediationProposalPath,
+  );
+  assert.match(
+    renderTargetInvestigateCaseFinalSummary(result.summary),
+    /Ha remediacao acionavel identificada; publication automatica segue bloqueada\./u,
+  );
   assert.deepEqual(result.publicationDecision.blocked_gates, []);
   assert.equal(ticketPublisher.calls.length, 0);
 });
@@ -2475,6 +2489,8 @@ test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com n
         "investigations/2026-04-03T18-00-00Z/root-cause-review.request.json",
       rootCauseReviewResultPath:
         "investigations/2026-04-03T18-00-00Z/root-cause-review.result.json",
+      remediationProposalPath:
+        "investigations/2026-04-03T18-00-00Z/remediation-proposal.json",
       ticketProposalPath:
         "investigations/2026-04-03T18-00-00Z/ticket-proposal.json",
       publicationDecisionPath: "investigations/2026-04-03T18-00-00Z/publication-decision.json",
@@ -2964,6 +2980,7 @@ const createTargetRepoFixture = async (options: {
   semanticReviewResultDocument?: any | null;
   rootCauseReviewRequestDocument?: any | null;
   rootCauseReviewResultDocument?: any | null;
+  remediationProposalDocument?: any | null;
   ticketProposalDocument?: any | null;
 } = {}): Promise<TargetRepoFixture> => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "target-investigate-case-"));
@@ -2981,6 +2998,7 @@ const createTargetRepoFixture = async (options: {
     causalDebugResultPath: `${roundDir}/causal-debug.result.json`,
     rootCauseReviewRequestPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_REQUEST_ARTIFACT}`,
     rootCauseReviewResultPath: `${roundDir}/${TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT}`,
+    remediationProposalPath: `${roundDir}/remediation-proposal.json`,
     ticketProposalPath: `${roundDir}/ticket-proposal.json`,
     publicationDecisionPath: `${roundDir}/publication-decision.json`,
   };
@@ -3062,6 +3080,14 @@ const createTargetRepoFixture = async (options: {
         "utf8",
       );
     }
+  }
+
+  if (options.remediationProposalDocument !== null && options.remediationProposalDocument !== undefined) {
+    await fs.writeFile(
+      path.join(projectPath, ...artifactPaths.remediationProposalPath.split("/")),
+      `${JSON.stringify(options.remediationProposalDocument, null, 2)}\n`,
+      "utf8",
+    );
   }
 
   if (options.semanticReviewResultDocument !== null && options.semanticReviewResultDocument !== undefined) {
@@ -3279,6 +3305,22 @@ const buildPilotManifestFixture = (options: {
         artifact: "root-cause-review.result.json",
         schemaVersion: "root_cause_review_result_v1",
       },
+      "remediation-proposal": {
+        artifact: "remediation-proposal.json",
+        schemaVersion: "remediation_proposal_v1",
+        requiredFields: [
+          "summary",
+          "rationale",
+          "owner",
+          "remediation_scope",
+          "execution_readiness",
+          "publication_dependency",
+          "suggested_fix_surface",
+          "evidence_basis",
+          "follow_ups",
+          "blockers",
+        ],
+      },
       "ticket-projection": {
         artifact: "ticket-proposal.json",
         schemaVersion: "ticket_proposal_v1",
@@ -3418,6 +3460,11 @@ const buildPilotManifestFixture = (options: {
             "prompt_guardrail_opportunities",
             "remaining_gaps",
           ],
+        },
+        remediationProposal: {
+          artifact: "remediation-proposal.json",
+          schemaVersion: "remediation_proposal_v1",
+          owner: "target-project",
         },
       },
       reviewPolicy: {
@@ -3606,6 +3653,9 @@ const buildCurrentPilotManifestFixture = (options: {
     ticketReadinessValues: ["ready", "needs_more_falsification", "blocked"],
     primaryRemediationCanonicalArtifact:
       TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_CANONICAL_ARTIFACT,
+    primaryRemediationProposalArtifact: "remediation-proposal.json",
+    remediationFirstNextActionWhenExecutionReady: true,
+    ticketReadinessIsNotRemediationVeto: true,
     analysisStages: [...manifest.causalDebug.analysisStages],
     runnerRemainsPublicationAuthority: true,
     narrativeLanguage: "pt-BR",

@@ -373,6 +373,8 @@ test("runTargetInvestigateCaseRoundMaterialization injeta manifesto, round e all
         "investigations/2026-04-03T19-00-00Z/root-cause-review.request.json",
       rootCauseReviewResultPath:
         "investigations/2026-04-03T19-00-00Z/root-cause-review.result.json",
+      remediationProposalPath:
+        "investigations/2026-04-03T19-00-00Z/remediation-proposal.json",
       ticketProposalPath:
         "investigations/2026-04-03T19-00-00Z/ticket-proposal.json",
       publicationDecisionPath:
