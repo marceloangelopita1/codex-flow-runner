@@ -15,6 +15,19 @@ Implementar a compatibilização documental e operacional mínima do target com 
 
 Não reintroduza desenho legado, fallback implícito, publication-first, fluxo paralelo ou “v1 com roupa nova”.
 
+## Leitura obrigatória no projeto alvo
+Antes de editar qualquer arquivo, procure e leia também as instruções e documentações locais do próprio target que governam arquitetura, convenções, workflows e operação.
+
+Inclua, no mínimo, o que existir entre:
+- `AGENTS.md` da raiz e `AGENTS.md` locais;
+- `README.md`;
+- documentação de arquitetura;
+- documentação de workflow/operação;
+- convenções de scripts, comandos, tickets e artefatos;
+- qualquer documentação que explique o workflow real investigado por este projeto.
+
+Se houver conflito entre o contrato v2 do runner e a documentação, as convenções ou a realidade observável do target, reporte claramente a lacuna antes de improvisar. Não “adapte no escuro”.
+
 ## Leitura obrigatória no `codex-flow-runner`
 Leia antes de editar qualquer arquivo:
 - `<RUNNER_REPO_PATH>/AGENTS.md`
@@ -110,6 +123,7 @@ Implemente primeiro só:
 
 ## Guardrails
 - Respeite padrões, convenções e boas práticas já existentes no projeto alvo.
+- Não edite antes de entender as instruções locais e a documentação operacional do target.
 - Não introduza fallback legado nem fluxo paralelo.
 - Não esconda decisões importantes atrás de “fica a critério do projeto”.
 - Não transforme exemplos do piloto em contrato global.

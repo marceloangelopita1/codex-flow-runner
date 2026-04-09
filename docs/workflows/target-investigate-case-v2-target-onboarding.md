@@ -15,11 +15,14 @@ O `codex-flow-runner` orquestra a rodada, injeta contexto operacional, valida co
 O projeto alvo é quem conhece o workflow real, a semântica do caso, os identificadores válidos, os scripts úteis, os logs relevantes, os dados confiáveis e o framing correto do diagnóstico.
 
 ### Caminho mínimo primeiro
-Na primeira onda, o target precisa deixar sólido apenas:
-- `preflight`
+O caminho mínimo da v2 continua sendo `preflight -> resolve-case -> assemble-evidence -> diagnosis`.
+
+Na primeira onda target-side, porém, o target precisa deixar sólidos apenas os estágios target-owned:
 - `resolve-case`
 - `assemble-evidence`
 - `diagnosis`
+
+`preflight` continua no caminho mínimo, mas é runner-owned. O papel do target aqui é satisfazer as pré-condições contratuais que o runner valida no `preflight`, não “implementar o preflight”.
 
 ### Continuações opcionais depois
 `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` existem como extensões tardias. Elas não podem virar pré-requisito para responder o caso.
@@ -39,6 +42,8 @@ Todos os arquivos abaixo vivem no repositório do projeto alvo, com estes nomes 
 4. `docs/workflows/target-investigate-case-v2-assemble-evidence.md`
 5. `docs/workflows/target-investigate-case-v2-diagnosis.md`
 
+Nesta primeira onda, o target não precisa implementar uma etapa própria de `preflight`. Ele precisa fornecer o contrato, o runbook e os prompts que permitem ao runner executar o `preflight` runner-owned com clareza e seguir para os estágios target-owned.
+
 Se o target tiver comandos ou scripts oficiais, eles podem ser declarados no manifesto desde a primeira onda. Se ainda não existirem, os prompts precisam ser claros o suficiente para orientar uma execução segura sem fallback implícito.
 
 ## O que cada arquivo deve fazer
@@ -55,6 +60,8 @@ Ele deve declarar, no mínimo:
 - `stages.assembleEvidence`
 - `stages.diagnosis`
 - `publicationPolicy`
+
+`minimumPath` continua incluindo `preflight` porque ele faz parte do caminho mínimo da v2. Isso não muda o ownership: `preflight` é validado pelo runner, enquanto o target implementa os artefatos e instruções necessários para que essa validação faça sentido.
 
 Boas regras para o manifesto:
 - o `promptPath` de cada estágio deve usar o nome canônico esperado pelo contrato;
@@ -177,7 +184,7 @@ Um target está pronto para a primeira onda da v2 quando:
 1. Existe um manifesto válido em `docs/workflows/target-case-investigation-v2-manifest.json`.
 2. Existe um runbook real em `docs/workflows/target-case-investigation-v2-runbook.md`.
 3. Existem os prompts canônicos de `resolve-case`, `assemble-evidence` e `diagnosis`.
-4. O manifesto declara exatamente o caminho mínimo `preflight -> resolve-case -> assemble-evidence -> diagnosis`.
+4. O manifesto declara exatamente o caminho mínimo `preflight -> resolve-case -> assemble-evidence -> diagnosis`, deixando implícito no contrato que `preflight` continua runner-owned.
 5. O namespace autoritativo da rodada é `output/case-investigation/<round-id>`.
 6. Um caso mínimo consegue produzir:
    - `case-resolution.json`
@@ -188,7 +195,8 @@ Um target está pronto para a primeira onda da v2 quando:
 7. `assemble-evidence` explica de forma operacional onde estão dados, logs, scripts e critérios de suficiência do target.
 8. `diagnosis` responde o caso a partir do bundle pronto, sem depender de `deep-dive`, `ticket-projection` ou `publication`.
 9. O target não reintroduz superfícies legadas como caminho principal.
-10. Fica claro o que é obrigatório, o que é opcional e o que é apenas exemplo ilustrativo.
+10. As pré-condições contratuais que o runner valida no `preflight` estão satisfeitas pelo manifesto, runbook e prompts do target.
+11. Fica claro o que é obrigatório, o que é opcional e o que é apenas exemplo ilustrativo.
 
 Sinais de que a compatibilização ainda não ficou boa:
 - o target depende de conversa humana para descobrir onde ficam as evidências;
