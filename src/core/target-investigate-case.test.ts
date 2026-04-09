@@ -159,7 +159,7 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto canonico e rejeita au
   assert.match(invalidCapability.reason, /case-investigation/u);
 });
 
-test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stages, minimumPath e namespace canonicos", async () => {
+test("loadTargetInvestigateCaseManifest aceita o manifesto v2 publico minimo e aplica defaults internos canonicos", async () => {
   const fixture = await createTargetRepoFixture();
   const v2ManifestPath = path.join(
     fixture.project.path,
@@ -183,6 +183,8 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
   assert.equal(loaded.manifestPath, TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH);
   assert.equal(loaded.manifest.flow, TARGET_INVESTIGATE_CASE_V2_FLOW);
   assert.equal(loaded.manifest.command, TARGET_INVESTIGATE_CASE_V2_COMMAND);
+  assert.equal(loaded.manifest.entrypoint?.defaultReplayMode, "historical-only");
+  assert.equal(loaded.manifest.entrypoint?.defaultIncludeWorkflowDebug, false);
   assert.deepEqual(loaded.manifest.minimumPath, [
     ...TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES,
   ]);
@@ -227,6 +229,74 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
   ]);
   assert.deepEqual(loaded.manifest.stages?.diagnosis.artifacts, ["diagnosis.md", "diagnosis.json"]);
   assert.equal(loaded.manifest.stages?.publication?.policy.writesArtifactOnlyWhenTraversed, true);
+});
+
+test("loadTargetInvestigateCaseManifest aceita manifesto v2 literal da spec com etapa entrypoint-only", async () => {
+  const fixture = await createTargetRepoFixture();
+  const v2ManifestPath = path.join(
+    fixture.project.path,
+    ...TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH.split("/"),
+  );
+  await fs.writeFile(
+    v2ManifestPath,
+    `${JSON.stringify(
+      {
+        flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
+        stages: {
+          resolveCase: {
+            owner: "target-project",
+            runnerExecutor: "codex-flow-runner",
+            entrypoint: {
+              command: "npm run case-investigation -- resolve-case",
+            },
+            artifacts: ["case-resolution.json"],
+            policy: {},
+          },
+          assembleEvidence: {
+            owner: "target-project",
+            runnerExecutor: "codex-flow-runner",
+            promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+            artifacts: ["evidence-index.json", "case-bundle.json"],
+            policy: {},
+          },
+          diagnosis: {
+            owner: "target-project",
+            runnerExecutor: "codex-flow-runner",
+            promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
+            artifacts: ["diagnosis.md", "diagnosis.json"],
+            policy: {},
+          },
+        },
+        publicationPolicy: {
+          semanticAuthority: "target-project",
+          finalPublicationAuthority: "runner",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await fs.unlink(path.join(fixture.project.path, ...TARGET_INVESTIGATE_CASE_MANIFEST_PATH.split("/")));
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path, {
+    canonicalCommand: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001`,
+  });
+  assert.equal(loaded.status, "loaded");
+  if (loaded.status !== "loaded") {
+    return;
+  }
+
+  assert.equal(loaded.manifest.flow, TARGET_INVESTIGATE_CASE_V2_FLOW);
+  assert.equal(loaded.manifest.stages?.resolveCase.promptPath, undefined);
+  assert.equal(
+    loaded.manifest.stages?.resolveCase.entrypoint?.command,
+    "npm run case-investigation -- resolve-case",
+  );
+  assert.equal(loaded.manifest.stages?.resolveCase.stage, "resolve-case");
+  assert.deepEqual(loaded.manifest.minimumPath, [
+    ...TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES,
+  ]);
 });
 
 test("loadTargetInvestigateCaseManifest rejeita manifesto v2 com stage legado fora da matriz canonica", async () => {
@@ -4544,7 +4614,6 @@ const writeV2ManifestFixture = async (projectPath: string): Promise<void> => {
       "utf8",
     ),
   ) as Record<string, unknown>;
-  (v2Manifest.workflows as { investigable: string[] }).investigable = ["extract_address"];
   await fs.writeFile(
     path.join(projectPath, ...TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH.split("/")),
     `${JSON.stringify(v2Manifest, null, 2)}\n`,

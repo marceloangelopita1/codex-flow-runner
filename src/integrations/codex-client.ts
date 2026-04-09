@@ -47,11 +47,12 @@ import type {
   TargetDeriveGapAnalysisCodexResult,
 } from "../types/target-derive.js";
 import type {
-  TargetInvestigateCaseArtifactSet,
   TargetInvestigateCaseAttemptRefAuthority,
+  TargetInvestigateCaseArtifactSet,
   TargetInvestigateCaseCaseRefAuthority,
   TargetInvestigateCasePurgeIdentifier,
   TargetInvestigateCaseTargetProjectSelector,
+  TargetInvestigateCaseV2StageArtifactSet,
 } from "../types/target-investigate-case.js";
 
 export type TicketFlowStage = "plan" | "implement" | "close-and-version";
@@ -382,14 +383,14 @@ export interface TargetInvestigateCaseV2StageCodexRequest {
   canonicalCommand: string;
   roundId: string;
   roundDirectory: string;
-  artifactPaths: TargetInvestigateCaseArtifactSet;
+  artifactPaths: TargetInvestigateCaseV2StageArtifactSet;
   caseRefAuthorities: TargetInvestigateCaseCaseRefAuthority[];
   attemptRefAuthorities: TargetInvestigateCaseAttemptRefAuthority[];
   targetProjectAcceptedSelectors: TargetInvestigateCaseTargetProjectSelector[];
   investigableWorkflows: string[];
   acceptedPurgeIdentifiers: TargetInvestigateCasePurgeIdentifier[];
   stage: TargetInvestigateCaseV2StageName;
-  stagePromptPath: string;
+  stagePromptPath?: string | null;
   stageArtifacts: string[];
   stageEntrypointCommand?: string | null;
   stageEntrypointScriptPath?: string | null;
@@ -1367,13 +1368,14 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
   async runTargetInvestigateCaseV2Stage(
     request: TargetInvestigateCaseV2StageCodexRequest,
   ): Promise<TargetInvestigateCaseV2StageCodexResult> {
-    const promptTemplatePath = path.join(
-      request.targetProject.path,
-      ...request.stagePromptPath.split("/"),
-    );
+    const promptTemplatePath = request.stagePromptPath
+      ? path.join(request.targetProject.path, ...request.stagePromptPath.split("/"))
+      : `[entrypoint-only-stage:${request.stage}]`;
     let prompt = "";
     try {
-      const promptTemplate = await this.dependencies.loadPromptTemplate(promptTemplatePath);
+      const promptTemplate = request.stagePromptPath
+        ? await this.dependencies.loadPromptTemplate(promptTemplatePath)
+        : this.buildTargetInvestigateCaseV2EntrypointOnlyStagePromptTemplate();
       prompt = this.buildTargetInvestigateCaseV2StagePrompt(promptTemplate, request);
 
       this.logger.info(
@@ -1383,7 +1385,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
           targetProjectPath: request.targetProject.path,
           roundId: request.roundId,
           stage: request.stage,
-          stagePromptPath: request.stagePromptPath,
+          stagePromptPath: request.stagePromptPath ?? null,
           promptTemplatePath,
         },
       );
@@ -2284,7 +2286,10 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       .replace(/<TARGET_INVESTIGATE_CASE_ROUND_ID>/gu, request.roundId)
       .replace(/<TARGET_INVESTIGATE_CASE_ROUND_DIRECTORY>/gu, request.roundDirectory)
       .replace(/<TARGET_INVESTIGATE_CASE_STAGE>/gu, request.stage)
-      .replace(/<TARGET_INVESTIGATE_CASE_STAGE_PROMPT_PATH>/gu, request.stagePromptPath)
+      .replace(
+        /<TARGET_INVESTIGATE_CASE_STAGE_PROMPT_PATH>/gu,
+        request.stagePromptPath ?? "(entrypoint-only stage; no target-owned prompt)",
+      )
       .replace(
         /<TARGET_INVESTIGATE_CASE_STAGE_ARTIFACTS_JSON>/gu,
         JSON.stringify(request.stageArtifacts, null, 2),
@@ -2302,7 +2307,9 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "",
       "Contexto adicional do target-investigate-case v2:",
       `- Etapa v2: \`${request.stage}\``,
-      `- Prompt canonico da etapa: \`${request.stagePromptPath}\``,
+      ...(request.stagePromptPath
+        ? [`- Prompt canonico da etapa: \`${request.stagePromptPath}\``]
+        : ["- Esta etapa nao declarou prompt target-owned adicional; use apenas o entrypoint canonico informado."]),
       `- Artefatos obrigatorios desta etapa: ${request.stageArtifacts.map((artifact) => `\`${artifact}\``).join(", ")}`,
       `- Projeto alvo: \`${request.targetProject.name}\``,
       `- Caminho do projeto alvo: \`${request.targetProject.path}\``,
@@ -2331,6 +2338,32 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
       "```json",
       factsJson,
       "```",
+    ].join("\n");
+  }
+
+  private buildTargetInvestigateCaseV2EntrypointOnlyStagePromptTemplate(): string {
+    return [
+      "# target-investigate-case v2",
+      "",
+      "Execute somente a etapa <TARGET_INVESTIGATE_CASE_STAGE> do fluxo diagnosis-first.",
+      "",
+      "Regras obrigatorias:",
+      "- Use o entrypoint oficial desta etapa como autoridade operacional principal.",
+      "- Nao invente novos artefatos nem altere a ordem do fluxo.",
+      "- Grave apenas os artefatos canonicos desta etapa no round informado.",
+      "- Nao produza assessment.json nem dossier.* no caminho minimo v2.",
+      "",
+      "Manifesto: <TARGET_INVESTIGATE_CASE_MANIFEST_PATH>",
+      "Runbook: <TARGET_INVESTIGATE_CASE_RUNBOOK_PATH>",
+      "Round ID: <TARGET_INVESTIGATE_CASE_ROUND_ID>",
+      "Round directory: <TARGET_INVESTIGATE_CASE_ROUND_DIRECTORY>",
+      "Etapa: <TARGET_INVESTIGATE_CASE_STAGE>",
+      "Prompt canonico: <TARGET_INVESTIGATE_CASE_STAGE_PROMPT_PATH>",
+      "Artefatos obrigatorios: <TARGET_INVESTIGATE_CASE_STAGE_ARTIFACTS_JSON>",
+      "Artifact paths:",
+      "<TARGET_INVESTIGATE_CASE_ARTIFACT_PATHS_JSON>",
+      "Facts:",
+      "<TARGET_INVESTIGATE_CASE_FACTS_JSON>",
     ].join("\n");
   }
 

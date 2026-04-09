@@ -356,7 +356,9 @@ export const loadTargetInvestigateCaseManifest = async (
 
   let manifest: TargetInvestigateCaseManifest;
   try {
-    manifest = normalizeTargetInvestigateCaseManifestDocument(decoded);
+    manifest = normalizeTargetInvestigateCaseManifestDocument(decoded, {
+      manifestPath,
+    });
   } catch (error) {
     return {
       status: "invalid",
@@ -2293,7 +2295,11 @@ const validateInputAgainstManifest = (
     }
   }
 
-  if (input.workflow && !manifest.workflows.investigable.includes(input.workflow)) {
+  if (
+    input.workflow &&
+    manifest.workflows.investigable.length > 0 &&
+    !manifest.workflows.investigable.includes(input.workflow)
+  ) {
     throw new Error(
       `Workflow fora da allowlist investigavel declarada no manifesto: ${input.workflow}.`,
     );

@@ -39,6 +39,7 @@ import {
   TargetInvestigateCaseReplayMode,
   TargetInvestigateCaseRootCauseReviewRequest,
   TargetInvestigateCaseSemanticReviewRequest,
+  TargetInvestigateCaseV2StageArtifactSet,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseMilestone } from "../types/target-flow.js";
 import { TargetInvestigateCaseRoundMaterializationCodexClient } from "./codex-client.js";
@@ -123,6 +124,42 @@ const buildRoundPreparationFailedResult = (
   };
 };
 
+const buildTargetInvestigateCaseV2StageArtifactSet = (
+  artifactPaths: TargetInvestigateCaseRoundPreparationRequest["artifactPaths"],
+): TargetInvestigateCaseV2StageArtifactSet => ({
+  caseResolutionPath: artifactPaths.caseResolutionPath,
+  evidenceIndexPath: artifactPaths.evidenceIndexPath,
+  evidenceBundlePath: artifactPaths.evidenceBundlePath,
+  diagnosisJsonPath: artifactPaths.diagnosisJsonPath,
+  diagnosisMdPath: artifactPaths.diagnosisMdPath,
+  remediationProposalPath: artifactPaths.remediationProposalPath,
+  ticketProposalPath: artifactPaths.ticketProposalPath,
+  publicationDecisionPath: artifactPaths.publicationDecisionPath,
+});
+
+const resolveManifestEntrypointForOfficialRerun = (
+  request: TargetInvestigateCaseRoundPreparationRequest,
+  recompositionField: "semanticReview" | "causalDebug" | "rootCauseReview",
+): { entrypointCommand: string; scriptPath: string } => {
+  const entrypoint = request.manifest.entrypoint;
+  if (!entrypoint) {
+    throw new Error(
+      `O manifesto declarou ${recompositionField}.recomposition, mas entrypoint esta ausente para o rerun oficial.`,
+    );
+  }
+
+  if (!entrypoint.command || !entrypoint.scriptPath) {
+    throw new Error(
+      `O manifesto declarou ${recompositionField}.recomposition, mas entrypoint precisa declarar command e scriptPath para o rerun oficial.`,
+    );
+  }
+
+  return {
+    entrypointCommand: entrypoint.command,
+    scriptPath: entrypoint.scriptPath,
+  };
+};
+
 export class CodexCliTargetInvestigateCaseRoundPreparer
   implements TargetInvestigateCaseRoundPreparer
 {
@@ -190,15 +227,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         });
       }
     } catch (error) {
-      return {
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-        failureSurface: "round-materialization",
-        failureKind: "codex-execution-failed",
+      return buildRoundPreparationFailedResult(error, {
+        commandLabel,
         failedAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
-        nextAction:
-          `Revise a execucao runner-side da materializacao inicial e rerode ${commandLabel}.`,
-      };
+      });
     }
 
     let dossierPath = "";
@@ -342,8 +374,14 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     const resolveCaseStage = stages.resolveCase;
     const assembleEvidenceStage = stages.assembleEvidence;
     const diagnosisStage = stages.diagnosis;
-    if (!resolveCaseStage?.promptPath || !assembleEvidenceStage?.promptPath || !diagnosisStage?.promptPath) {
-      throw new Error("Manifesto v2 invalido: os prompts canonicos de resolve-case, assemble-evidence e diagnosis sao obrigatorios.");
+    if (
+      (!resolveCaseStage?.promptPath && !resolveCaseStage?.entrypoint) ||
+      (!assembleEvidenceStage?.promptPath && !assembleEvidenceStage?.entrypoint) ||
+      (!diagnosisStage?.promptPath && !diagnosisStage?.entrypoint)
+    ) {
+      throw new Error(
+        "Manifesto v2 invalido: resolve-case, assemble-evidence e diagnosis precisam declarar promptPath, entrypoint ou ambos.",
+      );
     }
 
     await this.executeV2Stage({
@@ -353,7 +391,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       runbookPath: params.runbookPath,
       failedAtMilestone: "resolve-case",
       stage: resolveCaseStage.stage,
-      promptPath: resolveCaseStage.promptPath,
+      promptPath: resolveCaseStage.promptPath ?? null,
       stageArtifacts: resolveCaseStage.artifacts,
       stageEntrypointCommand: resolveCaseStage.entrypoint?.command ?? null,
       stageEntrypointScriptPath: resolveCaseStage.entrypoint?.scriptPath ?? null,
@@ -384,7 +422,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       runbookPath: params.runbookPath,
       failedAtMilestone: "assemble-evidence",
       stage: assembleEvidenceStage.stage,
-      promptPath: assembleEvidenceStage.promptPath,
+      promptPath: assembleEvidenceStage.promptPath ?? null,
       stageArtifacts: assembleEvidenceStage.artifacts,
       stageEntrypointCommand: assembleEvidenceStage.entrypoint?.command ?? null,
       stageEntrypointScriptPath: assembleEvidenceStage.entrypoint?.scriptPath ?? null,
@@ -413,7 +451,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       runbookPath: params.runbookPath,
       failedAtMilestone: "diagnosis",
       stage: diagnosisStage.stage,
-      promptPath: diagnosisStage.promptPath,
+      promptPath: diagnosisStage.promptPath ?? null,
       stageArtifacts: diagnosisStage.artifacts,
       stageEntrypointCommand: diagnosisStage.entrypoint?.command ?? null,
       stageEntrypointScriptPath: diagnosisStage.entrypoint?.scriptPath ?? null,
@@ -480,7 +518,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     runbookPath: string | null;
     failedAtMilestone: TargetInvestigateCaseMilestone;
     stage: "resolve-case" | "assemble-evidence" | "diagnosis";
-    promptPath: string;
+    promptPath: string | null;
     stageArtifacts: string[];
     stageEntrypointCommand: string | null;
     stageEntrypointScriptPath: string | null;
@@ -497,7 +535,6 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         canonicalCommand: params.request.normalizedInput.canonicalCommand,
         roundId: params.request.roundId,
         roundDirectory: params.request.roundDirectory,
-        artifactPaths: params.request.artifactPaths,
         caseRefAuthorities: params.request.manifest.caseResolutionPolicy.caseRefAuthorities ?? [],
         attemptRefAuthorities:
           params.request.manifest.caseResolutionPolicy.attemptRefAuthorities ?? [],
@@ -509,6 +546,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         stage: params.stage,
         stagePromptPath: params.promptPath,
         stageArtifacts: params.stageArtifacts,
+        artifactPaths: buildTargetInvestigateCaseV2StageArtifactSet(params.request.artifactPaths),
         stageEntrypointCommand: params.stageEntrypointCommand,
         stageEntrypointScriptPath: params.stageEntrypointScriptPath,
         officialTargetEntrypointCommand: params.request.manifest.entrypoint?.command ?? null,
@@ -1288,11 +1326,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     }
 
-    if (!request.manifest.entrypoint) {
-      throw new Error(
-        "O manifesto declarou semanticReview.recomposition, mas entrypoint esta ausente para o rerun oficial.",
-      );
-    }
+    const rerunEntrypoint = resolveManifestEntrypointForOfficialRerun(
+      request,
+      "semanticReview",
+    );
 
     const selectors = await loadSelectedSelectorsFromCaseResolution(
       request.targetProject.path,
@@ -1305,8 +1342,8 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 
     await runRecomposition({
       targetProject: request.targetProject,
-      entrypointCommand: request.manifest.entrypoint.command,
-      scriptPath: request.manifest.entrypoint.scriptPath,
+      entrypointCommand: rerunEntrypoint.entrypointCommand,
+      scriptPath: rerunEntrypoint.scriptPath,
       roundId: request.roundId,
       selectors,
       roundRequestIdFlag: recomposition.roundRequestIdFlag,
@@ -1346,11 +1383,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     }
 
-    if (!request.manifest.entrypoint) {
-      throw new Error(
-        "O manifesto declarou causalDebug.recomposition, mas entrypoint esta ausente para o rerun oficial.",
-      );
-    }
+    const rerunEntrypoint = resolveManifestEntrypointForOfficialRerun(request, "causalDebug");
 
     const selectors = await loadSelectedSelectorsFromCaseResolution(
       request.targetProject.path,
@@ -1363,8 +1396,8 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 
     await runRecomposition({
       targetProject: request.targetProject,
-      entrypointCommand: request.manifest.entrypoint.command,
-      scriptPath: request.manifest.entrypoint.scriptPath,
+      entrypointCommand: rerunEntrypoint.entrypointCommand,
+      scriptPath: rerunEntrypoint.scriptPath,
       roundId: request.roundId,
       selectors,
       roundRequestIdFlag: recomposition.roundRequestIdFlag,
@@ -1410,11 +1443,10 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       );
     }
 
-    if (!request.manifest.entrypoint) {
-      throw new Error(
-        "O manifesto declarou rootCauseReview.recomposition, mas entrypoint esta ausente para o rerun oficial.",
-      );
-    }
+    const rerunEntrypoint = resolveManifestEntrypointForOfficialRerun(
+      request,
+      "rootCauseReview",
+    );
 
     const selectors = await loadSelectedSelectorsFromCaseResolution(
       request.targetProject.path,
@@ -1427,8 +1459,8 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
 
     await runRecomposition({
       targetProject: request.targetProject,
-      entrypointCommand: request.manifest.entrypoint.command,
-      scriptPath: request.manifest.entrypoint.scriptPath,
+      entrypointCommand: rerunEntrypoint.entrypointCommand,
+      scriptPath: rerunEntrypoint.scriptPath,
       roundId: request.roundId,
       selectors,
       roundRequestIdFlag: recomposition.roundRequestIdFlag,

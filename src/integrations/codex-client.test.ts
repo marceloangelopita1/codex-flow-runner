@@ -476,22 +476,8 @@ test("runTargetInvestigateCaseV2Stage carrega o prompt canonico do target e expÃ
       caseResolutionPath: "output/case-investigation/2026-04-03T19-00-00Z/case-resolution.json",
       evidenceIndexPath: "output/case-investigation/2026-04-03T19-00-00Z/evidence-index.json",
       evidenceBundlePath: "output/case-investigation/2026-04-03T19-00-00Z/case-bundle.json",
-      assessmentPath: "output/case-investigation/2026-04-03T19-00-00Z/assessment.json",
       diagnosisJsonPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.json",
       diagnosisMdPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.md",
-      dossierPath: "output/case-investigation/2026-04-03T19-00-00Z/dossier.md",
-      semanticReviewRequestPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.request.json",
-      semanticReviewResultPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.result.json",
-      causalDebugRequestPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.request.json",
-      causalDebugResultPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.result.json",
-      rootCauseReviewRequestPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.request.json",
-      rootCauseReviewResultPath:
-        "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.result.json",
       remediationProposalPath:
         "output/case-investigation/2026-04-03T19-00-00Z/remediation-proposal.json",
       ticketProposalPath:
@@ -542,7 +528,71 @@ test("runTargetInvestigateCaseV2Stage carrega o prompt canonico do target e expÃ
   assert.match(capturedPrompt, /"stageArtifacts": \[/u);
   assert.match(capturedPrompt, /"evidenceIndexPath": "output\/case-investigation\/2026-04-03T19-00-00Z\/evidence-index\.json"/u);
   assert.match(capturedPrompt, /"evidenceBundlePath": "output\/case-investigation\/2026-04-03T19-00-00Z\/case-bundle\.json"/u);
+  assert.doesNotMatch(capturedPrompt, /assessment\.json/u);
+  assert.doesNotMatch(capturedPrompt, /dossier\.(md|json)/u);
   assert.match(capturedPrompt, /"canonicalCommand": "\/target_investigate_case_v2 alpha-project case-001/u);
+});
+
+test("runTargetInvestigateCaseV2Stage aceita etapa sem promptPath quando houver entrypoint canonico", async () => {
+  let capturedPrompt = "";
+  let capturedPromptTemplatePath = "";
+
+  const client = new CodexCliTicketFlowClient("/tmp/target-project", new SpyLogger(), {
+    loadPromptTemplate: async (promptTemplatePath) => {
+      capturedPromptTemplatePath = promptTemplatePath;
+      return "# unexpected";
+    },
+    runCodexCommand: async (request) => {
+      capturedPrompt = request.prompt;
+      return { stdout: "materialized", stderr: "" };
+    },
+  });
+
+  const result = await client.runTargetInvestigateCaseV2Stage({
+    targetProject: {
+      name: "alpha-project",
+      path: "/home/mapita/projetos/alpha-project",
+    },
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    runnerReference: "codex-flow-runner@/home/mapita/projetos/codex-flow-runner",
+    manifestPath: "docs/workflows/target-case-investigation-v2-manifest.json",
+    runbookPath: null,
+    canonicalCommand:
+      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
+    roundId: "2026-04-03T19-15-00Z",
+    roundDirectory: "output/case-investigation/2026-04-03T19-15-00Z",
+    officialTargetEntrypointCommand: "npm run case-investigation --",
+    officialTargetEntrypointScriptPath: "scripts/materialize-case-investigation-round.js",
+    stage: "resolve-case",
+    stagePromptPath: null,
+    stageArtifacts: ["case-resolution.json"],
+    stageEntrypointCommand: "npm run case-investigation -- resolve-case",
+    stageEntrypointScriptPath: "scripts/materialize-case-investigation-round.js",
+    artifactPaths: {
+      caseResolutionPath: "output/case-investigation/2026-04-03T19-15-00Z/case-resolution.json",
+      evidenceIndexPath: "output/case-investigation/2026-04-03T19-15-00Z/evidence-index.json",
+      evidenceBundlePath: "output/case-investigation/2026-04-03T19-15-00Z/case-bundle.json",
+      diagnosisJsonPath: "output/case-investigation/2026-04-03T19-15-00Z/diagnosis.json",
+      diagnosisMdPath: "output/case-investigation/2026-04-03T19-15-00Z/diagnosis.md",
+      remediationProposalPath:
+        "output/case-investigation/2026-04-03T19-15-00Z/remediation-proposal.json",
+      ticketProposalPath:
+        "output/case-investigation/2026-04-03T19-15-00Z/ticket-proposal.json",
+      publicationDecisionPath:
+        "output/case-investigation/2026-04-03T19-15-00Z/publication-decision.json",
+    },
+    caseRefAuthorities: [],
+    attemptRefAuthorities: [],
+    targetProjectAcceptedSelectors: ["propertyId", "requestId", "workflow"],
+    investigableWorkflows: [],
+    acceptedPurgeIdentifiers: [],
+  });
+
+  assert.equal(capturedPromptTemplatePath, "");
+  assert.equal(result.promptTemplatePath, "[entrypoint-only-stage:resolve-case]");
+  assert.match(capturedPrompt, /Esta etapa nao declarou prompt target-owned adicional/u);
+  assert.match(capturedPrompt, /Entrypoint canonico desta etapa: `npm run case-investigation -- resolve-case`/u);
+  assert.match(capturedPrompt, /Prompt canonico: \(entrypoint-only stage; no target-owned prompt\)/u);
 });
 
 test("runTargetInvestigateCaseSemanticReview injeta packet bounded e contexto minimo serializado", async () => {

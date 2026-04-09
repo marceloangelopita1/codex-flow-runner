@@ -6,9 +6,10 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-09 18:56Z
+- Last reviewed at (UTC): 2026-04-09 19:57Z
 - Source: technical-evolution
 - Related tickets:
+  - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-hard-cut-contract-gap.md
@@ -17,6 +18,7 @@
   - tickets/closed/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related execplans:
+  - execplans/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
   - execplans/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
   - execplans/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
   - execplans/2026-04-09-target-investigate-case-v2-hard-cut-contract-gap.md
@@ -472,26 +474,28 @@
   - crítica central da v1 consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
   - nome próprio do fluxo, manifesto dedicado e namespace autoritativo da v2 existem no runner;
-  - o contrato runner-side da v2 foi endurecido para o mínimo diagnosis-first sem outputs legados no caminho mínimo;
-  - a orquestração runner-side agora materializa `resolve-case -> assemble-evidence -> diagnosis` como estágios reais;
-  - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2.
+  - o contrato runner-side da v2 aceita o shape público mínimo da spec e normaliza internamente apenas o necessário para compatibilidade transitória runner-side;
+  - a orquestração runner-side materializa `resolve-case -> assemble-evidence -> diagnosis` como estágios reais e preserva o milestone/failure real nas falhas do caminho mínimo;
+  - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2;
+  - o contexto técnico mínimo do branch v2 deixou de expor `assessment`/`dossier` como parte do contrato efetivo dos prompts por estágio.
 - Pendências em aberto:
   - nenhuma pendência local runner-side permanece aberta nesta linhagem da spec.
 - Evidências de validação:
   - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md` e testes focados;
-  - `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/telegram-bot.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` com suíte do repositório verde;
+  - fixture literal da spec em `docs/workflows/target-case-investigation-v2-manifest.json` e cobertura dedicada em `src/core/target-investigate-case.test.ts`;
+  - `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/telegram-bot.test.ts` com 634 testes passando em 2026-04-09 19:48Z;
   - `npm run check` com `exit 0`.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
-  - 2026-04-09 18:56Z
+  - 2026-04-09 19:52Z
 - Resultado:
-  - a trilha local de follow-ups da revisão arquitetural foi concluída.
-  - o runner agora fecha o branch v2 com contrato mínimo diagnosis-first, orquestração stage-by-stage, summary/trace/Telegram diagnosis-first e publication runner-side tardia sem dependência de `assessment`/`dossier`.
+  - a implementação local runner-side desta reabertura foi concluída e revalidada.
+  - o runner agora aceita o manifesto público mínimo da v2, preserva milestone real de falha no caminho mínimo e remove `assessment`/`dossier` do contexto técnico mínimo do branch v2.
 - Tickets/follow-ups abertos a partir da auditoria:
   - nenhum.
 - Causas-raiz sistêmicas identificadas:
-  - validação final anterior aceitou a implementação com base no comportamento já implementado e nos testes atuais, sem provar aderência integral ao contrato diagnosis-first da spec.
+  - a validação final anterior aceitou a implementação com base no comportamento já implementado e nos testes atuais, sem provar aderência integral ao contrato diagnosis-first da spec.
 - Ajustes genéricos promovidos ao workflow:
   - nenhum; não houve promoção de backlog transversal nesta etapa.
 
@@ -519,3 +523,5 @@
 - 2026-04-09 01:05Z - Auditoria final pós-`/run_all` concluída: releitura da linhagem completa, confirmação de ausência de gaps residuais locais, atualização de `Related tickets`/`Related execplans`, e fechamento documental da spec como `Status: attended` / `Spec treatment: done`.
 - 2026-04-09 17:55Z - Revisão arquitetural crítica reabriu a spec: `Status` voltou para `in_progress`, `Spec treatment` voltou para `pending`, e um novo ticket/ExecPlan local foi criado para o hard cut contratual do v2 no runner.
 - 2026-04-09 18:56Z - Fechamento local da linhagem reaberta: os três follow-ups do v2 foram encerrados, `Status` voltou para `attended` e `Spec treatment` voltou para `done`.
+- 2026-04-09 19:52Z - Execução local do novo ExecPlan de compatibilidade concluída: o runner passou a aceitar o shape público mínimo da v2, preservar milestone real no caminho mínimo e esconder `assessment`/`dossier` do contexto mínimo; `Status` permaneceu `attended`, mas `Spec treatment` voltou para `pending` até o commit que fechará o ticket local remanescente.
+- 2026-04-09 19:57Z - Fechamento formal da trilha reaberta: o ticket local remanescente foi movido para `tickets/closed/`, `Spec treatment` voltou para `done` e a spec permanece `attended` com evidência runner-side observável.

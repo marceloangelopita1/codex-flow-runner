@@ -1402,6 +1402,38 @@ const targetInvestigateCaseV2PublicationStagePolicySchema = z
   })
   .strict();
 
+const targetInvestigateCaseManifestEntrypointSchema = z
+  .object({
+    command: trimmedString.optional(),
+    scriptPath: relativePathSchema.optional(),
+    defaultReplayMode: replayModeSchema.optional(),
+    defaultIncludeWorkflowDebug: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.command && !value.scriptPath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "entrypoint precisa declarar command, scriptPath ou ambos.",
+      });
+    }
+  });
+
+const targetInvestigateCaseV2StageEntrypointSchema = z
+  .object({
+    command: trimmedString.optional(),
+    scriptPath: relativePathSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.command && !value.scriptPath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "entrypoint do estagio precisa declarar command, scriptPath ou ambos.",
+      });
+    }
+  });
+
 export const targetInvestigateCaseManifestSchema = z
   .object({
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
@@ -1409,15 +1441,7 @@ export const targetInvestigateCaseManifestSchema = z
     capability: z.literal(TARGET_INVESTIGATE_CASE_CAPABILITY),
     flow: z.literal(TARGET_INVESTIGATE_CASE_V2_FLOW).optional(),
     command: z.literal(TARGET_INVESTIGATE_CASE_V2_COMMAND).optional(),
-    entrypoint: z
-      .object({
-        command: trimmedString,
-        scriptPath: relativePathSchema,
-        defaultReplayMode: replayModeSchema,
-        defaultIncludeWorkflowDebug: z.boolean(),
-      })
-      .strict()
-      .optional(),
+    entrypoint: targetInvestigateCaseManifestEntrypointSchema.optional(),
     selectors: z
       .object({
         accepted: uniqueStringArray(selectorEnumSchema, "selectors.accepted"),
@@ -1449,7 +1473,21 @@ export const targetInvestigateCaseManifestSchema = z
       }),
     workflows: z
       .object({
-        investigable: uniqueStringArray(trimmedString, "workflows.investigable"),
+        investigable: z
+          .array(trimmedString)
+          .superRefine((value, context) => {
+            const seen = new Set<string>();
+            value.forEach((entry, index) => {
+              if (seen.has(entry)) {
+                context.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index],
+                  message: "workflows.investigable nao pode conter valores duplicados.",
+                });
+              }
+              seen.add(entry);
+            });
+          }),
       })
       .strict(),
     caseResolutionPolicy: z
@@ -1649,13 +1687,7 @@ export const targetInvestigateCaseManifestSchema = z
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
             promptPath: relativePathSchema.optional(),
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.resolveCase.artifacts"),
             policy: z.record(z.string(), z.unknown()),
           })
@@ -1665,14 +1697,8 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[1]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema,
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(
               relativePathSchema,
               "stages.assembleEvidence.artifacts",
@@ -1685,14 +1711,8 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[2]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema,
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.diagnosis.artifacts"),
             policy: z.record(z.string(), z.unknown()),
           })
@@ -1702,14 +1722,8 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[3]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema,
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.deepDive.artifacts"),
             policy: targetInvestigateCaseV2DeepDivePolicySchema,
           })
@@ -1720,14 +1734,8 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[4]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema,
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(
               relativePathSchema,
               "stages.improvementProposal.artifacts",
@@ -1741,14 +1749,8 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[5]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema,
-            entrypoint: z
-              .object({
-                command: trimmedString.optional(),
-                scriptPath: relativePathSchema.optional(),
-              })
-              .strict()
-              .optional(),
+            promptPath: relativePathSchema.optional(),
+            entrypoint: targetInvestigateCaseV2StageEntrypointSchema.optional(),
             artifacts: uniqueNonEmptyArray(
               relativePathSchema,
               "stages.ticketProjection.artifacts",
@@ -1976,10 +1978,42 @@ export const targetInvestigateCaseManifestSchema = z
       ]);
     }
 
-    const requiredPromptConventions: Array<[string, string]> = [
-      ["resolve-case", value.stages.resolveCase.promptPath!],
-      ["assemble-evidence", value.stages.assembleEvidence.promptPath!],
-      ["diagnosis", value.stages.diagnosis.promptPath!],
+    const validateStageExecutionContract = (
+      stagePath: string,
+      stageConfig:
+        | {
+            promptPath?: string;
+            entrypoint?: {
+              command?: string;
+              scriptPath?: string;
+            };
+          }
+        | undefined,
+    ) => {
+      if (!stageConfig) {
+        return;
+      }
+
+      if (!stageConfig.promptPath && !stageConfig.entrypoint) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["stages", stagePath],
+          message: `${stagePath} precisa declarar promptPath, entrypoint ou ambos.`,
+        });
+      }
+    };
+
+    validateStageExecutionContract("resolveCase", value.stages.resolveCase);
+    validateStageExecutionContract("assembleEvidence", value.stages.assembleEvidence);
+    validateStageExecutionContract("diagnosis", value.stages.diagnosis);
+    validateStageExecutionContract("deepDive", value.stages.deepDive);
+    validateStageExecutionContract("improvementProposal", value.stages.improvementProposal);
+    validateStageExecutionContract("ticketProjection", value.stages.ticketProjection);
+
+    const requiredPromptConventions: Array<[string, string | undefined]> = [
+      ["resolve-case", value.stages.resolveCase.promptPath],
+      ["assemble-evidence", value.stages.assembleEvidence.promptPath],
+      ["diagnosis", value.stages.diagnosis.promptPath],
     ];
     const optionalPromptConventions: Array<[string, string | undefined]> = [
       ["deep-dive", value.stages.deepDive?.promptPath],
@@ -1988,6 +2022,10 @@ export const targetInvestigateCaseManifestSchema = z
     ];
 
     for (const [stage, promptPath] of requiredPromptConventions) {
+      if (!promptPath) {
+        continue;
+      }
+
       const expectedPath = `docs/workflows/target-investigate-case-v2-${stage}.md`;
       if (promptPath !== expectedPath) {
         context.addIssue({
@@ -2450,6 +2488,242 @@ const looksLikeNormalizedTargetInvestigateCaseManifest = (decoded: unknown): boo
   );
 };
 
+const mergeRecordDefaults = (
+  value: unknown,
+  defaults: Record<string, unknown>,
+): unknown => {
+  if (value === undefined) {
+    return { ...defaults };
+  }
+
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return {
+      ...defaults,
+      ...(value as Record<string, unknown>),
+    };
+  }
+
+  return value;
+};
+
+const readNestedUnknown = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+
+const normalizeTargetInvestigateCaseV2StageDocument = (
+  stageValue: unknown,
+  defaults: Record<string, unknown>,
+): unknown => {
+  const merged = mergeRecordDefaults(stageValue, defaults);
+  if (typeof merged !== "object" || merged === null || Array.isArray(merged)) {
+    return merged;
+  }
+
+  const mergedRecord = merged as Record<string, unknown>;
+  if ("entrypoint" in mergedRecord && mergedRecord.entrypoint !== undefined) {
+    mergedRecord.entrypoint = mergeRecordDefaults(mergedRecord.entrypoint, {});
+  }
+
+  return mergedRecord;
+};
+
+const normalizeTargetInvestigateCaseV2ManifestDocumentToInternal = (
+  decoded: unknown,
+): TargetInvestigateCaseManifest => {
+  const stagesValue = readNestedUnknown(decoded, "stages");
+  const outputsValue = readNestedUnknown(decoded, "outputs");
+
+  return targetInvestigateCaseManifestSchema.parse({
+    contractVersion: readNestedUnknown(decoded, "contractVersion") ?? TARGET_INVESTIGATE_CASE_CONTRACT_VERSION,
+    schemaVersion: readNestedUnknown(decoded, "schemaVersion") ?? TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+    capability: readNestedUnknown(decoded, "capability") ?? TARGET_INVESTIGATE_CASE_CAPABILITY,
+    flow: readNestedUnknown(decoded, "flow") ?? TARGET_INVESTIGATE_CASE_V2_FLOW,
+    command: readNestedUnknown(decoded, "command") ?? TARGET_INVESTIGATE_CASE_V2_COMMAND,
+    entrypoint:
+      readNestedUnknown(decoded, "entrypoint") === undefined
+        ? undefined
+        : mergeRecordDefaults(readNestedUnknown(decoded, "entrypoint"), {
+            defaultReplayMode: TARGET_INVESTIGATE_CASE_REPLAY_MODE_VALUES[0],
+            defaultIncludeWorkflowDebug: false,
+          }),
+    selectors: mergeRecordDefaults(readNestedUnknown(decoded, "selectors"), {
+      accepted: ["case-ref", "workflow", "request-id", "window", "symptom"],
+      required: ["case-ref"],
+      targetProjectAccepted: [
+        "propertyId",
+        "requestId",
+        "workflow",
+        "window",
+        "runArtifact",
+        "symptom",
+      ],
+    }),
+    workflows: mergeRecordDefaults(readNestedUnknown(decoded, "workflows"), {
+      investigable: [],
+    }),
+    caseResolutionPolicy: mergeRecordDefaults(readNestedUnknown(decoded, "caseResolutionPolicy"), {
+      requireExplicitAttemptResolution: false,
+      allowAttemptlessCases: true,
+    }),
+    evidenceCollection: mergeRecordDefaults(readNestedUnknown(decoded, "evidenceCollection"), {
+      surfaces: [
+        {
+          id: "target-owned-evidence-surface",
+          kind: "target-owned-surface",
+          description: "A coleta de evidencias e definida pelo projeto alvo nos estagios canonicos da v2.",
+        },
+      ],
+      strategies: [
+        {
+          id: "target-owned-stage-guidance",
+          kind: "stage-guided-collection",
+          reference: "stages.assembleEvidence",
+        },
+      ],
+    }),
+    outputs: mergeRecordDefaults(readNestedUnknown(decoded, "outputs"), {
+      caseResolution: mergeRecordDefaults(readNestedUnknown(outputsValue, "caseResolution"), {
+        artifactPath: "case-resolution.json",
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      }),
+      evidenceIndex: mergeRecordDefaults(readNestedUnknown(outputsValue, "evidenceIndex"), {
+        artifactPath: TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      }),
+      evidenceBundle: mergeRecordDefaults(readNestedUnknown(outputsValue, "evidenceBundle"), {
+        artifactPath: TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
+        schemaVersion: TARGET_INVESTIGATE_CASE_SCHEMA_VERSION,
+      }),
+    }),
+    semanticReview: readNestedUnknown(decoded, "semanticReview"),
+    causalDebug: readNestedUnknown(decoded, "causalDebug"),
+    rootCauseReview: readNestedUnknown(decoded, "rootCauseReview"),
+    replayPolicy: mergeRecordDefaults(readNestedUnknown(decoded, "replayPolicy"), {
+      supported: true,
+      safeModeRequired: true,
+      requireUpdateDbFalse: true,
+      requireDedicatedRequestId: false,
+      allowWorkflowDebugWhenSafe: true,
+      cachePurgePolicy: "Target-owned replay and purge policy not explicitly declared.",
+    }),
+    dossierPolicy: mergeRecordDefaults(readNestedUnknown(decoded, "dossierPolicy"), {
+      localPathTemplate: `${TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR}/<round-id>`,
+      sensitivity: TARGET_INVESTIGATE_CASE_DOSSIER_SENSITIVITY_VALUES[0],
+      retention: "local-only optional artifact outside the v2 minimum path",
+    }),
+    supportingArtifacts: mergeRecordDefaults(readNestedUnknown(decoded, "supportingArtifacts"), {
+      docs: [],
+      prompts: [],
+      scripts: [],
+    }),
+    precedence: mergeRecordDefaults(readNestedUnknown(decoded, "precedence"), {
+      fixedLayers: [...TARGET_INVESTIGATE_CASE_PRECEDENCE_FIXED_LAYERS],
+      projectCustomizableLayers: [...TARGET_INVESTIGATE_CASE_PRECEDENCE_PROJECT_LAYERS],
+    }),
+    publicationPolicy: mergeRecordDefaults(readNestedUnknown(decoded, "publicationPolicy"), {
+      allowAutomaticPublication: true,
+      requireStrongEvidenceByDefault: true,
+      allowSufficientWithNormativeConflict: true,
+      requireGeneralizationBasis: true,
+      requireZeroBlockingVetoes: true,
+      blockedReason: null,
+      semanticAuthority: "target-project",
+      finalPublicationAuthority: "runner",
+    }),
+    adoptionPlan: readNestedUnknown(decoded, "adoptionPlan"),
+    migration: readNestedUnknown(decoded, "migration"),
+    roundDirectories: mergeRecordDefaults(readNestedUnknown(decoded, "roundDirectories"), {
+      authoritative: `${TARGET_INVESTIGATE_CASE_V2_AUTHORITATIVE_ROUNDS_DIR}/<round-id>`,
+      mirror: `${TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR}/<round-id>`,
+    }),
+    minimumPath:
+      readNestedUnknown(decoded, "minimumPath") ??
+      [...TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES],
+    stages:
+      stagesValue === undefined
+        ? undefined
+        : {
+            resolveCase:
+              readNestedUnknown(stagesValue, "resolveCase") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "resolveCase"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[0],
+                      owner: "target-project",
+                      runnerExecutor: "codex-flow-runner",
+                      artifacts: [...TARGET_INVESTIGATE_CASE_V2_RESOLVE_CASE_ARTIFACT_VALUES],
+                      policy: {},
+                    },
+                  ),
+            assembleEvidence:
+              readNestedUnknown(stagesValue, "assembleEvidence") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "assembleEvidence"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[1],
+                      owner: "target-project",
+                      runnerExecutor: "codex-flow-runner",
+                      artifacts: [...TARGET_INVESTIGATE_CASE_V2_ASSEMBLE_EVIDENCE_ARTIFACT_VALUES],
+                      policy: {},
+                    },
+                  ),
+            diagnosis:
+              readNestedUnknown(stagesValue, "diagnosis") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "diagnosis"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[2],
+                      owner: "target-project",
+                      runnerExecutor: "codex-flow-runner",
+                      artifacts: [...TARGET_INVESTIGATE_CASE_V2_DIAGNOSIS_ARTIFACT_VALUES],
+                      policy: {},
+                    },
+                  ),
+            deepDive:
+              readNestedUnknown(stagesValue, "deepDive") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "deepDive"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[3],
+                    },
+                  ),
+            improvementProposal:
+              readNestedUnknown(stagesValue, "improvementProposal") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "improvementProposal"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[4],
+                    },
+                  ),
+            ticketProjection:
+              readNestedUnknown(stagesValue, "ticketProjection") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "ticketProjection"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[5],
+                    },
+                  ),
+            publication:
+              readNestedUnknown(stagesValue, "publication") === undefined
+                ? undefined
+                : normalizeTargetInvestigateCaseV2StageDocument(
+                    readNestedUnknown(stagesValue, "publication"),
+                    {
+                      stage: TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[6],
+                    },
+                  ),
+          },
+    ticketPublicationPolicy: readNestedUnknown(decoded, "ticketPublicationPolicy"),
+  });
+};
+
 const formatManifestParseIssues = (
   variant: "normalized" | "pilot",
   issues: readonly z.ZodIssue[],
@@ -2900,10 +3174,27 @@ const normalizePilotManifestToInternal = (
 
 export const normalizeTargetInvestigateCaseManifestDocument = (
   decoded: unknown,
+  options?: {
+    manifestPath?: string;
+  },
 ): TargetInvestigateCaseManifest => {
   const normalized = targetInvestigateCaseManifestSchema.safeParse(decoded);
   if (normalized.success) {
     return normalized.data;
+  }
+
+  if (options?.manifestPath === TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH) {
+    try {
+      return normalizeTargetInvestigateCaseV2ManifestDocumentToInternal(decoded);
+    } catch (error) {
+      const v2PublicIssues =
+        error instanceof Error ? [`v2-public: ${error.message}`] : [`v2-public: ${String(error)}`];
+      const pilot = targetInvestigateCasePilotManifestSchema.safeParse(decoded);
+      const pilotIssues = pilot.success
+        ? []
+        : pilot.error.issues.map((issue) => `pilot: ${issue.message}`);
+      throw new Error([...normalized.error.issues.map((issue) => `normalized: ${issue.message}`), ...v2PublicIssues, ...pilotIssues].join(" | "));
+    }
   }
 
   const pilot = targetInvestigateCasePilotManifestSchema.safeParse(decoded);
@@ -5238,6 +5529,17 @@ export interface TargetInvestigateCaseArtifactSet {
   remediationProposalPath: string;
   ticketProposalPath: string;
   publicationDecisionPath: string;
+}
+
+export interface TargetInvestigateCaseV2StageArtifactSet {
+  caseResolutionPath: string;
+  evidenceIndexPath: string;
+  evidenceBundlePath: string;
+  diagnosisJsonPath: string;
+  diagnosisMdPath: string;
+  remediationProposalPath?: string;
+  ticketProposalPath?: string;
+  publicationDecisionPath?: string;
 }
 
 export interface TargetInvestigateCaseCompletedSummary {

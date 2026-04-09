@@ -99,10 +99,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     await this.onV2Stage?.(request);
     return {
       output: "materialized",
-      promptTemplatePath: path.join(
-        request.targetProject.path,
-        ...request.stagePromptPath.split("/"),
-      ),
+      promptTemplatePath: request.stagePromptPath
+        ? path.join(request.targetProject.path, ...request.stagePromptPath.split("/"))
+        : `[entrypoint-only-stage:${request.stage}]`,
       promptText: "prompt",
     };
   }
@@ -553,189 +552,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo 
 
 test("CodexCliTargetInvestigateCaseRoundPreparer executa o caminho minimo v2 por estagios explicitos e preserva output/case-investigation como namespace autoritativo", async () => {
   const fixture = await createRoundPreparerFixture();
-  fixture.request.manifest = targetInvestigateCaseManifestSchema.parse({
-    ...fixture.request.manifest,
-    flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
-    command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
-    outputs: {
-      caseResolution: {
-        artifactPath: "case-resolution.json",
-        schemaVersion: "1.0",
-      },
-      evidenceIndex: {
-        artifactPath: "evidence-index.json",
-        schemaVersion: "1.0",
-      },
-      evidenceBundle: {
-        artifactPath: "case-bundle.json",
-        schemaVersion: "1.0",
-      },
-    },
-    dossierPolicy: {
-      ...fixture.request.manifest.dossierPolicy,
-      localPathTemplate: "output/case-investigation/<round-id>",
-    },
-    publicationPolicy: {
-      ...fixture.request.manifest.publicationPolicy,
-      semanticAuthority: "target-project",
-      finalPublicationAuthority: "runner",
-    },
-    roundDirectories: {
-      authoritative: "output/case-investigation/<round-id>",
-      mirror: "investigations/<round-id>",
-    },
-    minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
-    stages: {
-      resolveCase: {
-        stage: "resolve-case",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-resolve-case.md",
-        artifacts: ["case-resolution.json"],
-        policy: {
-          semanticAuthority: "target-project",
-        },
-      },
-      assembleEvidence: {
-        stage: "assemble-evidence",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
-        artifacts: ["evidence-index.json", "case-bundle.json"],
-        policy: {
-          declaredSurfacesOnly: true,
-        },
-      },
-      diagnosis: {
-        stage: "diagnosis",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
-        artifacts: ["diagnosis.md", "diagnosis.json"],
-        policy: {
-          semanticAuthority: "target-project",
-        },
-      },
-      deepDive: {
-        stage: "deep-dive",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-deep-dive.md",
-        artifacts: ["deep-dive.request.json", "deep-dive.result.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-diagnosis",
-          allowedTriggers: [
-            "causal-ambiguity",
-            "low-confidence",
-            "smallest-plausible-change-unclear",
-          ],
-          reopensFullDiagnosis: false,
-          adoptionWave: "target-adoption",
-        },
-      },
-      improvementProposal: {
-        stage: "improvement-proposal",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-improvement-proposal.md",
-        artifacts: ["improvement-proposal.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-diagnosis",
-          requiresDiagnosisConfidence: ["medium", "high"],
-          requiresActionableChange: true,
-          reopensFullDiagnosis: false,
-          adoptionWave: "target-adoption",
-        },
-      },
-      ticketProjection: {
-        stage: "ticket-projection",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-ticket-projection.md",
-        artifacts: ["ticket-proposal.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-improvement-proposal",
-          allowsDirectlyAfterDiagnosis: true,
-          requiresDiagnosisStabilized: true,
-          reopensFullDiagnosis: false,
-          authoritativeArtifact: "ticket-proposal.json",
-          requiresTargetTicketPublicationPolicy: true,
-          adoptionWave: "runner-first",
-          migrationAdaptersAccepted: ["causal-debug", "root-cause-review"],
-        },
-      },
-      publication: {
-        stage: "publication",
-        owner: "codex-flow-runner",
-        runnerExecutor: "codex-flow-runner",
-        artifacts: ["publication-decision.json"],
-        policy: {
-          semanticAuthority: "target-project",
-          finalPublicationAuthority: "runner",
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-ticket-projection",
-          runnerOwned: true,
-          requiresTicketProposal: true,
-          writesArtifactOnlyWhenTraversed: true,
-          adoptionWave: "runner-first",
-          legacyAdaptersAccepted: [
-            "semantic-review",
-            "causal-debug",
-            "root-cause-review",
-          ],
-        },
-      },
-    },
-    semanticReview: undefined,
-    causalDebug: undefined,
-    rootCauseReview: undefined,
-  });
-  fixture.request.manifestPath = TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
-  fixture.request.normalizedInput = {
-    ...fixture.request.normalizedInput,
-    canonicalCommand:
-      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
-  };
-  fixture.request.roundDirectory = "output/case-investigation/2026-04-03T19-00-00Z";
-  fixture.request.artifactPaths = {
-    ...fixture.request.artifactPaths,
-    caseResolutionPath: "output/case-investigation/2026-04-03T19-00-00Z/case-resolution.json",
-    evidenceIndexPath: "output/case-investigation/2026-04-03T19-00-00Z/evidence-index.json",
-    evidenceBundlePath: "output/case-investigation/2026-04-03T19-00-00Z/case-bundle.json",
-    assessmentPath: "output/case-investigation/2026-04-03T19-00-00Z/assessment.json",
-    diagnosisJsonPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.json",
-    diagnosisMdPath: "output/case-investigation/2026-04-03T19-00-00Z/diagnosis.md",
-    dossierPath: "output/case-investigation/2026-04-03T19-00-00Z/dossier.md",
-    semanticReviewRequestPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.request.json",
-    semanticReviewResultPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/semantic-review.result.json",
-    causalDebugRequestPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.request.json",
-    causalDebugResultPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/causal-debug.result.json",
-    rootCauseReviewRequestPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.request.json",
-    rootCauseReviewResultPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/root-cause-review.result.json",
-    remediationProposalPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/remediation-proposal.json",
-    ticketProposalPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/ticket-proposal.json",
-    publicationDecisionPath:
-      "output/case-investigation/2026-04-03T19-00-00Z/publication-decision.json",
-  };
+  applyV2RoundRequestDefaults(fixture.request, "2026-04-03T19-00-00Z");
 
   const codexClient = new StubCodexClient(
     async () => undefined,
@@ -778,6 +595,8 @@ test("CodexCliTargetInvestigateCaseRoundPreparer executa o caminho minimo v2 por
       "docs/workflows/target-investigate-case-v2-diagnosis.md",
     ],
   );
+  assert.equal("assessmentPath" in codexClient.v2StageCalls[0]!.artifactPaths, false);
+  assert.equal("dossierPath" in codexClient.v2StageCalls[0]!.artifactPaths, false);
   assert.equal(codexClient.semanticReviewCalls.length, 0);
   assert.equal(codexClient.causalDebugCalls.length, 0);
   assert.equal(codexClient.rootCauseReviewCalls.length, 0);
@@ -924,189 +743,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer executa o caminho minimo v2 por
 
 test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution nao preserva lineage no contrato v2 de origem legada", async () => {
   const fixture = await createRoundPreparerFixture();
-  fixture.request.manifest = targetInvestigateCaseManifestSchema.parse({
-    ...fixture.request.manifest,
-    flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
-    command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
-    outputs: {
-      caseResolution: {
-        artifactPath: "case-resolution.json",
-        schemaVersion: "1.0",
-      },
-      evidenceIndex: {
-        artifactPath: "evidence-index.json",
-        schemaVersion: "1.0",
-      },
-      evidenceBundle: {
-        artifactPath: "case-bundle.json",
-        schemaVersion: "1.0",
-      },
-    },
-    dossierPolicy: {
-      ...fixture.request.manifest.dossierPolicy,
-      localPathTemplate: "output/case-investigation/<round-id>",
-    },
-    publicationPolicy: {
-      ...fixture.request.manifest.publicationPolicy,
-      semanticAuthority: "target-project",
-      finalPublicationAuthority: "runner",
-    },
-    roundDirectories: {
-      authoritative: "output/case-investigation/<round-id>",
-      mirror: "investigations/<round-id>",
-    },
-    minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
-    stages: {
-      resolveCase: {
-        stage: "resolve-case",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-resolve-case.md",
-        artifacts: ["case-resolution.json"],
-        policy: {
-          semanticAuthority: "target-project",
-        },
-      },
-      assembleEvidence: {
-        stage: "assemble-evidence",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
-        artifacts: ["evidence-index.json", "case-bundle.json"],
-        policy: {
-          declaredSurfacesOnly: true,
-        },
-      },
-      diagnosis: {
-        stage: "diagnosis",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
-        artifacts: ["diagnosis.md", "diagnosis.json"],
-        policy: {
-          semanticAuthority: "target-project",
-        },
-      },
-      deepDive: {
-        stage: "deep-dive",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-deep-dive.md",
-        artifacts: ["deep-dive.request.json", "deep-dive.result.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-diagnosis",
-          allowedTriggers: [
-            "causal-ambiguity",
-            "low-confidence",
-            "smallest-plausible-change-unclear",
-          ],
-          reopensFullDiagnosis: false,
-          adoptionWave: "target-adoption",
-        },
-      },
-      improvementProposal: {
-        stage: "improvement-proposal",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-improvement-proposal.md",
-        artifacts: ["improvement-proposal.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-diagnosis",
-          requiresDiagnosisConfidence: ["medium", "high"],
-          requiresActionableChange: true,
-          reopensFullDiagnosis: false,
-          adoptionWave: "target-adoption",
-        },
-      },
-      ticketProjection: {
-        stage: "ticket-projection",
-        owner: "target-project",
-        runnerExecutor: "codex-flow-runner",
-        promptPath: "docs/workflows/target-investigate-case-v2-ticket-projection.md",
-        artifacts: ["ticket-proposal.json"],
-        policy: {
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-improvement-proposal",
-          allowsDirectlyAfterDiagnosis: true,
-          requiresDiagnosisStabilized: true,
-          reopensFullDiagnosis: false,
-          authoritativeArtifact: "ticket-proposal.json",
-          requiresTargetTicketPublicationPolicy: true,
-          adoptionWave: "runner-first",
-          migrationAdaptersAccepted: ["causal-debug", "root-cause-review"],
-        },
-      },
-      publication: {
-        stage: "publication",
-        owner: "codex-flow-runner",
-        runnerExecutor: "codex-flow-runner",
-        artifacts: ["publication-decision.json"],
-        policy: {
-          semanticAuthority: "target-project",
-          finalPublicationAuthority: "runner",
-          optional: true,
-          lateContinuation: true,
-          entersMinimumPath: false,
-          executionOrder: "after-ticket-projection",
-          runnerOwned: true,
-          requiresTicketProposal: true,
-          writesArtifactOnlyWhenTraversed: true,
-          adoptionWave: "runner-first",
-          legacyAdaptersAccepted: [
-            "semantic-review",
-            "causal-debug",
-            "root-cause-review",
-          ],
-        },
-      },
-    },
-    semanticReview: undefined,
-    causalDebug: undefined,
-    rootCauseReview: undefined,
-  });
-  fixture.request.manifestPath = TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
-  fixture.request.normalizedInput = {
-    ...fixture.request.normalizedInput,
-    canonicalCommand:
-      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
-  };
-  fixture.request.roundDirectory = "output/case-investigation/2026-04-03T19-10-00Z";
-  fixture.request.artifactPaths = {
-    ...fixture.request.artifactPaths,
-    caseResolutionPath: "output/case-investigation/2026-04-03T19-10-00Z/case-resolution.json",
-    evidenceIndexPath: "output/case-investigation/2026-04-03T19-10-00Z/evidence-index.json",
-    evidenceBundlePath: "output/case-investigation/2026-04-03T19-10-00Z/case-bundle.json",
-    assessmentPath: "output/case-investigation/2026-04-03T19-10-00Z/assessment.json",
-    diagnosisJsonPath: "output/case-investigation/2026-04-03T19-10-00Z/diagnosis.json",
-    diagnosisMdPath: "output/case-investigation/2026-04-03T19-10-00Z/diagnosis.md",
-    dossierPath: "output/case-investigation/2026-04-03T19-10-00Z/dossier.md",
-    semanticReviewRequestPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/semantic-review.request.json",
-    semanticReviewResultPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/semantic-review.result.json",
-    causalDebugRequestPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/causal-debug.request.json",
-    causalDebugResultPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/causal-debug.result.json",
-    rootCauseReviewRequestPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/root-cause-review.request.json",
-    rootCauseReviewResultPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/root-cause-review.result.json",
-    remediationProposalPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/remediation-proposal.json",
-    ticketProposalPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/ticket-proposal.json",
-    publicationDecisionPath:
-      "output/case-investigation/2026-04-03T19-10-00Z/publication-decision.json",
-  };
+  applyV2RoundRequestDefaults(fixture.request, "2026-04-03T19-10-00Z");
 
   const codexClient = new StubCodexClient(
     async () => undefined,
@@ -1137,6 +774,83 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution na
     result.message,
     /case-resolution\.json nao carregam lineage obrigatoria|evidence-index\.json pode manter lineage auxiliar/u,
   );
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer preserva failedAtMilestone=assemble-evidence quando a execucao v2 falha nessa etapa", async () => {
+  const fixture = await createRoundPreparerFixture();
+  applyV2RoundRequestDefaults(fixture.request, "2026-04-03T19-20-00Z");
+
+  const codexClient = new StubCodexClient(
+    async () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (request) => {
+      if (request.stage === "resolve-case") {
+        await materializeV2StageArtifacts(request.targetProject.path, request.roundDirectory, request.stage);
+        return;
+      }
+
+      if (request.stage === "assemble-evidence") {
+        throw new Error("assemble-evidence explodiu");
+      }
+    },
+  );
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "failed", JSON.stringify(result));
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.equal(result.failedAtMilestone, "assemble-evidence");
+  assert.equal(result.failureKind, "codex-execution-failed");
+  assert.match(result.message, /assemble-evidence explodiu/u);
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer preserva failedAtMilestone=diagnosis quando a validacao v2 falha nessa etapa", async () => {
+  const fixture = await createRoundPreparerFixture();
+  applyV2RoundRequestDefaults(fixture.request, "2026-04-03T19-30-00Z");
+
+  const codexClient = new StubCodexClient(
+    async () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (request) => {
+      await materializeV2StageArtifacts(request.targetProject.path, request.roundDirectory, request.stage);
+
+      if (request.stage === "diagnosis") {
+        await fs.unlink(
+          path.join(request.targetProject.path, ...request.artifactPaths.diagnosisMdPath.split("/")),
+        );
+      }
+    },
+  );
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "failed", JSON.stringify(result));
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.equal(result.failedAtMilestone, "diagnosis");
+  assert.equal(result.failureKind, "artifact-validation-failed");
+  assert.match(result.message, /diagnosis\.md/u);
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando semantic-review.request.json esta ausente", async () => {
@@ -2123,6 +1837,192 @@ const createRoundPreparerFixture = async (): Promise<{
       },
       isCancellationRequested: () => false,
     },
+  };
+};
+
+const buildInternalV2ManifestFromBase = (
+  baseManifest: TargetInvestigateCaseRoundPreparationRequest["manifest"],
+) =>
+  targetInvestigateCaseManifestSchema.parse({
+    ...baseManifest,
+    flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
+    command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
+    outputs: {
+      caseResolution: {
+        artifactPath: "case-resolution.json",
+        schemaVersion: "1.0",
+      },
+      evidenceIndex: {
+        artifactPath: "evidence-index.json",
+        schemaVersion: "1.0",
+      },
+      evidenceBundle: {
+        artifactPath: "case-bundle.json",
+        schemaVersion: "1.0",
+      },
+    },
+    dossierPolicy: {
+      ...baseManifest.dossierPolicy,
+      localPathTemplate: "output/case-investigation/<round-id>",
+    },
+    publicationPolicy: {
+      ...baseManifest.publicationPolicy,
+      semanticAuthority: "target-project",
+      finalPublicationAuthority: "runner",
+    },
+    roundDirectories: {
+      authoritative: "output/case-investigation/<round-id>",
+      mirror: "investigations/<round-id>",
+    },
+    minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
+    stages: {
+      resolveCase: {
+        stage: "resolve-case",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-resolve-case.md",
+        artifacts: ["case-resolution.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      assembleEvidence: {
+        stage: "assemble-evidence",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+        artifacts: ["evidence-index.json", "case-bundle.json"],
+        policy: {
+          declaredSurfacesOnly: true,
+        },
+      },
+      diagnosis: {
+        stage: "diagnosis",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
+        artifacts: ["diagnosis.md", "diagnosis.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      deepDive: {
+        stage: "deep-dive",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-deep-dive.md",
+        artifacts: ["deep-dive.request.json", "deep-dive.result.json"],
+        policy: {
+          optional: true,
+          lateContinuation: true,
+          entersMinimumPath: false,
+          executionOrder: "after-diagnosis",
+          allowedTriggers: [
+            "causal-ambiguity",
+            "low-confidence",
+            "smallest-plausible-change-unclear",
+          ],
+          reopensFullDiagnosis: false,
+          adoptionWave: "target-adoption",
+        },
+      },
+      improvementProposal: {
+        stage: "improvement-proposal",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-improvement-proposal.md",
+        artifacts: ["improvement-proposal.json"],
+        policy: {
+          optional: true,
+          lateContinuation: true,
+          entersMinimumPath: false,
+          executionOrder: "after-diagnosis",
+          requiresDiagnosisConfidence: ["medium", "high"],
+          requiresActionableChange: true,
+          reopensFullDiagnosis: false,
+          adoptionWave: "target-adoption",
+        },
+      },
+      ticketProjection: {
+        stage: "ticket-projection",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-ticket-projection.md",
+        artifacts: ["ticket-proposal.json"],
+        policy: {
+          optional: true,
+          lateContinuation: true,
+          entersMinimumPath: false,
+          executionOrder: "after-improvement-proposal",
+          allowsDirectlyAfterDiagnosis: true,
+          requiresDiagnosisStabilized: true,
+          reopensFullDiagnosis: false,
+          authoritativeArtifact: "ticket-proposal.json",
+          requiresTargetTicketPublicationPolicy: true,
+          adoptionWave: "runner-first",
+          migrationAdaptersAccepted: ["causal-debug", "root-cause-review"],
+        },
+      },
+      publication: {
+        stage: "publication",
+        owner: "codex-flow-runner",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["publication-decision.json"],
+        policy: {
+          semanticAuthority: "target-project",
+          finalPublicationAuthority: "runner",
+          optional: true,
+          lateContinuation: true,
+          entersMinimumPath: false,
+          executionOrder: "after-ticket-projection",
+          runnerOwned: true,
+          requiresTicketProposal: true,
+          writesArtifactOnlyWhenTraversed: true,
+          adoptionWave: "runner-first",
+          legacyAdaptersAccepted: [
+            "semantic-review",
+            "causal-debug",
+            "root-cause-review",
+          ],
+        },
+      },
+    },
+    semanticReview: undefined,
+    causalDebug: undefined,
+    rootCauseReview: undefined,
+  });
+
+const applyV2RoundRequestDefaults = (
+  request: TargetInvestigateCaseRoundPreparationRequest,
+  roundId: string,
+): void => {
+  request.manifest = buildInternalV2ManifestFromBase(request.manifest);
+  request.manifestPath = TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
+  request.normalizedInput = {
+    ...request.normalizedInput,
+    canonicalCommand:
+      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
+  };
+  request.roundId = roundId;
+  request.roundDirectory = `output/case-investigation/${roundId}`;
+  request.artifactPaths = {
+    ...request.artifactPaths,
+    caseResolutionPath: `output/case-investigation/${roundId}/case-resolution.json`,
+    evidenceIndexPath: `output/case-investigation/${roundId}/evidence-index.json`,
+    evidenceBundlePath: `output/case-investigation/${roundId}/case-bundle.json`,
+    assessmentPath: `output/case-investigation/${roundId}/assessment.json`,
+    diagnosisJsonPath: `output/case-investigation/${roundId}/diagnosis.json`,
+    diagnosisMdPath: `output/case-investigation/${roundId}/diagnosis.md`,
+    dossierPath: `output/case-investigation/${roundId}/dossier.md`,
+    semanticReviewRequestPath: `output/case-investigation/${roundId}/semantic-review.request.json`,
+    semanticReviewResultPath: `output/case-investigation/${roundId}/semantic-review.result.json`,
+    causalDebugRequestPath: `output/case-investigation/${roundId}/causal-debug.request.json`,
+    causalDebugResultPath: `output/case-investigation/${roundId}/causal-debug.result.json`,
+    rootCauseReviewRequestPath: `output/case-investigation/${roundId}/root-cause-review.request.json`,
+    rootCauseReviewResultPath: `output/case-investigation/${roundId}/root-cause-review.result.json`,
+    remediationProposalPath: `output/case-investigation/${roundId}/remediation-proposal.json`,
+    ticketProposalPath: `output/case-investigation/${roundId}/ticket-proposal.json`,
+    publicationDecisionPath: `output/case-investigation/${roundId}/publication-decision.json`,
   };
 };
 
