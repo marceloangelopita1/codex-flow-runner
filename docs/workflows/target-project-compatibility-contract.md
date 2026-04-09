@@ -28,9 +28,11 @@ Contrato:
 - o projeto já foi preparado para o workflow operacional esperado pelo runner, incluindo as estruturas e convenções documentais usadas na triagem da spec e na execução sequencial dos tickets;
 - em projeto externo, o checklist compartilhado do workflow permanece canônico no repositório irmão `../codex-flow-runner/docs/workflows/codex-quality-gates.md`; no próprio `codex-flow-runner`, o caminho canônico continua `docs/workflows/codex-quality-gates.md`;
 - `target_prepare` e `target_checkup` devem tornar essa dependência observável e auditável, em vez de pressupor uma cópia implícita do checklist dentro do repositório alvo;
+- para `target-investigate-case-v2`, o onboarding canônico do target passa por `docs/workflows/target-investigate-case-v2-target-onboarding.md` e pelo prompt reutilizável `docs/workflows/target-investigate-case-v2-target-onboarding-prompt.md`;
+- para `target-investigate-case-v2`, o target deve materializar no próprio repositório o manifesto, o runbook e os prompts canônicos da primeira onda, em vez de depender de contexto tácito ou de instruções soltas em conversa;
 - a triagem inicial da spec deriva apenas tickets em `tickets/open/`;
 - `execplans/` surgem somente a partir de tickets, quando necessário para execução segura;
-- para `target-investigate-case-v2`, a primeira onda runner-side fica responsável por estabilizar o contrato, `ticket-projection` e `publication`, enquanto `deep-dive` e `improvement-proposal` permanecem como slots canônicos para a segunda onda de adoção nos targets aderentes;
+- para `target-investigate-case-v2`, a primeira onda runner-side já estabilizou o contrato, o slot canônico de `ticket-projection` e a `publication` runner-side; na compatibilização target-side, a primeira onda continua sendo o caminho mínimo diagnosis-first, e `deep-dive`, `improvement-proposal` e `ticket-projection` podem entrar apenas na segunda onda;
 - `target-investigate-case-v2` é o único fluxo suportado de investigação de caso; o projeto alvo não deve depender de cadeias auxiliares legadas fora desse contrato;
 - o histórico pré-v2 de investigação de caso, quando consultado, fica rebaixado a `docs/history/target-investigate-case/` e não participa do contrato operacional vigente;
 - `ticket-proposal.json` continua target-owned e precisa nascer no namespace autoritativo `output/case-investigation/<round-id>/`; `investigations/<round-id>/` pode espelhar a rodada, mas não substitui a autoridade semântica do target;
@@ -54,3 +56,5 @@ Contrato:
 - `INTERNAL_TICKETS.md`
 - `PLANS.md`
 - `docs/workflows/codex-quality-gates.md`
+- `docs/workflows/target-investigate-case-v2-target-onboarding.md`
+- `docs/workflows/target-investigate-case-v2-target-onboarding-prompt.md`

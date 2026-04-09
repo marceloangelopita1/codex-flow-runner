@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-09 21:21Z
+- Last reviewed at (UTC): 2026-04-09 21:50Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
@@ -348,6 +348,7 @@
 - `diagnosis.md` e `diagnosis.json` são os artefatos principais da rodada por default;
 - o primeiro conjunto de tickets derivados desta spec será aberto no runner; a aderência dos targets virá em uma segunda onda de derivação;
 - o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2.
+- o onboarding canônico dos targets aderentes fica em `docs/workflows/target-investigate-case-v2-target-onboarding.md` e no prompt reutilizável `docs/workflows/target-investigate-case-v2-target-onboarding-prompt.md`.
 
 ## Não-escopo
 - migrar retroativamente todos os rounds históricos pré-v2;
@@ -501,6 +502,7 @@
   - se `assemble-evidence` ficar vago, a complexidade do desenho anterior pode reaparecer disfarçada de coleta improvisada.
 - Mitigação:
   - padronizar slots de prompt, artefatos, manifesto e responsabilidades;
+  - manter o onboarding de target explícito, versionado e reaproveitável no próprio `codex-flow-runner`;
   - fazer a primeira onda de implementação no runner antes da adoção em targets;
   - exigir blockers explícitos em `resolve-case` e `assemble-evidence` quando o target não conseguir fechar o caso com segurança.
 
@@ -509,6 +511,7 @@
 - 2026-04-08 - tratar `resolve-case` e `assemble-evidence` como estágios formais da v2 - evita que a coleta de contexto fique implícita, improvisada ou escondida dentro do diagnóstico.
 - 2026-04-08 - definir prompts canônicos por estágio no target - mantém o runner target-agnostic sem perder direcionamento semântico do projeto alvo.
 - 2026-04-08 - eleger o namespace do projeto alvo como fonte autoritativa da rodada - reduz duplicação semântica e mantém o conhecimento operacional perto das evidências reais.
+- 2026-04-09 - consolidar onboarding canônico e prompt reutilizável para targets aderentes - reduz dependência de conversa tácita e estabiliza a segunda onda de adoção da v2.
 
 ## Histórico de atualização
 - 2026-04-08 20:25Z - Versão inicial da spec.
@@ -521,3 +524,4 @@
 - 2026-04-09 19:52Z - Execução local do novo ExecPlan de compatibilidade concluída: o runner passou a aceitar o shape público mínimo da v2, preservar milestone real no caminho mínimo e esconder superfícies pré-v2 do contexto mínimo; `Status` permaneceu `attended`, mas `Spec treatment` voltou para `pending` até o commit que fechará o ticket local remanescente.
 - 2026-04-09 19:57Z - Fechamento formal da trilha reaberta: o ticket local remanescente foi movido para `tickets/closed/`, `Spec treatment` voltou para `done` e a spec permanece `attended` com evidência runner-side observável.
 - 2026-04-09 21:21Z - Limpeza semântica final concluída: a spec passou a se declarar explicitamente v2-only, as referências pré-v2 foram rebaixadas para histórico fora de `docs/specs/` e a narrativa normativa deixou de tratar o desenho anterior como contrato alternativo ou rollout ativo.
+- 2026-04-09 21:50Z - Material de onboarding canônico para targets aderentes adicionado em `docs/workflows/`, com ponteiros mínimos nesta spec e no contrato de compatibilidade.
