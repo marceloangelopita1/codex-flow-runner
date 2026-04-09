@@ -71,10 +71,7 @@ import {
   TARGET_INVESTIGATE_CASE_V2_COMMAND,
   TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES,
   TARGET_INVESTIGATE_CASE_V2_FLOW,
-  TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
   TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
-  TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES,
-  TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES,
 } from "../types/target-investigate-case.js";
 
 const runnerRepoPath = fileURLToPath(new URL("../../", import.meta.url));
@@ -204,16 +201,11 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
   );
   assert.equal(loaded.manifest.publicationPolicy.semanticAuthority, "target-project");
   assert.equal(loaded.manifest.publicationPolicy.finalPublicationAuthority, "runner");
-  assert.deepEqual(loaded.manifest.adoptionPlan?.runnerFirstWaveStages, [
-    ...TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES,
-  ]);
-  assert.deepEqual(loaded.manifest.adoptionPlan?.targetAdoptionWaveStages, [
-    ...TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES,
-  ]);
-  assert.deepEqual(loaded.manifest.migration?.legacyAdapters, [
-    ...TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
-  ]);
-  assert.equal(loaded.manifest.migration?.legacyBackboneForbidden, true);
+  assert.equal(loaded.manifest.outputs.assessment, undefined);
+  assert.equal(loaded.manifest.outputs.publicationDecision, undefined);
+  assert.equal(loaded.manifest.outputs.dossier, undefined);
+  assert.equal(loaded.manifest.adoptionPlan, undefined);
+  assert.equal(loaded.manifest.migration, undefined);
   assert.deepEqual(
     [
       loaded.manifest.stages?.resolveCase.stage,
@@ -233,13 +225,7 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
   assert.deepEqual(loaded.manifest.stages?.deepDive?.policy.allowedTriggers, [
     ...TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES,
   ]);
-  assert.deepEqual(loaded.manifest.stages?.ticketProjection?.policy.migrationAdaptersAccepted, [
-    "causal-debug",
-    "root-cause-review",
-  ]);
-  assert.deepEqual(loaded.manifest.stages?.publication?.policy.legacyAdaptersAccepted, [
-    ...TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
-  ]);
+  assert.deepEqual(loaded.manifest.stages?.diagnosis.artifacts, ["diagnosis.md", "diagnosis.json"]);
   assert.equal(loaded.manifest.stages?.publication?.policy.writesArtifactOnlyWhenTraversed, true);
 });
 
@@ -377,7 +363,7 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
   );
   assert.equal(loaded.manifest.entrypoint?.defaultReplayMode, "historical-only");
   assert.equal(loaded.manifest.entrypoint?.defaultIncludeWorkflowDebug, false);
-  assert.equal(loaded.manifest.outputs.dossier.preferredArtifact, "dossier.md");
+  assert.equal(loaded.manifest.outputs.dossier!.preferredArtifact, "dossier.md");
   assert.equal(loaded.manifest.ticketPublicationPolicy?.internalTicketTemplatePath, "tickets/templates/internal-ticket-template.md");
   assert.equal(loaded.manifest.semanticReview?.owner, "target-project");
   assert.equal(loaded.manifest.semanticReview?.runnerExecutor, "codex-flow-runner");
@@ -421,19 +407,19 @@ test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizad
     "/errors/<index>",
   );
   assert.deepEqual(
-    loaded.manifest.outputs.assessment.boundedOutcomeStatuses,
+    loaded.manifest.outputs.assessment!.boundedOutcomeStatuses,
     [...TARGET_INVESTIGATE_CASE_BOUNDED_OUTCOME_STATUS_VALUES],
   );
   assert.deepEqual(
-    loaded.manifest.outputs.assessment.primaryRemediationStatusValues,
+    loaded.manifest.outputs.assessment!.primaryRemediationStatusValues,
     [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_STATUS_VALUES],
   );
   assert.deepEqual(
-    loaded.manifest.outputs.assessment.primaryRemediationExecutionReadinessValues,
+    loaded.manifest.outputs.assessment!.primaryRemediationExecutionReadinessValues,
     [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_EXECUTION_READINESS_VALUES],
   );
   assert.deepEqual(
-    loaded.manifest.outputs.assessment.primaryRemediationPublicationDependencyValues,
+    loaded.manifest.outputs.assessment!.primaryRemediationPublicationDependencyValues,
     [...TARGET_INVESTIGATE_CASE_PRIMARY_REMEDIATION_PUBLICATION_DEPENDENCY_VALUES],
   );
   assert.equal(loaded.manifest.causalDebug?.owner, "target-project");
@@ -1619,6 +1605,7 @@ test("evaluateTargetInvestigateCaseRound preserva evidence_missing_or_partial co
     artifacts: fixture.artifactPaths,
   });
 
+  assert.ok(result.assessment);
   assert.equal(result.assessment.primary_taxonomy, "evidence_missing_or_partial");
   assert.equal(result.assessment.operational_class, "bundle_not_captured");
   assert.equal(result.summary.primary_taxonomy, "evidence_missing_or_partial");
@@ -1713,6 +1700,7 @@ test("evaluateTargetInvestigateCaseRound publica normalmente com assessment bug_
     ticketPublisher: publisher,
   });
 
+  assert.ok(result.assessment);
   assert.equal(result.assessment.primary_taxonomy, "bug_confirmed");
   assert.equal(result.publicationDecision.publication_status, "eligible");
   assert.equal(result.publicationDecision.overall_outcome, "ticket-published");
@@ -2049,6 +2037,7 @@ test("evaluateTargetInvestigateCaseRound aceita os artefatos ricos atuais do pil
   );
   assert.deepEqual(result.caseResolution.relevant_workflows, ["extract_address"]);
   assert.equal(result.evidenceBundle.replay.used, false);
+  assert.ok(result.assessment);
   assert.equal(result.assessment.houve_gap_real, "no");
   assert.equal(result.assessment.evidence_sufficiency, "sufficient");
   assert.equal(result.assessment.primary_remediation?.status, "not_available");
@@ -2398,7 +2387,7 @@ test("evaluateTargetInvestigateCaseRound aceita promotion semantica para evidenc
   );
   assert.match(
     renderTargetInvestigateCaseFinalSummary(result.summary),
-    /Ha remediacao acionavel identificada; publication automatica segue bloqueada\./u,
+    /Ha remediacao acionavel identificada; a publication automatica ainda nao foi atravessada\./u,
   );
   assert.deepEqual(result.publicationDecision.blocked_gates, []);
   assert.equal(ticketPublisher.calls.length, 0);
@@ -4632,6 +4621,13 @@ const writeV2RoundArtifacts = async (
   }
   targetInvestigateCaseCaseBundleSchema.parse(caseBundle);
 
+  const evidenceIndex = buildEvidenceIndexFixture(artifactPaths.evidenceBundlePath);
+  evidenceIndex.lineage = buildLegacyLineageFixture(
+    "evidence-bundle.json",
+    `${legacyMirrorDirectory}/evidence-bundle.json`,
+  );
+  targetInvestigateCaseEvidenceIndexSchema.parse(evidenceIndex);
+
   const assessment =
     options.assessmentDocument ??
     (() => {
@@ -4645,13 +4641,6 @@ const writeV2RoundArtifacts = async (
       return baseAssessment;
     })();
   targetInvestigateCaseAssessmentSchema.parse(assessment);
-
-  const evidenceIndex = buildEvidenceIndexFixture(artifactPaths.evidenceBundlePath);
-  evidenceIndex.lineage = buildLegacyLineageFixture(
-    "evidence-bundle.json",
-    `${legacyMirrorDirectory}/evidence-bundle.json`,
-  );
-  targetInvestigateCaseEvidenceIndexSchema.parse(evidenceIndex);
 
   const diagnosis =
     options.diagnosisDocument ??
@@ -5175,8 +5164,8 @@ const buildRootCauseReviewResultFixture = (overrides: Record<string, unknown> = 
 const buildTicketProposalFixture = (overrides: Record<string, unknown> = {}): any => ({
   schema_version: "ticket_proposal_v1",
   generated_at: "2026-04-06T04:20:00.000Z",
-  source_assessment_artifact: "assessment.json",
-  source_causal_debug_artifact: "causal-debug.result.json",
+  source_diagnosis_artifact: "diagnosis.json",
+  source_case_bundle_artifact: "case-bundle.json",
   recommended_action: "publish_ticket",
   suggested_slug: "fix-extract-address-semantic-truncation",
   suggested_title: "Fix extract_address semantic truncation",

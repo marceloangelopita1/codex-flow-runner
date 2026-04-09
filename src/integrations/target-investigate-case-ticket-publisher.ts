@@ -174,6 +174,12 @@ const renderTicketContent = (
       : `${request.ticketProposal.ticket_markdown}\n`;
   }
 
+  if (!request.assessment) {
+    throw new Error(
+      "Publication runner-side sem ticket_markdown target-owned exige assessment apenas nos fluxos legados.",
+    );
+  }
+
   const requestIdHint = request.evidenceBundle.replay.request_id ?? "N/A";
   const investigationInputs = [
     `Comando canonico: ${request.normalizedInput.canonicalCommand}`,
@@ -545,7 +551,7 @@ const buildTicketSlug = (request: TargetInvestigateCaseTicketPublicationRequest)
   const titleSlug = slugify(
     (request.ticketProposal?.suggested_slug ??
       request.ticketProposal?.suggested_title ??
-      request.assessment.publication_recommendation.suggested_title) ||
+      request.assessment?.publication_recommendation.suggested_title) ||
       "case-investigation-gap",
     80,
   );

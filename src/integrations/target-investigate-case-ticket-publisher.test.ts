@@ -520,6 +520,31 @@ const createPublisherFixture = async (): Promise<{
         normative_conflicts: [],
         factual_sufficiency_reason: "A rodada reuniu evidencia forte o bastante para publication.",
       },
+      diagnosis: {
+        schema_version: "diagnosis_v1",
+        bundle_artifact: "investigations/round-1/evidence-bundle.json",
+        verdict: "not_ok",
+        summary: "O caso nao esta OK e a remediacao local ja foi isolada.",
+        why: "A evidencia confirma falha reproduzivel do guardrail local.",
+        expected_behavior: "Preservar o guardrail local do billing-core.",
+        observed_behavior: "O guardrail local falhou no caso investigado.",
+        confidence: "high",
+        behavior_to_change: "Corrigir o guardrail local reutilizavel do billing-core.",
+        probable_fix_surface: ["src/workflows/billing-core.ts"],
+        evidence_used: [
+          {
+            artifact: "evidence-bundle.json",
+            path: "investigations/round-1/evidence-bundle.json",
+          },
+        ],
+        next_action: "Revisar o ticket publicado.",
+        lineage: [
+          {
+            artifact: "case-bundle.json",
+            path: "output/case-investigation/round-1/case-bundle.json",
+          },
+        ],
+      },
       assessment: {
         houve_gap_real: "yes",
         era_evitavel_internamente: "yes",
@@ -654,8 +679,8 @@ const buildTargetOwnedTicketProposalFixture = (
 ): any => ({
   schema_version: "ticket_proposal_v1",
   generated_at: "2026-04-03T22:09:30.000Z",
-  source_assessment_artifact: "assessment.json",
-  source_causal_debug_artifact: "causal-debug.result.json",
+  source_diagnosis_artifact: "diagnosis.json",
+  source_case_bundle_artifact: "case-bundle.json",
   recommended_action: "publish_ticket",
   suggested_slug: "fix-billing-core-guardrail",
   suggested_title: "Fix billing-core guardrail",

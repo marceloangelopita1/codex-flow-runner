@@ -7119,7 +7119,6 @@ export class TelegramController {
     }
 
     if (result.status === "completed") {
-      const primaryRemediation = result.summary.finalSummary.primary_remediation;
       return [
         `✅ ${commandLabel} concluido para ${result.summary.targetProject.name}.`,
         `Veredito do diagnostico: ${result.summary.finalSummary.diagnosis.verdict}`,
@@ -7138,14 +7137,10 @@ export class TelegramController {
         }`,
         `Resultado investigativo: ${describeTargetInvestigateCaseInvestigationOutcome(result.summary.finalSummary)}`,
         `Investigation outcome: ${result.summary.finalSummary.investigation_outcome}`,
-        `Primary remediation: ${primaryRemediation ? primaryRemediation.summary : "(nenhuma)"}`,
-        `Execution readiness: ${primaryRemediation?.execution_readiness ?? "(nao aplicavel)"}`,
-        `Publication dependency: ${primaryRemediation?.publication_dependency ?? "(nao aplicavel)"}`,
         `Remediation proposal: ${result.summary.finalSummary.remediation_proposal_path ?? "(nenhum)"}`,
         `Publication automatica: ${result.summary.publicationDecision.publication_status} (${result.summary.publicationDecision.overall_outcome})`,
         `Diagnosis markdown: ${result.summary.finalSummary.diagnosis.diagnosis_md_path}`,
         `Diagnosis JSON: ${result.summary.finalSummary.diagnosis.diagnosis_json_path}`,
-        `Dossier local: ${result.summary.artifactPaths.dossierPath}`,
         `Ticket path: ${result.summary.publicationDecision.ticket_path ?? "(nenhum)"}`,
         `Proxima acao: ${result.summary.nextAction}`,
       ].join("\n");

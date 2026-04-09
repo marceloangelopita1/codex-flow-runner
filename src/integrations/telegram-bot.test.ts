@@ -3917,7 +3917,7 @@ test("handleTargetInvestigateCaseCommand encaminha o contrato canonico inteiro a
   assert.match(replies[0] ?? "", /Case-ref: case-001/u);
   assert.match(replies[0] ?? "", /Resultado investigativo: Nao ha gap real a corrigir neste caso\./u);
   assert.match(replies[0] ?? "", /Diagnosis markdown: investigations\/2026-04-03T19-00-00Z\/diagnosis.md/u);
-  assert.match(replies[0] ?? "", /Dossier local: investigations\/2026-04-03T19-00-00Z\/dossier.md/u);
+  assert.doesNotMatch(replies[0] ?? "", /Dossier local:/u);
 });
 
 test("handleTargetInvestigateCaseCommand suporta o alias explicito /target_investigate_case_v2", async () => {
@@ -3987,12 +3987,12 @@ test("buildTargetInvestigateCaseReply destaca remediacao acionavel antes do gati
 
   assert.match(
     reply,
-    /Resultado investigativo: Ha remediacao acionavel identificada; publication automatica segue bloqueada\./u,
+    /Resultado investigativo: Ha remediacao acionavel identificada; a publication automatica ainda nao foi atravessada\./u,
   );
   assert.match(reply, /Veredito do diagnostico: not_ok/u);
-  assert.match(reply, /Primary remediation: Corrigir o comparador local de logradouro\./u);
-  assert.match(reply, /Execution readiness: ready/u);
-  assert.match(reply, /Publication dependency: publication_only/u);
+  assert.doesNotMatch(reply, /Primary remediation:/u);
+  assert.doesNotMatch(reply, /Execution readiness:/u);
+  assert.doesNotMatch(reply, /Publication dependency:/u);
   assert.match(reply, /Publication automatica: not_eligible \(inconclusive-case\)/u);
 });
 

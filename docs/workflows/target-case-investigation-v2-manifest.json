@@ -59,19 +59,6 @@
     "evidenceBundle": {
       "artifactPath": "case-bundle.json",
       "schemaVersion": "1.0"
-    },
-    "assessment": {
-      "artifactPath": "assessment.json",
-      "schemaVersion": "1.0"
-    },
-    "publicationDecision": {
-      "artifactPath": "publication-decision.json",
-      "schemaVersion": "1.0"
-    },
-    "dossier": {
-      "artifactPathPattern": "dossier.md|dossier.json",
-      "schemaVersion": "1.0",
-      "preferredArtifact": "dossier.md"
     }
   },
   "replayPolicy": {
@@ -110,16 +97,6 @@
       "tests-and-goldens",
       "historical-evidence-and-replay"
     ]
-  },
-  "adoptionPlan": {
-    "runnerFirstWaveStages": ["ticket-projection", "publication"],
-    "targetAdoptionWaveStages": ["deep-dive", "improvement-proposal"]
-  },
-  "migration": {
-    "legacyAdapters": ["semantic-review", "causal-debug", "root-cause-review"],
-    "legacyBackboneForbidden": true,
-    "pilotReferenceIsNonCanonical": true,
-    "targetAdoptionSecondWaveRequired": true
   },
   "publicationPolicy": {
     "allowAutomaticPublication": true,
@@ -173,10 +150,9 @@
       "owner": "target-project",
       "runnerExecutor": "codex-flow-runner",
       "promptPath": "docs/workflows/target-investigate-case-v2-diagnosis.md",
-      "artifacts": ["diagnosis.md", "diagnosis.json", "assessment.json"],
+      "artifacts": ["diagnosis.md", "diagnosis.json"],
       "policy": {
-        "semanticAuthority": "target-project",
-        "compatibilityAssessmentArtifactAllowed": true
+        "semanticAuthority": "target-project"
       }
     },
     "deepDive": {

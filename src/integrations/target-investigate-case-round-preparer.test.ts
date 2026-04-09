@@ -21,6 +21,7 @@ import {
   TargetInvestigateCaseRoundMaterializationCodexClient,
   TargetInvestigateCaseRoundMaterializationCodexRequest,
   TargetInvestigateCaseSemanticReviewCodexRequest,
+  TargetInvestigateCaseV2StageCodexRequest,
 } from "./codex-client.js";
 import { GitCheckupPublicationRequest, GitSyncEvidence, GitVersioning } from "./git-client.js";
 import { CodexCliTargetInvestigateCaseRoundPreparer } from "./target-investigate-case-round-preparer.js";
@@ -45,6 +46,7 @@ class CapturingLogger extends Logger {
 
 class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexClient {
   public readonly calls: TargetInvestigateCaseRoundMaterializationCodexRequest[] = [];
+  public readonly v2StageCalls: TargetInvestigateCaseV2StageCodexRequest[] = [];
   public readonly semanticReviewCalls: TargetInvestigateCaseSemanticReviewCodexRequest[] = [];
   public readonly causalDebugCalls: TargetInvestigateCaseCausalDebugCodexRequest[] = [];
   public readonly rootCauseReviewCalls: TargetInvestigateCaseRootCauseReviewCodexRequest[] = [];
@@ -61,6 +63,9 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     private readonly onRootCauseReview?: (
       request: TargetInvestigateCaseRootCauseReviewCodexRequest,
     ) => Promise<string>,
+    private readonly onV2Stage?: (
+      request: TargetInvestigateCaseV2StageCodexRequest,
+    ) => Promise<void>,
   ) {}
 
   async ensureAuthenticated(): Promise<void> {
@@ -85,6 +90,19 @@ class StubCodexClient implements TargetInvestigateCaseRoundMaterializationCodexC
     return {
       output: "materialized",
       promptTemplatePath: "/repo/prompts/16-target-investigate-case-round-materialization.md",
+      promptText: "prompt",
+    };
+  }
+
+  async runTargetInvestigateCaseV2Stage(request: TargetInvestigateCaseV2StageCodexRequest) {
+    this.v2StageCalls.push(request);
+    await this.onV2Stage?.(request);
+    return {
+      output: "materialized",
+      promptTemplatePath: path.join(
+        request.targetProject.path,
+        ...request.stagePromptPath.split("/"),
+      ),
       promptText: "prompt",
     };
   }
@@ -533,14 +551,17 @@ test("CodexCliTargetInvestigateCaseRoundPreparer espelha o dossier autoritativo 
   assert.equal(mirroredSemanticReviewRequest.review_readiness?.status, "blocked");
 });
 
-test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigation como namespace autoritativo v2 e nao dispara a cadeia opcional", async () => {
+test("CodexCliTargetInvestigateCaseRoundPreparer executa o caminho minimo v2 por estagios explicitos e preserva output/case-investigation como namespace autoritativo", async () => {
   const fixture = await createRoundPreparerFixture();
   fixture.request.manifest = targetInvestigateCaseManifestSchema.parse({
     ...fixture.request.manifest,
     flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
     command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
     outputs: {
-      ...fixture.request.manifest.outputs,
+      caseResolution: {
+        artifactPath: "case-resolution.json",
+        schemaVersion: "1.0",
+      },
       evidenceIndex: {
         artifactPath: "evidence-index.json",
         schemaVersion: "1.0",
@@ -562,16 +583,6 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
     roundDirectories: {
       authoritative: "output/case-investigation/<round-id>",
       mirror: "investigations/<round-id>",
-    },
-    adoptionPlan: {
-      runnerFirstWaveStages: ["ticket-projection", "publication"],
-      targetAdoptionWaveStages: ["deep-dive", "improvement-proposal"],
-    },
-    migration: {
-      legacyAdapters: ["semantic-review", "causal-debug", "root-cause-review"],
-      legacyBackboneForbidden: true,
-      pilotReferenceIsNonCanonical: true,
-      targetAdoptionSecondWaveRequired: true,
     },
     minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
     stages: {
@@ -600,7 +611,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
         owner: "target-project",
         runnerExecutor: "codex-flow-runner",
         promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
-        artifacts: ["diagnosis.md", "diagnosis.json", "assessment.json"],
+        artifacts: ["diagnosis.md", "diagnosis.json"],
         policy: {
           semanticAuthority: "target-project",
         },
@@ -726,9 +737,20 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
       "output/case-investigation/2026-04-03T19-00-00Z/publication-decision.json",
   };
 
-  const codexClient = new StubCodexClient(async (request) => {
-    await materializeV2RoundArtifacts(request.targetProject.path, request.roundDirectory);
-  });
+  const codexClient = new StubCodexClient(
+    async () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (request) => {
+      await materializeV2StageArtifacts(
+        request.targetProject.path,
+        request.roundDirectory,
+        request.stage,
+      );
+    },
+  );
   const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
     logger: new SilentLogger(),
     runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
@@ -742,7 +764,20 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
     return;
   }
 
-  assert.equal(result.dossierPath, "output/case-investigation/2026-04-03T19-00-00Z/dossier.md");
+  assert.equal(result.dossierPath, undefined);
+  assert.equal(codexClient.calls.length, 0);
+  assert.deepEqual(
+    codexClient.v2StageCalls.map((call) => call.stage),
+    ["resolve-case", "assemble-evidence", "diagnosis"],
+  );
+  assert.deepEqual(
+    codexClient.v2StageCalls.map((call) => call.stagePromptPath),
+    [
+      "docs/workflows/target-investigate-case-v2-resolve-case.md",
+      "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+      "docs/workflows/target-investigate-case-v2-diagnosis.md",
+    ],
+  );
   assert.equal(codexClient.semanticReviewCalls.length, 0);
   assert.equal(codexClient.causalDebugCalls.length, 0);
   assert.equal(codexClient.rootCauseReviewCalls.length, 0);
@@ -857,10 +892,34 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
   assert.deepEqual(authoritativeDiagnosis.lineage, [
     {
       source: "legacy-target-investigate-case",
-      artifact: "assessment.json",
-      path: "investigations/2026-04-03T19-00-00Z/assessment.json",
+      artifact: "diagnosis.json",
+      path: "investigations/2026-04-03T19-00-00Z/diagnosis.json",
     },
   ]);
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T19-00-00Z",
+        "assessment.json",
+      ),
+    ),
+    false,
+  );
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T19-00-00Z",
+        "dossier.md",
+      ),
+    ),
+    false,
+  );
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution nao preserva lineage no contrato v2 de origem legada", async () => {
@@ -870,7 +929,10 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution na
     flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
     command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
     outputs: {
-      ...fixture.request.manifest.outputs,
+      caseResolution: {
+        artifactPath: "case-resolution.json",
+        schemaVersion: "1.0",
+      },
       evidenceIndex: {
         artifactPath: "evidence-index.json",
         schemaVersion: "1.0",
@@ -892,16 +954,6 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution na
     roundDirectories: {
       authoritative: "output/case-investigation/<round-id>",
       mirror: "investigations/<round-id>",
-    },
-    adoptionPlan: {
-      runnerFirstWaveStages: ["ticket-projection", "publication"],
-      targetAdoptionWaveStages: ["deep-dive", "improvement-proposal"],
-    },
-    migration: {
-      legacyAdapters: ["semantic-review", "causal-debug", "root-cause-review"],
-      legacyBackboneForbidden: true,
-      pilotReferenceIsNonCanonical: true,
-      targetAdoptionSecondWaveRequired: true,
     },
     minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
     stages: {
@@ -930,7 +982,7 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution na
         owner: "target-project",
         runnerExecutor: "codex-flow-runner",
         promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
-        artifacts: ["diagnosis.md", "diagnosis.json", "assessment.json"],
+        artifacts: ["diagnosis.md", "diagnosis.json"],
         policy: {
           semanticAuthority: "target-project",
         },
@@ -1056,11 +1108,18 @@ test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution na
       "output/case-investigation/2026-04-03T19-10-00Z/publication-decision.json",
   };
 
-  const codexClient = new StubCodexClient(async (request) => {
-    await materializeV2RoundArtifacts(request.targetProject.path, request.roundDirectory, {
-      omitCaseResolutionLineage: true,
-    });
-  });
+  const codexClient = new StubCodexClient(
+    async () => undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async (request) => {
+      await materializeV2StageArtifacts(request.targetProject.path, request.roundDirectory, request.stage, {
+        omitCaseResolutionLineage: true,
+      });
+    },
+  );
   const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
     logger: new SilentLogger(),
     runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
@@ -2410,8 +2469,8 @@ const materializeV2RoundArtifacts = async (
         ],
         sensitive_artifact_refs: [
           {
-            ref: "dossier-ref",
-            path: `${roundDirectory}/dossier.md`,
+            ref: "evidence-index-ref",
+            path: `${roundDirectory}/evidence-index.json`,
             sha256: "a".repeat(64),
             record_count: 1,
           },
@@ -2447,37 +2506,6 @@ const materializeV2RoundArtifacts = async (
     "utf8",
   );
   await fs.writeFile(
-    path.join(roundPath, "assessment.json"),
-    JSON.stringify(
-      {
-        houve_gap_real: "no",
-        era_evitavel_internamente: "not_applicable",
-        merece_ticket_generalizavel: "not_applicable",
-        confidence: "high",
-        evidence_sufficiency: "strong",
-        causal_surface: {
-          owner: "target-project",
-          kind: "expected-behavior",
-          summary: "O caso confirma o comportamento esperado no contrato v2.",
-          actionable: false,
-          systems: ["extract_address"],
-        },
-        generalization_basis: [],
-        overfit_vetoes: [],
-        ticket_decision_reason: "Nao ha gap real para publication.",
-        publication_recommendation: {
-          recommended_action: "do_not_publish",
-          reason: "Caso valido sem gap real.",
-          proposed_ticket_scope: "Nenhum ticket necessario.",
-          suggested_title: "Nao publicar ticket para este caso.",
-        },
-      },
-      null,
-      2,
-    ).concat("\n"),
-    "utf8",
-  );
-  await fs.writeFile(
     path.join(roundPath, "diagnosis.json"),
     JSON.stringify(
       {
@@ -2502,8 +2530,8 @@ const materializeV2RoundArtifacts = async (
         lineage: [
           {
             source: "legacy-target-investigate-case",
-            artifact: "assessment.json",
-            path: `${legacyMirrorDirectory}/assessment.json`,
+            artifact: "diagnosis.json",
+            path: `${legacyMirrorDirectory}/diagnosis.json`,
           },
         ],
       },
@@ -2542,11 +2570,29 @@ const materializeV2RoundArtifacts = async (
     ].join("\n"),
     "utf8",
   );
-  await fs.writeFile(
-    path.join(roundPath, "dossier.md"),
-    "# dossier\n\nResumo local e sensivel sob retencao controlada.\n",
-    "utf8",
-  );
+};
+
+const materializeV2StageArtifacts = async (
+  projectPath: string,
+  roundDirectory: string,
+  stage: TargetInvestigateCaseV2StageCodexRequest["stage"],
+  options: {
+    omitCaseResolutionLineage?: boolean;
+    omitCaseBundleLineage?: boolean;
+  } = {},
+): Promise<void> => {
+  await materializeV2RoundArtifacts(projectPath, roundDirectory, options);
+
+  const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  const stageArtifactNames: Record<TargetInvestigateCaseV2StageCodexRequest["stage"], string[]> = {
+    "resolve-case": ["evidence-index.json", "case-bundle.json", "diagnosis.json", "diagnosis.md"],
+    "assemble-evidence": ["diagnosis.json", "diagnosis.md"],
+    diagnosis: [],
+  };
+
+  for (const artifactName of stageArtifactNames[stage]) {
+    await fs.rm(path.join(roundPath, artifactName), { force: true });
+  }
 };
 
 const materializeRichRoundArtifacts = async (

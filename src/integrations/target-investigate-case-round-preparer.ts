@@ -160,26 +160,35 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       : TARGET_INVESTIGATE_CASE_COMMAND;
 
     try {
-      await fixedCodexClient.runTargetInvestigateCaseRoundMaterialization({
-        targetProject: request.targetProject,
-        runnerRepoPath: this.dependencies.runnerRepoPath,
-        runnerReference,
-        manifestPath: request.manifestPath,
-        runbookPath,
-        canonicalCommand: request.normalizedInput.canonicalCommand,
-        roundId: request.roundId,
-        roundDirectory: request.roundDirectory,
-        artifactPaths: request.artifactPaths,
-        caseRefAuthorities: request.manifest.caseResolutionPolicy.caseRefAuthorities ?? [],
-        attemptRefAuthorities: request.manifest.caseResolutionPolicy.attemptRefAuthorities ?? [],
-        targetProjectAcceptedSelectors: request.manifest.selectors.targetProjectAccepted ?? [],
-        investigableWorkflows: request.manifest.workflows.investigable,
-        acceptedPurgeIdentifiers: request.manifest.replayPolicy.acceptedPurgeIdentifiers ?? [],
-        dossierLocalPathTemplate: request.manifest.dossierPolicy.localPathTemplate,
-        officialTargetEntrypointCommand: request.manifest.entrypoint?.command ?? null,
-        officialTargetEntrypointScriptPath: request.manifest.entrypoint?.scriptPath ?? null,
-        authoritativeDossierLocalPath,
-      });
+      if (isV2Contract) {
+        await this.executeV2MinimumPath({
+          request,
+          codexClient: fixedCodexClient,
+          runnerReference,
+          runbookPath,
+        });
+      } else {
+        await fixedCodexClient.runTargetInvestigateCaseRoundMaterialization({
+          targetProject: request.targetProject,
+          runnerRepoPath: this.dependencies.runnerRepoPath,
+          runnerReference,
+          manifestPath: request.manifestPath,
+          runbookPath,
+          canonicalCommand: request.normalizedInput.canonicalCommand,
+          roundId: request.roundId,
+          roundDirectory: request.roundDirectory,
+          artifactPaths: request.artifactPaths,
+          caseRefAuthorities: request.manifest.caseResolutionPolicy.caseRefAuthorities ?? [],
+          attemptRefAuthorities: request.manifest.caseResolutionPolicy.attemptRefAuthorities ?? [],
+          targetProjectAcceptedSelectors: request.manifest.selectors.targetProjectAccepted ?? [],
+          investigableWorkflows: request.manifest.workflows.investigable,
+          acceptedPurgeIdentifiers: request.manifest.replayPolicy.acceptedPurgeIdentifiers ?? [],
+          dossierLocalPathTemplate: request.manifest.dossierPolicy.localPathTemplate,
+          officialTargetEntrypointCommand: request.manifest.entrypoint?.command ?? null,
+          officialTargetEntrypointScriptPath: request.manifest.entrypoint?.scriptPath ?? null,
+          authoritativeDossierLocalPath,
+        });
+      }
     } catch (error) {
       return {
         status: "failed",
@@ -195,6 +204,22 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     let dossierPath = "";
     try {
       await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
+      if (isV2Contract) {
+        this.dependencies.logger.info(
+          "Contrato v2 detectado: semantic-review, causal-debug e root-cause-review permanecem opcionais e nao sao disparados automaticamente no caminho minimo",
+          {
+            targetProjectName: request.targetProject.name,
+            roundId: request.roundId,
+            authoritativeRoundDirectory: authoritativeDossierLocalPath,
+          },
+        );
+
+        return {
+          status: "prepared",
+          ticketPublisher: this.buildTicketPublisher(request),
+        };
+      }
+
       dossierPath = await resolvePreparedDossierPath(request);
       const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
         projectPath: request.targetProject.path,
@@ -293,7 +318,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     } catch (error) {
       return buildRoundPreparationFailedResult(error, {
         commandLabel,
-        failedAtMilestone: isV2Contract ? "resolve-case" : "case-resolution",
+        failedAtMilestone: isV2Contract ? "diagnosis" : "case-resolution",
       });
     }
 
@@ -302,6 +327,215 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       dossierPath,
       ticketPublisher: this.buildTicketPublisher(request),
     };
+  }
+
+  private async executeV2MinimumPath(params: {
+    request: TargetInvestigateCaseRoundPreparationRequest;
+    codexClient: TargetInvestigateCaseRoundMaterializationCodexClient;
+    runnerReference: string;
+    runbookPath: string | null;
+  }): Promise<void> {
+    const stages = params.request.manifest.stages;
+    if (!stages) {
+      throw new Error("Manifesto v2 invalido: stages obrigatorios ausentes.");
+    }
+    const resolveCaseStage = stages.resolveCase;
+    const assembleEvidenceStage = stages.assembleEvidence;
+    const diagnosisStage = stages.diagnosis;
+    if (!resolveCaseStage?.promptPath || !assembleEvidenceStage?.promptPath || !diagnosisStage?.promptPath) {
+      throw new Error("Manifesto v2 invalido: os prompts canonicos de resolve-case, assemble-evidence e diagnosis sao obrigatorios.");
+    }
+
+    await this.executeV2Stage({
+      request: params.request,
+      codexClient: params.codexClient,
+      runnerReference: params.runnerReference,
+      runbookPath: params.runbookPath,
+      failedAtMilestone: "resolve-case",
+      stage: resolveCaseStage.stage,
+      promptPath: resolveCaseStage.promptPath,
+      stageArtifacts: resolveCaseStage.artifacts,
+      stageEntrypointCommand: resolveCaseStage.entrypoint?.command ?? null,
+      stageEntrypointScriptPath: resolveCaseStage.entrypoint?.scriptPath ?? null,
+      validateStage: async () => {
+        await readTargetInvestigateCaseCaseResolutionArtifact({
+          projectPath: params.request.targetProject.path,
+          relativePath: params.request.artifactPaths.caseResolutionPath,
+          normalizedInput: params.request.normalizedInput,
+          roundId: params.request.roundId,
+          onCompatibilityIssue: (issue) => {
+            this.dependencies.logger.warn(issue.message, {
+              targetProjectName: params.request.targetProject.name,
+              artifactPath: params.request.artifactPaths.caseResolutionPath,
+              compatibilityCode: issue.code,
+              ...(issue.context ?? {}),
+            });
+          },
+        });
+      },
+      nextAction:
+        "Garanta que case-resolution.json seja materializado no namespace canonico antes de rerodar.",
+    });
+
+    await this.executeV2Stage({
+      request: params.request,
+      codexClient: params.codexClient,
+      runnerReference: params.runnerReference,
+      runbookPath: params.runbookPath,
+      failedAtMilestone: "assemble-evidence",
+      stage: assembleEvidenceStage.stage,
+      promptPath: assembleEvidenceStage.promptPath,
+      stageArtifacts: assembleEvidenceStage.artifacts,
+      stageEntrypointCommand: assembleEvidenceStage.entrypoint?.command ?? null,
+      stageEntrypointScriptPath: assembleEvidenceStage.entrypoint?.scriptPath ?? null,
+      validateStage: async () => {
+        if (params.request.artifactPaths.evidenceIndexPath) {
+          await readJsonArtifact(
+            params.request.targetProject.path,
+            params.request.artifactPaths.evidenceIndexPath,
+            targetInvestigateCaseEvidenceIndexSchema,
+            TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+          );
+        }
+        await readTargetInvestigateCaseEvidenceBundleArtifact({
+          projectPath: params.request.targetProject.path,
+          relativePath: params.request.artifactPaths.evidenceBundlePath,
+        });
+      },
+      nextAction:
+        "Garanta que evidence-index.json e case-bundle.json sejam materializados no namespace canonico antes de rerodar.",
+    });
+
+    await this.executeV2Stage({
+      request: params.request,
+      codexClient: params.codexClient,
+      runnerReference: params.runnerReference,
+      runbookPath: params.runbookPath,
+      failedAtMilestone: "diagnosis",
+      stage: diagnosisStage.stage,
+      promptPath: diagnosisStage.promptPath,
+      stageArtifacts: diagnosisStage.artifacts,
+      stageEntrypointCommand: diagnosisStage.entrypoint?.command ?? null,
+      stageEntrypointScriptPath: diagnosisStage.entrypoint?.scriptPath ?? null,
+      validateStage: async () => {
+        const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
+          projectPath: params.request.targetProject.path,
+          relativePath: params.request.artifactPaths.caseResolutionPath,
+          normalizedInput: params.request.normalizedInput,
+          roundId: params.request.roundId,
+          onCompatibilityIssue: (issue) => {
+            this.dependencies.logger.warn(issue.message, {
+              targetProjectName: params.request.targetProject.name,
+              artifactPath: params.request.artifactPaths.caseResolutionPath,
+              compatibilityCode: issue.code,
+              ...(issue.context ?? {}),
+            });
+          },
+        });
+        const evidenceIndex = params.request.artifactPaths.evidenceIndexPath
+          ? await readJsonArtifact(
+              params.request.targetProject.path,
+              params.request.artifactPaths.evidenceIndexPath,
+              targetInvestigateCaseEvidenceIndexSchema,
+              TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+            )
+          : null;
+        const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifact({
+          projectPath: params.request.targetProject.path,
+          relativePath: params.request.artifactPaths.evidenceBundlePath,
+        });
+        const diagnosis = await readJsonArtifact(
+          params.request.targetProject.path,
+          params.request.artifactPaths.diagnosisJsonPath,
+          targetInvestigateCaseDiagnosisSchema,
+          "diagnosis.json",
+        );
+        if (diagnosis.bundle_artifact !== params.request.artifactPaths.evidenceBundlePath) {
+          throw new Error(
+            `diagnosis.json precisa apontar bundle_artifact=${params.request.artifactPaths.evidenceBundlePath}.`,
+          );
+        }
+        assertTargetInvestigateCaseV2LegacyLineageCoverage({
+          manifest: params.request.manifest,
+          artifactPaths: params.request.artifactPaths,
+          caseResolution,
+          evidenceBundle,
+          evidenceIndex,
+          diagnosis,
+        });
+        await validateDiagnosisMarkdownArtifact(
+          params.request.targetProject.path,
+          params.request.artifactPaths.diagnosisMdPath,
+        );
+      },
+      nextAction:
+        "Garanta que diagnosis.json e diagnosis.md sejam materializados no namespace canonico antes de rerodar.",
+    });
+  }
+
+  private async executeV2Stage(params: {
+    request: TargetInvestigateCaseRoundPreparationRequest;
+    codexClient: TargetInvestigateCaseRoundMaterializationCodexClient;
+    runnerReference: string;
+    runbookPath: string | null;
+    failedAtMilestone: TargetInvestigateCaseMilestone;
+    stage: "resolve-case" | "assemble-evidence" | "diagnosis";
+    promptPath: string;
+    stageArtifacts: string[];
+    stageEntrypointCommand: string | null;
+    stageEntrypointScriptPath: string | null;
+    validateStage: () => Promise<void>;
+    nextAction: string;
+  }): Promise<void> {
+    try {
+      await params.codexClient.runTargetInvestigateCaseV2Stage({
+        targetProject: params.request.targetProject,
+        runnerRepoPath: this.dependencies.runnerRepoPath,
+        runnerReference: params.runnerReference,
+        manifestPath: params.request.manifestPath,
+        runbookPath: params.runbookPath,
+        canonicalCommand: params.request.normalizedInput.canonicalCommand,
+        roundId: params.request.roundId,
+        roundDirectory: params.request.roundDirectory,
+        artifactPaths: params.request.artifactPaths,
+        caseRefAuthorities: params.request.manifest.caseResolutionPolicy.caseRefAuthorities ?? [],
+        attemptRefAuthorities:
+          params.request.manifest.caseResolutionPolicy.attemptRefAuthorities ?? [],
+        targetProjectAcceptedSelectors:
+          params.request.manifest.selectors.targetProjectAccepted ?? [],
+        investigableWorkflows: params.request.manifest.workflows.investigable,
+        acceptedPurgeIdentifiers:
+          params.request.manifest.replayPolicy.acceptedPurgeIdentifiers ?? [],
+        stage: params.stage,
+        stagePromptPath: params.promptPath,
+        stageArtifacts: params.stageArtifacts,
+        stageEntrypointCommand: params.stageEntrypointCommand,
+        stageEntrypointScriptPath: params.stageEntrypointScriptPath,
+        officialTargetEntrypointCommand: params.request.manifest.entrypoint?.command ?? null,
+        officialTargetEntrypointScriptPath:
+          params.request.manifest.entrypoint?.scriptPath ?? null,
+      });
+    } catch (error) {
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "round-materialization",
+        "codex-execution-failed",
+        params.failedAtMilestone,
+        error instanceof Error ? error.message : String(error),
+        `Revise a execucao runner-side de ${params.stage} e rerode ${TARGET_INVESTIGATE_CASE_V2_COMMAND}.`,
+      );
+    }
+
+    try {
+      await params.validateStage();
+    } catch (error) {
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "round-materialization",
+        "artifact-validation-failed",
+        params.failedAtMilestone,
+        error instanceof Error ? error.message : String(error),
+        params.nextAction,
+      );
+    }
   }
 
   private buildTicketPublisher(
@@ -1584,10 +1818,6 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
       destinationPath: request.artifactPaths.evidenceBundlePath,
     },
     {
-      sourcePath: path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
-      destinationPath: request.artifactPaths.assessmentPath,
-    },
-    {
       sourcePath: path.posix.join(authoritativeDossierLocalPath, "diagnosis.json"),
       destinationPath: request.artifactPaths.diagnosisJsonPath,
     },
@@ -1644,15 +1874,24 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
       ),
       destinationPath: request.artifactPaths.ticketProposalPath,
     },
-    {
-      sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.md"),
-      destinationPath: path.posix.join(request.roundDirectory, "dossier.md"),
-    },
-    {
-      sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.json"),
-      destinationPath: path.posix.join(request.roundDirectory, "dossier.json"),
-    },
   ];
+
+  if (request.manifest.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW) {
+    artifactMirrors.push(
+      {
+        sourcePath: path.posix.join(authoritativeDossierLocalPath, "assessment.json"),
+        destinationPath: request.artifactPaths.assessmentPath,
+      },
+      {
+        sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.md"),
+        destinationPath: path.posix.join(request.roundDirectory, "dossier.md"),
+      },
+      {
+        sourcePath: path.posix.join(authoritativeDossierLocalPath, "dossier.json"),
+        destinationPath: path.posix.join(request.roundDirectory, "dossier.json"),
+      },
+    );
+  }
 
   const mirrorArtifactCopies =
     request.manifest.flow === TARGET_INVESTIGATE_CASE_V2_FLOW
@@ -1697,7 +1936,7 @@ const syncCanonicalArtifactsFromAuthoritativeDossier = async (
 const resolvePreparedDossierPath = async (
   request: TargetInvestigateCaseRoundPreparationRequest,
 ): Promise<string> => {
-  const preferredArtifact = request.manifest.outputs.dossier.preferredArtifact;
+  const preferredArtifact = request.manifest.outputs.dossier?.preferredArtifact;
   const candidatePaths = uniquePaths([
     preferredArtifact ? path.posix.join(request.roundDirectory, preferredArtifact) : null,
     request.artifactPaths.dossierPath,

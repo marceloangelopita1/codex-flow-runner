@@ -204,6 +204,18 @@ export const TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES = uniqueValu
   ["preflight", "resolve-case", "assemble-evidence", "diagnosis"] as const,
   "target-investigate-case-v2-minimum-path",
 );
+export const TARGET_INVESTIGATE_CASE_V2_RESOLVE_CASE_ARTIFACT_VALUES = uniqueValues(
+  ["case-resolution.json"] as const,
+  "target-investigate-case-v2-resolve-case-artifacts",
+);
+export const TARGET_INVESTIGATE_CASE_V2_ASSEMBLE_EVIDENCE_ARTIFACT_VALUES = uniqueValues(
+  ["evidence-index.json", "case-bundle.json"] as const,
+  "target-investigate-case-v2-assemble-evidence-artifacts",
+);
+export const TARGET_INVESTIGATE_CASE_V2_DIAGNOSIS_ARTIFACT_VALUES = uniqueValues(
+  ["diagnosis.md", "diagnosis.json"] as const,
+  "target-investigate-case-v2-diagnosis-artifacts",
+);
 export const TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES = uniqueValues(
   [
     "causal-ambiguity",
@@ -1524,7 +1536,8 @@ export const targetInvestigateCaseManifestSchema = z
               "outputs.assessment.primaryRemediationPublicationDependencyValues",
             ).optional(),
           })
-          .strict(),
+          .strict()
+          .optional(),
         remediationProposal: z
           .object({
             artifactPath: z.literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT),
@@ -1537,14 +1550,16 @@ export const targetInvestigateCaseManifestSchema = z
             artifactPath: z.literal("publication-decision.json"),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
           })
-          .strict(),
+          .strict()
+          .optional(),
         dossier: z
           .object({
             artifactPathPattern: z.literal("dossier.md|dossier.json"),
             schemaVersion: z.literal(TARGET_INVESTIGATE_CASE_SCHEMA_VERSION),
             preferredArtifact: z.enum(["dossier.md", "dossier.json"]).optional(),
           })
-          .strict(),
+          .strict()
+          .optional(),
       })
       .strict(),
     semanticReview: targetInvestigateCaseManifestSemanticReviewSchema.optional(),
@@ -1879,52 +1894,112 @@ export const targetInvestigateCaseManifestSchema = z
       return;
     }
 
-    if (!value.adoptionPlan) {
+    if (value.outputs.assessment) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["adoptionPlan"],
-        message: "Manifesto v2 exige adoptionPlan com runner-first e segunda onda target-side.",
-      });
-    }
-
-    if (!value.migration) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["migration"],
-        message: "Manifesto v2 exige migration com adaptadores legados explicitamente limitados.",
-      });
-    }
-
-    if (
-      !value.stages.deepDive ||
-      !value.stages.improvementProposal ||
-      !value.stages.ticketProjection ||
-      !value.stages.publication
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["stages"],
+        path: ["outputs", "assessment"],
         message:
-          "Manifesto v2 exige explicitar deep-dive, improvement-proposal, ticket-projection e publication como continuacoes opcionais.",
+          "Manifesto v2 nao aceita outputs.assessment; assessment.json nao faz parte do contrato minimo diagnosis-first.",
       });
     }
 
-    const requiredPromptConventions: Array<[string, string | undefined]> = [
-      ["resolve-case", value.stages.resolveCase.promptPath],
-      ["assemble-evidence", value.stages.assembleEvidence.promptPath],
-      ["diagnosis", value.stages.diagnosis.promptPath],
+    if (value.outputs.publicationDecision) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputs", "publicationDecision"],
+        message:
+          "Manifesto v2 nao aceita outputs.publicationDecision; publication-decision.json pertence apenas a publication quando esse estagio for atravessado.",
+      });
+    }
+
+    if (value.outputs.dossier) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputs", "dossier"],
+        message:
+          "Manifesto v2 nao aceita outputs.dossier; dossier.* nao faz parte do contrato minimo diagnosis-first.",
+      });
+    }
+
+    const validateStageArtifacts = (
+      stagePath: string,
+      actualArtifacts: string[],
+      expectedArtifacts: readonly string[],
+    ) => {
+      if (actualArtifacts.join("|") !== expectedArtifacts.join("|")) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["stages", stagePath, "artifacts"],
+          message: `${stagePath} precisa declarar exatamente ${expectedArtifacts.join(", ")}.`,
+        });
+      }
+    };
+
+    validateStageArtifacts(
+      "resolveCase",
+      value.stages.resolveCase.artifacts,
+      TARGET_INVESTIGATE_CASE_V2_RESOLVE_CASE_ARTIFACT_VALUES,
+    );
+    validateStageArtifacts(
+      "assembleEvidence",
+      value.stages.assembleEvidence.artifacts,
+      TARGET_INVESTIGATE_CASE_V2_ASSEMBLE_EVIDENCE_ARTIFACT_VALUES,
+    );
+    validateStageArtifacts(
+      "diagnosis",
+      value.stages.diagnosis.artifacts,
+      TARGET_INVESTIGATE_CASE_V2_DIAGNOSIS_ARTIFACT_VALUES,
+    );
+
+    if (value.stages.deepDive) {
+      validateStageArtifacts("deepDive", value.stages.deepDive.artifacts, [
+        "deep-dive.request.json",
+        "deep-dive.result.json",
+      ]);
+    }
+
+    if (value.stages.improvementProposal) {
+      validateStageArtifacts("improvementProposal", value.stages.improvementProposal.artifacts, [
+        "improvement-proposal.json",
+      ]);
+    }
+
+    if (value.stages.ticketProjection) {
+      validateStageArtifacts("ticketProjection", value.stages.ticketProjection.artifacts, [
+        "ticket-proposal.json",
+      ]);
+    }
+
+    if (value.stages.publication) {
+      validateStageArtifacts("publication", value.stages.publication.artifacts, [
+        "publication-decision.json",
+      ]);
+    }
+
+    const requiredPromptConventions: Array<[string, string]> = [
+      ["resolve-case", value.stages.resolveCase.promptPath!],
+      ["assemble-evidence", value.stages.assembleEvidence.promptPath!],
+      ["diagnosis", value.stages.diagnosis.promptPath!],
+    ];
+    const optionalPromptConventions: Array<[string, string | undefined]> = [
       ["deep-dive", value.stages.deepDive?.promptPath],
       ["improvement-proposal", value.stages.improvementProposal?.promptPath],
       ["ticket-projection", value.stages.ticketProjection?.promptPath],
     ];
 
     for (const [stage, promptPath] of requiredPromptConventions) {
-      if (!promptPath) {
+      const expectedPath = `docs/workflows/target-investigate-case-v2-${stage}.md`;
+      if (promptPath !== expectedPath) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["stages"],
-          message: `Manifesto v2 exige promptPath em ${stage}.`,
+          message: `promptPath de ${stage} precisa ser ${expectedPath}.`,
         });
+      }
+    }
+
+    for (const [stage, promptPath] of optionalPromptConventions) {
+      if (!promptPath) {
         continue;
       }
 
@@ -4610,8 +4685,11 @@ export const targetInvestigateCaseTicketProposalSchema = z
   .object({
     schema_version: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION),
     generated_at: trimmedString,
-    source_assessment_artifact: z.literal("assessment.json"),
-    source_causal_debug_artifact: z.literal(TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT),
+    source_diagnosis_artifact: z.literal("diagnosis.json"),
+    source_case_bundle_artifact: z.literal(TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT),
+    source_improvement_proposal_artifact: z
+      .literal(TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT)
+      .optional(),
     source_root_cause_review_artifact: z
       .literal(TARGET_INVESTIGATE_CASE_ROOT_CAUSE_REVIEW_RESULT_ARTIFACT)
       .optional(),
@@ -5004,7 +5082,9 @@ export const targetInvestigateCaseTracePayloadSchema = z
         primary_taxonomy: primaryTaxonomySchema.nullable(),
         operational_class: operationalClassSchema.nullable(),
       })
-      .strict(),
+      .strict()
+      .nullable()
+      .optional(),
     assessment: z
       .object({
         next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
@@ -5012,7 +5092,9 @@ export const targetInvestigateCaseTracePayloadSchema = z
         capability_limits: z.array(targetInvestigateCaseCapabilityLimitSchema),
         primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
       })
-      .strict(),
+      .strict()
+      .nullable()
+      .optional(),
     investigation: z
       .object({
         outcome: investigationOutcomeSchema,
@@ -5021,7 +5103,7 @@ export const targetInvestigateCaseTracePayloadSchema = z
         remediation_proposal_path: relativePathSchema.nullable(),
       })
       .strict(),
-    causal_surface: targetInvestigateCaseCausalSurfaceSchema,
+    causal_surface: targetInvestigateCaseCausalSurfaceSchema.nullable().optional(),
     publication: z
       .object({
         publication_status: publicationStatusSchema,
@@ -5039,7 +5121,9 @@ export const targetInvestigateCaseTracePayloadSchema = z
         sensitivity: dossierSensitivitySchema,
         retention: trimmedString,
       })
-      .strict(),
+      .strict()
+      .nullable()
+      .optional(),
     semantic_review: targetInvestigateCaseSemanticReviewTraceSchema,
     root_cause_review: targetInvestigateCaseRootCauseReviewTraceSchema,
   })
@@ -5054,13 +5138,13 @@ export const targetInvestigateCaseFinalSummarySchema = z
     replay_readiness_state: replayReadinessStateSchema.nullable(),
     replay_used: z.boolean(),
     diagnosis: targetInvestigateCaseDiagnosisSurfaceSchema,
-    houve_gap_real: houveGapRealSchema,
-    era_evitavel_internamente: evitabilidadeSchema,
-    merece_ticket_generalizavel: generalizacaoSchema,
-    confidence: confidenceSchema,
-    evidence_sufficiency: evidenceSufficiencySchema,
-    primary_taxonomy: primaryTaxonomySchema.nullable(),
-    operational_class: operationalClassSchema.nullable(),
+    houve_gap_real: houveGapRealSchema.optional().nullable(),
+    era_evitavel_internamente: evitabilidadeSchema.optional().nullable(),
+    merece_ticket_generalizavel: generalizacaoSchema.optional().nullable(),
+    confidence: confidenceSchema.optional().nullable(),
+    evidence_sufficiency: evidenceSufficiencySchema.optional().nullable(),
+    primary_taxonomy: primaryTaxonomySchema.nullable().optional(),
+    operational_class: operationalClassSchema.nullable().optional(),
     root_cause_status: rootCauseStatusSchema.nullable(),
     ticket_readiness_status: trimmedString.nullable(),
     assessment_next_action: targetInvestigateCaseAssessmentNextActionSchema.nullable(),
@@ -5068,13 +5152,13 @@ export const targetInvestigateCaseFinalSummarySchema = z
     investigation_reason: trimmedString,
     primary_remediation: targetInvestigateCaseAssessmentPrimaryRemediationSchema.nullable(),
     remediation_proposal_path: relativePathSchema.nullable(),
-    blocker_codes: z.array(trimmedString),
-    remaining_gap_codes: z.array(trimmedString),
-    causal_surface: targetInvestigateCaseCausalSurfaceSchema,
+    blocker_codes: z.array(trimmedString).optional(),
+    remaining_gap_codes: z.array(trimmedString).optional(),
+    causal_surface: targetInvestigateCaseCausalSurfaceSchema.nullable(),
     publication_status: publicationStatusSchema,
     overall_outcome: overallOutcomeSchema,
     outcome_reason: trimmedString,
-    dossier_path: relativePathSchema,
+    dossier_path: relativePathSchema.nullable(),
     ticket_path: relativePathSchema.nullable(),
     next_action: trimmedString,
   })

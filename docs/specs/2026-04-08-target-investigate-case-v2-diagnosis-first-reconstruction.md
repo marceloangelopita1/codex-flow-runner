@@ -6,14 +6,20 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-09 01:05Z
+- Last reviewed at (UTC): 2026-04-09 18:56Z
 - Source: technical-evolution
 - Related tickets:
+  - tickets/closed/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
+  - tickets/closed/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
+  - tickets/closed/2026-04-09-target-investigate-case-v2-hard-cut-contract-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related execplans:
+  - execplans/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
+  - execplans/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
+  - execplans/2026-04-09-target-investigate-case-v2-hard-cut-contract-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
@@ -23,7 +29,7 @@
   - `bb2e497` - fechamento do ticket de contrato runner-side e do caminho mínimo diagnosis-first.
   - `5060863` - fechamento do follow-up de `lineage` nos artefatos mínimos da v2.
   - `4edbbc3` - fechamento do ticket de continuações opcionais, publication tardia e guardrails de migração.
-  - auditoria final desta spec versionada no commit desta etapa.
+  - fechamento local de 2026-04-09 dos follow-ups de hard cut, orquestração por estágio e superfícies finais diagnosis-first; registrado no commit de fechamento desta trilha local.
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -465,30 +471,27 @@
 - Itens atendidos:
   - crítica central da v1 consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
-  - fluxo mínimo diagnosis-first definido;
-  - prompts canônicos, manifesto dedicado e artefatos da v2 definidos e validados runner-side;
-  - `diagnosis.md`/`diagnosis.json`, summary final do runner e Telegram passaram a operar em modo diagnosis-first;
-  - `lineage` ficou observável em `case-resolution.json`, `case-bundle.json` e `diagnosis.json` quando a rodada nasce da v1;
-  - continuações opcionais e `publication` ficaram tardias, com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
+  - nome próprio do fluxo, manifesto dedicado e namespace autoritativo da v2 existem no runner;
+  - o contrato runner-side da v2 foi endurecido para o mínimo diagnosis-first sem outputs legados no caminho mínimo;
+  - a orquestração runner-side agora materializa `resolve-case -> assemble-evidence -> diagnosis` como estágios reais;
+  - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2.
 - Pendências em aberto:
-  - nenhuma no repositório atual; a adoção do primeiro target real continua sendo decisão operacional externa/manual e não gera follow-up local nesta auditoria.
+  - nenhuma pendência local runner-side permanece aberta nesta linhagem da spec.
 - Evidências de validação:
-  - releitura da spec, dos quatro tickets fechados da linhagem, dos quatro execplans relacionados e do estado atual do código antes desta auditoria final;
-  - comparação objetiva com `src/types/target-investigate-case.ts`, `src/types/target-flow.ts`, `src/core/target-investigate-case.ts`, `src/core/runner.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md`, `docs/workflows/target-case-investigation-v2-manifest.json` e `docs/workflows/target-project-compatibility-contract.md`;
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts` -> `exit 0` com `630` testes passando;
-  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> `exit 0`.
+  - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md` e testes focados;
+  - `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/telegram-bot.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` com suíte do repositório verde;
+  - `npm run check` com `exit 0`.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
-  - 2026-04-09 01:05Z
+  - 2026-04-09 18:56Z
 - Resultado:
-  - GO sem gaps residuais locais; `Status` atualizado para `attended` e `Spec treatment` atualizado para `done`.
-  - O checklist compartilhado de `docs/workflows/codex-quality-gates.md` foi reaplicado sobre a spec, os tickets fechados, os execplans relacionados e o código atual.
-  - A implementação entregue cobre contrato v2 explícito, caminho mínimo `preflight -> resolve-case -> assemble-evidence -> diagnosis`, `lineage` obrigatória no trio de artefatos canônicos quando houver origem legada, surfaces operator-facing diagnosis-first e continuações opcionais tardias com publication runner-side conservadora.
+  - a trilha local de follow-ups da revisão arquitetural foi concluída.
+  - o runner agora fecha o branch v2 com contrato mínimo diagnosis-first, orquestração stage-by-stage, summary/trace/Telegram diagnosis-first e publication runner-side tardia sem dependência de `assessment`/`dossier`.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum
+  - nenhum.
 - Causas-raiz sistêmicas identificadas:
-  - nenhuma; a auditoria não encontrou gap residual funcional que justificasse novo follow-up local.
+  - validação final anterior aceitou a implementação com base no comportamento já implementado e nos testes atuais, sem provar aderência integral ao contrato diagnosis-first da spec.
 - Ajustes genéricos promovidos ao workflow:
   - nenhum; não houve promoção de backlog transversal nesta etapa.
 
@@ -514,3 +517,5 @@
 - 2026-04-08 21:44Z - Triagem runner-side concluída com comparação contra o código atual, derivação de três tickets em `tickets/open/`, atualização de `Related tickets`, `Last reviewed at (UTC)` e pendências objetivas no `Status de atendimento`, mantendo `Status: approved`.
 - 2026-04-08 22:07Z - Validação final da triagem com normalização documental, deduplicação do histórico do gate e manutenção de `Status: approved` / `Spec treatment: pending` por existirem tickets abertos.
 - 2026-04-09 01:05Z - Auditoria final pós-`/run_all` concluída: releitura da linhagem completa, confirmação de ausência de gaps residuais locais, atualização de `Related tickets`/`Related execplans`, e fechamento documental da spec como `Status: attended` / `Spec treatment: done`.
+- 2026-04-09 17:55Z - Revisão arquitetural crítica reabriu a spec: `Status` voltou para `in_progress`, `Spec treatment` voltou para `pending`, e um novo ticket/ExecPlan local foi criado para o hard cut contratual do v2 no runner.
+- 2026-04-09 18:56Z - Fechamento local da linhagem reaberta: os três follow-ups do v2 foram encerrados, `Status` voltou para `attended` e `Spec treatment` voltou para `done`.
