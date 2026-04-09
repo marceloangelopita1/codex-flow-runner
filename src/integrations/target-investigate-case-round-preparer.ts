@@ -3,7 +3,6 @@ import path from "node:path";
 import { z } from "zod";
 import { Logger } from "../core/logger.js";
 import {
-  assertTargetInvestigateCaseV2LegacyLineageCoverage,
   readTargetInvestigateCaseCaseResolutionArtifact,
   readTargetInvestigateCaseEvidenceBundleArtifact,
   TargetInvestigateCaseRoundPreparer,
@@ -226,14 +225,6 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
       request.targetProject.path,
       request.artifactPaths.diagnosisMdPath,
     );
-    assertTargetInvestigateCaseV2LegacyLineageCoverage({
-      manifest: request.manifest,
-      artifactPaths: request.artifactPaths,
-      caseResolution,
-      evidenceBundle,
-      evidenceIndex,
-      diagnosis,
-    });
   }
 
   private async syncCanonicalArtifactsToMirror(

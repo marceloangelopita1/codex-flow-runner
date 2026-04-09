@@ -32,6 +32,7 @@ Contrato:
 - `execplans/` surgem somente a partir de tickets, quando necessário para execução segura;
 - para `target-investigate-case-v2`, a primeira onda runner-side fica responsável por estabilizar o contrato, `ticket-projection` e `publication`, enquanto `deep-dive` e `improvement-proposal` permanecem como slots canônicos para a segunda onda de adoção nos targets aderentes;
 - `target-investigate-case-v2` é o único fluxo suportado de investigação de caso; o projeto alvo não deve depender de cadeias auxiliares legadas fora desse contrato;
+- o histórico pré-v2 de investigação de caso, quando consultado, fica rebaixado a `docs/history/target-investigate-case/` e não participa do contrato operacional vigente;
 - `ticket-proposal.json` continua target-owned e precisa nascer no namespace autoritativo `output/case-investigation/<round-id>/`; `investigations/<round-id>/` pode espelhar a rodada, mas não substitui a autoridade semântica do target;
 - exemplos de piloto, como `../guiadomus-matricula`, podem servir de referência histórica, mas não são contrato canônico global;
 - essa categoria pressupõe onboarding humano prévio; não é algo que o runner tenta provar semanticamente durante a execução.

@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): codex-flow-runner
 - Request ID: n/a - triagem local da spec
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-01, RF-02, RF-10, RF-11, RF-12, RF-36, RF-42; CA-01, CA-05, CA-16. Membros explicitos preservados: comandos `/target_investigate_case`, `/target_investigate_case_status`, `/target_investigate_case_cancel`; milestones `preflight`, `case-resolution`, `evidence-collection`, `assessment`, `publication`; artefatos `case-resolution.json`, `evidence-bundle.json`, `assessment.json`, `publication-decision.json`, `dossier.md|dossier.json`.
 - Inherited assumptions/defaults (when applicable): o comando canonico do novo fluxo deve ser `/target_investigate_case`, separado semanticamente de `/target_checkup`; a fase `publication` existe sempre como fronteira final, inclusive em no-op; o dossier fica local ao projeto alvo e o trace do runner permanece minimo; o artefato versionado de v1 segue restrito ao ticket quando houver publication elegivel.
 - Inherited RNFs (when applicable): manter fluxo sequencial; expor milestones visiveis curtos e estaveis; refletir cada etapa importante em logs, `/status` e resumo final; nao incluir segredos ou dados sensiveis.
@@ -31,7 +31,7 @@
   - Response file:
   - Decision file:
 - Related docs/execplans:
-  - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
   - docs/workflows/codex-quality-gates.md
   - tickets/templates/internal-ticket-template.md
   - execplans/2026-04-03-target-investigate-case-runner-control-plane-gap.md

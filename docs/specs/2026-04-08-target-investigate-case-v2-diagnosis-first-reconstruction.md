@@ -6,7 +6,7 @@
 - Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-09 19:57Z
+- Last reviewed at (UTC): 2026-04-09 21:21Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
@@ -36,34 +36,30 @@
 
 ## Objetivo e contexto
 - Problema que esta spec resolve:
-  o desenho atual de `/target_investigate_case` ficou estruturalmente pesado demais para responder a pergunta principal de um caso real: o workflow está certo ou está errado neste caso, por quê e o que precisa mudar. A v1 preservou bem publication conservadora, rastreabilidade e ownership mecânico, mas degradou o valor principal do fluxo ao tornar diagnóstico claro uma consequência tardia, em vez do produto padrão.
+  o desenho anterior de investigação de caso ficou estruturalmente pesado demais para responder a pergunta principal de um caso real: o workflow está certo ou está errado neste caso, por quê e o que precisa mudar. O repositório precisava de um contrato mais curto, mais legível e mais fácil de operar, com diagnóstico claro como produto padrão e não como consequência tardia de uma cadeia auxiliar.
 - Resultado esperado:
   reconstruir o fluxo como `target-investigate-case-v2`, diagnosis-first, com contrato explícito entre `codex-flow-runner` e projeto alvo. O caminho padrão deve resolver o caso, reunir as evidências necessárias, produzir um diagnóstico humano-legível e só depois escalar, quando necessário, para aprofundamento causal, proposta de melhoria, projeção de ticket e publication.
 - Contexto funcional:
   esta spec é intencionalmente cross-repo. Ela descreve tanto o comportamento que o runner deve orquestrar quanto o comportamento que o projeto alvo deve expor para ser compatível com a v2. A derivação inicial de tickets deverá começar no runner para introduzir o novo contrato e a nova orquestração. Depois disso, cada projeto alvo que quiser aderir à v2 deverá derivar seus próprios tickets de compatibilização a partir desta mesma spec.
 - Restrições técnicas relevantes:
-  - preservar linhagem explícita com a v1;
+  - preservar rastreabilidade consistente entre os artefatos obrigatórios da v2;
   - preservar publication runner-side conservadora, anti-overfit e rastreabilidade cross-repo;
   - não acoplar o runner à lógica, aos dados e aos scripts de um projeto alvo específico;
   - manter o projeto alvo como autoridade semântica do caso, dos insumos relevantes e do framing do workflow;
-  - não transformar a v2 em mais uma camada obrigatória sobre a cadeia completa da v1;
+  - não reintroduzir cadeias auxiliares fora dos estágios canônicos da v2 como pré-condição do caminho mínimo;
   - reduzir custo cognitivo e deixar a resposta principal entendível por um humano em menos de 2 minutos.
 
-## Diagnóstico crítico da v1
-- O que a v1 otimizou bem:
-  - fronteira explícita entre autoridade semântica do target e autoridade mecânica do runner;
-  - publication conservadora com gates fortes e baixo risco de ticket automático fraco;
-  - rastreabilidade cross-repo e separação entre artefatos locais sensíveis e artefatos versionados;
-  - capacidade repo-aware real no piloto para localizar causa plausível e superfície de correção.
-- O que a v1 otimizou mal:
+## Motivação arquitetural
+- O fluxo vivo precisa priorizar:
   - clareza diagnóstica;
   - velocidade de entendimento humano;
-  - prioridade do artefato principal;
-  - simplicidade estrutural;
-  - distinção entre resposta do caso e pipeline de publication;
-  - legibilidade operacional em poucos minutos.
-- Conclusão explícita:
-  a crítica central procede. A v1 deslocou o centro de gravidade do sistema para contrato, recomposição, gates e publication. Isso não é um detalhe cosmético. É um erro de hierarquia do fluxo. O humano quer primeiro um bom diagnóstico do caso. A v1 passou a entregar isso tarde demais e de forma pouco nítida.
+  - um artefato principal inequívoco;
+  - separação clara entre resposta do caso e eventuais continuações de publication.
+- O fluxo vivo não deve voltar a priorizar:
+  - cadeias auxiliares longas antes do veredito principal;
+  - recomposições obrigatórias fora dos estágios canônicos;
+  - superfícies operator-facing publication-first;
+  - contrato pesado demais para a pergunta central do caso.
 
 ## Modelo de responsabilidades
 - Responsabilidades do `codex-flow-runner`:
@@ -86,7 +82,7 @@
   - preservar rastreabilidade;
   - manter limites claros de evidência e sensibilidade;
   - evitar overfit a um caso isolado;
-  - permitir rollout incremental a partir da v1.
+  - manter `lineage` coerente quando o target optar por materializá-la na rodada.
 - Não-responsabilidades explícitas:
   - o runner não deve virar um catálogo de procedimentos operacionais específicos de target;
   - o target não deve tomar a decisão final de publication runner-side;
@@ -336,25 +332,25 @@
 - RF-20: `improvement-proposal` só pode nascer depois que o diagnóstico já tiver definido com clareza o comportamento que precisa mudar.
 - RF-21: `ticket-projection` deve produzir ticket para o projeto alvo, respeitando as convenções do target, sem reabrir a análise diagnóstica.
 - RF-22: `publication` deve permanecer runner-side, conservadora e tardia.
-- RF-23: a v2 deve preservar rastreabilidade com a v1 por meio de `lineage` em `case-resolution.json`, `case-bundle.json` e `diagnosis.json`, quando a rodada nascer de artefatos ou comandos legados.
+- RF-23: `case-resolution.json`, `case-bundle.json` e `diagnosis.json` devem poder carregar `lineage` coerente de rodada quando o target optar por materializar rastreabilidade adicional.
 - RF-24: o namespace autoritativo da rodada deve ser o do projeto alvo; espelhos runner-side, quando existirem, devem ser secundários.
-- RF-25: a v2 deve reduzir a necessidade de recomposições obrigatórias entre fases; o caminho mínimo não pode depender da cadeia `semantic-review -> causal-debug -> root-cause-review`.
+- RF-25: a v2 deve reduzir a necessidade de recomposições obrigatórias entre fases; o caminho mínimo não pode depender de cadeias auxiliares fora dos estágios canônicos `resolve-case -> assemble-evidence -> diagnosis`.
 - RF-26: artefatos e summaries operator-facing no runner e no Telegram devem ser diagnosis-first, não publication-first.
-- RF-27: a v2 pode reaproveitar etapas da v1 apenas como adaptadores opcionais, nunca como espinha dorsal obrigatória.
+- RF-27: artefatos históricos ou espelhos secundários nunca podem voltar a competir com o contrato canônico da v2.
 - RF-28: a spec deve permanecer diagnóstica e normativa, sem ficar acoplada a um projeto alvo específico; exemplos de piloto são apenas ilustrativos.
 
 <!-- Heading canônico: use exatamente "## Assumptions and defaults" nas specs locais. O workflow aceita "## Premissas e defaults" apenas como alias de compatibilidade de leitura para specs externas ou legadas. -->
 ## Assumptions and defaults
-- a v2 será introduzida como novo contrato explícito, não como mutação silenciosa da v1;
+- a v2 é o único contrato vivo de investigação de caso neste repositório;
 - o caminho mínimo da v2 não exige `deep-dive`, `improvement-proposal`, `ticket-projection` nem `publication`;
 - o namespace autoritativo da rodada fica no projeto alvo;
-- `investigations/<round-id>/` pode continuar existindo durante a migração apenas como espelho secundário de rastreabilidade;
+- `investigations/<round-id>/` pode existir apenas como espelho secundário de rastreabilidade;
 - `diagnosis.md` e `diagnosis.json` são os artefatos principais da rodada por default;
 - o primeiro conjunto de tickets derivados desta spec será aberto no runner; a aderência dos targets virá em uma segunda onda de derivação;
 - o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2.
 
 ## Não-escopo
-- migrar retroativamente todos os rounds históricos da v1;
+- migrar retroativamente todos os rounds históricos pré-v2;
 - exigir que todo target implemente todos os estágios opcionais desde o primeiro dia;
 - transformar o runner em catálogo operacional de cada target;
 - fundir runner e target em uma única autoridade semântica;
@@ -470,13 +466,13 @@
 ## Status de atendimento (documento vivo)
 - Estado geral: attended
 - Itens atendidos:
-  - crítica central da v1 consolidada em contrato explícito;
+  - motivação diagnosis-first consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
   - nome próprio do fluxo, manifesto dedicado e namespace autoritativo da v2 existem no runner;
   - o contrato runner-side da v2 aceita o shape público mínimo da spec e normaliza internamente apenas o necessário para compatibilidade transitória runner-side;
   - a orquestração runner-side materializa `resolve-case -> assemble-evidence -> diagnosis` como estágios reais e preserva o milestone/failure real nas falhas do caminho mínimo;
   - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2;
-  - o contexto técnico mínimo do branch v2 deixou de expor `assessment`/`dossier` como parte do contrato efetivo dos prompts por estágio.
+  - o contexto técnico mínimo do branch v2 deixou de expor superfícies pré-v2 como parte do contrato efetivo dos prompts por estágio.
 - Pendências em aberto:
   - nenhuma pendência local runner-side permanece aberta nesta linhagem da spec.
 - Evidências de validação:
@@ -490,7 +486,7 @@
   - 2026-04-09 19:52Z
 - Resultado:
   - a implementação local runner-side desta reabertura foi concluída e revalidada.
-  - o runner agora aceita o manifesto público mínimo da v2, preserva milestone real de falha no caminho mínimo e remove `assessment`/`dossier` do contexto técnico mínimo do branch v2.
+  - o runner agora aceita o manifesto público mínimo da v2, preserva milestone real de falha no caminho mínimo e remove superfícies pré-v2 do contexto técnico mínimo do branch v2.
 - Tickets/follow-ups abertos a partir da auditoria:
   - nenhum.
 - Causas-raiz sistêmicas identificadas:
@@ -502,7 +498,7 @@
 - Risco funcional:
   - targets aderentes podem implementar somente parte do contrato e produzir bundles fracos ou diagnósticos inconsistentes.
 - Risco operacional:
-  - se `assemble-evidence` ficar vago, a complexidade da v1 pode reaparecer disfarçada de coleta improvisada.
+  - se `assemble-evidence` ficar vago, a complexidade do desenho anterior pode reaparecer disfarçada de coleta improvisada.
 - Mitigação:
   - padronizar slots de prompt, artefatos, manifesto e responsabilidades;
   - fazer a primeira onda de implementação no runner antes da adoção em targets;
@@ -522,5 +518,6 @@
 - 2026-04-09 01:05Z - Auditoria final pós-`/run_all` concluída: releitura da linhagem completa, confirmação de ausência de gaps residuais locais, atualização de `Related tickets`/`Related execplans`, e fechamento documental da spec como `Status: attended` / `Spec treatment: done`.
 - 2026-04-09 17:55Z - Revisão arquitetural crítica reabriu a spec: `Status` voltou para `in_progress`, `Spec treatment` voltou para `pending`, e um novo ticket/ExecPlan local foi criado para o hard cut contratual do v2 no runner.
 - 2026-04-09 18:56Z - Fechamento local da linhagem reaberta: os três follow-ups do v2 foram encerrados, `Status` voltou para `attended` e `Spec treatment` voltou para `done`.
-- 2026-04-09 19:52Z - Execução local do novo ExecPlan de compatibilidade concluída: o runner passou a aceitar o shape público mínimo da v2, preservar milestone real no caminho mínimo e esconder `assessment`/`dossier` do contexto mínimo; `Status` permaneceu `attended`, mas `Spec treatment` voltou para `pending` até o commit que fechará o ticket local remanescente.
+- 2026-04-09 19:52Z - Execução local do novo ExecPlan de compatibilidade concluída: o runner passou a aceitar o shape público mínimo da v2, preservar milestone real no caminho mínimo e esconder superfícies pré-v2 do contexto mínimo; `Status` permaneceu `attended`, mas `Spec treatment` voltou para `pending` até o commit que fechará o ticket local remanescente.
 - 2026-04-09 19:57Z - Fechamento formal da trilha reaberta: o ticket local remanescente foi movido para `tickets/closed/`, `Spec treatment` voltou para `done` e a spec permanece `attended` com evidência runner-side observável.
+- 2026-04-09 21:21Z - Limpeza semântica final concluída: a spec passou a se declarar explicitamente v2-only, as referências pré-v2 foram rebaixadas para histórico fora de `docs/specs/` e a narrativa normativa deixou de tratar o desenho anterior como contrato alternativo ou rollout ativo.

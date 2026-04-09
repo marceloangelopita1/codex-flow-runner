@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): /home/mapita/projetos/guiadomus-matricula
 - Request ID: 2026-04-06T03-21-21Z
-- Source spec (when applicable): docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08; CA-01, CA-02, CA-03, CA-04, CA-05.
 - Inherited assumptions/defaults (when applicable): `semantic-review` permanece bounded; `causal-debug` e target-owned; publication continua runner-side.
 - Inherited RNFs (when applicable): rastreabilidade formal, fronteira cross-repo clara e anti-overfit.

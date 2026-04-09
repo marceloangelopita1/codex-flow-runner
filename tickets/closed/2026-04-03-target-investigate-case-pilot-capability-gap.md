@@ -16,8 +16,8 @@
 - Active project (when applicable): guiadomus-matricula
 - Target repository (when applicable): guiadomus-matricula
 - Request ID: n/a - triagem local da spec
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-05 (manifesto populado no piloto), RF-09, RF-24, RF-25, RF-26, RF-43, RF-44, RF-45; CA-12, CA-17. Membros explicitos preservados: bloco `## Investigacao Causal` com `Resolved case`, `Resolved attempt`, `Investigation inputs`, `Replay used`, `Verdicts`, `Confidence and evidence sufficiency`, `Causal surface`, `Generalization basis`, `Overfit vetoes considered`, `Publication decision`; perfil minimo de replay com `updateDb=false`, `requestId` dedicado, replay explicito, `includeWorkflowDebug=true` apenas quando seguro, policy declarada de cache/purge, proibicao de mutacoes nao essenciais, sem versionamento automatico de artefatos brutos, namespace local separado.
 - Inherited assumptions/defaults (when applicable): no piloto `../guiadomus-matricula`, parte relevante dos casos so fecha causalidade com replay seguro porque `workflow_debug` historico e opt-in; o piloto deve reutilizar o template interno atual sem criar template novo em v1; manifesto, docs, prompts operacionais e scripts auxiliares da capability investigativa precisam ficar separados da superficie de runtime do produto.
 - Inherited RNFs (when applicable): coleta e replay deterministas; sem versionamento default de material sensivel ou bruto; rastreabilidade local suficiente para investigacao causal; fluxo sequencial.
@@ -31,7 +31,7 @@
   - Response file:
   - Decision file:
 - Related docs/execplans:
-  - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
   - execplans/2026-04-03-target-investigate-case-pilot-capability-gap.md
   - ../guiadomus-matricula/docs/workflows/target-prepare-manifest.json
   - ../guiadomus-matricula/tickets/templates/internal-ticket-template.md

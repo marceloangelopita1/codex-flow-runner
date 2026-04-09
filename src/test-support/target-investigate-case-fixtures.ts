@@ -330,12 +330,9 @@ export const writeTargetInvestigateCaseArtifacts = async (
     diagnosisNextAction?: string;
     improvementProposal?: boolean;
     ticketProposal?: boolean;
-    legacyLineage?: boolean;
   } = {},
 ): Promise<void> => {
-  const lineage = options.legacyLineage
-    ? [{ source: "legacy-target-investigate-case", artifact: "case-resolution.json" }]
-    : ["target-investigate-case-v2"];
+  const lineage = ["target-investigate-case-v2"];
 
   const caseResolution = {
     case_ref: "case-001",

@@ -17,7 +17,6 @@ import {
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseEvidenceIndexSchema,
   targetInvestigateCaseFinalSummarySchema,
-  targetInvestigateCaseLineageHasLegacyOrigin,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
   targetInvestigateCaseTicketProposalSchema,
@@ -402,14 +401,6 @@ export const evaluateTargetInvestigateCaseRound = async (
   );
   validateCaseResolution(normalizedInput, caseResolution);
   validateDiagnosisCoherence(diagnosis, artifactPaths);
-  assertTargetInvestigateCaseV2LegacyLineageCoverage({
-    manifest: manifestLoad.manifest,
-    artifactPaths,
-    caseResolution,
-    evidenceBundle,
-    evidenceIndex,
-    diagnosis,
-  });
 
   const ticketProposal = await discoverTargetInvestigateCaseTicketProposalArtifact(
     request.targetProject.path,
@@ -1305,60 +1296,6 @@ const validateDiagnosisCoherence = (
   if (diagnosis.bundle_artifact !== artifactPaths.evidenceBundlePath) {
     throw new Error(
       `diagnosis.json precisa apontar bundle_artifact=${artifactPaths.evidenceBundlePath}.`,
-    );
-  }
-};
-
-const hasStructuredLineage = (
-  lineage:
-    | TargetInvestigateCaseCaseResolution["lineage"]
-    | TargetInvestigateCaseCaseBundle["lineage"]
-    | TargetInvestigateCaseDiagnosis["lineage"]
-    | TargetInvestigateCaseEvidenceIndex["lineage"]
-    | undefined
-    | null,
-): boolean => Array.isArray(lineage) && lineage.length > 0;
-
-export const assertTargetInvestigateCaseV2LegacyLineageCoverage = (params: {
-  manifest: TargetInvestigateCaseManifest;
-  artifactPaths: TargetInvestigateCaseArtifactSet;
-  caseResolution: TargetInvestigateCaseCaseResolution;
-  evidenceBundle: TargetInvestigateCaseEvidenceBundleArtifact;
-  evidenceIndex?: TargetInvestigateCaseEvidenceIndex | null;
-  diagnosis: TargetInvestigateCaseDiagnosis;
-}): void => {
-  if (
-    params.manifest.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW ||
-    !isTargetInvestigateCaseCaseBundlePath(params.artifactPaths.evidenceBundlePath)
-  ) {
-    return;
-  }
-
-  const requiresLegacyLineage = [
-    params.caseResolution.lineage,
-    params.evidenceBundle.lineage,
-    params.evidenceIndex?.lineage,
-    params.diagnosis.lineage,
-  ].some((lineage) => targetInvestigateCaseLineageHasLegacyOrigin(lineage));
-
-  if (!requiresLegacyLineage) {
-    return;
-  }
-
-  const missingArtifacts = [
-    hasStructuredLineage(params.caseResolution.lineage) ? null : "case-resolution.json",
-    hasStructuredLineage(params.evidenceBundle.lineage)
-      ? null
-      : TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
-    hasStructuredLineage(params.diagnosis.lineage) ? null : "diagnosis.json",
-  ].filter((artifact): artifact is string => artifact !== null);
-
-  if (missingArtifacts.length > 0) {
-    throw new Error(
-      [
-        `A rodada v2 declarou origem legada, mas ${missingArtifacts.join(", ")} nao carregam lineage obrigatoria.`,
-        `${TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT} pode manter lineage auxiliar, mas nao substitui case-resolution.json, ${TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT} e diagnosis.json.`,
-      ].join(" "),
     );
   }
 };

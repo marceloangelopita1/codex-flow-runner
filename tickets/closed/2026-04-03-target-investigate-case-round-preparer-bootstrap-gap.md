@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): codex-flow-runner
 - Request ID: n/a - auditoria final local da spec
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-12, RF-22, RF-23, RF-24, RF-25, RF-26, RF-36, RF-37, RF-38, RF-39, RF-40, RF-41, RF-42; CA-05, CA-07, CA-08, CA-09, CA-10, CA-11, CA-12, CA-15, CA-16. Membros explicitos preservados: artefatos `case-resolution.json`, `evidence-bundle.json`, `assessment.json`, `publication-decision.json`, `dossier.md|dossier.json`; milestones `preflight`, `case-resolution`, `evidence-collection`, `assessment`, `publication`; bloqueio atual `round-preparer-unavailable`; comando canônico `/target_investigate_case <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...]`.
 - Inherited assumptions/defaults (when applicable): o runner continua como autoridade final de `publication_status` e `overall_outcome`; o projeto alvo continua como autoridade semântica do caso; o artefato versionado padrão de v1 continua sendo apenas o ticket quando houver publication elegível; sem ticket a fase `publication` continua existindo como decisão final/no-op local.
 - Inherited RNFs (when applicable): coleta determinística guiada por manifesto; trace mínimo sem material sensível; rastreabilidade cross-project observável; fluxo sequencial.
@@ -31,7 +31,7 @@
   - Response file:
   - Decision file:
 - Related docs/execplans:
-  - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
   - docs/workflows/codex-quality-gates.md
   - execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md
   - execplans/2026-04-03-target-investigate-case-contract-and-publication-gap.md

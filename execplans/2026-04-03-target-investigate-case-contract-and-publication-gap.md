@@ -77,7 +77,7 @@
 - Ticket de origem:
   - `tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md`
 - Spec de origem:
-  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+  - `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Documentos e referencias relidos para este plano:
   - `PLANS.md`
   - `docs/workflows/codex-quality-gates.md`

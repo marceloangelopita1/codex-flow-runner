@@ -38,7 +38,7 @@
   - `src/integrations/target-investigate-case-round-preparer.ts`
   - `src/integrations/target-investigate-case-ticket-publisher.ts`
   - `docs/workflows/target-case-investigation-manifest.json`
-- Spec de origem: `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md`
 - RFs/CAs cobertos por este plano:
   - RF-01, RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08
   - CA-01, CA-02, CA-03, CA-04, CA-05

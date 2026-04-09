@@ -39,7 +39,7 @@
   - `src/integrations/target-investigate-case-round-preparer.test.ts`
   - `src/core/runner.test.ts`
   - `src/integrations/telegram-bot.test.ts`
-- Spec de origem: `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Caso ancora: `/home/mapita/projetos/guiadomus-matricula/investigations/2026-04-06T05-31-37Z`
 - Assumptions / defaults adotados:
   - target continua dono da semantica, causal-debug e ticket-proposal;

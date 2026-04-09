@@ -50,7 +50,7 @@
 
 ## Context and Orientation
 - Ticket de origem: `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`.
-- Spec de origem: `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`.
+- Spec de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`.
 - Spec contextual do target: `../guiadomus-matricula/docs/specs/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening.md`.
 - Referências principais já lidas:
   - `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`
@@ -106,7 +106,7 @@
   - Arquivos esperados: `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`, suites de teste afetadas.
 
 ## Concrete Steps
-1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,260p' tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`, `sed -n '1,260p' docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`, `sed -n '232,420p' ../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json` e `rg -n "rootCauseReview|causalDebug|ticket-proposal|publication" src/types/target-investigate-case.ts src/core/target-investigate-case.ts src/integrations/target-investigate-case-round-preparer.ts src/integrations/codex-client.ts` para reabrir o contexto antes de qualquer edição.
+1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,260p' tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`, `sed -n '1,260p' docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`, `sed -n '232,420p' ../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json` e `rg -n "rootCauseReview|causalDebug|ticket-proposal|publication" src/types/target-investigate-case.ts src/core/target-investigate-case.ts src/integrations/target-investigate-case-round-preparer.ts src/integrations/codex-client.ts` para reabrir o contexto antes de qualquer edição.
 2. (workdir: `/home/mapita/projetos/codex-flow-runner`) Usar `apply_patch` em `src/types/target-investigate-case.ts` para adicionar constantes, schemas e tipos da etapa nova, atualizar os schemas do manifesto interno e do manifesto piloto, expandir `TargetInvestigateCaseArtifactSet`, `TargetInvestigateCaseArtifactPaths`, failure surfaces e trace/final summary, e introduzir o bloco `assessment.root_cause_review` com os campos mínimos decididos neste plano.
 3. (workdir: `/home/mapita/projetos/codex-flow-runner`) Usar `apply_patch` para criar `src/integrations/target-investigate-case-root-cause-review.ts` com parser dedicado do output e ajustar `src/integrations/codex-client.ts` para expor um método `runTargetInvestigateCaseRootCauseReview(...)` e o prompt builder correspondente, seguindo o padrão já existente para `semantic-review` e `causal-debug`.
 4. (workdir: `/home/mapita/projetos/codex-flow-runner`) Usar `apply_patch` em `src/integrations/target-investigate-case-round-preparer.ts` para implementar `completeRootCauseReviewIfSupported(...)`, limpar/persistir/sincronizar os novos artefatos, executar a nova etapa apenas após `causal-debug`, rerodar a recomposição oficial quando declarada e reread/revalidar os artefatos oficiais antes da publication.
@@ -152,7 +152,7 @@
 ## Artifacts and Notes
 - Ticket alvo deste plano: `tickets/open/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`.
 - Ticket irmão com ownership separado: `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`.
-- Spec runner-side de origem: `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`.
+- Spec runner-side de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`.
 - Spec contextual do target: `../guiadomus-matricula/docs/specs/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening.md`.
 - Referências do target consultadas para o plano:
   - `../guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`

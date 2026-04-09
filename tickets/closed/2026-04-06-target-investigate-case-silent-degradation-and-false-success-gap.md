@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): /home/mapita/projetos/guiadomus-matricula
 - Request ID: 2026-04-06T05-31-37Z
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-39, RF-40, RF-41, RF-46, RF-47, RF-48, RF-49; CA-18, CA-19, CA-20.
 - Inherited assumptions/defaults (when applicable): bounded semantic confirmation continua bounded; causal-debug e ticket-proposal continuam target-owned; publication final continua runner-side.
 - Inherited RNFs (when applicable): reprodutibilidade, auditabilidade, anti-overfit, rastreabilidade cross-repo e minimizacao do trace.

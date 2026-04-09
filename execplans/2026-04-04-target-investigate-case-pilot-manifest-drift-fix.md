@@ -38,7 +38,7 @@
   - `src/core/target-investigate-case.ts`
   - `src/core/target-investigate-case.test.ts`
   - `/home/mapita/projetos/guiadomus-matricula/docs/workflows/target-case-investigation-manifest.json`
-- Spec de origem: `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md` via capability já materializada no projeto alvo.
+- Spec de origem: `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md` via capability já materializada no projeto alvo.
 - RFs/CAs cobertos por este plano:
   - Compatibilidade do runner com manifesto pilot/rico atual.
   - Carga bem-sucedida do manifesto real em `loadTargetInvestigateCaseManifest(...)`.

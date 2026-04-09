@@ -41,7 +41,7 @@
 
 ## Context and Orientation
 - Arquivos principais: `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-ticket-publisher.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/core/target-investigate-case.test.ts`, `src/integrations/target-investigate-case-ticket-publisher.test.ts`, `src/integrations/target-investigate-case-round-preparer.test.ts`, `src/core/runner.test.ts`.
-- Spec de origem: `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`.
+- Spec de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md`.
 - Ticket de origem: `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`.
 - RFs/CAs cobertos por este plano: RF-06, RF-07, RF-08; CA-01, CA-03, CA-04.
 - Assumptions / defaults adotados: o target continuara emitindo `ticket-proposal.json`; a authority final continua runner-side; o rollout precisa continuar aceitando o contrato atual enquanto o target e o runner nao forem implantados juntos.

@@ -80,7 +80,7 @@
   - `../guiadomus-matricula/docs/workflows/target-case-investigation-runbook.md`
   - `../guiadomus-matricula/docs/workflows/target-case-investigation-causal-ticket-template.md`
   - `../guiadomus-matricula/tests/scripts/target-case-investigation-capability.test.js`
-- Spec de origem: `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Ticket de origem: `tickets/closed/2026-04-03-target-investigate-case-pilot-capability-gap.md`
 - RFs/CAs cobertos por este plano:
   - RF-05, RF-09, RF-24, RF-25, RF-26, RF-43, RF-44, RF-45

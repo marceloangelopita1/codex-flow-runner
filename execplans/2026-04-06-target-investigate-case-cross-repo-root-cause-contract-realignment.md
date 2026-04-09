@@ -93,7 +93,7 @@
   - `tests/scripts/materialize-case-investigation-round.test.js`
   - `tests/scripts/target-case-investigation-capability.test.js`
 - Specs de origem:
-  - runner: `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`
+  - runner: `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`
   - target: `../guiadomus-matricula/docs/specs/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening.md`
 - RFs/CAs cobertos por este plano:
   - runner: RF-02, RF-03, RF-04, RF-05, RF-06, RF-07, RF-08; CA-02, CA-03, CA-04, CA-05.

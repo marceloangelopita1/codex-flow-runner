@@ -7,10 +7,7 @@ import {
   parseTargetInvestigateCaseCommand,
   renderTargetInvestigateCaseCommand,
 } from "./target-investigate-case.js";
-import {
-  targetInvestigateCaseLineageHasLegacyOrigin,
-  TARGET_INVESTIGATE_CASE_V2_COMMAND,
-} from "../types/target-investigate-case.js";
+import { TARGET_INVESTIGATE_CASE_V2_COMMAND } from "../types/target-investigate-case.js";
 import {
   cleanupTargetInvestigateCaseProjectFixture,
   createTargetInvestigateCaseManifest,
@@ -40,7 +37,7 @@ test("parseTargetInvestigateCaseCommand aceita apenas o contrato v2 canonico", (
   );
 });
 
-test("loadTargetInvestigateCaseManifest carrega apenas o manifesto v2 e nao trata o alias legado como origem valida", async () => {
+test("loadTargetInvestigateCaseManifest carrega apenas o manifesto v2 canonico", async () => {
   const fixture = await createTargetInvestigateCaseProjectFixture();
 
   try {
@@ -60,17 +57,12 @@ test("loadTargetInvestigateCaseManifest carrega apenas o manifesto v2 e nao trat
 
     assert.equal(loaded.manifest.command, TARGET_INVESTIGATE_CASE_V2_COMMAND);
     assert.equal(loaded.manifest.flow, "target-investigate-case-v2");
-    assert.equal(targetInvestigateCaseLineageHasLegacyOrigin(["/target_investigate_case"]), false);
-    assert.equal(
-      targetInvestigateCaseLineageHasLegacyOrigin(["legacy-target-investigate-case"]),
-      true,
-    );
   } finally {
     await cleanupTargetInvestigateCaseProjectFixture(fixture);
   }
 });
 
-test("evaluateTargetInvestigateCaseRound produz summary diagnosis-first sem assessment ou dossier", async () => {
+test("evaluateTargetInvestigateCaseRound produz summary diagnosis-first sem superfícies pré-v2", async () => {
   const fixture = await createTargetInvestigateCaseProjectFixture();
 
   try {

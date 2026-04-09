@@ -80,36 +80,6 @@ export const targetInvestigateCaseLineageSchema = z
   .array(targetInvestigateCaseLineageFlexibleEntrySchema)
   .min(1);
 
-const TARGET_INVESTIGATE_CASE_LEGACY_LINEAGE_TOKENS = [
-  "legacy-target-investigate-case",
-  "target-investigate-case-v1",
-] as const;
-
-const lineageValueMentionsLegacyOrigin = (value: unknown): boolean => {
-  if (typeof value === "string") {
-    return TARGET_INVESTIGATE_CASE_LEGACY_LINEAGE_TOKENS.some((token) =>
-      value.includes(token),
-    );
-  }
-
-  if (Array.isArray(value)) {
-    return value.some((entry) => lineageValueMentionsLegacyOrigin(entry));
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return Object.values(value).some((entry) => lineageValueMentionsLegacyOrigin(entry));
-  }
-
-  return false;
-};
-
-export const targetInvestigateCaseLineageHasLegacyOrigin = (
-  lineage:
-    | ReadonlyArray<z.infer<typeof targetInvestigateCaseLineageFlexibleEntrySchema>>
-    | null
-    | undefined,
-): boolean => (lineage ?? []).some((entry) => lineageValueMentionsLegacyOrigin(entry));
-
 export const TARGET_INVESTIGATE_CASE_CONTRACT_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_SCHEMA_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_CAPABILITY = "case-investigation";

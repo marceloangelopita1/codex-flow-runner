@@ -58,8 +58,8 @@
   - `src/integrations/target-investigate-case-round-preparer.test.ts`
   - `src/integrations/codex-client.test.ts`
 - Ticket de origem: `tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`
-- Spec de origem: `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`
-- Spec relacionada que define a fronteira complementar: `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md`
+- Spec relacionada que define a fronteira complementar: `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`
 - Ticket complementar fechado cuja ownership nao pode ser reaberta aqui: `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
 - ExecPlan historico relacionado: `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md`
 - Artefatos ancora usados como regressao de contexto:
@@ -113,7 +113,7 @@
   - Arquivos esperados: `src/core/target-investigate-case.ts`, `src/core/target-investigate-case.test.ts`, suites correlatas.
 
 ## Concrete Steps
-1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,220p' tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md` e reler `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`, `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`, `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md` e `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` antes de qualquer edicao.
+1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,220p' tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md` e reler `docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md`, `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`, `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md` e `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md` antes de qualquer edicao.
 2. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `rg -n "publication_hints|ticket_scope|slug_strategy|quality_gate|competing_hypotheses|qa_escape|prompt_guardrail_opportunities|ticket_readiness|remaining_gaps" src/types/target-investigate-case.ts src/core/target-investigate-case.ts src/integrations/target-investigate-case-ticket-publisher.ts src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts` para confirmar o delta exato e evitar reabrir superficies do ticket complementar.
 3. (workdir: `/home/mapita/projetos/codex-flow-runner`) Alterar `src/types/target-investigate-case.ts` para aceitar o shape enriquecido minimo em `causal-debug.result.json` e/ou `ticket-proposal.json`, reaproveitando nomenclatura ja existente para `competing_hypotheses`, `qa_escape`, `prompt_guardrail_opportunities`, `ticket_readiness`, `remaining_gaps` e preservando as allowlists explicitas de `ticket_scope`, `slug_strategy` e `quality_gate`.
 4. (workdir: `/home/mapita/projetos/codex-flow-runner`) Alterar builders/fixtures/testes em `src/core/target-investigate-case.test.ts` para cobrir, com evidencia observavel, o artefato ancora legado e pelo menos um artefato enriquecido que exercite a trilha explicita de RF-08 no path novo.
@@ -160,8 +160,8 @@
 - ExecPlan atual: `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md`
 - ExecPlan historico relacionado: `execplans/2026-04-06-target-investigate-case-ticket-quality-hardening.md`
 - Ticket complementar fechado: `tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md`
-- Spec de origem: `docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md`
-- Spec complementar: `docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md`
+- Spec complementar: `docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md`
 - Plano complementar no target project: `../guiadomus-matricula/execplans/2026-04-06-case-investigation-ticket-quality-hardening.md`
 - Artefatos do caso ancora:
   - `../guiadomus-matricula/investigations/2026-04-06T16-30-09Z/causal-debug.result.json`

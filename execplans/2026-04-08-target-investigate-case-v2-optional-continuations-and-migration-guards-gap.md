@@ -64,7 +64,7 @@
     salvo descoberta local superior documentada no `Decision Log`, a execucao deve criar `docs/workflows/target-investigate-case-v2-deep-dive.md`, `docs/workflows/target-investigate-case-v2-improvement-proposal.md` e `docs/workflows/target-investigate-case-v2-ticket-projection.md`.
 - 2026-04-09 - Decisao: a primeira onda runner-side desta entrega fica operacional apenas para `ticket-projection` e `publication`; `deep-dive` e `improvement-proposal` permanecem como slots/documentacao canonicos para a segunda onda de adocao target-side.
   - Motivo:
-    o ticket pede guardrails, contrato e rollout incremental sem exigir que todo target implemente imediatamente todas as continuacoes opcionais.
+    o ticket pede guardrails, contrato e adocao gradual sem exigir que todo target implemente imediatamente todas as continuacoes opcionais.
   - Impacto:
     manifesto, tipos e prompts deixam as quatro continuacoes observaveis, mas o runtime runner-side desta etapa so atravessa `publication` quando `ticket-projection` target-owned estabiliza `ticket-proposal.json`.
 - 2026-04-09 - Decisao: o caminho minimo v2 continua gerando uma decisao semantica de publication para summary/trace, mas `publication-decision.json` so e escrito quando a continuacao `publication` for realmente atravessada.

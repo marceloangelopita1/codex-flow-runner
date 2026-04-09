@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): ../guiadomus-matricula
 - Request ID: 2026-04-06T16-30-09Z
-- Source spec (when applicable): docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-06, RF-07, RF-08; CA-01, CA-03, CA-04; publication final continua runner-side e o target continua dono do conteudo semantico do ticket.
 - Inherited assumptions/defaults (when applicable): `ticket-proposal.json` continua target-owned; rollout deve permanecer backward-compatible com o contrato atual durante a transicao; o runner deve preferir preservar conteudo target-owned em vez de reescrever o ticket.
 - Inherited RNFs (when applicable): preservar qualidade editorial minima, evitar duplicacao evitavel e manter ticket executavel por outra IA.
@@ -31,7 +31,7 @@
   - Response file: ../guiadomus-matricula/investigations/2026-04-06T16-30-09Z/ticket-proposal.json
   - Decision file: ../guiadomus-matricula/investigations/2026-04-06T16-30-09Z/publication-decision.json
 - Related docs/execplans:
-  - docs/specs/2026-04-06-target-investigate-case-repo-aware-causal-debug-and-ticket-projection.md
+  - docs/history/target-investigate-case/2026-04-06-pre-v2-escalation.md
   - execplans/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md
   - tickets/closed/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - ../guiadomus-matricula/execplans/2026-04-06-case-investigation-ticket-quality-hardening.md

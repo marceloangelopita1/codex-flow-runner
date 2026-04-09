@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): codex-flow-runner
 - Request ID: n/a - fechamento `NO_GO` local do ticket pai
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): subconjunto remanescente do ticket pai: RF-08, RF-19..RF-35, RF-37..RF-41; CA-03, CA-07, CA-08, CA-09, CA-10, CA-11, CA-15. Membros explicitos preservados: forma canonica `/target_investigate_case <project> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...]`; `publication_status=eligible|not_eligible|blocked_by_policy|not_applicable`; `overall_outcome=no-real-gap|real-gap-not-internally-avoidable|real-gap-not-generalizable|inconclusive-case|inconclusive-project-capability-gap|runner-limitation|ticket-published|ticket-eligible-but-blocked-by-policy`; ausencia de `workflow_debug`, `db_payload`, `transcript` e payload bruto no trace/resumo; `versioned_artifact_paths` restrito ao ticket quando houver publication.
 - Inherited assumptions/defaults (when applicable): `src/types/target-investigate-case.ts` e `src/core/target-investigate-case.ts` permanecem como source of truth do contrato; o runner continua sem reinterpretar o dominio; o wiring deve reutilizar o control-plane oficial do fluxo e nao criar handler paralelo; o artefato versionado padrao continua sendo apenas o ticket quando houver publication elegivel.
 - Inherited RNFs (when applicable): trace minimo sem material sensivel; rastreabilidade cross-project observavel; fluxo sequencial; cobertura positiva/negativa das allowlists finitas relevantes.
@@ -31,7 +31,7 @@
   - Response file:
   - Decision file:
 - Related docs/execplans:
-  - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
   - docs/workflows/codex-quality-gates.md
   - docs/workflows/target-project-compatibility-contract.md
   - tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md

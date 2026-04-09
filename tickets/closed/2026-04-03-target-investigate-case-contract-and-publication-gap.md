@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): codex-flow-runner
 - Request ID: n/a - triagem local da spec
-- Source spec (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-03, RF-04, RF-05, RF-06, RF-07, RF-08, RF-09, RF-13..RF-35, RF-37..RF-41; CA-02, CA-03, CA-04, CA-06, CA-07, CA-08, CA-09, CA-10, CA-11, CA-13, CA-14, CA-15. Membros explicitos preservados: capability `case-investigation`; manifesto `docs/workflows/target-case-investigation-manifest.json`; vereditos `houve_gap_real=yes|no|inconclusive`, `era_evitavel_internamente=yes|no|inconclusive|not_applicable`, `merece_ticket_generalizavel=yes|no|inconclusive|not_applicable`; `confidence=low|medium|high`; `evidence_sufficiency=insufficient|partial|sufficient|strong`; `publication_status=eligible|not_eligible|blocked_by_policy|not_applicable`; `overall_outcome=no-real-gap|real-gap-not-internally-avoidable|real-gap-not-generalizable|inconclusive-case|inconclusive-project-capability-gap|runner-limitation|ticket-published|ticket-eligible-but-blocked-by-policy`.
 - Inherited assumptions/defaults (when applicable): a capability investigativa e camada adicional de onboarding; `assessment.json` e a fonte autoritativa dos vereditos semanticos do projeto alvo; o runner continua como autoridade final de `publication_status` e `overall_outcome`; por default nao existe write-back versionado sem ticket; a barra de publication automatica deve ser conservadora (`strong`, ou `sufficient` apenas com conflito contratual/guardrail inequivoco, `generalization_basis[]` explicita e zero veto bloqueante).
 - Inherited RNFs (when applicable): coleta de evidencia deterministica e guiada por manifesto; regra anti-overfit explicita e auditavel; trace minimo sem material sensivel; rastreabilidade cross-project observavel; fluxo sequencial.
@@ -31,7 +31,7 @@
   - Response file:
   - Decision file:
 - Related docs/execplans:
-  - docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md
+  - docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md
   - docs/workflows/codex-quality-gates.md
   - docs/workflows/target-project-compatibility-contract.md
   - tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md

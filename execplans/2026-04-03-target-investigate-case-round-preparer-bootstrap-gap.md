@@ -86,7 +86,7 @@
 - Ticket de origem:
   - `tickets/closed/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`
 - Spec de origem:
-  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+  - `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Tickets/planos relidos para fronteira de ownership:
   - `tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md`
   - `tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md`

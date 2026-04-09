@@ -86,7 +86,7 @@
 - Ticket de origem:
   - `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`
 - Spec de origem:
-  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+  - `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Tickets relacionados para fronteira de ownership:
   - `tickets/closed/2026-04-03-target-investigate-case-contract-and-publication-gap.md`
   - `tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md`
@@ -185,7 +185,7 @@
     - testes citados acima
 
 ## Concrete Steps
-1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,260p' tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md && sed -n '1,260p' tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md && sed -n '1,260p' docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md` para reabrir o ticket, o sucessor bloqueado e a spec imediatamente antes de editar.
+1. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `sed -n '1,260p' tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md && sed -n '1,260p' tickets/closed/2026-04-03-target-investigate-case-contract-package-wiring-gap.md && sed -n '1,260p' docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md` para reabrir o ticket, o sucessor bloqueado e a spec imediatamente antes de editar.
 2. (workdir: `/home/mapita/projetos/codex-flow-runner`) Rodar `rg -n "target-investigate-case|target_investigate_case|TargetInvestigateCase|requestTargetCheckup|TargetFlowKind|RunnerSlotKind|target-checkup|target-derive" src/core src/integrations src/types src/main.ts` para confirmar o delta real entre o pacote contratual já aterrado e a ausência atual de control-plane.
 3. (workdir: `/home/mapita/projetos/codex-flow-runner`) Aplicar patch em `src/types/target-flow.ts`, `src/types/state.ts` e `src/types/flow-timing.ts` para adicionar:
    - `TargetFlowKind` e `TargetFlowCommand` de `target-investigate-case`;
@@ -269,7 +269,7 @@
 - Ticket atual:
   - `tickets/closed/2026-04-03-target-investigate-case-runner-control-plane-gap.md`
 - Spec e contratos consultados:
-  - `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+  - `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
   - `PLANS.md`
   - `DOCUMENTATION.md`
   - `docs/workflows/codex-quality-gates.md`

@@ -63,7 +63,7 @@ test("requestTargetInvestigateCase usa a superficie v2 na mensagem de executor a
   await runner.shutdown({ timeoutMs: 100 });
 });
 
-test("requestTargetInvestigateCase rejeita o comando legado /target_investigate_case", async () => {
+test("requestTargetInvestigateCase rejeita comandos fora do contrato v2", async () => {
   const runner = createRunner({
     execute: async () => {
       throw new Error("Nao deveria executar quando o comando e invalido.");

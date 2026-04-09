@@ -58,7 +58,7 @@
 
 ## Context and Orientation
 - Ticket/escopo de origem no runner: continuação técnica do fluxo `/target_investigate_case`, sobre a base já entregue em `execplans/2026-04-03-target-investigate-case-round-preparer-bootstrap-gap.md`.
-- Spec de origem no runner: `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+- Spec de origem no runner: `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - Plano-fonte do alvo que define o handshake desta etapa: `../guiadomus-matricula/execplans/2026-04-05-case-investigation-semantic-review-via-codex-runner.md`
 - Arquivos principais do runner:
   - `src/core/target-investigate-case.ts`

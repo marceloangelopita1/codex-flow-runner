@@ -16,8 +16,8 @@
 - Active project (when applicable): codex-flow-runner
 - Target repository (when applicable): ../guiadomus-matricula
 - Request ID: 2026-04-06T19-19-03Z
-- Source spec (when applicable): docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md
-- Source spec canonical path (when applicable): docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md
+- Source spec (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md
+- Source spec canonical path (when applicable): docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md
 - Source requirements (RFs/CAs/RNFs/restricoes, when applicable): RF-01..RF-08; CA-01..CA-05; `root_cause_status` aceito = `root_cause_confirmed | plausible_but_unfalsified | inconclusive`; `publish_ticket` deve bloquear quando `root-cause-review.result.json` estiver ausente/invalido/inconclusivo, quando o veredito for `plausible_but_unfalsified` ou quando `ticket-proposal.json` contrariar a etapa nova; publication final continua runner-side; manifests legados precisam continuar aceitos durante rollout manifesto-first sem inferir causa confirmada pela ausencia da etapa nova.
 - Inherited assumptions/defaults (when applicable): `semantic-review` permanece bounded; `causal-debug` continua existindo; `rootCauseReview` sera target-owned e runner-executed; a etapa nova nao deve overfitar um workflow especifico.
 - Inherited RNFs (when applicable): endurecer quality gates causais sem reescrever o conteudo semantico target-owned.
@@ -31,7 +31,7 @@
   - Response file: ../guiadomus-matricula/utils/case-investigation/causal-debug.js
   - Decision file: src/core/target-investigate-case.ts
 - Related docs/execplans:
-  - docs/specs/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening.md
+  - docs/history/target-investigate-case/2026-04-06-pre-v2-publication-hardening.md
   - execplans/2026-04-06-target-investigate-case-root-cause-review-and-ticket-readiness-hardening-gap.md
   - tickets/open/2026-04-06-target-investigate-case-ticket-quality-hardening-gap.md
   - ../guiadomus-matricula/docs/specs/2026-04-06-case-investigation-root-cause-review-and-ticket-readiness-hardening.md

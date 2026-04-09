@@ -36,7 +36,7 @@
   - `src/integrations/target-investigate-case-round-preparer.ts`
   - `src/core/target-investigate-case.test.ts`
   - `src/integrations/target-investigate-case-round-preparer.test.ts`
-- Spec de origem: `docs/specs/2026-04-03-target-investigate-case-investigacao-causal-de-caso-produtivo-em-projeto-alvo.md`
+- Spec de origem: `docs/history/target-investigate-case/2026-04-03-pre-v2-foundation.md`
 - RFs/CAs cobertos por este plano:
   - RF-18, RF-35, RF-36, RF-40, RF-41
   - RF-46, RF-47, RF-48, RF-49
