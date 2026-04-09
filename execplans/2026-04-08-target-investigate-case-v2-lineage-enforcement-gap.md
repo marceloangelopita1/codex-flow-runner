@@ -98,7 +98,7 @@
 - Fronteira de ownership com tickets da mesma linhagem:
   o ticket pai fechado em `NO_GO` continua dono do contrato v2, do manifesto, do caminho minimo e do namespace autoritativo; este follow-up so conclui a parte remanescente de `lineage` que bloqueou o aceite final dele;
   `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md` continua dono de `diagnosis.md`, summary, trace e Telegram; este plano so toca `diagnosis.json` para completar a rastreabilidade exigida;
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` continua dono de `deep-dive`, `improvement-proposal`, `ticket-projection`, `publication` e dos guardrails tardios de migracao; este plano apenas preserva que eles nao virem dependencia do caminho minimo.
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` continua dono de `deep-dive`, `improvement-proposal`, `ticket-projection`, `publication` e dos guardrails tardios de migracao; este plano apenas preserva que eles nao virem dependencia do caminho minimo.
 - Arquivos e superficies principais a reler na execucao:
   `src/types/target-investigate-case.ts`
   `src/core/target-investigate-case.ts`
@@ -198,7 +198,7 @@
   `execplans/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`
 - Tickets irmaos para fronteira de ownership:
   `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
 - Contratos e testes que ancoram este follow-up:
   `src/types/target-investigate-case.ts`
   `src/core/target-investigate-case.ts`

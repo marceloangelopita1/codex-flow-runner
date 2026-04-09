@@ -9,9 +9,9 @@
 - Last reviewed at (UTC): 2026-04-08 22:07Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
-  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
-  - tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related execplans:
   - nenhum ainda
 - Related commits:
@@ -381,15 +381,15 @@
 - Contexto de triagem herdado: não
 - Linhagem do pacote: hybrid
 - Tickets avaliados:
-  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md [fonte=source-spec]
-  - tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md [fonte=source-spec]
-  - tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md [fonte=source-spec]
+  - tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md [fonte=source-spec]
 
 #### Histórico por ciclo
 - Ciclo 0 [initial-validation]: NO_GO (high)
   - Resumo: NO_GO: o pacote cobre as três frentes principais da spec runner-side, mas ainda deixa dois requisitos herdados sem fechamento observável suficiente. O ticket de contrato não prova o shape mínimo do manifesto v2 nem a semântica target-owned/promptPath exigidas pela spec, e o ticket de continuações opcionais não torna observável a saída e o contrato de `ticket-projection` para o projeto alvo.
   - Thread: 019d6f14-2a6a-7932-96aa-a404a970da1d
-  - Fingerprints abertos: closure-criteria-gap|tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md|ca-05&rf-21, closure-criteria-gap|tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md|ca-06&rf-05&rf-09&rf-11
+  - Fingerprints abertos: closure-criteria-gap|tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md|ca-05&rf-21, closure-criteria-gap|tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md|ca-06&rf-05&rf-09&rf-11
   - Redução real de gaps vs. ciclo anterior: n/a
   - Correções deste ciclo: 0
 - Ciclo 1 [revalidation]: GO (high)
@@ -406,11 +406,11 @@
 
 #### Correções aplicadas
 - Atualizados os Closure criteria do ticket de contrato runner-side para exigir observabilidade do shape mínimo do manifesto v2, da fronteira target-owned/runner-side, da `publicationPolicy` e da convenção de `promptPath` por estágio.
-  - Artefatos afetados: tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 - Atualizados os Closure criteria do ticket de continuações opcionais para exigir que `ticket-projection` materialize `ticket-proposal.json` e registre evidência objetiva de aderência às convenções declaradas pelo projeto alvo.
-  - Artefatos afetados: tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - Artefatos afetados: tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
   - Gaps relacionados: closure-criteria-gap
   - Resultado: applied
 
@@ -462,9 +462,9 @@
   - fluxo mínimo diagnosis-first definido;
   - prompts canônicos e artefatos da v2 definidos.
 - Pendências em aberto:
-  - `tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`: introduzir o contrato `/target_investigate_case_v2`, os estágios canônicos, o caminho mínimo e a rastreabilidade v1 -> v2 sem manter a cadeia v1 como backbone obrigatório.
-  - `tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`: materializar `diagnosis.md`/`diagnosis.json` e tornar summary, trace e Telegram diagnosis-first.
-  - `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`: rebaixar publication e continuações opcionais a etapas tardias com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
+  - `tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`: introduzir o contrato `/target_investigate_case_v2`, os estágios canônicos, o caminho mínimo e a rastreabilidade v1 -> v2 sem manter a cadeia v1 como backbone obrigatório.
+  - `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`: materializar `diagnosis.md`/`diagnosis.json` e tornar summary, trace e Telegram diagnosis-first.
+  - `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`: rebaixar publication e continuações opcionais a etapas tardias com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
   - a escolha do primeiro target de adoção da v2 continua pendente e deliberadamente fora deste pacote runner-side, porque depende de decisão manual em repositório externo depois que o contrato local estiver estável.
 - Evidências de validação:
   - análise documental cross-repo concluída;

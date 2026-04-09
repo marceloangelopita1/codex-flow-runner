@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 ainda não trata continuações opcionais e adaptadores da v1 como etapas tardias com guardrails de migração
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -45,10 +45,11 @@
   - Decision file: docs/workflows/target-project-compatibility-contract.md
 - Related docs/execplans:
   - docs/workflows/target-case-investigation-manifest.json
+  - docs/workflows/target-case-investigation-v2-manifest.json
   - src/core/target-investigate-case.ts
   - src/types/target-investigate-case.ts
-  - tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
-  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
 
 ## Classificação de risco (check-up não funcional, quando aplicável)
 - Matriz aplicável: não
@@ -130,8 +131,33 @@ As continuações `deep-dive`, `improvement-proposal`, `ticket-projection` e `pu
 - 2026-04-08 - Ownership dividido com fronteira observável: este ticket fica dono das continuações opcionais, da publication tardia e dos guardrails de migração; o ticket irmão de contrato fica dono do caminho mínimo; o ticket irmão de diagnosis fica dono das superfícies operator-facing.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
+- Closed at (UTC): 2026-04-09 00:58Z
+- Closure reason: fixed
 - Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+  - ExecPlan: execplans/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - Commit: mesmo changeset de fechamento versionado pelo runner
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+
+## Closure validation
+- Decisão final: `GO`
+- RF-08, RF-19, RF-20, RF-21, CA-05:
+  - `src/types/target-investigate-case.ts` agora modela explicitamente a matriz finita de continuações opcionais e guardrails de migração, incluindo `TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES = ["causal-ambiguity", "low-confidence", "smallest-plausible-change-unclear"]`, `TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES = ["ticket-projection", "publication"]`, `TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES = ["deep-dive", "improvement-proposal"]` e `TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES = ["semantic-review", "causal-debug", "root-cause-review"]`, além de schemas estritos para `deepDive`, `improvementProposal`, `ticketProjection` e `publication`.
+  - `docs/workflows/target-case-investigation-v2-manifest.json` explicita `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` como continuações opcionais e tardias com `promptPath` canônico, `executionOrder`, `adoptionWave`, gatilhos permitidos de `deep-dive`, proibição de reabrir diagnóstico e vínculo de `ticket-projection` com `ticket-proposal.json` + `ticketPublicationPolicy`.
+  - `docs/workflows/target-investigate-case-v2-deep-dive.md`, `docs/workflows/target-investigate-case-v2-improvement-proposal.md` e `docs/workflows/target-investigate-case-v2-ticket-projection.md` registram o framing semântico de cada slot opcional, preservando que `deep-dive` só entra por ambiguidade/baixa confiança/menor mudança plausível incerta, que `improvement-proposal` só aparece depois de diagnóstico suficiente e que `ticket-projection` não reabre o diagnóstico.
+  - Evidência automatizada positiva do conjunto aceito: `src/core/target-investigate-case.test.ts` cobre `loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stages, minimumPath e namespace canonicos`, `loadTargetInvestigateCaseManifest rejeita manifesto v2 com gatilho de deep-dive fora da matriz canonica`, `evaluateTargetInvestigateCaseRound nao grava publication-decision no caminho minimo v2` e `evaluateTargetInvestigateCaseRound atravessa publication no v2 a partir de ticket-projection target-owned sem depender de causal-debug`.
+- RF-22, parcela runner-side de CA-06:
+  - `src/core/target-investigate-case.ts` passou a decidir `shouldTraverseTargetInvestigateCasePublication(...)` antes de entrar em publication; no fluxo v2, `publication` só é atravessada quando o manifesto declara a etapa, `assessment.publication_recommendation.recommended_action === "publish_ticket"` e `ticket-proposal.json` já existe no namespace autoritativo do target.
+  - O mesmo arquivo grava `publication-decision.json` apenas quando `shouldTraversePublication` é verdadeiro; fora disso, retorna `buildSkippedPublicationDecision(...)` com `publication-continuation-not-entered`, sem materializar artefato versionável e preservando `publication` como continuação runner-side tardia e conservadora.
+  - Evidência automatizada: `src/core/target-investigate-case.test.ts` prova a ausência de `publication-decision.json` no caminho mínimo v2 e a travessia tardia runner-side quando `ticket-projection` target-owned está pronto.
+- RF-03, RF-27, RF-28, CA-08:
+  - `docs/workflows/target-project-compatibility-contract.md` registra explicitamente que a primeira onda runner-side cobre `ticket-projection` e `publication`, enquanto `deep-dive` e `improvement-proposal` ficam para a segunda onda de adoção nos targets aderentes; a cadeia v1 fica limitada a adaptadores de migração explícitos e `../guiadomus-matricula` permanece apenas como referência histórica não canônica.
+  - `docs/workflows/target-case-investigation-v2-manifest.json` reforça o mesmo contrato por `adoptionPlan` e `migration`, tornando observáveis os membros aceitos da allowlist de adaptadores e proibindo backbone legado.
+  - Evidência automatizada/documental complementar: `src/integrations/target-investigate-case-round-preparer.test.ts` cobre `CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigation como namespace autoritativo v2 e nao dispara a cadeia opcional`, garantindo que o caminho mínimo continua diagnosis-first sem recaptura silenciosa pela v1.
+- Validação pendente herdada:
+  - A decisão objetiva desta primeira implementação runner-side ficou registrada no próprio changeset: entram já agora `ticket-projection` e `publication`; `deep-dive` e `improvement-proposal` permanecem como slots canônicos para a segunda onda target-side. A cadeia v1 aceita apenas os adaptadores `semantic-review`, `causal-debug` e `root-cause-review`, sem recuperar backbone obrigatório.
+- Validação automatizada/documental do pacote:
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts` -> `exit 0` com `630` testes passando.
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> `exit 0`.
+  - `rg -n 'segunda onda|targets aderentes|adaptador(es)? de migracao|ticket-projection|publication|ticketPublicationPolicy' docs/workflows/target-project-compatibility-contract.md docs/workflows/target-case-investigation-v2-manifest.json src/core/target-investigate-case.ts` confirmou os anchors documentais e runtime exigidos pelo ExecPlan no mesmo changeset.
+- Manual validation pending recorded on closed ticket: nao

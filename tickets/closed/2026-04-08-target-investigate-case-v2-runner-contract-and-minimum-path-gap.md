@@ -50,8 +50,8 @@
   - src/types/target-flow.ts
   - src/integrations/target-investigate-case-round-preparer.ts
   - prompts/16-target-investigate-case-round-materialization.md
-  - tickets/open/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
-  - tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 
 ## Classificação de risco (check-up não funcional, quando aplicável)
 - Matriz aplicável: não

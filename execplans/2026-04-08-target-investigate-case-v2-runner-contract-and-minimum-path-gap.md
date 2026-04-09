@@ -133,7 +133,7 @@
   `src/integrations/codex-client.test.ts`
 - Fronteira de ownership com tickets irmaos:
   `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md` continua dono das superficies `diagnosis.*`, summary, trace e Telegram; este plano so toca essas superficies se uma mudanca minima de nome/path/shape for inevitavel para manter o caminho minimo coerente.
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` continua dono da modelagem tardia de `deep-dive`, `improvement-proposal`, `ticket-projection`, `publication` e dos guardrails de migracao; este plano so deve remover dependencias obrigatorias dessas etapas sobre o caminho minimo, nao desenhar toda a continuacao.
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` continua dono da modelagem tardia de `deep-dive`, `improvement-proposal`, `ticket-projection`, `publication` e dos guardrails de migracao; este plano so deve remover dependencias obrigatorias dessas etapas sobre o caminho minimo, nao desenhar toda a continuacao.
 - Allowlists / enumeracoes finitas herdadas e sem consolidacao neste plano:
   comando canonico v2: `/target_investigate_case_v2`;
   flow canonico v2: `target-investigate-case-v2`;
@@ -268,7 +268,7 @@
   `src/integrations/target-investigate-case-round-preparer.ts`
   `docs/workflows/target-case-investigation-manifest.json`
   `prompts/16-target-investigate-case-round-materialization.md`
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
   `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`
 - Artefatos esperados ao final da execucao:
   diff focado em contrato v2, manifesto v2, orquestracao minima, namespace/lineage, prompt/loading e testes;
@@ -293,4 +293,4 @@
 - Dependencias externas e mocks:
   fixtures dos testes locais para manifesto/round preparation/codex client precisarao refletir o shape v2;
   a segunda onda em projetos alvo aderentes e dependencia posterior declarada pela spec, nao pre-requisito para concluir este ticket runner-side;
-  o ticket aberto `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` permanece dependencia editorial para o desenho tardio completo das continuacoes opcionais e dos guardrails de migracao.
+  o ticket agora fechado `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` permanece dependencia editorial para o desenho tardio completo das continuacoes opcionais e dos guardrails de migracao.

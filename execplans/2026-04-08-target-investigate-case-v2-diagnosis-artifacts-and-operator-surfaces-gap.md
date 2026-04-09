@@ -106,9 +106,9 @@
   enum finito de `diagnosis.json.verdict`: `ok`, `not_ok`, `inconclusive`;
   secoes obrigatorias de `diagnosis.md`: `Veredito`, `Workflow avaliado`, `Objetivo esperado`, `O que a evidência mostra`, `Por que o caso está ok ou não está`, `Comportamento que precisa mudar`, `Superfície provável de correção`, `Próxima ação`.
 - Fronteira de ownership com tickets irmaos:
-  `tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md` e dono do comando/manifesto/caminho minimo/namespace v2;
+  `tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md` e dono do comando/manifesto/caminho minimo/namespace v2;
   este ticket e dono de `diagnosis.*`, suas validacoes e das superficies operator-facing diagnosis-first;
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` e dono das continuações opcionais, de `publication` tardia e dos guardrails de migracao.
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md` e dono das continuações opcionais, de `publication` tardia e dos guardrails de migracao.
 - Arquivos principais no estado atual:
   `src/types/target-investigate-case.ts`
   `src/core/target-investigate-case.ts`
@@ -231,9 +231,9 @@
 - Spec de origem:
   `docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md`
 - Ticket irmao de contrato:
-  `tickets/open/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`
+  `tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`
 - Ticket irmao de continuações opcionais:
-  `tickets/open/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
+  `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`
 - Docs/prompt correlatos:
   `docs/workflows/codex-quality-gates.md`
   `prompts/16-target-investigate-case-round-materialization.md`

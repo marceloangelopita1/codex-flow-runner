@@ -548,6 +548,10 @@ export const evaluateTargetInvestigateCaseRound = async (
     manifestLoad.manifest,
     artifactPaths,
   );
+  const ticketProposal = await discoverTargetInvestigateCaseTicketProposalArtifact(
+    request.targetProject.path,
+    artifactPaths,
+  );
   const rootCauseReview = await discoverTargetInvestigateCaseRootCauseReviewArtifacts(
     request.targetProject.path,
     manifestLoad.manifest,
@@ -561,7 +565,13 @@ export const evaluateTargetInvestigateCaseRound = async (
 
   validateCaseResolution(normalizedInput, manifestLoad.manifest, caseResolution);
   assertOperationalSubflowsReady(semanticReview, causalDebug, rootCauseReview, assessment);
-  validateAssessmentConsistency(assessment, semanticReview, causalDebug, rootCauseReview);
+  validateAssessmentConsistency(
+    assessment,
+    semanticReview,
+    causalDebug,
+    rootCauseReview,
+    ticketProposal,
+  );
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
   validateDiagnosisCoherence(diagnosis, artifactPaths);
   assertTargetInvestigateCaseV2LegacyLineageCoverage({
@@ -573,20 +583,33 @@ export const evaluateTargetInvestigateCaseRound = async (
     diagnosis,
   });
 
-  const decision = await buildPublicationDecision({
-    targetProject: request.targetProject,
+  const shouldTraversePublication = shouldTraverseTargetInvestigateCasePublication({
     manifest: manifestLoad.manifest,
-    normalizedInput,
-    artifactPaths,
-    caseResolution,
-    evidenceBundle,
     assessment,
-    diagnosis,
-    rootCauseReview,
-    dossier,
-    ticketProposal: causalDebug.ticketProposal,
-    ticketPublisher: request.ticketPublisher,
+    hasTicketProposal: Boolean(ticketProposal),
   });
+
+  const decision = shouldTraversePublication
+    ? await buildPublicationDecision({
+        targetProject: request.targetProject,
+        manifest: manifestLoad.manifest,
+        normalizedInput,
+        artifactPaths,
+        caseResolution,
+        evidenceBundle,
+        assessment,
+        diagnosis,
+        rootCauseReview,
+        dossier,
+        ticketProposal,
+        ticketPublisher: request.ticketPublisher,
+      })
+    : buildSkippedPublicationDecision({
+        manifest: manifestLoad.manifest,
+        assessment,
+        dossier,
+        hasTicketProposal: Boolean(ticketProposal),
+      });
 
   const summary = buildTargetInvestigateCaseFinalSummary({
     caseResolution,
@@ -614,11 +637,13 @@ export const evaluateTargetInvestigateCaseRound = async (
     semanticReview: semanticReview.trace,
     rootCauseReview: rootCauseReview.trace,
   });
-  await writeJsonArtifact(
-    request.targetProject.path,
-    artifactPaths.publicationDecisionPath,
-    targetInvestigateCasePublicationDecisionSchema.parse(decision),
-  );
+  if (shouldTraversePublication) {
+    await writeJsonArtifact(
+      request.targetProject.path,
+      artifactPaths.publicationDecisionPath,
+      targetInvestigateCasePublicationDecisionSchema.parse(decision),
+    );
+  }
 
   return {
     manifestPath: manifestLoad.manifestPath,
@@ -1309,24 +1334,37 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
       });
     }
 
-    await emitTargetInvestigateCaseMilestone({
-      hooks,
-      flow: flowKind,
-      targetProject,
-      milestone: "publication",
-      message: `Publication runner-side em avaliacao para ${normalizedInput.caseRef}.`,
-      versionBoundaryState: "before-versioning",
-      now: this.now,
-    });
-    if (hooks?.isCancellationRequested?.()) {
-      return buildCancelledTargetInvestigateCaseResult({
+    const shouldTraversePublication = await shouldTraverseTargetInvestigateCasePublicationFromArtifacts(
+      {
+        projectPath: targetProject.path,
+        manifest: manifestLoad.manifest,
+        artifactPaths,
+      },
+    );
+
+    if (shouldTraversePublication) {
+      await emitTargetInvestigateCaseMilestone({
+        hooks,
+        flow: flowKind,
         targetProject,
-        roundId,
-        roundDirectory,
-        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(targetProject.path, artifactPaths),
-        cancelledAtMilestone: "publication",
+        milestone: "publication",
+        message: `Publication runner-side em avaliacao para ${normalizedInput.caseRef}.`,
         versionBoundaryState: "before-versioning",
+        now: this.now,
       });
+      if (hooks?.isCancellationRequested?.()) {
+        return buildCancelledTargetInvestigateCaseResult({
+          targetProject,
+          roundId,
+          roundDirectory,
+          artifactPaths: await listExistingTargetInvestigateCaseArtifacts(
+            targetProject.path,
+            artifactPaths,
+          ),
+          cancelledAtMilestone: "publication",
+          versionBoundaryState: "before-versioning",
+        });
+      }
     }
 
     const ticketPublisher = preparation.ticketPublisher
@@ -1393,6 +1431,205 @@ export class ControlledTargetInvestigateCaseExecutor implements TargetInvestigat
     };
   }
 }
+
+const shouldTraverseTargetInvestigateCasePublication = (params: {
+  manifest: TargetInvestigateCaseManifest;
+  assessment: TargetInvestigateCaseAssessment;
+  hasTicketProposal: boolean;
+}): boolean => {
+  if (params.manifest.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW) {
+    return true;
+  }
+
+  if (!params.manifest.stages?.publication) {
+    return false;
+  }
+
+  if (params.assessment.publication_recommendation.recommended_action !== "publish_ticket") {
+    return false;
+  }
+
+  return params.hasTicketProposal;
+};
+
+const shouldTraverseTargetInvestigateCasePublicationFromArtifacts = async (params: {
+  projectPath: string;
+  manifest: TargetInvestigateCaseManifest;
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>;
+}): Promise<boolean> => {
+  if (params.manifest.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW) {
+    return true;
+  }
+
+  if (!params.manifest.stages?.publication) {
+    return false;
+  }
+
+  try {
+    const assessment = await readJsonArtifact(
+      params.projectPath,
+      params.artifactPaths.assessmentPath,
+      targetInvestigateCaseAssessmentSchema,
+      "assessment.json",
+    );
+    const hasTicketProposal = await relativePathExists(
+      params.projectPath,
+      params.artifactPaths.ticketProposalPath,
+    );
+
+    return shouldTraverseTargetInvestigateCasePublication({
+      manifest: params.manifest,
+      assessment,
+      hasTicketProposal,
+    });
+  } catch {
+    return true;
+  }
+};
+
+const buildSkippedPublicationDecision = (params: {
+  manifest: TargetInvestigateCaseManifest;
+  assessment: TargetInvestigateCaseAssessment;
+  dossier: ValidatedDossierArtifact;
+  hasTicketProposal: boolean;
+}): TargetInvestigateCasePublicationDecision => {
+  const gatesApplied = [
+    "manifest-canonical-path",
+    "capability-case-investigation",
+    "input-normalized",
+    "case-resolution-consistent",
+    "evidence-bundle-consistent",
+    "assessment-consistent",
+    `dossier-${params.dossier.format}`,
+    "publication-continuation-not-entered",
+  ];
+  const blockedGates: string[] = [];
+  const hasProjectCapabilityGap =
+    params.assessment.primary_taxonomy === "capability_gap" ||
+    params.assessment.causal_surface.kind === "project-capability-gap" ||
+    params.assessment.causal_surface.kind === "observability-gap";
+  const isRunnerLimitation =
+    params.assessment.causal_surface.owner === "runner" ||
+    params.assessment.causal_surface.kind === "runner-limitation";
+  const hasRichTaxonomy =
+    params.assessment.primary_taxonomy !== null || params.assessment.operational_class !== null;
+  const isExpectedBehaviorTaxonomy = params.assessment.primary_taxonomy === "expected_behavior";
+  const isLikelyBugTaxonomy = params.assessment.primary_taxonomy === "bug_likely";
+  const isEvidenceGapTaxonomy =
+    params.assessment.primary_taxonomy === "evidence_missing_or_partial";
+  let publication_status: TargetInvestigateCasePublicationStatus = "not_applicable";
+  let overall_outcome = "inconclusive-case" as TargetInvestigateCasePublicationDecision["overall_outcome"];
+  let outcome_reason =
+    "A rodada encerrou no caminho minimo diagnosis-first sem atravessar a continuacao publication.";
+  let next_action =
+    params.assessment.next_action?.summary ??
+    "Preservar apenas o trace minimizado e o dossier local desta investigacao.";
+
+  if (
+    params.assessment.publication_recommendation.recommended_action === "publish_ticket" &&
+    !params.hasTicketProposal
+  ) {
+    blockedGates.push("ticket-projection-missing");
+    publication_status = "not_eligible";
+    overall_outcome = hasProjectCapabilityGap
+      ? "inconclusive-project-capability-gap"
+      : "inconclusive-case";
+    outcome_reason =
+      "A continuacao publication nao foi iniciada porque ticket-proposal.json ainda nao foi materializado no namespace autoritativo do target.";
+    next_action =
+      params.assessment.ticket_projection?.summary ??
+      params.assessment.next_action?.summary ??
+      "Materializar ticket-proposal.json no projeto alvo antes de nova publication runner-side.";
+  } else if (isRunnerLimitation) {
+    publication_status = "not_applicable";
+    overall_outcome = "runner-limitation";
+    outcome_reason =
+      "A superficie causal principal pertence ao proprio runner; a continuacao publication nao deve ser atravessada no projeto alvo.";
+    next_action = "Abrir tratamento no runner antes de nova publication para o projeto alvo.";
+  } else if (isExpectedBehaviorTaxonomy || params.assessment.houve_gap_real === "no") {
+    publication_status = "not_applicable";
+    overall_outcome = "no-real-gap";
+    outcome_reason =
+      "O target encerrou a rodada no caminho minimo diagnosis-first sem gap real a generalizar.";
+    next_action = "Encerrar a rodada como no-op local e manter apenas o trace minimizado.";
+  } else if (
+    params.assessment.houve_gap_real === "yes" &&
+    params.assessment.era_evitavel_internamente === "no"
+  ) {
+    publication_status = "not_eligible";
+    overall_outcome = "real-gap-not-internally-avoidable";
+    outcome_reason =
+      "O caso foi reconhecido como gap real, mas sem superficie causal executavel dentro do projeto alvo.";
+    next_action =
+      "Registrar o caso no trace local e encaminhar a dependencia externa fora do fluxo automatico.";
+  } else if (
+    params.assessment.houve_gap_real === "yes" &&
+    params.assessment.era_evitavel_internamente === "yes" &&
+    params.assessment.merece_ticket_generalizavel === "no"
+  ) {
+    publication_status = "not_eligible";
+    overall_outcome = "real-gap-not-generalizable";
+    outcome_reason =
+      "O gap real e local, mas sem base explicita de generalizacao suficiente para ticket automatico.";
+    next_action = "Tratar o caso localmente sem publication automatica.";
+  } else if (params.assessment.primary_taxonomy === "capability_gap") {
+    publication_status = "not_eligible";
+    overall_outcome = "inconclusive-project-capability-gap";
+    outcome_reason =
+      "A rodada permaneceu no caminho minimo porque a propria capability local ainda nao estabilizou a continuacao target-side.";
+    next_action =
+      params.assessment.next_action?.summary ??
+      "Revisar a capability local antes de promover ticket automatico.";
+  } else if (isLikelyBugTaxonomy || isEvidenceGapTaxonomy) {
+    publication_status = "not_applicable";
+    overall_outcome = "inconclusive-case";
+    outcome_reason =
+      "A rodada diagnosis-first ainda nao estabilizou a base necessaria para atravessar publication.";
+    next_action =
+      params.assessment.next_action?.summary ??
+      "Completar a coleta bounded ou estabilizar o caso antes de nova publication runner-side.";
+  } else if (
+    hasProjectCapabilityGap &&
+    params.assessment.merece_ticket_generalizavel !== "not_applicable"
+  ) {
+    publication_status = "not_eligible";
+    overall_outcome = "inconclusive-project-capability-gap";
+    outcome_reason =
+      "A rodada permaneceu inconclusiva por limitacao local do projeto alvo antes da continuacao publication.";
+    next_action = "Revisar a capability local antes de promover ticket automatico.";
+  }
+
+  const decision = targetInvestigateCasePublicationDecisionSchema.parse({
+    publication_status,
+    overall_outcome,
+    outcome_reason,
+    gates_applied: gatesApplied,
+    blocked_gates: blockedGates,
+    versioned_artifact_paths: [],
+    ticket_path: null,
+    next_action,
+  });
+
+  if (
+    !hasRichTaxonomy &&
+    !isTargetInvestigateCasePublicationCombinationValid({
+      houve_gap_real: params.assessment.houve_gap_real,
+      era_evitavel_internamente: params.assessment.era_evitavel_internamente,
+      merece_ticket_generalizavel: params.assessment.merece_ticket_generalizavel,
+      publication_status: decision.publication_status,
+      overall_outcome: decision.overall_outcome,
+    })
+  ) {
+    throw new Error(
+      [
+        "A combinacao final de vereditos semanticos, publication_status e overall_outcome nao faz parte da matriz canonica.",
+        `Tuple: ${params.assessment.houve_gap_real}/${params.assessment.era_evitavel_internamente}/${params.assessment.merece_ticket_generalizavel}/${decision.publication_status}/${decision.overall_outcome}.`,
+      ].join(" "),
+    );
+  }
+
+  return decision;
+};
 
 const buildPublicationDecision = async (params: {
   targetProject: ProjectRef;
@@ -1829,23 +2066,6 @@ const assertOperationalSubflowsReady = (
     );
   }
 
-  if (
-    assessment.publication_recommendation.recommended_action === "publish_ticket" &&
-    !causalDebug.ticketProposal
-  ) {
-    const failureSurface: TargetInvestigateCaseFailureSurface = rootCauseReview.request
-      ? "root-cause-review"
-      : "causal-debug";
-    throw new TargetInvestigateCaseOperationalFailureError(
-      failureSurface,
-      "artifact-validation-failed",
-      "publication",
-      "ticket-proposal.json ausente para packet repo-aware pronto com publication positiva.",
-      assessment.next_action?.summary ??
-        "Materialize ticket-proposal.json no projeto alvo antes de nova publication runner-side.",
-    );
-  }
-
   if (!rootCauseReview.request) {
     return;
   }
@@ -2145,6 +2365,7 @@ const validateAssessmentConsistency = (
   semanticReview?: DiscoveredSemanticReviewArtifacts,
   causalDebug?: DiscoveredCausalDebugArtifacts,
   rootCauseReview?: DiscoveredRootCauseReviewArtifacts,
+  ticketProposal?: TargetInvestigateCaseTicketProposal | null,
 ): void => {
   const hasRichTaxonomy =
     assessment.primary_taxonomy !== null || assessment.operational_class !== null;
@@ -2177,10 +2398,11 @@ const validateAssessmentConsistency = (
 
   if (
     assessment.publication_recommendation.recommended_action === "publish_ticket" &&
-    !causalDebug?.ticketProposal
+    assessment.ticket_projection?.status === "ready" &&
+    !ticketProposal
   ) {
     throw new Error(
-      "publication positiva runner-side exige ticket-proposal.json target-owned materializado.",
+      "ticket_projection.status=ready exige ticket-proposal.json target-owned materializado.",
     );
   }
 
@@ -2787,6 +3009,22 @@ const discoverTargetInvestigateCaseCausalDebugArtifacts = async (
     result,
     ticketProposal,
   };
+};
+
+const discoverTargetInvestigateCaseTicketProposalArtifact = async (
+  projectPath: string,
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>,
+): Promise<TargetInvestigateCaseTicketProposal | null> => {
+  if (!(await relativePathExists(projectPath, artifactPaths.ticketProposalPath))) {
+    return null;
+  }
+
+  return readJsonArtifact(
+    projectPath,
+    artifactPaths.ticketProposalPath,
+    targetInvestigateCaseTicketProposalSchema,
+    TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT,
+  );
 };
 
 const discoverTargetInvestigateCaseRootCauseReviewArtifacts = async (

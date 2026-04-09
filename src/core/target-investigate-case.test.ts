@@ -69,8 +69,12 @@ import {
   TARGET_INVESTIGATE_CASE_SEMANTIC_REVIEW_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_VALID_PUBLICATION_COMBINATIONS,
   TARGET_INVESTIGATE_CASE_V2_COMMAND,
+  TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES,
   TARGET_INVESTIGATE_CASE_V2_FLOW,
+  TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
   TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
+  TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES,
+  TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES,
 } from "../types/target-investigate-case.js";
 
 const runnerRepoPath = fileURLToPath(new URL("../../", import.meta.url));
@@ -200,6 +204,16 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
   );
   assert.equal(loaded.manifest.publicationPolicy.semanticAuthority, "target-project");
   assert.equal(loaded.manifest.publicationPolicy.finalPublicationAuthority, "runner");
+  assert.deepEqual(loaded.manifest.adoptionPlan?.runnerFirstWaveStages, [
+    ...TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES,
+  ]);
+  assert.deepEqual(loaded.manifest.adoptionPlan?.targetAdoptionWaveStages, [
+    ...TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES,
+  ]);
+  assert.deepEqual(loaded.manifest.migration?.legacyAdapters, [
+    ...TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
+  ]);
+  assert.equal(loaded.manifest.migration?.legacyBackboneForbidden, true);
   assert.deepEqual(
     [
       loaded.manifest.stages?.resolveCase.stage,
@@ -212,6 +226,21 @@ test("loadTargetInvestigateCaseManifest aceita o manifesto v2 dedicado com stage
     ],
     [...TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES],
   );
+  assert.equal(
+    loaded.manifest.stages?.deepDive?.promptPath,
+    "docs/workflows/target-investigate-case-v2-deep-dive.md",
+  );
+  assert.deepEqual(loaded.manifest.stages?.deepDive?.policy.allowedTriggers, [
+    ...TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES,
+  ]);
+  assert.deepEqual(loaded.manifest.stages?.ticketProjection?.policy.migrationAdaptersAccepted, [
+    "causal-debug",
+    "root-cause-review",
+  ]);
+  assert.deepEqual(loaded.manifest.stages?.publication?.policy.legacyAdaptersAccepted, [
+    ...TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES,
+  ]);
+  assert.equal(loaded.manifest.stages?.publication?.policy.writesArtifactOnlyWhenTraversed, true);
 });
 
 test("loadTargetInvestigateCaseManifest rejeita manifesto v2 com stage legado fora da matriz canonica", async () => {
@@ -236,6 +265,33 @@ test("loadTargetInvestigateCaseManifest rejeita manifesto v2 com stage legado fo
   });
   assert.equal(loaded.status, "invalid");
   assert.match(loaded.reason, /resolve-case/u);
+});
+
+test("loadTargetInvestigateCaseManifest rejeita manifesto v2 com gatilho de deep-dive fora da matriz canonica", async () => {
+  const fixture = await createTargetRepoFixture();
+  const v2ManifestPath = path.join(
+    fixture.project.path,
+    ...TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH.split("/"),
+  );
+  const v2Manifest = JSON.parse(
+    await fs.readFile(
+      path.join(runnerRepoPath, ...TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH.split("/")),
+      "utf8",
+    ),
+  ) as Record<string, any>;
+  v2Manifest.stages.deepDive.policy.allowedTriggers = [
+    "causal-ambiguity",
+    "unexpected-trigger",
+    "smallest-plausible-change-unclear",
+  ];
+  await fs.writeFile(v2ManifestPath, `${JSON.stringify(v2Manifest, null, 2)}\n`, "utf8");
+  await fs.unlink(path.join(fixture.project.path, ...TARGET_INVESTIGATE_CASE_MANIFEST_PATH.split("/")));
+
+  const loaded = await loadTargetInvestigateCaseManifest(fixture.project.path, {
+    canonicalCommand: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001`,
+  });
+  assert.equal(loaded.status, "invalid");
+  assert.match(loaded.reason, /low-confidence/u);
 });
 
 test("loadTargetInvestigateCaseManifest adapta o manifesto rico atual hardenizado e preserva as allowlists explicitas", async () => {
@@ -1736,6 +1792,98 @@ test("evaluateTargetInvestigateCaseRound grava publication-decision no caminho n
   assert.doesNotMatch(traceJson, /transcript/u);
 });
 
+test("evaluateTargetInvestigateCaseRound nao grava publication-decision no caminho minimo v2", async () => {
+  const fixture = await createTargetRepoFixture({
+    ticketProposalDocument: null,
+  });
+  await writeV2ManifestFixture(fixture.project.path);
+  const artifactPaths = buildV2ArtifactPaths("round-1");
+  await writeV2RoundArtifacts(fixture.project.path, artifactPaths);
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 --workflow extract_address --request-id req-001`,
+    artifacts: artifactPaths,
+  });
+
+  assert.equal(result.publicationDecision.publication_status, "not_applicable");
+  assert.equal(result.publicationDecision.overall_outcome, "no-real-gap");
+  assert.equal(
+    await fileExists(
+      path.join(fixture.project.path, ...artifactPaths.publicationDecisionPath.split("/")),
+    ),
+    false,
+  );
+  assert.equal(
+    await fileExists(path.join(fixture.project.path, "investigations", "round-1", "ticket-proposal.json")),
+    false,
+  );
+});
+
+test("evaluateTargetInvestigateCaseRound atravessa publication no v2 a partir de ticket-projection target-owned sem depender de causal-debug", async () => {
+  const fixture = await createTargetRepoFixture();
+  await writeV2ManifestFixture(fixture.project.path);
+  const artifactPaths = buildV2ArtifactPaths("round-1");
+  await writeV2RoundArtifacts(fixture.project.path, artifactPaths, {
+    assessmentDocument: buildCurrentAssessmentFixture({
+      ticket_projection: {
+        status: "ready",
+        summary: "ticket projection stabilized the target-owned proposal for runner-side publication",
+        ticket_proposal_artifact: "ticket-proposal.json",
+      },
+      next_action: {
+        code: "review-target-ticket-proposal",
+        summary: "Review ticket-proposal.json and continue with conservative runner-side publication.",
+        source: "ticket_projection",
+      },
+      root_cause_review: null,
+      causal_debug: null,
+    }),
+    diagnosisDocument: buildDiagnosisFixture(artifactPaths.evidenceBundlePath, {
+      verdict: "not_ok",
+      summary: "O caso nao esta OK e a proposta de ticket target-owned ficou estabilizada.",
+      why: "A rodada v2 encontrou um bug reutilizavel sem depender da cadeia repo-aware legada.",
+      expected_behavior: "Preservar o comportamento esperado do workflow extract_address.",
+      observed_behavior: "O bundle autoritativo confirma um desvio funcional recorrente.",
+      behavior_to_change: "Corrigir o bug reutilizavel no target.",
+      probable_fix_surface: ["src/workflows/extract-address.ts"],
+      next_action: "Revisar o ticket-proposal.json target-owned e seguir a publication runner-side.",
+    }),
+    diagnosisMarkdown: buildDiagnosisMarkdownFixture({
+      verdict: "O caso nao esta OK e a proposta target-owned esta pronta.",
+      workflow: "extract_address",
+      expectedBehavior: "Preservar o comportamento esperado do workflow extract_address.",
+      evidence:
+        "O case-bundle.json autoritativo confirmou um desvio funcional reutilizavel e o ticket-proposal.json foi materializado pelo target.",
+      why: "O fluxo v2 estabilizou o ticket target-owned sem depender da cadeia legada.",
+      behaviorToChange: "Corrigir o bug reutilizavel no target.",
+      probableFixSurface: "src/workflows/extract-address.ts",
+      nextAction: "Seguir a publication runner-side conservadora.",
+    }),
+    ticketProposalDocument: buildTicketProposalFixture(),
+  });
+
+  const publisher = new StubTargetInvestigateCaseTicketPublisher(
+    "tickets/open/2026-04-08-target-v2-ticket-projection.md",
+  );
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 --workflow extract_address --request-id req-001`,
+    artifacts: artifactPaths,
+    ticketPublisher: publisher,
+  });
+
+  assert.equal(result.publicationDecision.publication_status, "eligible");
+  assert.equal(result.publicationDecision.overall_outcome, "ticket-published");
+  assert.equal(result.publicationDecision.ticket_path, publisher.ticketPath);
+  assert.deepEqual(result.publicationDecision.versioned_artifact_paths, [publisher.ticketPath]);
+  assert.equal(publisher.calls.length, 1);
+  assert.ok(
+    await fileExists(path.join(fixture.project.path, ...artifactPaths.publicationDecisionPath.split("/"))),
+  );
+});
+
 test("evaluateTargetInvestigateCaseRound registra semantic-review blocked sem alterar a semantica atual de publication", async () => {
   const fixture = await createTargetRepoFixture({
     mutateManifest: (manifest) => {
@@ -2573,7 +2721,9 @@ test("evaluateTargetInvestigateCaseRound aceita o trio de lineage do contrato v2
   const fixture = await createTargetRepoFixture();
   const artifactPaths = buildV2ArtifactPaths("2026-04-03T20-15-00Z");
   await writeV2ManifestFixture(fixture.project.path);
-  await writeV2RoundArtifacts(fixture.project.path, artifactPaths);
+  await writeV2RoundArtifacts(fixture.project.path, artifactPaths, {
+    includeOptionalSelectors: true,
+  });
 
   const result = await evaluateTargetInvestigateCaseRound({
     targetProject: fixture.project,
@@ -2609,6 +2759,7 @@ test("evaluateTargetInvestigateCaseRound rejeita case-bundle sem lineage mesmo q
   const artifactPaths = buildV2ArtifactPaths("2026-04-03T20-20-00Z");
   await writeV2ManifestFixture(fixture.project.path);
   await writeV2RoundArtifacts(fixture.project.path, artifactPaths, {
+    includeOptionalSelectors: true,
     omitCaseBundleLineage: true,
   });
 
@@ -2789,7 +2940,9 @@ test("ControlledTargetInvestigateCaseExecutor aceita o contrato v2 com namespace
     now: () => new Date("2026-04-03T20:00:00.000Z"),
     roundPreparer: {
       prepareRound: async (request) => {
-        await writeV2RoundArtifacts(request.targetProject.path, request.artifactPaths);
+        await writeV2RoundArtifacts(request.targetProject.path, request.artifactPaths, {
+          includeOptionalSelectors: true,
+        });
         return {
           status: "prepared",
         };
@@ -2813,7 +2966,7 @@ test("ControlledTargetInvestigateCaseExecutor aceita o contrato v2 com namespace
     return;
   }
 
-  assert.deepEqual(milestones.slice(0, 4), [
+  assert.deepEqual(milestones, [
     "target-investigate-case-v2:/target_investigate_case_v2:preflight",
     "target-investigate-case-v2:/target_investigate_case_v2:resolve-case",
     "target-investigate-case-v2:/target_investigate_case_v2:assemble-evidence",
@@ -2834,6 +2987,18 @@ test("ControlledTargetInvestigateCaseExecutor aceita o contrato v2 com namespace
   );
   assert.equal(result.summary.publicationDecision.publication_status, "not_applicable");
   assert.equal(result.summary.publicationDecision.overall_outcome, "no-real-gap");
+  assert.equal(
+    await fileExists(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T20-00-00Z",
+        "publication-decision.json",
+      ),
+    ),
+    false,
+  );
 });
 
 test("ControlledTargetInvestigateCaseExecutor cruza a fronteira de versionamento apenas dentro de publication e aceita dossier.json", async () => {
@@ -4409,10 +4574,16 @@ const writeV2RoundArtifacts = async (
     diagnosisJsonPath: string;
     diagnosisMdPath: string;
     dossierPath: string;
+    ticketProposalPath: string;
   },
   options: {
     omitCaseResolutionLineage?: boolean;
     omitCaseBundleLineage?: boolean;
+    includeOptionalSelectors?: boolean;
+    assessmentDocument?: Record<string, unknown>;
+    diagnosisDocument?: Record<string, unknown>;
+    diagnosisMarkdown?: string;
+    ticketProposalDocument?: Record<string, unknown> | null;
   } = {},
 ): Promise<void> => {
   const roundId = path.posix.basename(path.posix.dirname(artifactPaths.caseResolutionPath));
@@ -4425,6 +4596,10 @@ const writeV2RoundArtifacts = async (
   };
   caseResolution.selectors.workflow = "extract_address";
   caseResolution.relevant_workflows = ["extract_address"];
+  if (!options.includeOptionalSelectors) {
+    delete caseResolution.selectors.window;
+    delete caseResolution.selectors.symptom;
+  }
   caseResolution.replay_decision = {
     status: "not-required",
     reason: "Base historica suficiente.",
@@ -4457,13 +4632,18 @@ const writeV2RoundArtifacts = async (
   }
   targetInvestigateCaseCaseBundleSchema.parse(caseBundle);
 
-  const assessment = buildAssessmentFixture();
-  assessment.houve_gap_real = "no";
-  assessment.era_evitavel_internamente = "not_applicable";
-  assessment.merece_ticket_generalizavel = "not_applicable";
-  assessment.publication_recommendation.recommended_action = "do_not_publish";
-  assessment.causal_surface.kind = "expected-behavior";
-  assessment.generalization_basis = [];
+  const assessment =
+    options.assessmentDocument ??
+    (() => {
+      const baseAssessment = buildAssessmentFixture();
+      baseAssessment.houve_gap_real = "no";
+      baseAssessment.era_evitavel_internamente = "not_applicable";
+      baseAssessment.merece_ticket_generalizavel = "not_applicable";
+      baseAssessment.publication_recommendation.recommended_action = "do_not_publish";
+      baseAssessment.causal_surface.kind = "expected-behavior";
+      baseAssessment.generalization_basis = [];
+      return baseAssessment;
+    })();
   targetInvestigateCaseAssessmentSchema.parse(assessment);
 
   const evidenceIndex = buildEvidenceIndexFixture(artifactPaths.evidenceBundlePath);
@@ -4473,19 +4653,21 @@ const writeV2RoundArtifacts = async (
   );
   targetInvestigateCaseEvidenceIndexSchema.parse(evidenceIndex);
 
-  const diagnosis = buildDiagnosisFixture(artifactPaths.evidenceBundlePath, {
-    verdict: "ok",
-    summary: "O caso esta OK no contrato v2 e o namespace autoritativo ficou coerente.",
-    why: "A evidencia diagnosis-first confirmou comportamento esperado sem depender da cadeia v1.",
-    expected_behavior: "O workflow extract_address deve preservar o comportamento esperado.",
-    observed_behavior: "A rodada v2 reuniu bundle suficiente e nao encontrou desvio funcional.",
-    behavior_to_change: "Nenhuma correcao necessaria para este caso.",
-    next_action: "Manter o contrato v2 e seguir sem publication automatica.",
-    lineage: buildLegacyLineageFixture(
-      "assessment.json",
-      `${legacyMirrorDirectory}/assessment.json`,
-    ),
-  });
+  const diagnosis =
+    options.diagnosisDocument ??
+    buildDiagnosisFixture(artifactPaths.evidenceBundlePath, {
+      verdict: "ok",
+      summary: "O caso esta OK no contrato v2 e o namespace autoritativo ficou coerente.",
+      why: "A evidencia diagnosis-first confirmou comportamento esperado sem depender da cadeia v1.",
+      expected_behavior: "O workflow extract_address deve preservar o comportamento esperado.",
+      observed_behavior: "A rodada v2 reuniu bundle suficiente e nao encontrou desvio funcional.",
+      behavior_to_change: "Nenhuma correcao necessaria para este caso.",
+      next_action: "Manter o contrato v2 e seguir sem publication automatica.",
+      lineage: buildLegacyLineageFixture(
+        "assessment.json",
+        `${legacyMirrorDirectory}/assessment.json`,
+      ),
+    });
   targetInvestigateCaseDiagnosisSchema.parse(diagnosis);
 
   const writes: Array<[string, string]> = [
@@ -4496,20 +4678,29 @@ const writeV2RoundArtifacts = async (
     [artifactPaths.diagnosisJsonPath, `${JSON.stringify(diagnosis, null, 2)}\n`],
     [
       artifactPaths.diagnosisMdPath,
-      buildDiagnosisMarkdownFixture({
-        verdict: "O caso esta OK no contrato v2.",
-        workflow: "extract_address",
-        expectedBehavior: "Preservar o comportamento esperado no contrato diagnosis-first.",
-        evidence:
-          "O case-bundle.json e o evidence-index.json autoritativos ficaram coerentes entre si.",
-        why: "Nao ha divergencia funcional relevante nesta rodada.",
-        behaviorToChange: "Nenhuma correcao necessaria para este caso.",
-        probableFixSurface: "N/A",
-        nextAction: "Manter o contrato v2 e seguir sem publication automatica.",
-      }),
+      options.diagnosisMarkdown ??
+        buildDiagnosisMarkdownFixture({
+          verdict: "O caso esta OK no contrato v2.",
+          workflow: "extract_address",
+          expectedBehavior: "Preservar o comportamento esperado no contrato diagnosis-first.",
+          evidence:
+            "O case-bundle.json e o evidence-index.json autoritativos ficaram coerentes entre si.",
+          why: "Nao ha divergencia funcional relevante nesta rodada.",
+          behaviorToChange: "Nenhuma correcao necessaria para este caso.",
+          probableFixSurface: "N/A",
+          nextAction: "Manter o contrato v2 e seguir sem publication automatica.",
+        }),
     ],
     [artifactPaths.dossierPath, "# dossier\n\nResumo local do namespace autoritativo v2.\n"],
   ];
+
+  if (options.ticketProposalDocument) {
+    targetInvestigateCaseTicketProposalSchema.parse(options.ticketProposalDocument);
+    writes.push([
+      artifactPaths.ticketProposalPath,
+      `${JSON.stringify(options.ticketProposalDocument, null, 2)}\n`,
+    ]);
+  }
 
   for (const [relativePath, contents] of writes) {
     const absolutePath = path.join(projectPath, ...relativePath.split("/"));

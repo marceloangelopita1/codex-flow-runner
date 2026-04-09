@@ -204,6 +204,26 @@ export const TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES = uniqueValu
   ["preflight", "resolve-case", "assemble-evidence", "diagnosis"] as const,
   "target-investigate-case-v2-minimum-path",
 );
+export const TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES = uniqueValues(
+  [
+    "causal-ambiguity",
+    "low-confidence",
+    "smallest-plausible-change-unclear",
+  ] as const,
+  "target-investigate-case-v2-deep-dive-triggers",
+);
+export const TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES = uniqueValues(
+  ["ticket-projection", "publication"] as const,
+  "target-investigate-case-v2-runner-first-stages",
+);
+export const TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES = uniqueValues(
+  ["deep-dive", "improvement-proposal"] as const,
+  "target-investigate-case-v2-target-adoption-stages",
+);
+export const TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES = uniqueValues(
+  ["semantic-review", "causal-debug", "root-cause-review"] as const,
+  "target-investigate-case-v2-migration-adapters",
+);
 export const TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS = uniqueValues(
   [
     "Veredito",
@@ -1262,6 +1282,114 @@ const targetInvestigateCasePilotManifestRootCauseReviewSchema = z
   })
   .strict();
 
+const targetInvestigateCaseV2AdoptionPlanSchema = z
+  .object({
+    runnerFirstWaveStages: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_RUNNER_FIRST_STAGE_VALUES[1]),
+      ])
+      .readonly(),
+    targetAdoptionWaveStages: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_TARGET_ADOPTION_STAGE_VALUES[1]),
+      ])
+      .readonly(),
+  })
+  .strict();
+
+const targetInvestigateCaseV2MigrationSchema = z
+  .object({
+    legacyAdapters: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[1]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[2]),
+      ])
+      .readonly(),
+    legacyBackboneForbidden: z.literal(true),
+    pilotReferenceIsNonCanonical: z.literal(true),
+    targetAdoptionSecondWaveRequired: z.literal(true),
+  })
+  .strict();
+
+const targetInvestigateCaseV2DeepDivePolicySchema = z
+  .object({
+    optional: z.literal(true),
+    lateContinuation: z.literal(true),
+    entersMinimumPath: z.literal(false),
+    executionOrder: z.literal("after-diagnosis"),
+    allowedTriggers: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES[1]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_DEEP_DIVE_TRIGGER_VALUES[2]),
+      ])
+      .readonly(),
+    reopensFullDiagnosis: z.literal(false),
+    adoptionWave: z.literal("target-adoption"),
+  })
+  .strict();
+
+const targetInvestigateCaseV2ImprovementProposalPolicySchema = z
+  .object({
+    optional: z.literal(true),
+    lateContinuation: z.literal(true),
+    entersMinimumPath: z.literal(false),
+    executionOrder: z.literal("after-diagnosis"),
+    requiresDiagnosisConfidence: z
+      .tuple([z.literal("medium"), z.literal("high")])
+      .readonly(),
+    requiresActionableChange: z.literal(true),
+    reopensFullDiagnosis: z.literal(false),
+    adoptionWave: z.literal("target-adoption"),
+  })
+  .strict();
+
+const targetInvestigateCaseV2TicketProjectionPolicySchema = z
+  .object({
+    optional: z.literal(true),
+    lateContinuation: z.literal(true),
+    entersMinimumPath: z.literal(false),
+    executionOrder: z.literal("after-improvement-proposal"),
+    allowsDirectlyAfterDiagnosis: z.literal(true),
+    requiresDiagnosisStabilized: z.literal(true),
+    reopensFullDiagnosis: z.literal(false),
+    authoritativeArtifact: z.literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT),
+    requiresTargetTicketPublicationPolicy: z.literal(true),
+    adoptionWave: z.literal("runner-first"),
+    migrationAdaptersAccepted: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[1]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[2]),
+      ])
+      .readonly(),
+  })
+  .strict();
+
+const targetInvestigateCaseV2PublicationStagePolicySchema = z
+  .object({
+    semanticAuthority: z.literal("target-project"),
+    finalPublicationAuthority: z.literal("runner"),
+    optional: z.literal(true),
+    lateContinuation: z.literal(true),
+    entersMinimumPath: z.literal(false),
+    executionOrder: z.literal("after-ticket-projection"),
+    runnerOwned: z.literal(true),
+    requiresTicketProposal: z.literal(true),
+    writesArtifactOnlyWhenTraversed: z.literal(true),
+    adoptionWave: z.literal("runner-first"),
+    legacyAdaptersAccepted: z
+      .tuple([
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[0]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[1]),
+        z.literal(TARGET_INVESTIGATE_CASE_V2_MIGRATION_ADAPTER_VALUES[2]),
+      ])
+      .readonly(),
+  })
+  .strict();
+
 export const targetInvestigateCaseManifestSchema = z
   .object({
     contractVersion: z.literal(TARGET_INVESTIGATE_CASE_CONTRACT_VERSION),
@@ -1480,6 +1608,8 @@ export const targetInvestigateCaseManifestSchema = z
         finalPublicationAuthority: z.literal("runner").optional(),
       })
       .strict(),
+    adoptionPlan: targetInvestigateCaseV2AdoptionPlanSchema.optional(),
+    migration: targetInvestigateCaseV2MigrationSchema.optional(),
     roundDirectories: z
       .object({
         authoritative: trimmedString,
@@ -1557,7 +1687,7 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[3]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema.optional(),
+            promptPath: relativePathSchema,
             entrypoint: z
               .object({
                 command: trimmedString.optional(),
@@ -1566,7 +1696,7 @@ export const targetInvestigateCaseManifestSchema = z
               .strict()
               .optional(),
             artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.deepDive.artifacts"),
-            policy: z.record(z.string(), z.unknown()),
+            policy: targetInvestigateCaseV2DeepDivePolicySchema,
           })
           .strict()
           .optional(),
@@ -1575,7 +1705,7 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[4]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema.optional(),
+            promptPath: relativePathSchema,
             entrypoint: z
               .object({
                 command: trimmedString.optional(),
@@ -1587,7 +1717,7 @@ export const targetInvestigateCaseManifestSchema = z
               relativePathSchema,
               "stages.improvementProposal.artifacts",
             ),
-            policy: z.record(z.string(), z.unknown()),
+            policy: targetInvestigateCaseV2ImprovementProposalPolicySchema,
           })
           .strict()
           .optional(),
@@ -1596,7 +1726,7 @@ export const targetInvestigateCaseManifestSchema = z
             stage: z.literal(TARGET_INVESTIGATE_CASE_ALLOWED_V2_STAGE_VALUES[5]),
             owner: z.literal("target-project"),
             runnerExecutor: z.literal("codex-flow-runner"),
-            promptPath: relativePathSchema.optional(),
+            promptPath: relativePathSchema,
             entrypoint: z
               .object({
                 command: trimmedString.optional(),
@@ -1608,7 +1738,7 @@ export const targetInvestigateCaseManifestSchema = z
               relativePathSchema,
               "stages.ticketProjection.artifacts",
             ),
-            policy: z.record(z.string(), z.unknown()),
+            policy: targetInvestigateCaseV2TicketProjectionPolicySchema,
           })
           .strict()
           .optional(),
@@ -1618,7 +1748,7 @@ export const targetInvestigateCaseManifestSchema = z
             owner: z.literal("codex-flow-runner"),
             runnerExecutor: z.literal("codex-flow-runner"),
             artifacts: uniqueNonEmptyArray(relativePathSchema, "stages.publication.artifacts"),
-            policy: z.record(z.string(), z.unknown()),
+            policy: targetInvestigateCaseV2PublicationStagePolicySchema,
           })
           .strict()
           .optional(),
@@ -1749,10 +1879,43 @@ export const targetInvestigateCaseManifestSchema = z
       return;
     }
 
+    if (!value.adoptionPlan) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["adoptionPlan"],
+        message: "Manifesto v2 exige adoptionPlan com runner-first e segunda onda target-side.",
+      });
+    }
+
+    if (!value.migration) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["migration"],
+        message: "Manifesto v2 exige migration com adaptadores legados explicitamente limitados.",
+      });
+    }
+
+    if (
+      !value.stages.deepDive ||
+      !value.stages.improvementProposal ||
+      !value.stages.ticketProjection ||
+      !value.stages.publication
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stages"],
+        message:
+          "Manifesto v2 exige explicitar deep-dive, improvement-proposal, ticket-projection e publication como continuacoes opcionais.",
+      });
+    }
+
     const requiredPromptConventions: Array<[string, string | undefined]> = [
       ["resolve-case", value.stages.resolveCase.promptPath],
       ["assemble-evidence", value.stages.assembleEvidence.promptPath],
       ["diagnosis", value.stages.diagnosis.promptPath],
+      ["deep-dive", value.stages.deepDive?.promptPath],
+      ["improvement-proposal", value.stages.improvementProposal?.promptPath],
+      ["ticket-projection", value.stages.ticketProjection?.promptPath],
     ];
 
     for (const [stage, promptPath] of requiredPromptConventions) {
@@ -2787,7 +2950,26 @@ export const targetInvestigateCaseAssessmentTicketProjectionSchema = z
       .literal(TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_ARTIFACT)
       .nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.status === "ready" && value.ticket_proposal_artifact === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ticket_proposal_artifact"],
+        message:
+          "ticket_projection.status=ready exige ticket_proposal_artifact=ticket-proposal.json.",
+      });
+    }
+
+    if (value.status !== "ready" && value.ticket_proposal_artifact !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ticket_proposal_artifact"],
+        message:
+          "ticket_projection fora de ready nao pode apontar ticket_proposal_artifact canonico.",
+      });
+    }
+  });
 
 const targetInvestigateCaseAssessmentPrimaryRemediationFollowUpSchema = z
   .object({
