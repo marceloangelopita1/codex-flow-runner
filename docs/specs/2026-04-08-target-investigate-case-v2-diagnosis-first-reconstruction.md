@@ -2,20 +2,28 @@
 
 ## Metadata
 - Spec ID: 2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction
-- Status: approved
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-08 22:07Z
+- Last reviewed at (UTC): 2026-04-09 01:05Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - tickets/closed/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
   - tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related execplans:
-  - nenhum ainda
+  - execplans/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
+  - execplans/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
+  - execplans/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
+  - execplans/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
 - Related commits:
-  - changeset desta triagem versionado neste commit
+  - `5e4e961` - fechamento do ticket de `diagnosis.*` e das superfícies operator-facing diagnosis-first.
+  - `bb2e497` - fechamento do ticket de contrato runner-side e do caminho mínimo diagnosis-first.
+  - `5060863` - fechamento do follow-up de `lineage` nos artefatos mínimos da v2.
+  - `4edbbc3` - fechamento do ticket de continuações opcionais, publication tardia e guardrails de migração.
+  - auditoria final desta spec versionada no commit desta etapa.
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -347,14 +355,14 @@
 - substituir julgamento humano por gates cegos de artifact completeness.
 
 ## Critérios de aceitação (observáveis)
-- [ ] CA-01 - existe um contrato v2 explícito, com nome próprio, estágios canônicos e manifesto cross-repo para runner e target.
-- [ ] CA-02 - o caminho mínimo da v2 materializa `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json` sem exigir `deep-dive`, `ticket-proposal.json` nem `publication-decision.json`.
-- [ ] CA-03 - `diagnosis.md` responde claramente se o caso está ok ou não está, por quê, o que precisa mudar e qual é a superfície provável de correção.
-- [ ] CA-04 - o estágio `assemble-evidence` é explicitamente responsável por instruções de coleta e por indexar as evidências necessárias do caso.
-- [ ] CA-05 - `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` existem como continuações opcionais e tardias.
-- [ ] CA-06 - a semântica do caso continua target-owned, enquanto a publication final continua runner-side.
-- [ ] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
-- [ ] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
+- [x] CA-01 - existe um contrato v2 explícito, com nome próprio, estágios canônicos e manifesto cross-repo para runner e target.
+- [x] CA-02 - o caminho mínimo da v2 materializa `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json` sem exigir `deep-dive`, `ticket-proposal.json` nem `publication-decision.json`.
+- [x] CA-03 - `diagnosis.md` responde claramente se o caso está ok ou não está, por quê, o que precisa mudar e qual é a superfície provável de correção.
+- [x] CA-04 - o estágio `assemble-evidence` é explicitamente responsável por instruções de coleta e por indexar as evidências necessárias do caso.
+- [x] CA-05 - `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` existem como continuações opcionais e tardias.
+- [x] CA-06 - a semântica do caso continua target-owned, enquanto a publication final continua runner-side.
+- [x] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
+- [x] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
 
 ## Gate de validação dos tickets derivados
 - Veredito atual: GO
@@ -447,41 +455,42 @@
 
 ## Validações pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
-  - validar o contrato de manifesto v2 e os novos schemas canônicos no runner;
-  - validar a legibilidade de `diagnosis.md` em casos reais;
-  - validar a separação entre namespace autoritativo do target e espelho runner-side durante migração.
+  - nenhuma bloqueando o fechamento runner-side desta spec; manifesto v2, schemas canônicos, `lineage`, namespace autoritativo, summary final e integração com Telegram ficaram cobertos por código, tickets fechados e validações automatizadas.
 - Validações manuais pendentes:
-  - escolher o primeiro target de adoção da v2 depois que o runner suportar o novo contrato;
-  - confirmar se algum estágio opcional precisa nascer já na primeira implementação runner-side ou pode ser deixado para a onda de adoção do target.
+  - validar a legibilidade de `diagnosis.md` em caso real de target aderente; permanece como verificação operacional externa/manual e não bloqueia o fechamento deste pacote runner-side.
+  - escolher o primeiro target de adoção da v2 em repositório externo; permanece como passo operacional posterior e não configura gap residual local desta auditoria.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: approved
+- Estado geral: attended
 - Itens atendidos:
   - crítica central da v1 consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
   - fluxo mínimo diagnosis-first definido;
-  - prompts canônicos e artefatos da v2 definidos.
+  - prompts canônicos, manifesto dedicado e artefatos da v2 definidos e validados runner-side;
+  - `diagnosis.md`/`diagnosis.json`, summary final do runner e Telegram passaram a operar em modo diagnosis-first;
+  - `lineage` ficou observável em `case-resolution.json`, `case-bundle.json` e `diagnosis.json` quando a rodada nasce da v1;
+  - continuações opcionais e `publication` ficaram tardias, com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
 - Pendências em aberto:
-  - `tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md`: introduzir o contrato `/target_investigate_case_v2`, os estágios canônicos, o caminho mínimo e a rastreabilidade v1 -> v2 sem manter a cadeia v1 como backbone obrigatório.
-  - `tickets/closed/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md`: materializar `diagnosis.md`/`diagnosis.json` e tornar summary, trace e Telegram diagnosis-first.
-  - `tickets/closed/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md`: rebaixar publication e continuações opcionais a etapas tardias com guardrails explícitos de migração e documentação de segunda onda para targets aderentes.
-  - a escolha do primeiro target de adoção da v2 continua pendente e deliberadamente fora deste pacote runner-side, porque depende de decisão manual em repositório externo depois que o contrato local estiver estável.
+  - nenhuma no repositório atual; a adoção do primeiro target real continua sendo decisão operacional externa/manual e não gera follow-up local nesta auditoria.
 - Evidências de validação:
-  - análise documental cross-repo concluída;
-  - revisão crítica da v1 consolidada nesta spec;
-  - comparação objetiva com `src/types/target-investigate-case.ts`, `src/types/target-flow.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md` e `docs/workflows/target-case-investigation-manifest.json`.
+  - releitura da spec, dos quatro tickets fechados da linhagem, dos quatro execplans relacionados e do estado atual do código antes desta auditoria final;
+  - comparação objetiva com `src/types/target-investigate-case.ts`, `src/types/target-flow.ts`, `src/core/target-investigate-case.ts`, `src/core/runner.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md`, `docs/workflows/target-case-investigation-v2-manifest.json` e `docs/workflows/target-project-compatibility-contract.md`;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/target-investigate-case-ticket-publisher.test.ts src/core/runner.test.ts src/integrations/telegram-bot.test.ts src/integrations/codex-client.test.ts` -> `exit 0` com `630` testes passando;
+  - `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> `exit 0`.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
-  - n/a
+  - 2026-04-09 01:05Z
 - Resultado:
-  - n/a
+  - GO sem gaps residuais locais; `Status` atualizado para `attended` e `Spec treatment` atualizado para `done`.
+  - O checklist compartilhado de `docs/workflows/codex-quality-gates.md` foi reaplicado sobre a spec, os tickets fechados, os execplans relacionados e o código atual.
+  - A implementação entregue cobre contrato v2 explícito, caminho mínimo `preflight -> resolve-case -> assemble-evidence -> diagnosis`, `lineage` obrigatória no trio de artefatos canônicos quando houver origem legada, surfaces operator-facing diagnosis-first e continuações opcionais tardias com publication runner-side conservadora.
 - Tickets/follow-ups abertos a partir da auditoria:
-  - nenhum ainda
+  - nenhum
 - Causas-raiz sistêmicas identificadas:
-  - n/a
+  - nenhuma; a auditoria não encontrou gap residual funcional que justificasse novo follow-up local.
 - Ajustes genéricos promovidos ao workflow:
-  - n/a
+  - nenhum; não houve promoção de backlog transversal nesta etapa.
 
 ## Riscos e impacto
 - Risco funcional:
@@ -504,3 +513,4 @@
 - 2026-04-08 21:12Z - Reescrita estrutural da spec para explicitar contrato runner-target, estágios formais anteriores ao diagnóstico, prompts canônicos e artefatos obrigatórios da v2.
 - 2026-04-08 21:44Z - Triagem runner-side concluída com comparação contra o código atual, derivação de três tickets em `tickets/open/`, atualização de `Related tickets`, `Last reviewed at (UTC)` e pendências objetivas no `Status de atendimento`, mantendo `Status: approved`.
 - 2026-04-08 22:07Z - Validação final da triagem com normalização documental, deduplicação do histórico do gate e manutenção de `Status: approved` / `Spec treatment: pending` por existirem tickets abertos.
+- 2026-04-09 01:05Z - Auditoria final pós-`/run_all` concluída: releitura da linhagem completa, confirmação de ausência de gaps residuais locais, atualização de `Related tickets`/`Related execplans`, e fechamento documental da spec como `Status: attended` / `Spec treatment: done`.
