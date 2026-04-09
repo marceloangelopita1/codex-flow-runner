@@ -715,6 +715,263 @@ test("CodexCliTargetInvestigateCaseRoundPreparer preserva output/case-investigat
     ),
     true,
   );
+  const authoritativeCaseResolution = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T19-00-00Z",
+        "case-resolution.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  const mirroredCaseResolution = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "case-resolution.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  const authoritativeCaseBundle = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T19-00-00Z",
+        "case-bundle.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  const mirroredCaseBundle = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "case-bundle.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  const authoritativeDiagnosis = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "output",
+        "case-investigation",
+        "2026-04-03T19-00-00Z",
+        "diagnosis.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  const mirroredDiagnosis = JSON.parse(
+    await fs.readFile(
+      path.join(
+        fixture.project.path,
+        "investigations",
+        "2026-04-03T19-00-00Z",
+        "diagnosis.json",
+      ),
+      "utf8",
+    ),
+  ) as { lineage?: unknown[] };
+  assert.deepEqual(mirroredCaseResolution.lineage, authoritativeCaseResolution.lineage);
+  assert.deepEqual(mirroredCaseBundle.lineage, authoritativeCaseBundle.lineage);
+  assert.deepEqual(mirroredDiagnosis.lineage, authoritativeDiagnosis.lineage);
+  assert.deepEqual(authoritativeCaseResolution.lineage, [
+    {
+      source: "legacy-target-investigate-case",
+      artifact: "case-resolution.json",
+      path: "investigations/2026-04-03T19-00-00Z/case-resolution.json",
+    },
+  ]);
+  assert.deepEqual(authoritativeCaseBundle.lineage, [
+    {
+      source: "legacy-target-investigate-case",
+      artifact: "evidence-bundle.json",
+      path: "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
+    },
+  ]);
+  assert.deepEqual(authoritativeDiagnosis.lineage, [
+    {
+      source: "legacy-target-investigate-case",
+      artifact: "assessment.json",
+      path: "investigations/2026-04-03T19-00-00Z/assessment.json",
+    },
+  ]);
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer falha quando case-resolution nao preserva lineage no contrato v2 de origem legada", async () => {
+  const fixture = await createRoundPreparerFixture();
+  fixture.request.manifest = targetInvestigateCaseManifestSchema.parse({
+    ...fixture.request.manifest,
+    flow: TARGET_INVESTIGATE_CASE_V2_FLOW,
+    command: TARGET_INVESTIGATE_CASE_V2_COMMAND,
+    outputs: {
+      ...fixture.request.manifest.outputs,
+      evidenceIndex: {
+        artifactPath: "evidence-index.json",
+        schemaVersion: "1.0",
+      },
+      evidenceBundle: {
+        artifactPath: "case-bundle.json",
+        schemaVersion: "1.0",
+      },
+    },
+    dossierPolicy: {
+      ...fixture.request.manifest.dossierPolicy,
+      localPathTemplate: "output/case-investigation/<round-id>",
+    },
+    publicationPolicy: {
+      ...fixture.request.manifest.publicationPolicy,
+      semanticAuthority: "target-project",
+      finalPublicationAuthority: "runner",
+    },
+    roundDirectories: {
+      authoritative: "output/case-investigation/<round-id>",
+      mirror: "investigations/<round-id>",
+    },
+    minimumPath: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
+    stages: {
+      resolveCase: {
+        stage: "resolve-case",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-resolve-case.md",
+        artifacts: ["case-resolution.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      assembleEvidence: {
+        stage: "assemble-evidence",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-assemble-evidence.md",
+        artifacts: ["evidence-index.json", "case-bundle.json"],
+        policy: {
+          declaredSurfacesOnly: true,
+        },
+      },
+      diagnosis: {
+        stage: "diagnosis",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        promptPath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
+        artifacts: ["diagnosis.md", "diagnosis.json", "assessment.json"],
+        policy: {
+          semanticAuthority: "target-project",
+        },
+      },
+      deepDive: {
+        stage: "deep-dive",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["deep-dive.request.json", "deep-dive.result.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      improvementProposal: {
+        stage: "improvement-proposal",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["improvement-proposal.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      ticketProjection: {
+        stage: "ticket-projection",
+        owner: "target-project",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["ticket-proposal.json"],
+        policy: {
+          optional: true,
+        },
+      },
+      publication: {
+        stage: "publication",
+        owner: "codex-flow-runner",
+        runnerExecutor: "codex-flow-runner",
+        artifacts: ["publication-decision.json"],
+        policy: {
+          semanticAuthority: "target-project",
+          finalPublicationAuthority: "runner",
+        },
+      },
+    },
+    semanticReview: undefined,
+    causalDebug: undefined,
+    rootCauseReview: undefined,
+  });
+  fixture.request.manifestPath = TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH;
+  fixture.request.normalizedInput = {
+    ...fixture.request.normalizedInput,
+    canonicalCommand:
+      "/target_investigate_case_v2 alpha-project case-001 --workflow extract_address --request-id req-001",
+  };
+  fixture.request.roundDirectory = "output/case-investigation/2026-04-03T19-10-00Z";
+  fixture.request.artifactPaths = {
+    ...fixture.request.artifactPaths,
+    caseResolutionPath: "output/case-investigation/2026-04-03T19-10-00Z/case-resolution.json",
+    evidenceIndexPath: "output/case-investigation/2026-04-03T19-10-00Z/evidence-index.json",
+    evidenceBundlePath: "output/case-investigation/2026-04-03T19-10-00Z/case-bundle.json",
+    assessmentPath: "output/case-investigation/2026-04-03T19-10-00Z/assessment.json",
+    diagnosisJsonPath: "output/case-investigation/2026-04-03T19-10-00Z/diagnosis.json",
+    diagnosisMdPath: "output/case-investigation/2026-04-03T19-10-00Z/diagnosis.md",
+    dossierPath: "output/case-investigation/2026-04-03T19-10-00Z/dossier.md",
+    semanticReviewRequestPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/semantic-review.request.json",
+    semanticReviewResultPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/semantic-review.result.json",
+    causalDebugRequestPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/causal-debug.request.json",
+    causalDebugResultPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/causal-debug.result.json",
+    rootCauseReviewRequestPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/root-cause-review.request.json",
+    rootCauseReviewResultPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/root-cause-review.result.json",
+    remediationProposalPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/remediation-proposal.json",
+    ticketProposalPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/ticket-proposal.json",
+    publicationDecisionPath:
+      "output/case-investigation/2026-04-03T19-10-00Z/publication-decision.json",
+  };
+
+  const codexClient = new StubCodexClient(async (request) => {
+    await materializeV2RoundArtifacts(request.targetProject.path, request.roundDirectory, {
+      omitCaseResolutionLineage: true,
+    });
+  });
+  const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+    logger: new SilentLogger(),
+    runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+    createCodexClient: () => codexClient,
+    createGitVersioning: () => new StubGitVersioning(),
+  });
+
+  const result = await preparer.prepareRound(fixture.request);
+  assert.equal(result.status, "failed", JSON.stringify(result));
+  if (result.status !== "failed") {
+    return;
+  }
+
+  assert.match(
+    result.message,
+    /case-resolution\.json nao carregam lineage obrigatoria|evidence-index\.json pode manter lineage auxiliar/u,
+  );
 });
 
 test("CodexCliTargetInvestigateCaseRoundPreparer segue sem regressao quando semantic-review.request.json esta ausente", async () => {
@@ -1953,8 +2210,14 @@ const materializeRoundArtifacts = async (
 const materializeV2RoundArtifacts = async (
   projectPath: string,
   roundDirectory: string,
+  options: {
+    omitCaseResolutionLineage?: boolean;
+    omitCaseBundleLineage?: boolean;
+  } = {},
 ): Promise<void> => {
   const roundPath = path.join(projectPath, ...roundDirectory.split("/"));
+  const roundId = path.posix.basename(roundDirectory);
+  const legacyMirrorDirectory = path.posix.join("investigations", roundId);
   await fs.mkdir(roundPath, { recursive: true });
   await fs.writeFile(
     path.join(roundPath, "case-resolution.json"),
@@ -1980,6 +2243,17 @@ const materializeV2RoundArtifacts = async (
           reason: "Base historica suficiente.",
         },
         resolution_reason: "O caso foi resolvido sem depender da cadeia repo-aware opcional.",
+        ...(!options.omitCaseResolutionLineage
+          ? {
+              lineage: [
+                {
+                  source: "legacy-target-investigate-case",
+                  artifact: "case-resolution.json",
+                  path: `${legacyMirrorDirectory}/case-resolution.json`,
+                },
+              ],
+            }
+          : {}),
       },
       null,
       2,
@@ -1998,6 +2272,13 @@ const materializeV2RoundArtifacts = async (
             locator: `${roundDirectory}/case-bundle.json`,
             acquired_via: "manifest-guided-collection",
             relevance: "Bundle curado necessario para o diagnostico.",
+          },
+        ],
+        lineage: [
+          {
+            source: "legacy-target-investigate-case",
+            artifact: "evidence-bundle.json",
+            path: `${legacyMirrorDirectory}/evidence-bundle.json`,
           },
         ],
       },
@@ -2042,6 +2323,17 @@ const materializeV2RoundArtifacts = async (
         collection_sufficiency: "strong",
         normative_conflicts: [],
         factual_sufficiency_reason: "A rodada reuniu evidencia suficiente no contrato v2.",
+        ...(!options.omitCaseBundleLineage
+          ? {
+              lineage: [
+                {
+                  source: "legacy-target-investigate-case",
+                  artifact: "evidence-bundle.json",
+                  path: `${legacyMirrorDirectory}/evidence-bundle.json`,
+                },
+              ],
+            }
+          : {}),
       },
       null,
       2,
@@ -2105,7 +2397,7 @@ const materializeV2RoundArtifacts = async (
           {
             source: "legacy-target-investigate-case",
             artifact: "assessment.json",
-            path: `${roundDirectory}/assessment.json`,
+            path: `${legacyMirrorDirectory}/assessment.json`,
           },
         ],
       },

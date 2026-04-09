@@ -14,6 +14,7 @@ import {
   normalizeTargetInvestigateCaseRelativePath,
   normalizeTargetInvestigateCaseManifestDocument,
   targetInvestigateCaseAssessmentSchema,
+  targetInvestigateCaseCaseBundleSchema,
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseCausalDebugResultSchema,
@@ -22,6 +23,7 @@ import {
   targetInvestigateCaseEvidenceIndexSchema,
   targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseFinalSummarySchema,
+  targetInvestigateCaseLineageHasLegacyOrigin,
   targetInvestigateCaseNormalizedInputSchema,
   targetInvestigateCasePublicationDecisionSchema,
   targetInvestigateCaseRootCauseReviewRequestSchema,
@@ -34,6 +36,7 @@ import {
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseAssessment,
   TargetInvestigateCaseArtifactSet,
+  TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_RESULT_ARTIFACT,
   TARGET_INVESTIGATE_CASE_COMMAND,
@@ -52,12 +55,14 @@ import {
   TARGET_INVESTIGATE_CASE_V2_FLOW,
   TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
   TARGET_INVESTIGATE_CASE_V2_MIRROR_ROUNDS_DIR,
+  TargetInvestigateCaseCaseBundle,
   TargetInvestigateCaseCaseResolution,
   TargetInvestigateCaseCausalDebugRequest,
   TargetInvestigateCaseCausalDebugResult,
   TargetInvestigateCaseCompletedSummary,
   TargetInvestigateCaseDiagnosis,
   TargetInvestigateCaseEvidenceBundle,
+  TargetInvestigateCaseEvidenceIndex,
   TargetInvestigateCaseExecutionResult,
   TargetInvestigateCaseFailureKind,
   TargetInvestigateCaseFailureSummary,
@@ -501,22 +506,21 @@ export const evaluateTargetInvestigateCaseRound = async (
     normalizedInput,
     roundId: path.posix.basename(path.posix.dirname(artifactPaths.caseResolutionPath)),
   });
-  if (
-    await relativePathExists(request.targetProject.path, artifactPaths.evidenceIndexPath)
-  ) {
-    await readJsonArtifact(
-      request.targetProject.path,
-      artifactPaths.evidenceIndexPath,
-      targetInvestigateCaseEvidenceIndexSchema,
-      path.posix.basename(artifactPaths.evidenceIndexPath),
-    );
-  }
-  const evidenceBundle = await readJsonArtifact(
+  const evidenceIndex = (await relativePathExists(
     request.targetProject.path,
-    artifactPaths.evidenceBundlePath,
-    targetInvestigateCaseEvidenceBundleSchema,
-    path.posix.basename(artifactPaths.evidenceBundlePath),
-  );
+    artifactPaths.evidenceIndexPath,
+  ))
+      ? await readJsonArtifact(
+          request.targetProject.path,
+          artifactPaths.evidenceIndexPath,
+          targetInvestigateCaseEvidenceIndexSchema,
+          path.posix.basename(artifactPaths.evidenceIndexPath),
+        )
+      : null;
+  const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifact({
+    projectPath: request.targetProject.path,
+    relativePath: artifactPaths.evidenceBundlePath,
+  });
   const assessment = await readJsonArtifact(
     request.targetProject.path,
     artifactPaths.assessmentPath,
@@ -560,6 +564,14 @@ export const evaluateTargetInvestigateCaseRound = async (
   validateAssessmentConsistency(assessment, semanticReview, causalDebug, rootCauseReview);
   validateEvidenceCoherence(evidenceBundle, assessment, semanticReview);
   validateDiagnosisCoherence(diagnosis, artifactPaths);
+  assertTargetInvestigateCaseV2LegacyLineageCoverage({
+    manifest: manifestLoad.manifest,
+    artifactPaths,
+    caseResolution,
+    evidenceBundle,
+    evidenceIndex,
+    diagnosis,
+  });
 
   const decision = await buildPublicationDecision({
     targetProject: request.targetProject,
@@ -2381,6 +2393,60 @@ const validateDiagnosisCoherence = (
   }
 };
 
+const hasStructuredLineage = (
+  lineage:
+    | TargetInvestigateCaseCaseResolution["lineage"]
+    | TargetInvestigateCaseCaseBundle["lineage"]
+    | TargetInvestigateCaseDiagnosis["lineage"]
+    | TargetInvestigateCaseEvidenceIndex["lineage"]
+    | undefined
+    | null,
+): boolean => Array.isArray(lineage) && lineage.length > 0;
+
+export const assertTargetInvestigateCaseV2LegacyLineageCoverage = (params: {
+  manifest: TargetInvestigateCaseManifest;
+  artifactPaths: Required<TargetInvestigateCaseArtifactPaths>;
+  caseResolution: TargetInvestigateCaseCaseResolution;
+  evidenceBundle: TargetInvestigateCaseEvidenceBundleArtifact;
+  evidenceIndex?: TargetInvestigateCaseEvidenceIndex | null;
+  diagnosis: TargetInvestigateCaseDiagnosis;
+}): void => {
+  if (
+    params.manifest.flow !== TARGET_INVESTIGATE_CASE_V2_FLOW ||
+    !isTargetInvestigateCaseCaseBundlePath(params.artifactPaths.evidenceBundlePath)
+  ) {
+    return;
+  }
+
+  const requiresLegacyLineage = [
+    params.caseResolution.lineage,
+    params.evidenceBundle.lineage,
+    params.evidenceIndex?.lineage,
+    params.diagnosis.lineage,
+  ].some((lineage) => targetInvestigateCaseLineageHasLegacyOrigin(lineage));
+
+  if (!requiresLegacyLineage) {
+    return;
+  }
+
+  const missingArtifacts = [
+    hasStructuredLineage(params.caseResolution.lineage) ? null : "case-resolution.json",
+    hasStructuredLineage(params.evidenceBundle.lineage)
+      ? null
+      : TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
+    hasStructuredLineage(params.diagnosis.lineage) ? null : "diagnosis.json",
+  ].filter((artifact): artifact is string => artifact !== null);
+
+  if (missingArtifacts.length > 0) {
+    throw new Error(
+      [
+        `A rodada v2 declarou origem legada, mas ${missingArtifacts.join(", ")} nao carregam lineage obrigatoria.`,
+        `${TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT} pode manter lineage auxiliar, mas nao substitui case-resolution.json, ${TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT} e diagnosis.json.`,
+      ].join(" "),
+    );
+  }
+};
+
 const DIAGNOSIS_MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s+(.+?)\s*$/u;
 
 const validateDiagnosisMarkdownArtifact = async (
@@ -3033,6 +3099,26 @@ export const readTargetInvestigateCaseCaseResolutionArtifact = async (params: {
     onCompatibilityIssue: params.onCompatibilityIssue,
   });
 };
+
+type TargetInvestigateCaseEvidenceBundleArtifact = TargetInvestigateCaseEvidenceBundle & {
+  lineage?: TargetInvestigateCaseCaseBundle["lineage"];
+};
+
+const isTargetInvestigateCaseCaseBundlePath = (relativePath: string): boolean =>
+  path.posix.basename(relativePath) === TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT;
+
+export const readTargetInvestigateCaseEvidenceBundleArtifact = async (params: {
+  projectPath: string;
+  relativePath: string;
+}): Promise<TargetInvestigateCaseEvidenceBundleArtifact> =>
+  readJsonArtifact(
+    params.projectPath,
+    params.relativePath,
+    isTargetInvestigateCaseCaseBundlePath(params.relativePath)
+      ? targetInvestigateCaseCaseBundleSchema
+      : targetInvestigateCaseEvidenceBundleSchema,
+    path.posix.basename(params.relativePath),
+  );
 
 const readJsonArtifactDecoded = async (
   projectPath: string,

@@ -74,6 +74,50 @@ const uniqueNonEmptyArray = <Schema extends z.ZodTypeAny>(schema: Schema, label:
 const uniqueStringArray = <Schema extends z.ZodType<string>>(schema: Schema, label: string) =>
   uniqueNonEmptyArray(schema, label);
 
+const targetInvestigateCaseLineageFlexibleEntrySchema = z.union([
+  trimmedString,
+  z
+    .record(z.string(), z.unknown())
+    .refine((value) => Object.keys(value).length > 0, {
+      message: "Entradas estruturadas exigem ao menos uma propriedade.",
+    }),
+]);
+
+export const targetInvestigateCaseLineageSchema = z
+  .array(targetInvestigateCaseLineageFlexibleEntrySchema)
+  .min(1);
+
+const TARGET_INVESTIGATE_CASE_LEGACY_LINEAGE_TOKENS = [
+  "legacy-target-investigate-case",
+  "/target_investigate_case",
+  "target-investigate-case-v1",
+] as const;
+
+const lineageValueMentionsLegacyOrigin = (value: unknown): boolean => {
+  if (typeof value === "string") {
+    return TARGET_INVESTIGATE_CASE_LEGACY_LINEAGE_TOKENS.some((token) =>
+      value.includes(token),
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => lineageValueMentionsLegacyOrigin(entry));
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).some((entry) => lineageValueMentionsLegacyOrigin(entry));
+  }
+
+  return false;
+};
+
+export const targetInvestigateCaseLineageHasLegacyOrigin = (
+  lineage:
+    | ReadonlyArray<z.infer<typeof targetInvestigateCaseLineageFlexibleEntrySchema>>
+    | null
+    | undefined,
+): boolean => (lineage ?? []).some((entry) => lineageValueMentionsLegacyOrigin(entry));
+
 export const TARGET_INVESTIGATE_CASE_CONTRACT_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_SCHEMA_VERSION = "1.0";
 export const TARGET_INVESTIGATE_CASE_MANIFEST_PATH =
@@ -3194,6 +3238,7 @@ const targetInvestigateCaseInternalCaseResolutionSchema = z
     attempt_candidates: targetInvestigateCaseCaseResolutionAttemptCandidatesSchema.nullable(),
     replay_readiness: targetInvestigateCaseCaseResolutionReplayReadinessSchema.nullable(),
     resolution_reason: trimmedString,
+    lineage: targetInvestigateCaseLineageSchema.optional(),
   })
   .strict();
 
@@ -3211,6 +3256,7 @@ const targetInvestigateCaseLegacyCaseResolutionSchema = z
     relevant_workflows: uniqueArray(trimmedString, "case-resolution.relevant-workflows"),
     replay_decision: targetInvestigateCaseReplayDecisionSchema,
     resolution_reason: trimmedString,
+    lineage: targetInvestigateCaseLineageSchema.optional(),
   })
   .strict();
 
@@ -3298,6 +3344,7 @@ const targetInvestigateCaseRichCaseResolutionSchema = z
       })
       .passthrough()
       .optional(),
+    lineage: targetInvestigateCaseLineageSchema.optional(),
   })
   .passthrough();
 
@@ -3449,6 +3496,7 @@ const normalizeTargetInvestigateCaseCaseResolutionDocument = (
         rich.data.historical_evidence?.factual_sufficiency_reason,
         "A capability registrou uma resolucao de caso sem rationale adicional.",
       ) ?? "",
+    lineage: rich.data.lineage,
   });
 
   if (!normalized.success) {
@@ -3640,7 +3688,74 @@ export const targetInvestigateCaseEvidenceBundleSchema: z.ZodType<
   unknown
 > = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseEvidenceBundleDocument);
 
-export const targetInvestigateCaseCaseBundleSchema = targetInvestigateCaseEvidenceBundleSchema;
+const targetInvestigateCaseInternalCaseBundleSchema = targetInvestigateCaseLegacyEvidenceBundleSchema
+  .extend({
+    lineage: targetInvestigateCaseLineageSchema.optional(),
+  })
+  .strict();
+
+const targetInvestigateCaseRichCaseBundleSchema = targetInvestigateCaseInternalCaseBundleSchema
+  .extend({
+    schema_version: z.literal("evidence_bundle_v1"),
+    generated_at: trimmedString.optional(),
+  })
+  .passthrough();
+
+const normalizeTargetInvestigateCaseCaseBundleDocument = (
+  decoded: unknown,
+): ArtifactNormalizationResult<z.infer<typeof targetInvestigateCaseInternalCaseBundleSchema>> => {
+  const legacy = targetInvestigateCaseInternalCaseBundleSchema.safeParse(decoded);
+  if (legacy.success) {
+    return {
+      success: true,
+      data: legacy.data,
+    };
+  }
+
+  if (!hasSchemaVersion(decoded, "evidence_bundle_v1")) {
+    return {
+      success: false,
+      issues: legacy.error.issues,
+    };
+  }
+
+  const rich = targetInvestigateCaseRichCaseBundleSchema.safeParse(decoded);
+  if (!rich.success) {
+    return {
+      success: false,
+      issues: rich.error.issues,
+    };
+  }
+
+  const normalized = targetInvestigateCaseInternalCaseBundleSchema.safeParse({
+    collection_plan: rich.data.collection_plan,
+    historical_sources: rich.data.historical_sources,
+    sensitive_artifact_refs: rich.data.sensitive_artifact_refs,
+    replay: rich.data.replay,
+    collection_sufficiency: rich.data.collection_sufficiency,
+    normative_conflicts: rich.data.normative_conflicts,
+    factual_sufficiency_reason: rich.data.factual_sufficiency_reason,
+    lineage: rich.data.lineage,
+  });
+
+  if (!normalized.success) {
+    return {
+      success: false,
+      issues: normalized.error.issues,
+    };
+  }
+
+  return {
+    success: true,
+    data: normalized.data,
+  };
+};
+
+export const targetInvestigateCaseCaseBundleSchema: z.ZodType<
+  z.infer<typeof targetInvestigateCaseInternalCaseBundleSchema>,
+  z.ZodTypeDef,
+  unknown
+> = buildArtifactNormalizationSchema(normalizeTargetInvestigateCaseCaseBundleDocument);
 
 export const targetInvestigateCaseEvidenceIndexSchema = z
   .object({
@@ -3658,19 +3773,7 @@ export const targetInvestigateCaseEvidenceIndexSchema = z
           .strict(),
       )
       .min(1),
-    lineage: z
-      .array(
-        z.union([
-          trimmedString,
-          z
-            .record(z.string(), z.unknown())
-            .refine((value) => Object.keys(value).length > 0, {
-              message: "lineage do evidence-index exige ao menos uma propriedade.",
-            }),
-        ]),
-      )
-      .min(1)
-      .optional(),
+    lineage: targetInvestigateCaseLineageSchema.optional(),
   })
   .strict();
 
@@ -4629,15 +4732,6 @@ export const targetInvestigateCaseRootCauseReviewTraceSchema = z
   })
   .strict();
 
-const targetInvestigateCaseDiagnosisFlexibleEntrySchema = z.union([
-  trimmedString,
-  z
-    .record(z.string(), z.unknown())
-    .refine((value) => Object.keys(value).length > 0, {
-      message: "Entradas estruturadas de diagnosis exigem ao menos uma propriedade.",
-    }),
-]);
-
 export const targetInvestigateCaseDiagnosisSchema = z
   .object({
     schema_version: trimmedString,
@@ -4650,9 +4744,9 @@ export const targetInvestigateCaseDiagnosisSchema = z
     confidence: confidenceSchema,
     behavior_to_change: trimmedString,
     probable_fix_surface: uniqueStringArray(trimmedString, "probable_fix_surface"),
-    evidence_used: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+    evidence_used: targetInvestigateCaseLineageSchema,
     next_action: trimmedString,
-    lineage: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+    lineage: targetInvestigateCaseLineageSchema,
   })
   .strict();
 
@@ -4715,8 +4809,8 @@ export const targetInvestigateCaseTracePayloadSchema = z
       )
       .min(1),
     diagnosis: targetInvestigateCaseDiagnosisSurfaceSchema.extend({
-      evidence_used: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
-      lineage: z.array(targetInvestigateCaseDiagnosisFlexibleEntrySchema).min(1),
+      evidence_used: targetInvestigateCaseLineageSchema,
+      lineage: targetInvestigateCaseLineageSchema,
     }),
     verdicts: z
       .object({

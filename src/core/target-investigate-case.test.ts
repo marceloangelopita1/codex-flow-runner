@@ -19,6 +19,7 @@ import { FileSystemTargetProjectResolver } from "../integrations/target-project-
 import { ProjectRef } from "../types/project.js";
 import {
   targetInvestigateCaseAssessmentSchema,
+  targetInvestigateCaseCaseBundleSchema,
   targetInvestigateCaseCaseResolutionSchema,
   targetInvestigateCaseCausalDebugRequestSchema,
   targetInvestigateCaseCausalDebugResultSchema,
@@ -2568,6 +2569,60 @@ test("evaluateTargetInvestigateCaseRound rejeita combinacoes invalidas e trace/s
   assert.doesNotMatch(traceJson, /workflow_debug|db_payload|transcript/u);
 });
 
+test("evaluateTargetInvestigateCaseRound aceita o trio de lineage do contrato v2 quando a rodada declara origem legada", async () => {
+  const fixture = await createTargetRepoFixture();
+  const artifactPaths = buildV2ArtifactPaths("2026-04-03T20-15-00Z");
+  await writeV2ManifestFixture(fixture.project.path);
+  await writeV2RoundArtifacts(fixture.project.path, artifactPaths);
+
+  const result = await evaluateTargetInvestigateCaseRound({
+    targetProject: fixture.project,
+    input: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 --workflow extract_address --request-id req-001 --window 2026-04-03T00:00Z/2026-04-03T01:00Z --symptom "timeout on save"`,
+    artifacts: artifactPaths,
+  });
+
+  assert.deepEqual(
+    result.caseResolution.lineage,
+    buildLegacyLineageFixture(
+      "case-resolution.json",
+      "investigations/2026-04-03T20-15-00Z/case-resolution.json",
+    ),
+  );
+  assert.deepEqual(
+    (result.evidenceBundle as { lineage?: unknown[] }).lineage,
+    buildLegacyLineageFixture(
+      "evidence-bundle.json",
+      "investigations/2026-04-03T20-15-00Z/evidence-bundle.json",
+    ),
+  );
+  assert.deepEqual(
+    result.diagnosis.lineage,
+    buildLegacyLineageFixture(
+      "assessment.json",
+      "investigations/2026-04-03T20-15-00Z/assessment.json",
+    ),
+  );
+});
+
+test("evaluateTargetInvestigateCaseRound rejeita case-bundle sem lineage mesmo quando evidence-index preserva a origem legada", async () => {
+  const fixture = await createTargetRepoFixture();
+  const artifactPaths = buildV2ArtifactPaths("2026-04-03T20-20-00Z");
+  await writeV2ManifestFixture(fixture.project.path);
+  await writeV2RoundArtifacts(fixture.project.path, artifactPaths, {
+    omitCaseBundleLineage: true,
+  });
+
+  await assert.rejects(
+    () =>
+      evaluateTargetInvestigateCaseRound({
+        targetProject: fixture.project,
+        input: `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 --workflow extract_address --request-id req-001 --window 2026-04-03T00:00Z/2026-04-03T01:00Z --symptom "timeout on save"`,
+        artifacts: artifactPaths,
+      }),
+    /case-bundle\.json nao carregam lineage obrigatoria|evidence-index\.json pode manter lineage auxiliar/u,
+  );
+});
+
 test("ControlledTargetInvestigateCaseExecutor executa o lifecycle canonico com namespace local estavel em no-op", async () => {
   const fixture = await createTargetRepoFixture({
     mutateCaseResolution: (artifact) => {
@@ -4298,6 +4353,36 @@ const buildEvidenceIndexFixture = (bundleArtifactPath: string): any => ({
   ],
 });
 
+const buildLegacyLineageFixture = (artifact: string, relativePath: string): any[] => [
+  {
+    source: "legacy-target-investigate-case",
+    artifact,
+    path: relativePath,
+  },
+];
+
+const buildV2ArtifactPaths = (roundId: string) => {
+  const roundDirectory = `output/case-investigation/${roundId}`;
+  return {
+    caseResolutionPath: `${roundDirectory}/case-resolution.json`,
+    evidenceIndexPath: `${roundDirectory}/evidence-index.json`,
+    evidenceBundlePath: `${roundDirectory}/case-bundle.json`,
+    assessmentPath: `${roundDirectory}/assessment.json`,
+    diagnosisJsonPath: `${roundDirectory}/diagnosis.json`,
+    diagnosisMdPath: `${roundDirectory}/diagnosis.md`,
+    dossierPath: `${roundDirectory}/dossier.md`,
+    semanticReviewRequestPath: `${roundDirectory}/semantic-review.request.json`,
+    semanticReviewResultPath: `${roundDirectory}/semantic-review.result.json`,
+    causalDebugRequestPath: `${roundDirectory}/causal-debug.request.json`,
+    causalDebugResultPath: `${roundDirectory}/causal-debug.result.json`,
+    rootCauseReviewRequestPath: `${roundDirectory}/root-cause-review.request.json`,
+    rootCauseReviewResultPath: `${roundDirectory}/root-cause-review.result.json`,
+    remediationProposalPath: `${roundDirectory}/remediation-proposal.json`,
+    ticketProposalPath: `${roundDirectory}/ticket-proposal.json`,
+    publicationDecisionPath: `${roundDirectory}/publication-decision.json`,
+  };
+};
+
 const writeV2ManifestFixture = async (projectPath: string): Promise<void> => {
   const v2Manifest = JSON.parse(
     await fs.readFile(
@@ -4325,7 +4410,13 @@ const writeV2RoundArtifacts = async (
     diagnosisMdPath: string;
     dossierPath: string;
   },
+  options: {
+    omitCaseResolutionLineage?: boolean;
+    omitCaseBundleLineage?: boolean;
+  } = {},
 ): Promise<void> => {
+  const roundId = path.posix.basename(path.posix.dirname(artifactPaths.caseResolutionPath));
+  const legacyMirrorDirectory = path.posix.join("investigations", roundId);
   const caseResolution = buildCaseResolutionFixture();
   caseResolution.attempt_resolution = {
     status: "absent-explicitly",
@@ -4338,6 +4429,12 @@ const writeV2RoundArtifacts = async (
     status: "not-required",
     reason: "Base historica suficiente.",
   };
+  if (!options.omitCaseResolutionLineage) {
+    caseResolution.lineage = buildLegacyLineageFixture(
+      "case-resolution.json",
+      `${legacyMirrorDirectory}/case-resolution.json`,
+    );
+  }
   targetInvestigateCaseCaseResolutionSchema.parse(caseResolution);
 
   const caseBundle = buildEvidenceBundleFixture();
@@ -4352,7 +4449,13 @@ const writeV2RoundArtifacts = async (
     purge_policy: null,
     namespace: null,
   };
-  targetInvestigateCaseEvidenceBundleSchema.parse(caseBundle);
+  if (!options.omitCaseBundleLineage) {
+    caseBundle.lineage = buildLegacyLineageFixture(
+      "evidence-bundle.json",
+      `${legacyMirrorDirectory}/evidence-bundle.json`,
+    );
+  }
+  targetInvestigateCaseCaseBundleSchema.parse(caseBundle);
 
   const assessment = buildAssessmentFixture();
   assessment.houve_gap_real = "no";
@@ -4364,6 +4467,10 @@ const writeV2RoundArtifacts = async (
   targetInvestigateCaseAssessmentSchema.parse(assessment);
 
   const evidenceIndex = buildEvidenceIndexFixture(artifactPaths.evidenceBundlePath);
+  evidenceIndex.lineage = buildLegacyLineageFixture(
+    "evidence-bundle.json",
+    `${legacyMirrorDirectory}/evidence-bundle.json`,
+  );
   targetInvestigateCaseEvidenceIndexSchema.parse(evidenceIndex);
 
   const diagnosis = buildDiagnosisFixture(artifactPaths.evidenceBundlePath, {
@@ -4374,6 +4481,10 @@ const writeV2RoundArtifacts = async (
     observed_behavior: "A rodada v2 reuniu bundle suficiente e nao encontrou desvio funcional.",
     behavior_to_change: "Nenhuma correcao necessaria para este caso.",
     next_action: "Manter o contrato v2 e seguir sem publication automatica.",
+    lineage: buildLegacyLineageFixture(
+      "assessment.json",
+      `${legacyMirrorDirectory}/assessment.json`,
+    ),
   });
   targetInvestigateCaseDiagnosisSchema.parse(diagnosis);
 

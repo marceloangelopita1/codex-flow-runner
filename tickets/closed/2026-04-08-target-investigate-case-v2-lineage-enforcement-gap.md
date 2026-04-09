@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 ainda nao garante `lineage` obrigatoria em `case-resolution.json` e `case-bundle.json`
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P0
 - Severity: S1
@@ -44,6 +44,7 @@
   - Response file: src/types/target-investigate-case.ts
   - Decision file: tickets/closed/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
 - Related docs/execplans:
+  - execplans/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-runner-contract-and-minimum-path-gap.md
   - src/core/target-investigate-case.ts
   - src/core/target-investigate-case.test.ts
@@ -128,8 +129,19 @@ Quando a rodada v2 nascer de artefatos ou comandos legados, `case-resolution.jso
 - 2026-04-08 - O follow-up foi mantido local e `P0` para completar o critério sem reabrir as frentes irmãs de `diagnosis.*` e de continuações opcionais.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-09 00:16Z
+- Closure reason: fixed
+- Related PR/commit/execplan: ExecPlan `execplans/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md`; commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): N/A
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+- Final decision: GO
+- Closure evidence:
+  - Critério `RF-23` e parcela runner-side de `CA-06`: `src/types/target-investigate-case.ts` agora compartilha `targetInvestigateCaseLineageSchema` entre `case-resolution.json`, `case-bundle.json`, `evidence-index.json` e `diagnosis.json`, adiciona normalização explícita de `lineage` em `case-resolution.json` e deixa `case-bundle.json` com schema próprio em vez do alias cego do bundle legado. `src/core/target-investigate-case.ts` lê `case-bundle.json` com `targetInvestigateCaseCaseBundleSchema` e aplica `assertTargetInvestigateCaseV2LegacyLineageCoverage(...)`, que exige evidência positiva no trio `case-resolution.json`, `case-bundle.json`, `diagnosis.json` quando a rodada declara origem legada e rejeita explicitamente a consolidação por `evidence-index.json`. `src/core/target-investigate-case.test.ts` cobre o trio positivo e a negativa em que `evidence-index.json` mantém `lineage`, mas `case-bundle.json` sem `lineage` continua falhando.
+  - Critério `RF-24`, `RF-25`: `src/integrations/target-investigate-case-round-preparer.ts` valida o mesmo gate de `lineage` ainda na preparação da rodada v2. `src/integrations/target-investigate-case-round-preparer.test.ts` comprova que `output/case-investigation/<round-id>/` permanece autoritativo, `investigations/<round-id>/` segue apenas como espelho secundário e ambos preservam a mesma `lineage` em `case-resolution.json`, `case-bundle.json` e `diagnosis.json`; a mesma suíte prova que `semantic-review`, `causal-debug` e `root-cause-review` não são disparados no caminho mínimo e falha quando `case-resolution.json` perde `lineage` mesmo com `evidence-index.json` ainda preenchido.
+  - Critério `validação automatizada do pacote`: `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts` -> `exit 0` (`627` testes passando). `export HOME="/home/mapita"; export PATH="/home/mapita/.nvm/versions/node/v24.14.0/bin:$PATH"; npm run check` -> `exit 0`.
+- GO rationale:
+  - o changeset fecha o gap local identificado no ticket pai sem reabrir ownership fora do escopo;
+  - os três artefatos explicitamente enumerados pela spec/ticket agora têm evidência positiva observável de `lineage` quando há origem legada;
+  - `evidence-index.json` permanece apenas como artefato auxiliar e não fecha o aceite sozinho;
+  - namespace autoritativo, espelho secundário e independência do caminho mínimo em relação à cadeia opcional permaneceram válidos.
+- Manual validation pending recorded on closed ticket: nao

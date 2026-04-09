@@ -3,6 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Logger } from "../core/logger.js";
 import {
+  assertTargetInvestigateCaseV2LegacyLineageCoverage,
+  readTargetInvestigateCaseEvidenceBundleArtifact,
   readTargetInvestigateCaseCaseResolutionArtifact,
   TargetInvestigateCaseRoundPreparer,
   TargetInvestigateCaseRoundPreparationRequest,
@@ -16,7 +18,6 @@ import {
   targetInvestigateCaseDiagnosisSchema,
   targetInvestigateCaseDossierJsonSchema,
   targetInvestigateCaseEvidenceIndexSchema,
-  targetInvestigateCaseEvidenceBundleSchema,
   targetInvestigateCaseRootCauseReviewRequestSchema,
   targetInvestigateCaseSemanticReviewRequestSchema,
   TARGET_INVESTIGATE_CASE_CAUSAL_DEBUG_REQUEST_ARTIFACT,
@@ -195,7 +196,7 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     try {
       await syncCanonicalArtifactsFromAuthoritativeDossier(request, authoritativeDossierLocalPath);
       dossierPath = await resolvePreparedDossierPath(request);
-      await readTargetInvestigateCaseCaseResolutionArtifact({
+      const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
         projectPath: request.targetProject.path,
         relativePath: request.artifactPaths.caseResolutionPath,
         normalizedInput: request.normalizedInput,
@@ -209,32 +210,38 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
           });
         },
       });
-      if (request.artifactPaths.evidenceIndexPath) {
-        await readJsonArtifact(
-          request.targetProject.path,
-          request.artifactPaths.evidenceIndexPath,
-          targetInvestigateCaseEvidenceIndexSchema,
-          TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
-        );
-      }
-      await readJsonArtifact(
-        request.targetProject.path,
-        request.artifactPaths.evidenceBundlePath,
-        targetInvestigateCaseEvidenceBundleSchema,
-        path.posix.basename(request.artifactPaths.evidenceBundlePath),
-      );
+      const evidenceIndex = request.artifactPaths.evidenceIndexPath
+        ? await readJsonArtifact(
+            request.targetProject.path,
+            request.artifactPaths.evidenceIndexPath,
+            targetInvestigateCaseEvidenceIndexSchema,
+            TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+          )
+        : null;
+      const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifact({
+        projectPath: request.targetProject.path,
+        relativePath: request.artifactPaths.evidenceBundlePath,
+      });
       await readJsonArtifact(
         request.targetProject.path,
         request.artifactPaths.assessmentPath,
         targetInvestigateCaseAssessmentSchema,
         "assessment.json",
       );
-      await readJsonArtifact(
+      const diagnosis = await readJsonArtifact(
         request.targetProject.path,
         request.artifactPaths.diagnosisJsonPath,
         targetInvestigateCaseDiagnosisSchema,
         "diagnosis.json",
       );
+      assertTargetInvestigateCaseV2LegacyLineageCoverage({
+        manifest: request.manifest,
+        artifactPaths: request.artifactPaths,
+        caseResolution,
+        evidenceBundle,
+        evidenceIndex,
+        diagnosis,
+      });
       await validateDiagnosisMarkdownArtifact(
         request.targetProject.path,
         request.artifactPaths.diagnosisMdPath,
