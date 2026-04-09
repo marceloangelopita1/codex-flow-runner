@@ -9,4 +9,4 @@ Saida minima:
 Regras:
 - o diagnostico deve ser legivel por humano em menos de 2 minutos;
 - `diagnosis.json` e a superficie machine-readable canonica;
-- nao materialize `assessment.json` ou `dossier.*` como parte do caminho minimo diagnosis-first.
+- o caminho minimo termina com `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.md` e `diagnosis.json`.

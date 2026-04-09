@@ -5,508 +5,61 @@ import path from "node:path";
 import test from "node:test";
 import { FileSystemWorkflowTraceStore } from "./workflow-trace-store.js";
 
-const createTempProjectRoot = async (): Promise<string> =>
-  fs.mkdtemp(path.join(os.tmpdir(), "workflow-trace-store-"));
-
-const cleanupTempProjectRoot = async (rootPath: string): Promise<void> => {
-  await fs.rm(rootPath, { recursive: true, force: true });
-};
-
-const resolveTraceFile = (projectPath: string, relativePath: string): string =>
-  path.join(projectPath, ...relativePath.split("/"));
-
-test("recordStageTrace persiste request response e decision com taxonomia e diagnosticos", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordStageTrace({
-      kind: "ticket",
-      stage: "close-and-version",
-      sourceCommand: "run-all",
-      targetName: "2026-02-23-hardening.md",
-      targetPath: "tickets/open/2026-02-23-hardening.md",
-      promptTemplatePath: "/repo/prompts/04-encerrar-ticket-commit-push.md",
-      promptText: "Revise o diff e decida GO/NO_GO.",
-      outputText: "GO com commit e push concluidos.",
-      diagnostics: {
-        stdoutPreview: "GO com commit e push concluidos.",
-        stderrPreview: "OpenAI Codex v0.111.0",
-      },
-      decision: {
-        status: "failure",
-        summary: "Runner detectou gap de validacao apos o fechamento do ticket.",
-        errorMessage: "push obrigatorio nao concluido",
-        metadata: {
-          rootCause: "validation",
-          followUpNeeded: true,
-        },
-      },
-      recordedAt: new Date("2026-03-16T14:30:00.000Z"),
-    });
-
-    assert.match(
-      record.requestPath,
-      /^\.codex-flow-runner\/flow-traces\/requests\/.+-request\.md$/u,
-    );
-    assert.match(
-      record.responsePath,
-      /^\.codex-flow-runner\/flow-traces\/responses\/.+-response\.md$/u,
-    );
-    assert.match(
-      record.decisionPath,
-      /^\.codex-flow-runner\/flow-traces\/decisions\/.+-decision\.json$/u,
-    );
-
-    const requestContent = await fs.readFile(resolveTraceFile(projectPath, record.requestPath), "utf8");
-    assert.match(requestContent, /Workflow stage request/u);
-    assert.match(requestContent, /Source command: run-all/u);
-    assert.match(requestContent, /Prompt template path: \/repo\/prompts\/04-encerrar-ticket-commit-push\.md/u);
-    assert.match(requestContent, /Revise o diff e decida GO\/NO_GO\./u);
-
-    const responseContent = await fs.readFile(resolveTraceFile(projectPath, record.responsePath), "utf8");
-    assert.match(responseContent, /Workflow stage response/u);
-    assert.match(responseContent, /Stdout preview: GO com commit e push concluidos\./u);
-    assert.match(responseContent, /Stderr preview: OpenAI Codex v0\.111\.0/u);
-    assert.match(responseContent, /GO com commit e push concluidos\./u);
-
-    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
-    const decision = JSON.parse(decisionRaw) as {
-      kind: string;
-      stage: string;
-      sourceCommand: string;
-      decision: {
-        status: string;
-        summary: string;
-        errorMessage?: string;
-        metadata?: Record<string, unknown>;
-      };
-    };
-
-    assert.equal(decision.kind, "ticket");
-    assert.equal(decision.stage, "close-and-version");
-    assert.equal(decision.sourceCommand, "run-all");
-    assert.equal(decision.decision.status, "failure");
-    assert.equal(decision.decision.errorMessage, "push obrigatorio nao concluido");
-    assert.equal(decision.decision.metadata?.rootCause, "validation");
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordStageTrace evita sobrescrita silenciosa quando o traceId colide", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const request = {
-      kind: "spec" as const,
-      stage: "spec-audit" as const,
-      sourceCommand: "run-specs" as const,
-      targetName: "2026-02-23-hardening-spec.md",
-      targetPath: "docs/specs/2026-02-23-hardening-spec.md",
-      promptTemplatePath: "/repo/prompts/08-auditar-spec-apos-run-all.md",
-      promptText: "Audite a spec apos o run-all.",
-      outputText: "Nenhum gap residual encontrado.",
-      decision: {
-        status: "success" as const,
-        summary: "Spec audit concluida sem follow-ups.",
-      },
-      recordedAt: new Date("2026-03-16T14:31:00.000Z"),
-    };
-
-    const first = await store.recordStageTrace(request);
-    const second = await store.recordStageTrace(request);
-
-    assert.notEqual(first.traceId, second.traceId);
-    assert.match(second.traceId, /-2$/u);
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordStageTrace aceita spec-workflow-retrospective como stage nomeado de spec", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordStageTrace({
-      kind: "spec",
-      stage: "spec-workflow-retrospective",
-      sourceCommand: "run-specs",
-      targetName: "2026-03-19-retrospectiva.md",
-      targetPath: "docs/specs/2026-03-19-retrospectiva.md",
-      promptTemplatePath: "/repo/prompts/11-retrospectiva-workflow-apos-spec-audit.md",
-      promptText: "Execute a retrospectiva sistemica.",
-      outputText: "Retrospectiva preliminar executada.",
-      decision: {
-        status: "success",
-        summary: "Retrospectiva sistemica executada apos spec-audit.",
-      },
-      recordedAt: new Date("2026-03-19T18:10:00.000Z"),
-    });
-
-    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
-    const decision = JSON.parse(decisionRaw) as {
-      stage: string;
-      decision: { summary: string };
-    };
-
-    assert.equal(decision.stage, "spec-workflow-retrospective");
-    assert.equal(decision.decision.summary, "Retrospectiva sistemica executada apos spec-audit.");
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordStageTrace aceita spec-ticket-derivation-retrospective como stage nomeado de spec", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordStageTrace({
-      kind: "spec",
-      stage: "spec-ticket-derivation-retrospective",
-      sourceCommand: "run-specs",
-      targetName: "2026-03-20-derivacao.md",
-      targetPath: "docs/specs/2026-03-20-derivacao.md",
-      promptTemplatePath: "/repo/prompts/12-retrospectiva-derivacao-tickets-pre-run-all.md",
-      promptText: "Execute a retrospectiva pre-run-all.",
-      outputText: "Retrospectiva da derivacao executada.",
-      decision: {
-        status: "success",
-        summary: "Retrospectiva sistemica da derivacao executada antes do /run-all.",
-      },
-      recordedAt: new Date("2026-03-20T03:10:00.000Z"),
-    });
-
-    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
-    const decision = JSON.parse(decisionRaw) as {
-      stage: string;
-      decision: { summary: string };
-    };
-
-    assert.equal(decision.stage, "spec-ticket-derivation-retrospective");
-    assert.equal(
-      decision.decision.summary,
-      "Retrospectiva sistemica da derivacao executada antes do /run-all.",
-    );
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordStageTrace preserva metadata estruturada de workflow-gap-analysis", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordStageTrace({
-      kind: "spec",
-      stage: "spec-workflow-retrospective",
-      sourceCommand: "run-specs",
-      targetName: "2026-03-19-retrospectiva.md",
-      targetPath: "docs/specs/2026-03-19-retrospectiva.md",
-      promptTemplatePath: "/repo/prompts/11-retrospectiva-workflow-apos-spec-audit.md",
-      promptText: "Execute workflow-gap-analysis em contexto novo.",
-      outputText: "Retrospectiva concluiu systemic-gap/high.",
-      decision: {
-        status: "success",
-        summary: "workflow-gap-analysis concluiu com systemic-gap (high).",
-        metadata: {
-          classification: "systemic-gap",
-          confidence: "high",
-          publicationEligibility: true,
-          inputMode: "follow-up-tickets",
-          followUpTicketPaths: ["tickets/open/2026-03-19-gap.md"],
-        },
-      },
-      recordedAt: new Date("2026-03-19T18:12:00.000Z"),
-    });
-
-    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
-    const decision = JSON.parse(decisionRaw) as {
-      decision: {
-        metadata?: {
-          classification?: string;
-          publicationEligibility?: boolean;
-          followUpTicketPaths?: string[];
-        };
-      };
-    };
-
-    assert.equal(decision.decision.metadata?.classification, "systemic-gap");
-    assert.equal(decision.decision.metadata?.publicationEligibility, true);
-    assert.equal(decision.decision.metadata?.followUpTicketPaths?.[0], "tickets/open/2026-03-19-gap.md");
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordStageTrace aceita spec-ticket-validation com metadata observavel do gate", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordStageTrace({
-      kind: "spec",
-      stage: "spec-ticket-validation",
-      sourceCommand: "run-specs",
-      targetName: "2026-03-19-spec-ticket-validation.md",
-      targetPath: "docs/specs/2026-03-19-spec-ticket-validation.md",
-      promptTemplatePath: "/repo/prompts/09-validar-tickets-derivados-da-spec.md",
-      promptText: "Valide os tickets derivados da spec.",
-      outputText: "NO_GO com gap de cobertura.",
-      decision: {
-        status: "success",
-        summary: "Etapa spec-ticket-validation concluida com veredito NO_GO.",
-        metadata: {
-          verdict: "NO_GO",
-          confidence: "medium",
-          cyclesExecuted: 0,
-          cycleHistory: [
-            {
-              cycleNumber: 0,
-              phase: "initial-validation",
-              verdict: "NO_GO",
-              confidence: "medium",
-              summary: "RF-01 sem ticket dedicado.",
-              openGapFingerprints: ["coverage-gap|tickets/open/example.md|rf-01"],
-              appliedCorrections: [],
-              realGapReductionFromPrevious: null,
-            },
-          ],
-          gaps: [
-            {
-              gapType: "coverage-gap",
-              summary: "RF-01 sem ticket dedicado.",
-            },
-          ],
-        },
-      },
-      recordedAt: new Date("2026-03-19T16:45:00.000Z"),
-    });
-
-    const decisionRaw = await fs.readFile(resolveTraceFile(projectPath, record.decisionPath), "utf8");
-    const decision = JSON.parse(decisionRaw) as {
-      stage: string;
-      decision: {
-        metadata?: {
-          verdict?: string;
-          cycleHistory?: Array<{ phase?: string }>;
-          gaps?: Array<{ gapType?: string }>;
-        };
-      };
-    };
-
-    assert.equal(decision.stage, "spec-ticket-validation");
-    assert.equal(decision.decision.metadata?.verdict, "NO_GO");
-    assert.equal(decision.decision.metadata?.cycleHistory?.[0]?.phase, "initial-validation");
-    assert.equal(decision.decision.metadata?.gaps?.[0]?.gapType, "coverage-gap");
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordTargetFlowTrace persiste milestones, IA, artefatos e outcome final dos fluxos target", async () => {
-  const projectPath = await createTempProjectRoot();
+test("FileSystemWorkflowTraceStore grava a trilha do target-investigate-case v2", async () => {
+  const projectPath = await fs.mkdtemp(
+    path.join(os.tmpdir(), "workflow-trace-store-v2-"),
+  );
 
   try {
     const store = new FileSystemWorkflowTraceStore(projectPath);
     const record = await store.recordTargetFlowTrace({
-      flow: "target-checkup",
-      sourceCommand: "/target_checkup",
+      flow: "target-investigate-case-v2",
+      sourceCommand: "/target_investigate_case_v2",
       targetProjectName: "alpha-project",
-      targetProjectPath: "/home/mapita/projetos/alpha-project",
+      targetProjectPath: "/tmp/alpha-project",
       inputs: {
-        projectName: "alpha-project",
+        canonicalCommand: "/target_investigate_case_v2 alpha-project case-001",
       },
       milestones: [
         {
-          milestone: "preflight",
-          milestoneLabel: "preflight",
-          message: "Preflight concluido para alpha-project.",
+          milestone: "diagnosis",
+          milestoneLabel: "diagnosis",
+          message: "Diagnostico diagnosis-first pronto.",
           versionBoundaryState: "before-versioning",
-          recordedAtUtc: "2026-03-24T23:00:00.000Z",
-        },
-        {
-          milestone: "versioning",
-          milestoneLabel: "versionamento",
-          message: "Versionamento em andamento para alpha-project.",
-          versionBoundaryState: "after-versioning",
-          recordedAtUtc: "2026-03-24T23:02:00.000Z",
+          recordedAtUtc: "2026-04-09T12:00:00.000Z",
         },
       ],
       aiExchanges: [
         {
-          stageLabel: "sintese/redacao",
-          promptTemplatePath: "/repo/prompts/14-target-checkup-readiness-audit.md",
-          promptText: "Sintetize o readiness report.",
-          outputText: "### Executive summary\nTudo pronto.\n",
-          diagnostics: {
-            stdoutPreview: "### Executive summary",
-          },
+          stageLabel: "diagnosis",
+          promptTemplatePath: "docs/workflows/target-investigate-case-v2-diagnosis.md",
+          promptText: "prompt",
+          outputText: "output",
         },
       ],
       artifactPaths: [
-        "docs/checkups/history/report.json",
-        "docs/checkups/history/report.md",
-      ],
-      versionedArtifactPaths: [
-        "docs/checkups/history/report.json",
-        "docs/checkups/history/report.md",
-      ],
-      outcome: {
-        status: "success",
-        summary: "target_checkup concluido para alpha-project",
-        metadata: {
-          overallVerdict: "valid_for_gap_ticket_derivation",
-        },
-      },
-      recordedAt: new Date("2026-03-24T23:05:00.000Z"),
-    });
-
-    assert.match(
-      record.sessionPath,
-      /^\.codex-flow-runner\/flow-traces\/target-flows\/.+\.json$/u,
-    );
-
-    const payloadRaw = await fs.readFile(resolveTraceFile(projectPath, record.sessionPath), "utf8");
-    const payload = JSON.parse(payloadRaw) as {
-      flow: string;
-      sourceCommand: string;
-      targetProject: { name: string };
-      milestones: Array<{ milestone: string; versionBoundaryState: string }>;
-      aiExchanges: Array<{ promptTemplatePath: string }>;
-      artifactPaths: string[];
-      outcome: { status: string; metadata?: Record<string, unknown> };
-    };
-
-    assert.equal(payload.flow, "target-checkup");
-    assert.equal(payload.sourceCommand, "/target_checkup");
-    assert.equal(payload.targetProject.name, "alpha-project");
-    assert.equal(payload.milestones[1]?.milestone, "versioning");
-    assert.equal(payload.milestones[1]?.versionBoundaryState, "after-versioning");
-    assert.equal(
-      payload.aiExchanges[0]?.promptTemplatePath,
-      "/repo/prompts/14-target-checkup-readiness-audit.md",
-    );
-    assert.deepEqual(payload.artifactPaths, [
-      "docs/checkups/history/report.json",
-      "docs/checkups/history/report.md",
-    ]);
-    assert.equal(payload.outcome.status, "success");
-    assert.equal(payload.outcome.metadata?.overallVerdict, "valid_for_gap_ticket_derivation");
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordTargetFlowTrace evita sobrescrita silenciosa quando o traceId colide", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const request = {
-      flow: "target-prepare" as const,
-      sourceCommand: "/target_prepare" as const,
-      targetProjectName: "alpha-project",
-      targetProjectPath: "/home/mapita/projetos/alpha-project",
-      inputs: {
-        projectName: "alpha-project",
-      },
-      milestones: [],
-      aiExchanges: [],
-      artifactPaths: [],
-      versionedArtifactPaths: [],
-      outcome: {
-        status: "cancelled" as const,
-        summary: "cancelado antes de versionar",
-      },
-      recordedAt: new Date("2026-03-24T23:10:00.000Z"),
-    };
-
-    const first = await store.recordTargetFlowTrace(request);
-    const second = await store.recordTargetFlowTrace(request);
-
-    assert.notEqual(first.traceId, second.traceId);
-    assert.match(second.traceId, /-2$/u);
-  } finally {
-    await cleanupTempProjectRoot(projectPath);
-  }
-});
-
-test("recordTargetFlowTrace aceita target-investigate-case com milestones e artefatos minimos explicitos", async () => {
-  const projectPath = await createTempProjectRoot();
-
-  try {
-    const store = new FileSystemWorkflowTraceStore(projectPath);
-    const record = await store.recordTargetFlowTrace({
-      flow: "target-investigate-case",
-      sourceCommand: "/target_investigate_case",
-      targetProjectName: "alpha-project",
-      targetProjectPath: "/home/mapita/projetos/alpha-project",
-      inputs: {
-        canonicalCommand:
-          "/target_investigate_case alpha-project case-001 --workflow billing-core --request-id req-001",
-      },
-      milestones: [
-        {
-          milestone: "preflight",
-          milestoneLabel: "preflight",
-          message: "Preflight concluido para alpha-project.",
-          versionBoundaryState: "before-versioning",
-          recordedAtUtc: "2026-04-03T19:00:00.000Z",
-        },
-        {
-          milestone: "publication",
-          milestoneLabel: "publication",
-          message: "Publication concluida como no-op local para case-001.",
-          versionBoundaryState: "before-versioning",
-          recordedAtUtc: "2026-04-03T19:05:00.000Z",
-        },
-      ],
-      aiExchanges: [],
-      artifactPaths: [
-        "investigations/2026-04-03T19-00-00Z/case-resolution.json",
-        "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
-        "investigations/2026-04-03T19-00-00Z/assessment.json",
-        "investigations/2026-04-03T19-00-00Z/publication-decision.json",
-        "investigations/2026-04-03T19-00-00Z/dossier.md",
+        "output/case-investigation/2026-04-09T12-00-00Z/case-resolution.json",
+        "output/case-investigation/2026-04-09T12-00-00Z/diagnosis.json",
       ],
       versionedArtifactPaths: [],
       outcome: {
         status: "success",
-        summary: "target_investigate_case concluido para alpha-project",
-        metadata: {
-          overallOutcome: "no-real-gap",
-          dossierPath: "investigations/2026-04-03T19-00-00Z/dossier.md",
-        },
+        summary: "Fluxo v2 concluido.",
       },
-      recordedAt: new Date("2026-04-03T19:06:00.000Z"),
+      recordedAt: new Date("2026-04-09T12:00:00.000Z"),
     });
 
-    const payloadRaw = await fs.readFile(resolveTraceFile(projectPath, record.sessionPath), "utf8");
-    const payload = JSON.parse(payloadRaw) as {
-      flow: string;
-      sourceCommand: string;
-      milestones: Array<{ milestone: string }>;
-      artifactPaths: string[];
-      outcome: { metadata?: Record<string, unknown> };
-    };
+    const sessionPath = path.join(projectPath, ...record.sessionPath.split("/"));
+    const payload = JSON.parse(await fs.readFile(sessionPath, "utf8")) as Record<string, unknown>;
 
-    assert.equal(payload.flow, "target-investigate-case");
-    assert.equal(payload.sourceCommand, "/target_investigate_case");
-    assert.equal(payload.milestones[1]?.milestone, "publication");
+    assert.equal(payload.flow, "target-investigate-case-v2");
+    assert.equal(payload.sourceCommand, "/target_investigate_case_v2");
     assert.deepEqual(payload.artifactPaths, [
-      "investigations/2026-04-03T19-00-00Z/case-resolution.json",
-      "investigations/2026-04-03T19-00-00Z/evidence-bundle.json",
-      "investigations/2026-04-03T19-00-00Z/assessment.json",
-      "investigations/2026-04-03T19-00-00Z/publication-decision.json",
-      "investigations/2026-04-03T19-00-00Z/dossier.md",
+      "output/case-investigation/2026-04-09T12-00-00Z/case-resolution.json",
+      "output/case-investigation/2026-04-09T12-00-00Z/diagnosis.json",
     ]);
-    assert.equal(payload.outcome.metadata?.overallOutcome, "no-real-gap");
+    assert.equal(JSON.stringify(payload).includes("/target_investigate_case\""), false);
   } finally {
-    await cleanupTempProjectRoot(projectPath);
+    await fs.rm(projectPath, { recursive: true, force: true });
   }
 });

@@ -56,11 +56,6 @@ export type RunnerPhase =
   | "target-derive-dedup-prioritization"
   | "target-derive-materialization"
   | "target-derive-versioning"
-  | "target-investigate-case-preflight"
-  | "target-investigate-case-case-resolution"
-  | "target-investigate-case-evidence-collection"
-  | "target-investigate-case-assessment"
-  | "target-investigate-case-publication"
   | "target-investigate-case-v2-preflight"
   | "target-investigate-case-v2-resolve-case"
   | "target-investigate-case-v2-assemble-evidence"
@@ -238,7 +233,6 @@ export type RunnerSlotKind =
   | "target-prepare"
   | "target-checkup"
   | "target-derive"
-  | "target-investigate-case"
   | "target-investigate-case-v2";
 
 export interface RunnerActiveSlotState {

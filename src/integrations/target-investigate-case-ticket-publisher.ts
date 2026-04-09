@@ -1,5 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+import {
+  TargetInvestigateCaseTicketProposal,
+} from "../types/target-investigate-case.js";
 import {
   TargetInvestigateCaseTicketPublicationRequest,
   TargetInvestigateCaseTicketPublicationResult,
@@ -11,15 +15,40 @@ interface TargetInvestigateCaseTicketPublisherDependencies {
   now: () => Date;
 }
 
-interface TicketPublicationPolicy {
-  internalTicketTemplatePath: string;
-  causalBlockSourcePath: string;
-  mandatoryCausalBlockSources: readonly string[];
-  versionedArtifactsDefault: readonly string[];
-  nonVersionedArtifactsDefault: readonly string[];
-  semanticAuthority: "target-project";
-  finalPublicationAuthority: "runner";
-}
+const trimmedString = z.string().trim().min(1);
+
+const ticketPublicationPolicySchema = z
+  .object({
+    internalTicketTemplatePath: trimmedString,
+    causalBlockSourcePath: trimmedString,
+    mandatoryCausalBlockSources: z.array(trimmedString).min(1),
+    versionedArtifactsDefault: z.tuple([z.literal("ticket")]),
+    nonVersionedArtifactsDefault: z.array(trimmedString).min(1),
+    semanticAuthority: z.literal("target-project"),
+    finalPublicationAuthority: z.literal("runner"),
+  })
+  .strict();
+
+type TicketPublicationPolicy = z.infer<typeof ticketPublicationPolicySchema>;
+
+const TARGET_OWNED_TICKET_REQUIRED_HEADINGS = [
+  "## Metadata",
+  "## Context",
+  "## Problem statement",
+  "## Observed behavior",
+  "## Expected behavior",
+  "## Reproduction steps",
+  "## Evidence",
+  "## Impact assessment",
+  "## Investigacao Causal",
+  "### Hypotheses considered",
+  "### QA escape",
+  "### Prompt / guardrail opportunities",
+  "### Ticket readiness",
+  "## Closure criteria",
+  "## Decision log",
+  "## Closure",
+] as const;
 
 export class FileSystemTargetInvestigateCaseTicketPublisher
   implements TargetInvestigateCaseTicketPublisher
@@ -47,10 +76,11 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
     }
 
     const policy = this.requirePublicationPolicy(request);
+    const ticketProposal = this.requireTicketProposal(request);
     const causalBlockHeadings = await this.assertTemplateCompatibility(policy);
-    assertTargetOwnedTicketProposalQuality(request, causalBlockHeadings);
+    assertTargetOwnedTicketProposalQuality(ticketProposal, causalBlockHeadings);
 
-    const ticketSlug = buildTicketSlug(request);
+    const ticketSlug = buildTicketSlug(request.caseResolution.resolved_case.ref, ticketProposal);
     const existingTicketPath = await this.findExistingTicketPath(ticketSlug);
     if (existingTicketPath) {
       return {
@@ -64,21 +94,16 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
     );
     const absoluteTicketPath = path.join(this.projectPath, ...ticketPath.split("/"));
     await fs.mkdir(path.dirname(absoluteTicketPath), { recursive: true });
-    const createdAt = this.dependencies.now();
-    await fs.writeFile(
-      absoluteTicketPath,
-      renderTicketContent(request, policy, ticketPath, createdAt),
-      {
-        encoding: "utf8",
-        flag: "wx",
-      },
-    );
+    await fs.writeFile(absoluteTicketPath, normalizeMarkdown(ticketProposal.ticket_markdown), {
+      encoding: "utf8",
+      flag: "wx",
+    });
 
     await this.gitVersioning.commitAndPushPaths(
       [ticketPath],
       `chore(tickets): open ${path.posix.basename(ticketPath, ".md")}`,
       [
-        `Flow: /target_investigate_case`,
+        "Flow: /target_investigate_case_v2",
         `Case-ref: ${request.caseResolution.case_ref}`,
       ],
     );
@@ -91,23 +116,28 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
   private requirePublicationPolicy(
     request: TargetInvestigateCaseTicketPublicationRequest,
   ): TicketPublicationPolicy {
-    const policy = request.manifest.ticketPublicationPolicy;
-    if (!policy) {
+    const parsed = ticketPublicationPolicySchema.safeParse(
+      request.manifest.ticketPublicationPolicy,
+    );
+    if (!parsed.success) {
       throw new Error(
-        "Manifesto sem ticketPublicationPolicy: o runner nao pode materializar ticket elegivel.",
+        "Manifesto sem ticketPublicationPolicy valido: o runner nao pode materializar ticket elegivel.",
       );
     }
 
-    if (
-      policy.versionedArtifactsDefault.length !== 1 ||
-      policy.versionedArtifactsDefault[0] !== "ticket"
-    ) {
+    return parsed.data;
+  }
+
+  private requireTicketProposal(
+    request: TargetInvestigateCaseTicketPublicationRequest,
+  ): TargetInvestigateCaseTicketProposal {
+    if (!request.ticketProposal?.ticket_markdown) {
       throw new Error(
-        "ticketPublicationPolicy.versionedArtifactsDefault precisa declarar apenas `ticket`.",
+        "Publication runner-side v2 exige ticket-proposal.json com ticket_markdown target-owned.",
       );
     }
 
-    return policy;
+    return request.ticketProposal;
   }
 
   private async assertTemplateCompatibility(policy: TicketPublicationPolicy): Promise<string[]> {
@@ -122,11 +152,13 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
 
     const causalHeadings = extractMarkdownHeadings(causalTemplate);
     const internalHeadings = extractMarkdownHeadings(internalTemplate);
-
-    const block = causalHeadings.filter(
-      (entry) => entry === "## Investigacao Causal" || entry.startsWith("### "),
+    const mandatoryCausalHeadings = causalHeadings.filter(
+      (entry) =>
+        entry === "## Investigacao Causal" ||
+        policy.mandatoryCausalBlockSources.includes(entry.replace(/^###\s+/u, "")),
     );
-    for (const heading of block) {
+
+    for (const heading of mandatoryCausalHeadings) {
       if (!internalHeadings.includes(heading)) {
         throw new Error(
           `Template interno de ticket nao contem o heading obrigatorio ${heading}.`,
@@ -134,7 +166,7 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
       }
     }
 
-    return block;
+    return mandatoryCausalHeadings;
   }
 
   private async findExistingTicketPath(slug: string): Promise<string | null> {
@@ -162,269 +194,10 @@ export class FileSystemTargetInvestigateCaseTicketPublisher
   }
 }
 
-const renderTicketContent = (
-  request: TargetInvestigateCaseTicketPublicationRequest,
-  policy: TicketPublicationPolicy,
-  ticketPath: string,
-  createdAt: Date,
-): string => {
-  if (request.ticketProposal?.ticket_markdown) {
-    return request.ticketProposal.ticket_markdown.endsWith("\n")
-      ? request.ticketProposal.ticket_markdown
-      : `${request.ticketProposal.ticket_markdown}\n`;
-  }
-
-  if (!request.assessment) {
-    throw new Error(
-      "Publication runner-side sem ticket_markdown target-owned exige assessment apenas nos fluxos legados.",
-    );
-  }
-
-  const requestIdHint = request.evidenceBundle.replay.request_id ?? "N/A";
-  const investigationInputs = [
-    `Comando canonico: ${request.normalizedInput.canonicalCommand}`,
-    `Workflow: ${request.normalizedInput.workflow ?? "N/A"}`,
-    `Request ID: ${request.normalizedInput.requestId ?? "N/A"}`,
-    `Window: ${request.normalizedInput.window ?? "N/A"}`,
-    `Symptom: ${request.normalizedInput.symptom ?? "N/A"}`,
-  ];
-  const generalizationBasis =
-    request.assessment.generalization_basis.length > 0
-      ? request.assessment.generalization_basis.map((entry) => `${entry.code}: ${entry.summary}`)
-      : ["N/A"];
-  const overfitVetoes =
-    request.assessment.overfit_vetoes.length > 0
-      ? request.assessment.overfit_vetoes.map(
-          (entry) => `${entry.code}: ${entry.reason} (blocking=${entry.blocking ? "yes" : "no"})`,
-        )
-      : ["Nenhum veto registrado."];
-  const blockers =
-    (request.assessment.blockers?.length ?? 0) > 0
-      ? request.assessment.blockers.map(
-          (entry) =>
-            `${entry.code}: ${entry.summary} (source=${entry.source}; member=${entry.member ?? "N/A"})`,
-        )
-      : ["Nenhum blocker registrado."];
-  const capabilityLimits =
-    (request.assessment.capability_limits?.length ?? 0) > 0
-      ? request.assessment.capability_limits.map((entry) => `${entry.code}: ${entry.summary}`)
-      : ["Nenhum capability_limit registrado."];
-  const replayReadiness = request.caseResolution.replay_readiness;
-  const attemptCandidates = request.caseResolution.attempt_candidates;
-
-  return [
-    `# [TICKET] ${request.assessment.publication_recommendation.suggested_title}`,
-    "",
-    "## Metadata",
-    "",
-    "- Status: open",
-    "- Priority: P1",
-    "- Severity: S2",
-    `- Created at (UTC): ${formatTimestampUtc(createdAt)}`,
-    "- Reporter: codex-flow-runner",
-    "- Owner:",
-    "- Source: production-observation",
-    "- Parent spec: N/A",
-    "- Parent ticket: N/A",
-    "- Parent execplan: N/A",
-    "- Parent commit: N/A",
-    `- Request ID: ${request.normalizedInput.requestId ?? request.evidenceBundle.replay.request_id ?? "N/A"}`,
-    "- Related artifacts:",
-    `  - Request file: ${request.evidenceBundle.replay.request_id ?? "N/A"}`,
-    `  - Response file: ${request.summary.dossier_path}`,
-    "  - Log file: N/A",
-    "- Related docs/execplans:",
-    `  - ${request.manifest.supportingArtifacts.docs[0] ?? request.summary.dossier_path}`,
-    `  - ${policy.internalTicketTemplatePath}`,
-    `  - ${policy.causalBlockSourcePath}`,
-    "",
-    "## Context",
-    "",
-    `- Workflow/extractor area: ${request.normalizedInput.workflow ?? "case-investigation"}`,
-    `- Scenario: ${request.assessment.ticket_decision_reason}`,
-    "- Input constraints:",
-    "  - respeitar a autoridade semantica do projeto alvo e a publication final do runner",
-    `  - manter artefatos versionados restritos a ${policy.versionedArtifactsDefault.join(", ")}`,
-    "",
-    "## Problem statement",
-    "",
-    request.assessment.publication_recommendation.proposed_ticket_scope,
-    "",
-    "## Observed behavior",
-    "",
-    "- O que foi observado:",
-    `  - ${request.assessment.causal_surface.summary}`,
-    `  - ${request.assessment.publication_recommendation.reason}`,
-    "- Frequencia (unico, recorrente, intermitente): recorrente o bastante para ticket generalizavel segundo a rodada atual",
-    "- Como foi detectado (warning/log/test/assert): investigacao causal guiada por capability `case-investigation`",
-    "",
-    "## Expected behavior",
-    "",
-    "O projeto alvo deve eliminar a superficie causal identificada sem depender deste caso isolado e sem ampliar a persistencia de artefatos sensiveis.",
-    "",
-    "## Reproduction steps",
-    "",
-    "1. Reexecutar o caso com a capability `case-investigation` e os mesmos seletores normalizados.",
-    "2. Confirmar os vereditos semanticos registrados nesta rodada e a superficie causal apontada pelo dossier local.",
-    "3. Validar a correcao na menor superficie causal executavel indicada neste ticket.",
-    "",
-    "## Evidence",
-    "",
-    "- Logs relevantes (trechos curtos e redigidos): N/A",
-    "- Warnings/codes relevantes:",
-    `  - publication_status=${request.summary.publication_status}`,
-    `  - overall_outcome=${request.summary.overall_outcome}`,
-    `  - causal_surface=${request.assessment.causal_surface.owner}/${request.assessment.causal_surface.kind}`,
-    "- Comparativo antes/depois (se houver): N/A",
-    "",
-    "## Impact assessment",
-    "",
-    `- Impacto funcional: ${request.assessment.ticket_decision_reason}`,
-    "- Impacto operacional: a capability conseguiu generalizar o caso e recomendou publication automatica.",
-    "- Risco de regressao: medio, porque a menor superficie causal ainda depende de evidencia investigativa especializada.",
-    `- Scope estimado (quais fluxos podem ser afetados): ${request.assessment.causal_surface.systems.join(", ")}`,
-    "",
-    "## Initial hypotheses (optional)",
-    "",
-    `- ${request.assessment.publication_recommendation.proposed_ticket_scope}`,
-    "",
-    "## Proposed solution (optional)",
-    "",
-    `- ${request.assessment.publication_recommendation.proposed_ticket_scope}`,
-    "",
-    "## Investigacao Causal",
-    "",
-    "Obrigatorio preencher esta secao quando `Source: production-observation`. Para outras fontes, marcar `N/A` explicitamente quando nao se aplicar.",
-    "",
-    "### Resolved case",
-    "",
-    `- ${request.caseResolution.resolved_case.ref}: ${request.caseResolution.resolved_case.summary}`,
-    "",
-    "### Resolved attempt",
-    "",
-    `- ${request.caseResolution.attempt_resolution.attempt_ref ?? request.caseResolution.attempt_resolution.status}: ${request.caseResolution.attempt_resolution.reason}`,
-    `- attempt_candidates_status: ${attemptCandidates?.status ?? "N/A"}`,
-    `- attempt_candidate_request_ids: ${attemptCandidates?.candidate_request_ids.join(", ") || "N/A"}`,
-    `- selected_attempt_candidate_request_id: ${attemptCandidates?.selected_request_id ?? "N/A"}`,
-    "",
-    "### Investigation inputs",
-    "",
-    ...investigationInputs.map((entry) => `- ${entry}`),
-    "",
-    "### Replay used",
-    "",
-    `- ${request.evidenceBundle.replay.used ? "Sim" : "Nao"}; mode=${request.evidenceBundle.replay.mode}; requestId=${request.evidenceBundle.replay.request_id ?? "N/A"}; updateDb=${request.evidenceBundle.replay.update_db ?? "N/A"}`,
-    `- replay_readiness_state: ${replayReadiness?.state ?? "N/A"}; required=${replayReadiness?.required ?? "N/A"}; reason_code=${replayReadiness?.reason_code ?? "N/A"}`,
-    `- replay_readiness_next_step: ${replayReadiness?.next_step ? `${replayReadiness.next_step.code} - ${replayReadiness.next_step.summary}` : "N/A"}`,
-    "",
-    "### Verdicts",
-    "",
-    `- houve_gap_real: ${request.assessment.houve_gap_real}`,
-    `- era_evitavel_internamente: ${request.assessment.era_evitavel_internamente}`,
-    `- merece_ticket_generalizavel: ${request.assessment.merece_ticket_generalizavel}`,
-    `- primary_taxonomy: ${request.assessment.primary_taxonomy ?? "legacy-not-declared"}`,
-    `- operational_class: ${request.assessment.operational_class ?? "not_applicable"}`,
-    "",
-    "### Confidence and evidence sufficiency",
-    "",
-    `- confidence: ${request.assessment.confidence}`,
-    `- evidence_sufficiency: ${request.assessment.evidence_sufficiency}`,
-    `- assessment_next_action: ${request.assessment.next_action ? `${request.assessment.next_action.code} (${request.assessment.next_action.source}) - ${request.assessment.next_action.summary}` : "N/A"}`,
-    "",
-    "### Causal surface",
-    "",
-    `- owner: ${request.assessment.causal_surface.owner}`,
-    `- kind: ${request.assessment.causal_surface.kind}`,
-    `- summary: ${request.assessment.causal_surface.summary}`,
-    `- actionable: ${request.assessment.causal_surface.actionable ? "yes" : "no"}`,
-    `- systems: ${request.assessment.causal_surface.systems.join(", ")}`,
-    "",
-    "### Generalization basis",
-    "",
-    ...generalizationBasis.map((entry) => `- ${entry}`),
-    "",
-    "### Overfit vetoes considered",
-    "",
-    ...overfitVetoes.map((entry) => `- ${entry}`),
-    "",
-    "### Publication decision",
-    "",
-    `- semanticAuthority: ${policy.semanticAuthority}`,
-    `- finalPublicationAuthority: ${policy.finalPublicationAuthority}`,
-    `- recommended_action: ${request.assessment.publication_recommendation.recommended_action}`,
-    `- reason: ${request.assessment.publication_recommendation.reason}`,
-    `- blockers: ${blockers.join(" | ")}`,
-    `- capability_limits: ${capabilityLimits.join(" | ")}`,
-    `- dossier_path: ${request.summary.dossier_path}`,
-    `- ticket_path: ${ticketPath}`,
-    `- non_versioned_defaults: ${policy.nonVersionedArtifactsDefault.join(", ")}`,
-    "",
-    "## Closure criteria",
-    "",
-    `- Corrigir a menor superficie causal plausivel descrita em \`${request.assessment.publication_recommendation.proposed_ticket_scope}\`.`,
-    "- Validar a correcao com uma rodada observavel que nao dependa apenas deste caso isolado.",
-    "- Preservar a politica de artefatos versionados restrita ao ticket e manter dados sensiveis fora do repositorio.",
-    "",
-    "## Decision log",
-    "",
-    `- ${formatDateUtc(createdAt)} - Ticket publicado automaticamente a partir de /target_investigate_case para ${request.caseResolution.case_ref}.`,
-    "",
-    "## Closure",
-    "",
-    "- Closed at (UTC):",
-    "- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up",
-    "- Related PR/commit/execplan:",
-    "- Follow-up ticket (required when `Closure reason: split-follow-up`):",
-    "",
-    `<!-- request-id-hint: ${requestIdHint} -->`,
-  ].join("\n");
-};
-
-const TARGET_OWNED_TICKET_REQUIRED_HEADINGS_V1 = [
-  "## Metadata",
-  "## Context",
-  "## Problem statement",
-  "## Observed behavior",
-  "## Expected behavior",
-  "## Reproduction steps",
-  "## Evidence",
-  "## Impact assessment",
-  "## Investigacao Causal",
-  "### Hypotheses considered",
-  "### QA escape",
-  "### Prompt / guardrail opportunities",
-  "### Ticket readiness",
-  "## Closure criteria",
-  "## Decision log",
-  "## Closure",
-] as const;
-
-const normalizeMarkdownSearchText = (value: string): string =>
-  value
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\s+/gu, " ")
-    .trim();
-
-const assertMarkdownIncludesExplicitTrail = (
-  markdown: string,
-  expectedText: string,
-  errorMessage: string,
-): void => {
-  if (!normalizeMarkdownSearchText(markdown).includes(normalizeMarkdownSearchText(expectedText))) {
-    throw new Error(errorMessage);
-  }
-};
-
 const assertTargetOwnedTicketProposalQuality = (
-  request: TargetInvestigateCaseTicketPublicationRequest,
+  ticketProposal: TargetInvestigateCaseTicketProposal,
   causalBlockHeadings: readonly string[],
 ): void => {
-  const ticketProposal = request.ticketProposal;
-  if (!ticketProposal?.ticket_markdown) {
-    return;
-  }
-
   const markdown = ticketProposal.ticket_markdown;
   if (!markdown.startsWith("# [TICKET] ")) {
     throw new Error(
@@ -445,7 +218,7 @@ const assertTargetOwnedTicketProposalQuality = (
     return;
   }
 
-  for (const heading of TARGET_OWNED_TICKET_REQUIRED_HEADINGS_V1) {
+  for (const heading of TARGET_OWNED_TICKET_REQUIRED_HEADINGS) {
     if (!headings.includes(heading)) {
       throw new Error(
         `ticket-proposal.json target-owned nao contem o heading obrigatorio ${heading} para quality_gate=target-ticket-quality-v1.`,
@@ -492,7 +265,7 @@ const assertTargetOwnedTicketProposalQuality = (
   for (const entry of ticketProposal.competing_hypotheses) {
     assertMarkdownIncludesExplicitTrail(
       markdown,
-      entry.hypothesis,
+      entry.label,
       "ticket-proposal.json target-owned precisa expor explicitamente as hipoteses consideradas quando quality_gate=target-ticket-quality-v1.",
     );
   }
@@ -546,22 +319,43 @@ const assertTargetOwnedTicketProposalQuality = (
   }
 };
 
-const buildTicketSlug = (request: TargetInvestigateCaseTicketPublicationRequest): string => {
-  const caseRefSlug = slugify(request.caseResolution.resolved_case.ref, 48);
+const buildTicketSlug = (
+  caseRef: string,
+  ticketProposal: Pick<
+    TargetInvestigateCaseTicketProposal,
+    "suggested_slug" | "suggested_title" | "publication_hints"
+  >,
+): string => {
+  const caseRefSlug = slugify(caseRef, 48);
   const titleSlug = slugify(
-    (request.ticketProposal?.suggested_slug ??
-      request.ticketProposal?.suggested_title ??
-      request.assessment?.publication_recommendation.suggested_title) ||
-      "case-investigation-gap",
+    ticketProposal.suggested_slug || ticketProposal.suggested_title || "case-investigation-gap",
     80,
   );
   if (
-    request.ticketProposal?.publication_hints?.ticket_scope === "generalizable" &&
-    request.ticketProposal.publication_hints.slug_strategy === "suggested-slug-only"
+    ticketProposal.publication_hints?.ticket_scope === "generalizable" &&
+    ticketProposal.publication_hints.slug_strategy === "suggested-slug-only"
   ) {
     return titleSlug;
   }
+
   return `${caseRefSlug}-${titleSlug}`;
+};
+
+const normalizeMarkdownSearchText = (value: string): string =>
+  value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/gu, " ")
+    .trim();
+
+const assertMarkdownIncludesExplicitTrail = (
+  markdown: string,
+  expectedText: string,
+  errorMessage: string,
+): void => {
+  if (!normalizeMarkdownSearchText(markdown).includes(normalizeMarkdownSearchText(expectedText))) {
+    throw new Error(errorMessage);
+  }
 };
 
 const slugify = (value: string, maxLength: number): string => {
@@ -576,11 +370,12 @@ const slugify = (value: string, maxLength: number): string => {
 };
 
 const formatDateUtc = (value: Date): string => value.toISOString().slice(0, 10);
-const formatTimestampUtc = (value: Date): string =>
-  value.toISOString().replace(/\.\d{3}Z$/u, "Z");
 
 const extractMarkdownHeadings = (markdown: string): string[] =>
   markdown
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.startsWith("## ") || line.startsWith("### "));
+
+const normalizeMarkdown = (markdown: string): string =>
+  markdown.endsWith("\n") ? markdown : `${markdown}\n`;

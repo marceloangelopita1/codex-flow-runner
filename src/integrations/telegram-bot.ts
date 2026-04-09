@@ -800,13 +800,6 @@ const TARGET_DERIVE_TIMING_STAGE_ORDER = [
   "materialization",
   "versioning",
 ] as const;
-const TARGET_INVESTIGATE_CASE_TIMING_STAGE_ORDER = [
-  "preflight",
-  "case-resolution",
-  "evidence-collection",
-  "assessment",
-  "publication",
-] as const;
 const TARGET_INVESTIGATE_CASE_V2_TIMING_STAGE_ORDER = [
   "preflight",
   "resolve-case",
@@ -833,11 +826,8 @@ const START_REPLY_LINES = [
   "/target_derive_gaps [projeto] <report-path> - materializa gaps readiness elegiveis a partir do projeto ativo ou de um projeto explicito",
   "/target_derive_gaps_status - mostra status detalhado do /target_derive_gaps ativo",
   "/target_derive_gaps_cancel - solicita cancelamento cooperativo do /target_derive_gaps ativo",
-  "/target_investigate_case <projeto> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...] - inicia a investigacao causal canonica no projeto alvo",
   "/target_investigate_case_v2 <projeto> <case-ref> [--workflow ...] [--request-id ...] [--window ...] [--symptom ...] - inicia a investigacao diagnosis-first explicita no contrato v2",
-  "/target_investigate_case_status - mostra status detalhado do /target_investigate_case ativo",
   "/target_investigate_case_v2_status - mostra status detalhado do /target_investigate_case_v2 ativo",
-  "/target_investigate_case_cancel - solicita cancelamento cooperativo do /target_investigate_case ativo",
   "/target_investigate_case_v2_cancel - solicita cancelamento cooperativo do /target_investigate_case_v2 ativo",
   "/run_all - inicia uma rodada sequencial de tickets abertos (alias legado: /run-all)",
   "/specs - lista specs elegíveis para triagem no projeto ativo",
@@ -1782,32 +1772,14 @@ export class TelegramController {
       await this.handleTargetDeriveCancelCommand(ctx as unknown as CommandContext);
     });
 
-    this.bot.command("target_investigate_case", async (ctx) => {
-      await this.handleTargetInvestigateCaseCommand(ctx as unknown as CommandContext);
-    });
-
     this.bot.command("target_investigate_case_v2", async (ctx) => {
       await this.handleTargetInvestigateCaseCommand(ctx as unknown as CommandContext);
-    });
-
-    this.bot.command("target_investigate_case_status", async (ctx) => {
-      await this.handleTargetInvestigateCaseStatusCommand(
-        ctx as unknown as CommandContext,
-        "/target_investigate_case",
-      );
     });
 
     this.bot.command("target_investigate_case_v2_status", async (ctx) => {
       await this.handleTargetInvestigateCaseStatusCommand(
         ctx as unknown as CommandContext,
         "/target_investigate_case_v2",
-      );
-    });
-
-    this.bot.command("target_investigate_case_cancel", async (ctx) => {
-      await this.handleTargetInvestigateCaseCancelCommand(
-        ctx as unknown as CommandContext,
-        "/target_investigate_case",
       );
     });
 
@@ -2482,7 +2454,7 @@ export class TelegramController {
   private async handleTargetInvestigateCaseCommand(ctx: CommandContext): Promise<void> {
     const chatId = ctx.chat.id.toString();
     const commandText = (ctx.message?.text ?? "").trim();
-    const requestedCommand = this.extractTargetInvestigateCaseCommandLabel(commandText);
+    const requestedCommand = "/target_investigate_case_v2";
     this.logger.info(`Comando ${requestedCommand} recebido via Telegram`, {
       chatId,
       commandText: this.limit(commandText),
@@ -2492,7 +2464,7 @@ export class TelegramController {
       !this.isAllowed({
         chatId,
         eventType: "command",
-        command: "target_investigate_case",
+        command: "target_investigate_case_v2",
       })
     ) {
       await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
@@ -2517,7 +2489,7 @@ export class TelegramController {
 
   private async handleTargetInvestigateCaseStatusCommand(
     ctx: CommandContext,
-    commandLabel: "/target_investigate_case" | "/target_investigate_case_v2",
+    commandLabel: "/target_investigate_case_v2",
   ): Promise<void> {
     const chatId = ctx.chat.id.toString();
     this.logger.info(`Comando ${commandLabel}_status recebido via Telegram`, { chatId });
@@ -2526,10 +2498,7 @@ export class TelegramController {
       !this.isAllowed({
         chatId,
         eventType: "command",
-        command:
-          commandLabel === "/target_investigate_case_v2"
-            ? "target_investigate_case_v2_status"
-            : "target_investigate_case_status",
+        command: "target_investigate_case_v2_status",
       })
     ) {
       await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
@@ -2541,7 +2510,7 @@ export class TelegramController {
 
   private async handleTargetInvestigateCaseCancelCommand(
     ctx: CommandContext,
-    commandLabel: "/target_investigate_case" | "/target_investigate_case_v2",
+    commandLabel: "/target_investigate_case_v2",
   ): Promise<void> {
     const chatId = ctx.chat.id.toString();
     this.logger.info(`Comando ${commandLabel}_cancel recebido via Telegram`, { chatId });
@@ -2550,10 +2519,7 @@ export class TelegramController {
       !this.isAllowed({
         chatId,
         eventType: "command",
-        command:
-          commandLabel === "/target_investigate_case_v2"
-            ? "target_investigate_case_v2_cancel"
-            : "target_investigate_case_cancel",
+        command: "target_investigate_case_v2_cancel",
       })
     ) {
       await ctx.reply(PROJECTS_CALLBACK_UNAUTHORIZED_REPLY);
@@ -7103,14 +7069,8 @@ export class TelegramController {
 
   private buildTargetInvestigateCaseReply(result: TargetInvestigateCaseRequestResult): string {
     const commandLabel = this.resolveTargetInvestigateCaseReplyCommand(result);
-    const statusCommand =
-      commandLabel === "/target_investigate_case_v2"
-        ? "/target_investigate_case_v2_status"
-        : "/target_investigate_case_status";
-    const cancelCommand =
-      commandLabel === "/target_investigate_case_v2"
-        ? "/target_investigate_case_v2_cancel"
-        : "/target_investigate_case_cancel";
+    const statusCommand = "/target_investigate_case_v2_status";
+    const cancelCommand = "/target_investigate_case_v2_cancel";
     if (result.status === "started") {
       return [
         `▶️ ${result.message}`,
@@ -7199,17 +7159,15 @@ export class TelegramController {
   }
 
   private buildTargetInvestigateCaseStatusReply(
-    preferredCommand: "/target_investigate_case" | "/target_investigate_case_v2",
+    preferredCommand: "/target_investigate_case_v2",
     state: RunnerState,
   ): string {
     const isInvestigateCaseFlow = (flow: TargetFlowKind): boolean =>
-      flow === "target-investigate-case" || flow === "target-investigate-case-v2";
+      flow === "target-investigate-case-v2";
 
     if (!state.targetFlow || !isInvestigateCaseFlow(state.targetFlow.flow)) {
       const activeFlowCount = state.activeSlots.filter(
-        (slot) =>
-          slot.kind === "target-investigate-case" ||
-          slot.kind === "target-investigate-case-v2",
+        (slot) => slot.kind === "target-investigate-case-v2",
       ).length;
       if (activeFlowCount > 0) {
         return [
@@ -7693,9 +7651,7 @@ export class TelegramController {
               ? TARGET_CHECKUP_TIMING_STAGE_ORDER
               : summary.flow === "target-derive"
                 ? TARGET_DERIVE_TIMING_STAGE_ORDER
-                : summary.flow === "target-investigate-case-v2"
-                  ? TARGET_INVESTIGATE_CASE_V2_TIMING_STAGE_ORDER
-                  : TARGET_INVESTIGATE_CASE_TIMING_STAGE_ORDER,
+                : TARGET_INVESTIGATE_CASE_V2_TIMING_STAGE_ORDER,
         ),
       });
 
@@ -8791,11 +8747,7 @@ export class TelegramController {
       return "/target_derive_gaps";
     }
 
-    if (flow === "target-investigate-case-v2") {
-      return "/target_investigate_case_v2";
-    }
-
-    return "/target_investigate_case";
+    return "/target_investigate_case_v2";
   }
 
   private renderTargetFlowSlotKind(flow: TargetFlowKind): Extract<
@@ -8803,7 +8755,6 @@ export class TelegramController {
     | "target-prepare"
     | "target-checkup"
     | "target-derive"
-    | "target-investigate-case"
     | "target-investigate-case-v2"
   > {
     if (flow === "target-prepare") {
@@ -8818,11 +8769,7 @@ export class TelegramController {
       return "target-derive";
     }
 
-    if (flow === "target-investigate-case-v2") {
-      return "target-investigate-case-v2";
-    }
-
-    return "target-investigate-case";
+    return "target-investigate-case-v2";
   }
 
   private renderRunnerSlotCommand(kind: RunnerSlotKind): string {
@@ -8858,10 +8805,6 @@ export class TelegramController {
       return "/target_derive_gaps";
     }
 
-    if (kind === "target-investigate-case") {
-      return "/target_investigate_case";
-    }
-
     if (kind === "target-investigate-case-v2") {
       return "/target_investigate_case_v2";
     }
@@ -8871,25 +8814,17 @@ export class TelegramController {
 
   private extractTargetInvestigateCaseCommandLabel(
     commandText?: string | null,
-  ): "/target_investigate_case" | "/target_investigate_case_v2" {
-    return commandText?.trim().startsWith("/target_investigate_case_v2")
-      ? "/target_investigate_case_v2"
-      : "/target_investigate_case";
+  ): "/target_investigate_case_v2" {
+    return "/target_investigate_case_v2";
   }
 
   private resolveTargetInvestigateCaseReplyCommand(
     result: TargetInvestigateCaseRequestResult,
-  ): "/target_investigate_case" | "/target_investigate_case_v2" {
+  ): "/target_investigate_case_v2" {
     if (result.status === "completed") {
       return this.extractTargetInvestigateCaseCommandLabel(result.summary.canonicalCommand);
     }
 
-    if (result.status === "started" || result.status === "failed" || result.status === "blocked") {
-      return result.message.includes("/target_investigate_case_v2")
-        ? "/target_investigate_case_v2"
-        : "/target_investigate_case";
-    }
-
-    return "/target_investigate_case";
+    return "/target_investigate_case_v2";
   }
 }

@@ -212,8 +212,6 @@ export type TargetDeriveFlowCompletionReason = "completed" | "failed" | "blocked
 export type TargetInvestigateCaseFlowCompletionReason =
   | "completed"
   | "round-materialization-failed"
-  | "semantic-review-failed"
-  | "causal-debug-failed"
   | "round-evaluation-failed"
   | "failed"
   | "blocked"
@@ -271,7 +269,7 @@ export type TargetDeriveFlowSummary = TargetFlowSummaryBase<
 };
 
 export type TargetInvestigateCaseFlowSummary = TargetFlowSummaryBase<
-  "target-investigate-case" | "target-investigate-case-v2",
+  "target-investigate-case-v2",
   TargetInvestigateCaseMilestone,
   TargetInvestigateCaseFinalSummary,
   TargetInvestigateCaseFlowCompletionReason

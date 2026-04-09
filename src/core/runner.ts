@@ -3024,9 +3024,7 @@ export class TicketRunner {
     commandText: string,
   ): Promise<TargetInvestigateCaseRequestResult> => {
     const trimmedCommand = commandText.trim();
-    const requestedCommand = trimmedCommand.startsWith("/target_investigate_case_v2")
-      ? "/target_investigate_case_v2"
-      : "/target_investigate_case";
+    const requestedCommand = "/target_investigate_case_v2";
     this.logger.info(`Solicitacao de ${requestedCommand} recebida`, {
       commandText: trimmedCommand,
       phase: this.state.phase,
@@ -3074,7 +3072,7 @@ export class TicketRunner {
     this.cancelTargetFlow("target-derive");
 
   cancelTargetInvestigateCase = async (): Promise<TargetFlowCancelResult> =>
-    this.cancelTargetFlow("target-investigate-case");
+    this.cancelTargetFlow("target-investigate-case-v2");
 
   private async startTargetPrepareFlow(params: {
     requestedProjectName: string | null;
@@ -3229,13 +3227,8 @@ export class TicketRunner {
   private async startTargetInvestigateCaseFlow(
     normalizedInput: ReturnType<typeof parseTargetInvestigateCaseCommand>,
   ): Promise<TargetInvestigateCaseRequestResult> {
-    const command = normalizedInput.canonicalCommand.startsWith("/target_investigate_case_v2")
-      ? "/target_investigate_case_v2"
-      : "/target_investigate_case";
-    const flow =
-      command === "/target_investigate_case_v2"
-        ? ("target-investigate-case-v2" as const)
-        : ("target-investigate-case" as const);
+    const command = "/target_investigate_case_v2" as const;
+    const flow = "target-investigate-case-v2" as const;
     const startedAt = this.now();
     const reservation = this.reserveTargetFlowProjectSlot({
       command,
@@ -3885,7 +3878,7 @@ export class TicketRunner {
 
     if (result.status === "completed") {
       return {
-        flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+        flow: active.flow as "target-investigate-case-v2",
         command: active.command,
         outcome: "success",
         finalStage: "publication",
@@ -3912,7 +3905,7 @@ export class TicketRunner {
 
     if (result.status === "cancelled") {
       return {
-        flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+        flow: active.flow as "target-investigate-case-v2",
         command: active.command,
         outcome: "cancelled",
         finalStage: result.summary.cancelledAtMilestone,
@@ -3931,7 +3924,7 @@ export class TicketRunner {
     }
 
     return {
-      flow: active.flow as "target-investigate-case" | "target-investigate-case-v2",
+      flow: active.flow as "target-investigate-case-v2",
       command: active.command,
       outcome: result.status === "blocked" ? "blocked" : "failure",
       finalStage:
@@ -3969,14 +3962,6 @@ export class TicketRunner {
   ): TargetInvestigateCaseFlowSummary["completionReason"] {
     if (!result.summary) {
       return "failed";
-    }
-
-    if (result.summary.failureSurface === "semantic-review") {
-      return "semantic-review-failed";
-    }
-
-    if (result.summary.failureSurface === "causal-debug") {
-      return "causal-debug-failed";
     }
 
     if (result.summary.failureSurface === "round-evaluation") {
@@ -4066,22 +4051,6 @@ export class TicketRunner {
         return "target-checkup-editorial-summary";
       }
       return "target-checkup-versioning";
-    }
-
-    if (flow === "target-investigate-case") {
-      if (milestone === "preflight") {
-        return "target-investigate-case-preflight";
-      }
-      if (milestone === "case-resolution") {
-        return "target-investigate-case-case-resolution";
-      }
-      if (milestone === "evidence-collection") {
-        return "target-investigate-case-evidence-collection";
-      }
-      if (milestone === "assessment") {
-        return "target-investigate-case-assessment";
-      }
-      return "target-investigate-case-publication";
     }
 
     if (flow === "target-investigate-case-v2") {
@@ -12447,11 +12416,7 @@ export class TicketRunner {
         status: "ambiguous";
         message: string;
       } {
-    const matchesFlow = (candidateFlow: TargetFlowKind): boolean =>
-      flow === "target-investigate-case"
-        ? candidateFlow === "target-investigate-case" ||
-          candidateFlow === "target-investigate-case-v2"
-        : candidateFlow === flow;
+    const matchesFlow = (candidateFlow: TargetFlowKind): boolean => candidateFlow === flow;
     const activeProjectName = this.state.activeProject?.name;
     if (activeProjectName) {
       const scopedTargetFlow = this.activeTargetFlows.get(this.buildTargetSlotKey(activeProjectName));
@@ -12519,10 +12484,6 @@ export class TicketRunner {
       return "/target_derive_gaps";
     }
 
-    if (kind === "target-investigate-case") {
-      return "/target_investigate_case";
-    }
-
     if (kind === "target-investigate-case-v2") {
       return "/target_investigate_case_v2";
     }
@@ -12548,7 +12509,6 @@ export class TicketRunner {
     | "target-prepare"
     | "target-checkup"
     | "target-derive"
-    | "target-investigate-case"
     | "target-investigate-case-v2"
   > {
     if (flow === "target-prepare") {
@@ -12563,11 +12523,7 @@ export class TicketRunner {
       return "target-derive";
     }
 
-    if (flow === "target-investigate-case-v2") {
-      return "target-investigate-case-v2";
-    }
-
-    return "target-investigate-case";
+    return "target-investigate-case-v2";
   }
 
   private buildTargetFlowStateSnapshot(active: ActiveTargetFlowExecution): RunnerTargetFlowState {

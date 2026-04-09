@@ -446,12 +446,11 @@
   - SPECS.md
   - docs/workflows/codex-quality-gates.md
   - docs/workflows/target-project-compatibility-contract.md
-  - docs/workflows/target-case-investigation-manifest.json
+  - docs/workflows/target-case-investigation-v2-manifest.json
   - prompts/01-avaliar-spec-e-gerar-tickets.md
   - prompts/09-validar-tickets-derivados-da-spec.md
   - prompts/10-autocorrigir-tickets-derivados-da-spec.md
   - prompts/12-retrospectiva-derivação-tickets-pre-run-all.md
-  - prompts/16-target-investigate-case-round-materialization.md
   - src/core/runner.ts
   - src/core/spec-ticket-validation.ts
   - src/types/spec-ticket-validation.ts
@@ -481,7 +480,7 @@
 - Pendências em aberto:
   - nenhuma pendência local runner-side permanece aberta nesta linhagem da spec.
 - Evidências de validação:
-  - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `prompts/16-target-investigate-case-round-materialization.md` e testes focados;
+  - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `docs/workflows/target-case-investigation-v2-manifest.json` e testes focados;
   - fixture literal da spec em `docs/workflows/target-case-investigation-v2-manifest.json` e cobertura dedicada em `src/core/target-investigate-case.test.ts`;
   - `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/telegram-bot.test.ts` com 634 testes passando em 2026-04-09 19:48Z;
   - `npm run check` com `exit 0`.

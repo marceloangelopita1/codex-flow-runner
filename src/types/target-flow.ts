@@ -4,14 +4,12 @@ export type TargetFlowKind =
   | "target-prepare"
   | "target-checkup"
   | "target-derive"
-  | "target-investigate-case"
   | "target-investigate-case-v2";
 
 export type TargetFlowCommand =
   | "/target_prepare"
   | "/target_checkup"
   | "/target_derive_gaps"
-  | "/target_investigate_case"
   | "/target_investigate_case_v2";
 
 export type TargetFlowVersionBoundaryState = "before-versioning" | "after-versioning";
@@ -27,12 +25,6 @@ export type TargetDeriveMilestone =
   | "dedup-prioritization"
   | "materialization"
   | "versioning";
-export type LegacyTargetInvestigateCaseMilestone =
-  | "preflight"
-  | "case-resolution"
-  | "evidence-collection"
-  | "assessment"
-  | "publication";
 export type TargetInvestigateCaseV2Milestone =
   | "preflight"
   | "resolve-case"
@@ -42,9 +34,7 @@ export type TargetInvestigateCaseV2Milestone =
   | "improvement-proposal"
   | "ticket-projection"
   | "publication";
-export type TargetInvestigateCaseMilestone =
-  | LegacyTargetInvestigateCaseMilestone
-  | TargetInvestigateCaseV2Milestone;
+export type TargetInvestigateCaseMilestone = TargetInvestigateCaseV2Milestone;
 
 export type TargetFlowMilestone =
   | TargetPrepareMilestone
@@ -101,17 +91,6 @@ export const TARGET_DERIVE_MILESTONE_LABELS: Record<TargetDeriveMilestone, strin
   versioning: "versionamento",
 };
 
-export const TARGET_INVESTIGATE_CASE_MILESTONE_LABELS: Record<
-  LegacyTargetInvestigateCaseMilestone,
-  string
-> = {
-  preflight: "preflight",
-  "case-resolution": "case-resolution",
-  "evidence-collection": "evidence-collection",
-  assessment: "assessment",
-  publication: "publication",
-};
-
 export const TARGET_INVESTIGATE_CASE_V2_MILESTONE_LABELS: Record<
   TargetInvestigateCaseV2Milestone,
   string
@@ -139,11 +118,7 @@ export const targetFlowKindToCommand = (flow: TargetFlowKind): TargetFlowCommand
     return "/target_derive_gaps";
   }
 
-  if (flow === "target-investigate-case-v2") {
-    return "/target_investigate_case_v2";
-  }
-
-  return "/target_investigate_case";
+  return "/target_investigate_case_v2";
 };
 
 export const targetFlowCommandToKind = (command: TargetFlowCommand): TargetFlowKind => {
@@ -159,11 +134,7 @@ export const targetFlowCommandToKind = (command: TargetFlowCommand): TargetFlowK
     return "target-derive";
   }
 
-  if (command === "/target_investigate_case_v2") {
-    return "target-investigate-case-v2";
-  }
-
-  return "target-investigate-case";
+  return "target-investigate-case-v2";
 };
 
 export const renderTargetFlowMilestoneLabel = (
@@ -182,13 +153,7 @@ export const renderTargetFlowMilestoneLabel = (
     return TARGET_DERIVE_MILESTONE_LABELS[milestone as TargetDeriveMilestone];
   }
 
-  if (flow === "target-investigate-case-v2") {
-    return TARGET_INVESTIGATE_CASE_V2_MILESTONE_LABELS[
-      milestone as TargetInvestigateCaseV2Milestone
-    ];
-  }
-
-  return TARGET_INVESTIGATE_CASE_MILESTONE_LABELS[
-    milestone as LegacyTargetInvestigateCaseMilestone
+  return TARGET_INVESTIGATE_CASE_V2_MILESTONE_LABELS[
+    milestone as TargetInvestigateCaseV2Milestone
   ];
 };
