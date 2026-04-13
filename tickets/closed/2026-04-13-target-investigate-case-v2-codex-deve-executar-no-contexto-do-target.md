@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 executa Codex fora do contexto natural do target
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P2
 - Severity: S3
@@ -33,6 +33,7 @@
 - Related docs/execplans:
   - docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md
   - docs/workflows/target-investigate-case-v2-target-onboarding.md
+  - execplans/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
 
 ## Classificação de risco (check-up não funcional, quando aplicável)
 - Matriz aplicável: não
@@ -95,8 +96,30 @@ Cada etapa target-owned deve ser executada pelo Codex com cwd no projeto alvo. O
 - 2026-04-13 - Abrir como melhoria separada P2 - ajuda a IA a trabalhar no lugar certo, mas o bloqueio de schema fica no ticket P1 principal.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-13 17:05Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplan `execplans/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md`; commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+
+### Closure evidence
+- Resultado final: GO.
+- Checklist compartilhado aplicado: `docs/workflows/codex-quality-gates.md` foi relido; diff, ticket, ExecPlan, spec de origem, onboarding v2, `DOCUMENTATION.md` e `PLANS.md` foram relidos antes da decisão.
+- RF-04 e CA-06: `git diff -- src/integrations/codex-client.ts` mostra uma alteração local e target-agnostic, trocando apenas o `cwd` da chamada `runCodexCommand` dentro de `runTargetInvestigateCaseV2Stage(...)` para `request.targetProject.path`, sem adicionar heurística, path, script ou semântica específica de `guiadomus-matricula`.
+- RF-05: `src/integrations/codex-client.test.ts` cobre que `runTargetInvestigateCaseV2Stage(...)` chama `runCodexCommand` com `cwd = fixture.project.path` e `cwd != runnerRepoPath`, permitindo que Codex herde naturalmente `AGENTS.md`, runbook, scripts e paths locais do target.
+- RF-14 e CA-04: o caso parametrizado de `stage: "assemble-evidence"` valida `cwd = targetProject.path`, `stagePromptPath = docs/workflows/target-investigate-case-v2-assemble-evidence.md` e presença dos artefatos `evidence-index.json` e `case-bundle.json` no prompt.
+- Closure criterion 1: o teste `runTargetInvestigateCaseV2Stage executa estagios target-owned no cwd do target preservando contexto do runner` cobre explicitamente `resolve-case`, `assemble-evidence` e `diagnosis`, capturando o request recebido por `runCodexCommand` para cada membro e esperando `cwd` igual ao path do target.
+- Closure criterion 2: o mesmo teste valida que o prompt continua incluindo `runnerRepoPath`, `runnerReference`, `roundId`, `roundDirectory`, manifesto, runbook, `stagePromptPath`, `stageArtifacts` e `artifactPaths` serializados.
+- Closure criterion 3: `git diff -- src/integrations/codex-client.ts` mostra mudança restrita ao bloco de `runTargetInvestigateCaseV2Stage(...)`; `rg -n "cwd: this\\.repoPath|cwd: request\\.targetProject\\.path" src/integrations/codex-client.ts` confirma que os fluxos runner-owned e não relacionados continuam em `this.repoPath`, enquanto somente a v2 target-owned usa `request.targetProject.path`.
+- RF-09 herdado: o teste valida que `promptTemplatePath` continua sendo resolvido por `path.join(fixture.project.path, stagePromptPath)` para prompts declarados pelo target, e os testes existentes preservam a etapa entrypoint-only sem prompt externo.
+- RNFs/restrições herdadas: o prompt final preserva o bloco de contexto adicional com runner repo, referência textual do runner, round id, manifesto, runbook, artefatos obrigatórios e facts JSON; a mudança de `cwd` reduz a necessidade de instruções compensatórias para navegar manualmente até o target.
+- Allowlist/enumeração finita: `targetOwnedStageCases` cobre positivamente todos os três estágios obrigatórios aceitos neste método (`resolve-case`, `assemble-evidence`, `diagnosis`) sem consolidação agregada. O ticket/ExecPlan não exigem teste negativo para estágio fora do conjunto; a cobertura de fora do escopo foi feita por revisão de diff, `rg` de `cwd` e typecheck da união tipada.
+- Validações executadas: `npm test -- src/integrations/codex-client.test.ts` em 2026-04-13 17:05Z, com 203 testes passando; `npm run check` em 2026-04-13 17:05Z, com exit 0.
+- Revisão de consistência: `git status --short` e `find . -maxdepth 3` para artefatos temporários confirmaram apenas alterações intencionais do ticket/follow-up e nenhum lixo local detectado.
+
+### Manual validation pending
+- Entrega técnica local runner-side: concluída e validada por teste automatizado, typecheck e revisão de diff.
+- Validação manual externa pendente: executar uma rodada real de `/target_investigate_case_v2` contra um target aderente e confirmar que Codex respeita `AGENTS.md`, runbook e paths locais quando invocado pela v2 no `cwd` do projeto alvo.
+- Como executar: operador deve acionar `/target_investigate_case_v2 <target> <case-ref> --workflow <workflow>` em ambiente real com target aderente, aguardar a conclusão e inspecionar logs/artefatos em `output/case-investigation/<round-id>/` para confirmar que os estágios target-owned operaram a partir do target.
+- Responsável operacional: operador humano do runner/target no ambiente real.
+- Classificação: validação externa/manual; não bloqueia o GO técnico deste ticket.

@@ -1284,7 +1284,7 @@ export class CodexCliTicketFlowClient implements CodexTicketFlowClient {
 
       const preferences = await this.snapshotInvocationPreferences();
       const result = await this.dependencies.runCodexCommand({
-        cwd: this.repoPath,
+        cwd: request.targetProject.path,
         prompt,
         env: {
           ...process.env,

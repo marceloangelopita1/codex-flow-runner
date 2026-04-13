@@ -2,15 +2,15 @@
 
 ## Metadata
 - Spec ID: 2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction
-- Status: in_progress
-- Spec treatment: pending
+- Status: attended
+- Spec treatment: done
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-13 16:50Z
+- Last reviewed at (UTC): 2026-04-13 17:05Z
 - Source: technical-evolution
 - Related tickets:
   - tickets/closed/2026-04-13-target-investigate-case-v2-summary-deve-reportar-diagnostico-com-warnings.md
-  - tickets/open/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
+  - tickets/closed/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
   - tickets/closed/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
@@ -29,12 +29,14 @@
   - execplans/2026-04-08-target-investigate-case-v2-diagnosis-artifacts-and-operator-surfaces-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-lineage-enforcement-gap.md
   - execplans/2026-04-08-target-investigate-case-v2-optional-continuations-and-migration-guards-gap.md
+  - execplans/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
 - Related commits:
   - `5e4e961` - fechamento do ticket de `diagnosis.*` e das superfícies operator-facing diagnosis-first.
   - `bb2e497` - fechamento do ticket de contrato runner-side e do caminho mínimo diagnosis-first.
   - `5060863` - fechamento do follow-up de `lineage` nos artefatos mínimos da v2.
   - `4edbbc3` - fechamento do ticket de continuações opcionais, publication tardia e guardrails de migração.
   - fechamento local de 2026-04-09 dos follow-ups de hard cut, orquestração por estágio e superfícies finais diagnosis-first; registrado no commit de fechamento desta trilha local.
+  - fechamento local de 2026-04-13 do follow-up de contexto natural de execução Codex no target; será versionado pelo runner no mesmo changeset de fechamento.
 - Fluxo derivado canônico: `spec -> tickets`; triagem inicial = apenas tickets em `tickets/open/`; `ticket -> execplan` quando necessário.
 
 ## Objetivo e contexto
@@ -474,10 +476,11 @@
   - nenhuma pendência local runner-side para CA-09 após a validação de 2026-04-13; validação em caso real de target aderente permanece operacional/manual.
 - Validações manuais pendentes:
   - validar a legibilidade de `diagnosis.md` em caso real de target aderente; permanece como verificação operacional externa/manual e não bloqueia o fechamento deste pacote runner-side.
+  - validar em rodada real que Codex respeita `AGENTS.md`, runbook e paths locais quando invocado pela v2 no `cwd` do projeto alvo; permanece como verificação operacional externa/manual e não bloqueia o fechamento deste pacote runner-side.
   - escolher o primeiro target de adoção da v2 em repositório externo; permanece como passo operacional posterior e não configura gap residual local desta auditoria.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: in_progress
+- Estado geral: attended
 - Itens atendidos:
   - motivação diagnosis-first consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
@@ -488,8 +491,9 @@
   - o contexto técnico mínimo do branch v2 deixou de expor superfícies pré-v2 como parte do contrato efetivo dos prompts por estágio.
   - divergências de envelope em `evidence-index.json`, `case-bundle.json` e `diagnosis.json` agora viram warnings core quando há `diagnosis.md` humano ou blocker explícito suficiente, sem aceitar vereditos fora de `ok`, `not_ok` e `inconclusive`.
   - summary final, metadata de trace e Telegram agora diferenciam diagnóstico produzido com warnings de automação de falha operacional, preservando warnings separados para `evidence-index.json`, `case-bundle.json` e `diagnosis.json`.
+  - a execução Codex dos estágios target-owned `resolve-case`, `assemble-evidence` e `diagnosis` agora nasce no `cwd` do projeto alvo, preservando `runnerRepoPath`, `runnerReference`, round id, manifesto, runbook e paths de artefatos no prompt.
 - Pendências em aberto:
-  - concluir o ticket filho ainda aberto sobre contexto natural de execução no target.
+  - nenhuma pendência funcional local runner-side; commit/push do changeset de fechamento será executado pelo runner fora desta etapa, e validações manuais externas permanecem registradas acima.
 - Evidências de validação:
   - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `docs/workflows/target-case-investigation-v2-manifest.json` e testes focados;
   - fixture literal da spec em `docs/workflows/target-case-investigation-v2-manifest.json` e cobertura dedicada em `src/core/target-investigate-case.test.ts`;
@@ -500,6 +504,8 @@
   - `npm test -- src/integrations/telegram-bot.test.ts src/core/runner.test.ts` com 201 testes passando em 2026-04-13 16:42Z, cobrindo reply Telegram diagnosis-first com warnings separados, summary final com `diagnosis-completed-with-artifact-warnings`, trace metadata com warnings dos três artefatos enumerados e timing sem `Fase interrompida` em sucesso degradado.
   - `npm test -- src/integrations/telegram-bot.test.ts src/core/runner.test.ts src/core/target-investigate-case.test.ts src/integrations/workflow-trace-store.test.ts` com 202 testes passando em 2026-04-13 16:50Z, executando a matriz final do ExecPlan e cobrindo todos os `kind` aceitos de warning na superfície Telegram.
   - `npm run check` com `exit 0` em 2026-04-13 16:50Z.
+  - `npm test -- src/integrations/codex-client.test.ts` com 203 testes passando em 2026-04-13 17:05Z, incluindo prova explícita de `cwd = targetProject.path` para `resolve-case`, `assemble-evidence` e `diagnosis`.
+  - `npm run check` com `exit 0` em 2026-04-13 17:05Z.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -552,3 +558,5 @@
 - 2026-04-13 16:24Z - Fechamento formal do ticket runner-side de CA-09 preparado para versionamento pelo runner; permanecem abertos apenas os follow-ups de superfície operator-facing e contexto natural de execução no target.
 - 2026-04-13 16:43Z - Implementação local do follow-up de superfície operator-facing concluída sem fechamento de ticket: summary final, trace metadata e Telegram reportam diagnóstico produzido com warnings de automação, preservando evidência explícita para `evidence-index.json`, `case-bundle.json` e `diagnosis.json`.
 - 2026-04-13 16:50Z - Fechamento formal do ticket filho de superfície operator-facing/Telegram/trace preparado para versionamento pelo runner; permanece aberto apenas o follow-up sobre contexto natural de execução no target.
+- 2026-04-13 17:01Z - Implementação local do follow-up de contexto natural concluída sem fechamento de ticket: `runTargetInvestigateCaseV2Stage(...)` passou a invocar Codex no `cwd` do target para `resolve-case`, `assemble-evidence` e `diagnosis`, mantendo o runner como referência explícita no prompt.
+- 2026-04-13 17:05Z - Fechamento formal do follow-up de contexto natural preparado para versionamento pelo runner: ticket movido para `tickets/closed/`, `Status` voltou para `attended` e `Spec treatment` voltou para `done`, com validação manual externa registrada como não bloqueante.
