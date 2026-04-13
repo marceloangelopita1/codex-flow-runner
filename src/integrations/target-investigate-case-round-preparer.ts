@@ -1,10 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { z } from "zod";
 import { Logger } from "../core/logger.js";
 import {
+  inspectTargetInvestigateCaseTargetOwnedArtifacts,
   readTargetInvestigateCaseCaseResolutionArtifact,
-  readTargetInvestigateCaseEvidenceBundleArtifact,
+  resolveTargetInvestigateCaseDiagnosticClosure,
   TargetInvestigateCaseRoundPreparer,
   TargetInvestigateCaseRoundPreparationRequest,
   TargetInvestigateCaseRoundPreparationResult,
@@ -12,13 +12,12 @@ import {
 import type { ProjectRef } from "../types/project.js";
 import {
   normalizeTargetInvestigateCaseRelativePath,
-  targetInvestigateCaseDiagnosisSchema,
-  targetInvestigateCaseEvidenceIndexSchema,
-  TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
+  TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
   TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
   TARGET_INVESTIGATE_CASE_V2_COMMAND,
   TargetInvestigateCaseFailureKind,
   TargetInvestigateCaseFailureSurface,
+  TargetInvestigateCaseArtifactInspectionReport,
   TargetInvestigateCaseV2StageArtifactSet,
 } from "../types/target-investigate-case.js";
 import { TargetInvestigateCaseMilestone } from "../types/target-flow.js";
@@ -129,21 +128,22 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
         runnerReference,
         runbookPath,
       });
-      await this.validateCanonicalArtifacts(request);
+      const artifactInspection = await this.inspectCanonicalArtifacts(request);
       await this.syncCanonicalArtifactsToMirror(request);
+
+      return {
+        status: "prepared",
+        artifactInspectionWarnings: artifactInspection.warnings,
+        ticketPublisher: request.manifest.ticketPublicationPolicy
+          ? new FileSystemTargetInvestigateCaseTicketPublisher(
+              request.targetProject.path,
+              this.dependencies.createGitVersioning(request.targetProject),
+            )
+          : null,
+      };
     } catch (error) {
       return buildRoundPreparationFailedResult(error, "diagnosis");
     }
-
-    return {
-      status: "prepared",
-      ticketPublisher: request.manifest.ticketPublicationPolicy
-        ? new FileSystemTargetInvestigateCaseTicketPublisher(
-            request.targetProject.path,
-            this.dependencies.createGitVersioning(request.targetProject),
-          )
-        : null,
-    };
   }
 
   private async executeV2Stage(
@@ -186,45 +186,54 @@ export class CodexCliTargetInvestigateCaseRoundPreparer
     }
   }
 
-  private async validateCanonicalArtifacts(
+  private async inspectCanonicalArtifacts(
     request: TargetInvestigateCaseRoundPreparationRequest,
-  ): Promise<void> {
-    const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
+  ): Promise<TargetInvestigateCaseArtifactInspectionReport> {
+    const artifactInspection = await inspectTargetInvestigateCaseTargetOwnedArtifacts({
       projectPath: request.targetProject.path,
-      relativePath: request.artifactPaths.caseResolutionPath,
-      normalizedInput: request.normalizedInput,
+      artifactPaths: request.artifactPaths,
     });
-    const evidenceIndex = await readJsonArtifact(
-      request.targetProject.path,
-      request.artifactPaths.evidenceIndexPath,
-      targetInvestigateCaseEvidenceIndexSchema,
-      TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
-    );
-    const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifact({
-      projectPath: request.targetProject.path,
-      relativePath: request.artifactPaths.evidenceBundlePath,
-    });
-    const diagnosis = await readJsonArtifact(
-      request.targetProject.path,
-      request.artifactPaths.diagnosisJsonPath,
-      targetInvestigateCaseDiagnosisSchema,
-      "diagnosis.json",
+    const missingBlockingArtifacts = artifactInspection.artifacts.filter(
+      (entry) =>
+        !entry.exists &&
+        (entry.artifactLabel === TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT ||
+          entry.artifactLabel === TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT),
     );
 
-    if (diagnosis.bundle_artifact !== request.artifactPaths.evidenceBundlePath) {
+    if (missingBlockingArtifacts.length > 0) {
       throw new TargetInvestigateCaseRoundPreparationFailureError(
         "round-materialization",
         "artifact-validation-failed",
         "diagnosis",
-        `diagnosis.json precisa apontar bundle_artifact=${request.artifactPaths.evidenceBundlePath}.`,
-        "Garanta coerencia entre diagnosis.json e case-bundle.json antes de rerodar.",
+        `Artefatos obrigatorios ausentes: ${missingBlockingArtifacts
+          .map((entry) => `${entry.artifactLabel} em ${entry.artifactPath}`)
+          .join(", ")}.`,
+        "Materialize evidence-index.json e case-bundle.json no namespace autoritativo antes de rerodar.",
       );
     }
 
-    await validateDiagnosisMarkdownArtifact(
-      request.targetProject.path,
-      request.artifactPaths.diagnosisMdPath,
-    );
+    try {
+      const caseResolution = await readTargetInvestigateCaseCaseResolutionArtifact({
+        projectPath: request.targetProject.path,
+        relativePath: request.artifactPaths.caseResolutionPath,
+        normalizedInput: request.normalizedInput,
+      });
+      await resolveTargetInvestigateCaseDiagnosticClosure({
+        projectPath: request.targetProject.path,
+        artifactPaths: request.artifactPaths,
+        caseResolution,
+      });
+    } catch (error) {
+      throw new TargetInvestigateCaseRoundPreparationFailureError(
+        "round-materialization",
+        "artifact-validation-failed",
+        "diagnosis",
+        error instanceof Error ? error.message : String(error),
+        "Materialize diagnosis.md, diagnosis.json com verdict reconhecido ou um blocker explicito target-owned antes de rerodar.",
+      );
+    }
+
+    return artifactInspection;
   }
 
   private async syncCanonicalArtifactsToMirror(
@@ -295,91 +304,4 @@ const resolveStageConfig = (
   }
 
   return request.manifest.stages.diagnosis;
-};
-
-const readJsonArtifact = async <SchemaOutput>(
-  projectPath: string,
-  relativePath: string,
-  schema: z.ZodType<SchemaOutput, z.ZodTypeDef, unknown>,
-  label: string,
-): Promise<SchemaOutput> => {
-  const absolutePath = path.join(projectPath, ...relativePath.split("/"));
-  const raw = await fs.readFile(absolutePath, "utf8");
-  let decoded: unknown;
-
-  try {
-    decoded = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(
-      `${label} nao contem JSON valido: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  const parsed = schema.safeParse(decoded);
-  if (!parsed.success) {
-    throw new Error(`${label} contem schema invalido: ${renderZodIssues(parsed.error.issues)}`);
-  }
-
-  return parsed.data;
-};
-
-const renderZodIssues = (issues: readonly z.ZodIssue[]): string =>
-  issues
-    .map((issue) => {
-      const pathLabel = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
-      return `${pathLabel}${issue.message}`;
-    })
-    .join(" | ");
-
-const DIAGNOSIS_MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}\s+(.+?)\s*$/u;
-
-const validateDiagnosisMarkdownArtifact = async (
-  projectPath: string,
-  relativePath: string,
-): Promise<void> => {
-  const absolutePath = path.join(projectPath, ...relativePath.split("/"));
-  const raw = await fs.readFile(absolutePath, "utf8");
-
-  if (!raw.trim()) {
-    throw new Error("diagnosis.md nao pode estar vazio.");
-  }
-
-  const sections = new Map<string, string[]>();
-  let currentHeading: string | null = null;
-
-  for (const line of raw.split(/\r?\n/u)) {
-    const headingMatch = line.match(DIAGNOSIS_MARKDOWN_HEADING_PATTERN);
-    if (headingMatch) {
-      const heading = headingMatch[1].trim();
-      if (
-        TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS.includes(
-          heading as (typeof TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS)[number],
-        )
-      ) {
-        if (sections.has(heading)) {
-          throw new Error(`diagnosis.md nao pode repetir a secao obrigatoria \`${heading}\`.`);
-        }
-        sections.set(heading, []);
-      }
-      currentHeading = heading;
-      continue;
-    }
-
-    if (!currentHeading || !sections.has(currentHeading)) {
-      continue;
-    }
-
-    sections.get(currentHeading)?.push(line);
-  }
-
-  for (const heading of TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS) {
-    if (!sections.has(heading)) {
-      throw new Error(`diagnosis.md precisa conter a secao obrigatoria \`${heading}\`.`);
-    }
-
-    const content = sections.get(heading)?.join("\n").trim() ?? "";
-    if (!content) {
-      throw new Error(`diagnosis.md precisa preencher a secao obrigatoria \`${heading}\`.`);
-    }
-  }
 };

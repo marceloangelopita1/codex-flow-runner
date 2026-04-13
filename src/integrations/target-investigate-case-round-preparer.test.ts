@@ -181,3 +181,87 @@ test("CodexCliTargetInvestigateCaseRoundPreparer classifica falha do Codex no mi
     await cleanupTargetInvestigateCaseProjectFixture(fixture);
   }
 });
+
+test("CodexCliTargetInvestigateCaseRoundPreparer trata envelopes divergentes como warnings com diagnosis.md util", async () => {
+  const { fixture, request } = await createRequest();
+
+  try {
+    const codexClient = new StubCodexClient(async (stageRequest) => {
+      if (stageRequest.stage === "diagnosis") {
+        await writeTargetInvestigateCaseArtifacts(
+          stageRequest.targetProject.path,
+          request.artifactPaths,
+          {
+            verdict: "ok",
+            divergentResponseEnvelopes: true,
+            ticketProposal: false,
+          },
+        );
+      }
+    });
+
+    const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+      logger: new StubLogger(),
+      runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+      createCodexClient: () => codexClient,
+      createGitVersioning: () => ({}) as GitVersioning,
+    });
+
+    const result = await preparer.prepareRound(request);
+
+    assert.equal(result.status, "prepared");
+    if (result.status !== "prepared") {
+      return;
+    }
+
+    const warningLabels = result.artifactInspectionWarnings?.map((entry) => entry.artifactLabel);
+    assert.deepEqual(warningLabels, [
+      "evidence-index.json",
+      "case-bundle.json",
+      "diagnosis.json",
+    ]);
+    assert.equal("failureKind" in result, false);
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});
+
+test("CodexCliTargetInvestigateCaseRoundPreparer falha sem diagnostico util nem blocker explicito", async () => {
+  const { fixture, request } = await createRequest();
+
+  try {
+    const codexClient = new StubCodexClient(async (stageRequest) => {
+      if (stageRequest.stage === "diagnosis") {
+        await writeTargetInvestigateCaseArtifacts(
+          stageRequest.targetProject.path,
+          request.artifactPaths,
+          {
+            omitDiagnosisJson: true,
+            omitDiagnosisMd: true,
+          },
+        );
+      }
+    });
+
+    const preparer = new CodexCliTargetInvestigateCaseRoundPreparer({
+      logger: new StubLogger(),
+      runnerRepoPath: "/home/mapita/projetos/codex-flow-runner",
+      createCodexClient: () => codexClient,
+      createGitVersioning: () => ({}) as GitVersioning,
+    });
+
+    const result = await preparer.prepareRound(request);
+
+    assert.equal(result.status, "failed");
+    if (result.status !== "failed") {
+      return;
+    }
+
+    assert.equal(result.failureSurface, "round-materialization");
+    assert.equal(result.failureKind, "artifact-validation-failed");
+    assert.match(result.message, /diagnostico util nem blocker explicito/u);
+    assert.match(result.nextAction ?? "", /diagnosis\.md, diagnosis\.json/u);
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});

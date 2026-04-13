@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 bloqueia diagnóstico útil por schema de resposta target-owned
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -96,8 +96,26 @@ O runner deve orquestrar os estágios, inspecionar os artefatos target-owned e r
 - 2026-04-13 - Abrir ticket separado para o comportamento core - o ajuste muda a semântica de falha do caminho mínimo e merece cobertura própria.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-13 16:24Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplan `execplans/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md`; commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+
+### Closure evidence
+- Resultado final: GO.
+- RF-17a, RF-29 e CA-09: `src/integrations/target-investigate-case-round-preparer.test.ts` cobre a materialização com `evidence-index.json`, `case-bundle.json` e `diagnosis.json` em envelopes divergentes, mais `diagnosis.md` útil, esperando `status: prepared`, warnings para os três artefatos e ausência de `failureKind`.
+- Closure criterion 1: `src/core/target-investigate-case.test.ts` cobre execução core com os três envelopes divergentes e espera `status: completed`, `finalSummary.diagnosis.verdict = ok`, `artifactInspectionWarnings` para `evidence-index.json`, `case-bundle.json` e `diagnosis.json`, e `realizedArtifactPaths` preservando `case-resolution.json`, `evidence-index.json`, `case-bundle.json`, `diagnosis.json` e `diagnosis.md`.
+- Closure criterion 2: `src/integrations/target-investigate-case-round-preparer.test.ts` e `src/core/target-investigate-case.test.ts` cobrem ausência de diagnóstico útil e blocker explícito, esperando falha clara com `artifact-validation-failed`/`round-evaluation` e mensagem citando ausência de diagnóstico útil ou blocker explícito.
+- Closure criterion 2, caso permitido: `src/core/target-investigate-case.test.ts` cobre blocker explícito sem `diagnosis.md` nem `diagnosis.json`, esperando `status: completed`, veredito conservador `inconclusive`, próxima ação do blocker e warning de `diagnosis.json` ausente.
+- Closure criterion 3: o teste core positivo valida warnings com `artifactPath` no diretório da rodada e preservação dos caminhos dos artefatos materializados no summary.
+- Allowlist/enumeração finita: o teste positivo valida evidência positiva para cada artefato enumerado (`evidence-index.json`, `case-bundle.json`, `diagnosis.json`); o teste de veredito inválido em `diagnosis.json` valida que valor fora da enumeração (`medium_high`) não é aceito como veredito e cai em fallback conservador `inconclusive` com warning.
+- Publication conservadora: revisão do diff em `src/core/target-investigate-case.ts` confirma que `ticketProposal` e `shouldTraversePublication` são bloqueados quando `artifactInspection.hasDegradedAutomation` é verdadeiro, produzindo decision de publication não atravessada com gate `artifact-envelope-warnings`.
+- Validações executadas: `npm test -- src/integrations/target-investigate-case-round-preparer.test.ts src/core/target-investigate-case.test.ts` em 2026-04-13 16:24Z, com 197 testes passando; `npm run check` em 2026-04-13 16:24Z, com exit 0.
+
+### Manual validation pending
+- Entrega técnica local runner-side: concluída e validada por testes automatizados e typecheck.
+- Validação manual externa pendente: executar uma rodada real de `/target_investigate_case_v2` contra um target aderente e confirmar que diagnóstico humano útil com envelope divergente aparece para o operador como diagnóstico produzido com warnings, sem `round-materialization-failed`.
+- Como executar: operador deve acionar `/target_investigate_case_v2 <target> <case-ref> --workflow <workflow>` em ambiente com target aderente e inspecionar a resposta/artefatos da rodada em `output/case-investigation/<round-id>/`.
+- Responsável operacional: operador humano do runner/target no ambiente real.
+- Classificação: validação externa/manual; não bloqueia o GO técnico deste ticket.

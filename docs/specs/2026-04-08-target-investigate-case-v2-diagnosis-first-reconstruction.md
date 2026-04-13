@@ -6,12 +6,12 @@
 - Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-13 15:49Z
+- Last reviewed at (UTC): 2026-04-13 16:21Z
 - Source: technical-evolution
 - Related tickets:
-  - tickets/open/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
   - tickets/open/2026-04-13-target-investigate-case-v2-summary-deve-reportar-diagnostico-com-warnings.md
   - tickets/open/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
+  - tickets/closed/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
@@ -378,7 +378,7 @@
 - [x] CA-06 - a semântica do caso continua target-owned, enquanto a publication final continua runner-side.
 - [x] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
 - [x] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
-- [ ] CA-09 - o runner conclui o caminho mínimo como diagnóstico produzido com warnings quando os artefatos do target têm envelope diferente do recomendado, sem bloquear por schema de resposta.
+- [x] CA-09 - o runner conclui o caminho mínimo como diagnóstico produzido com warnings quando os artefatos do target têm envelope diferente do recomendado, sem bloquear por schema de resposta.
 
 ## Gate de validação dos tickets derivados
 - Veredito atual: GO
@@ -471,7 +471,7 @@
 
 ## Validações pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
-  - a política de warnings não bloqueantes para envelopes de artefatos target-owned ainda precisa ser implementada no runner e validada em caso real de target aderente.
+  - nenhuma pendência local runner-side para CA-09 após a validação de 2026-04-13; validação em caso real de target aderente permanece operacional/manual.
 - Validações manuais pendentes:
   - validar a legibilidade de `diagnosis.md` em caso real de target aderente; permanece como verificação operacional externa/manual e não bloqueia o fechamento deste pacote runner-side.
   - escolher o primeiro target de adoção da v2 em repositório externo; permanece como passo operacional posterior e não configura gap residual local desta auditoria.
@@ -486,13 +486,16 @@
   - a orquestração runner-side materializa `resolve-case -> assemble-evidence -> diagnosis` como estágios reais e preserva o milestone/failure real nas falhas do caminho mínimo;
   - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2;
   - o contexto técnico mínimo do branch v2 deixou de expor superfícies pré-v2 como parte do contrato efetivo dos prompts por estágio.
+  - divergências de envelope em `evidence-index.json`, `case-bundle.json` e `diagnosis.json` agora viram warnings core quando há `diagnosis.md` humano ou blocker explícito suficiente, sem aceitar vereditos fora de `ok`, `not_ok` e `inconclusive`.
 - Pendências em aberto:
-  - ajustar o runner para não transformar divergências de schema dos artefatos target-owned em `round-materialization-failed` quando houver diagnóstico útil ou blocker explícito.
+  - concluir os tickets filhos ainda abertos sobre superfície operator-facing/Telegram/trace e contexto natural de execução no target.
 - Evidências de validação:
   - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `docs/workflows/target-case-investigation-v2-manifest.json` e testes focados;
   - fixture literal da spec em `docs/workflows/target-case-investigation-v2-manifest.json` e cobertura dedicada em `src/core/target-investigate-case.test.ts`;
   - `npm test -- src/core/target-investigate-case.test.ts src/integrations/target-investigate-case-round-preparer.test.ts src/integrations/codex-client.test.ts src/integrations/telegram-bot.test.ts` com 634 testes passando em 2026-04-09 19:48Z;
   - `npm run check` com `exit 0`.
+  - `npm test -- src/integrations/target-investigate-case-round-preparer.test.ts src/core/target-investigate-case.test.ts` com 197 testes passando em 2026-04-13 16:21Z, cobrindo envelopes divergentes explícitos em `evidence-index.json`, `case-bundle.json` e `diagnosis.json`, blocker explícito, ausência negativa de diagnóstico/blocker e veredito fora da enumeração.
+  - `npm run check` com `exit 0` em 2026-04-13 16:21Z.
 
 ## Auditoria final de entrega
 - Auditoria executada em:
@@ -541,3 +544,5 @@
 - 2026-04-09 21:21Z - Limpeza semântica final concluída: a spec passou a se declarar explicitamente v2-only, as referências pré-v2 foram rebaixadas para histórico fora de `docs/specs/` e a narrativa normativa deixou de tratar o desenho anterior como contrato alternativo ou rollout ativo.
 - 2026-04-09 21:50Z - Material de onboarding canônico para targets aderentes adicionado em `docs/workflows/`, com ponteiros mínimos nesta spec e no contrato de compatibilidade.
 - 2026-04-13 - Ajuste normativo pós-teste real: a spec passou a explicitar que divergências de schema em artefatos target-owned não devem bloquear a rodada diagnosis-first quando houver diagnóstico útil ou blocker explícito.
+- 2026-04-13 16:21Z - Implementação runner-side local de CA-09 concluída e validada: envelopes divergentes dos três artefatos target-owned enumerados geram warnings core e publication conservadora, enquanto ausência total de diagnóstico útil ou blocker explícito continua falhando.
+- 2026-04-13 16:24Z - Fechamento formal do ticket runner-side de CA-09 preparado para versionamento pelo runner; permanecem abertos apenas os follow-ups de superfície operator-facing e contexto natural de execução no target.

@@ -100,6 +100,14 @@ export const TARGET_INVESTIGATE_CASE_PUBLICATION_DECISION_ARTIFACT =
   "publication-decision.json";
 export const TARGET_INVESTIGATE_CASE_TICKET_PROPOSAL_SCHEMA_VERSION =
   "ticket_proposal_v1";
+export const TARGET_INVESTIGATE_CASE_TARGET_OWNED_RESPONSE_ARTIFACTS = uniqueValues(
+  [
+    TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+    TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
+    "diagnosis.json",
+  ] as const,
+  "target-investigate-case-target-owned-response-artifacts",
+);
 
 export const TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES = uniqueValues(
   ["low", "medium", "high"] as const,
@@ -1173,6 +1181,46 @@ export type TargetInvestigateCaseInvestigationOutcome =
   | "runner-limitation"
   | "inconclusive";
 
+export type TargetInvestigateCaseTargetOwnedResponseArtifact =
+  (typeof TARGET_INVESTIGATE_CASE_TARGET_OWNED_RESPONSE_ARTIFACTS)[number];
+
+export type TargetInvestigateCaseArtifactAutomationUsability =
+  | "full"
+  | "degraded"
+  | "unusable";
+
+export type TargetInvestigateCaseArtifactInspectionWarningKind =
+  | "artifact-missing"
+  | "json-parse-failed"
+  | "recommended-schema-invalid"
+  | "recommended-coherence-invalid";
+
+export interface TargetInvestigateCaseArtifactInspectionWarning {
+  artifactPath: string;
+  artifactLabel: TargetInvestigateCaseTargetOwnedResponseArtifact;
+  kind: TargetInvestigateCaseArtifactInspectionWarningKind;
+  message: string;
+  automationUsability: TargetInvestigateCaseArtifactAutomationUsability;
+}
+
+export interface TargetInvestigateCaseArtifactInspectionEntry {
+  artifactPath: string;
+  artifactLabel: TargetInvestigateCaseTargetOwnedResponseArtifact;
+  exists: boolean;
+  parseableJson: boolean;
+  recommendedSchemaValid: boolean;
+  recognizedFields: string[];
+  automationUsability: TargetInvestigateCaseArtifactAutomationUsability;
+  warnings: TargetInvestigateCaseArtifactInspectionWarning[];
+}
+
+export interface TargetInvestigateCaseArtifactInspectionReport {
+  artifacts: TargetInvestigateCaseArtifactInspectionEntry[];
+  warnings: TargetInvestigateCaseArtifactInspectionWarning[];
+  automationUsability: TargetInvestigateCaseArtifactAutomationUsability;
+  hasDegradedAutomation: boolean;
+}
+
 const publicationStatusSchema = z.enum([
   "not_applicable",
   "not_eligible",
@@ -1425,6 +1473,7 @@ export interface TargetInvestigateCaseCompletedSummary {
   publicationDecision: TargetInvestigateCasePublicationDecision;
   finalSummary: TargetInvestigateCaseFinalSummary;
   tracePayload: TargetInvestigateCaseTracePayload;
+  artifactInspectionWarnings?: TargetInvestigateCaseArtifactInspectionWarning[];
   nextAction: string;
   versionBoundaryState: TargetFlowVersionBoundaryState;
 }

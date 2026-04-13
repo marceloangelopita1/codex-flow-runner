@@ -325,9 +325,16 @@ export const writeTargetInvestigateCaseArtifacts = async (
   artifactPaths: TargetInvestigateCaseArtifactSet,
   options: {
     verdict?: "ok" | "not_ok" | "inconclusive";
+    diagnosisMdVerdict?: "ok" | "not_ok" | "inconclusive";
+    diagnosisJsonVerdict?: string;
+    diagnosisJsonConfidence?: string;
     diagnosisSummary?: string;
     diagnosisWhy?: string;
     diagnosisNextAction?: string;
+    divergentResponseEnvelopes?: boolean;
+    explicitBlocker?: boolean;
+    omitDiagnosisJson?: boolean;
+    omitDiagnosisMd?: boolean;
     improvementProposal?: boolean;
     ticketProposal?: boolean;
   } = {},
@@ -347,9 +354,11 @@ export const writeTargetInvestigateCaseArtifacts = async (
       summary: "Caso resolvido pela capability diagnosis-first.",
     },
     attempt_resolution: {
-      status: "resolved",
-      attempt_ref: "req-001",
-      reason: "Tentativa correlacionada pelo target.",
+      status: options.explicitBlocker ? "absent-explicitly" : "resolved",
+      attempt_ref: options.explicitBlocker ? null : "req-001",
+      reason: options.explicitBlocker
+        ? "O target registrou blocker explicito antes de selecionar uma tentativa."
+        : "Tentativa correlacionada pelo target.",
     },
     relevant_workflows: ["billing-core"],
     replay_decision: {
@@ -357,8 +366,22 @@ export const writeTargetInvestigateCaseArtifacts = async (
       reason: "A evidencia historica ja e suficiente.",
     },
     attempt_candidates: null,
-    replay_readiness: null,
-    resolution_reason: "O target conseguiu resolver o caso sem replay adicional.",
+    replay_readiness: options.explicitBlocker
+      ? {
+          state: "incomplete",
+          required: true,
+          summary: "Evidencia obrigatoria indisponivel para concluir o diagnostico com seguranca.",
+          reason_code: "TARGET_BLOCKER",
+          blocker_codes: ["TARGET_BLOCKER"],
+          next_step: {
+            code: "collect-required-evidence",
+            summary: "Coletar a evidencia ausente e rerodar a investigation.",
+          },
+        }
+      : null,
+    resolution_reason: options.explicitBlocker
+      ? "O target parou com blocker explicito e proxima acao segura."
+      : "O target conseguiu resolver o caso sem replay adicional.",
     lineage,
   };
   const evidenceBundle = {
@@ -411,12 +434,12 @@ export const writeTargetInvestigateCaseArtifacts = async (
   const diagnosis = {
     schema_version: "diagnosis_v1",
     bundle_artifact: artifactPaths.evidenceBundlePath,
-    verdict: options.verdict ?? "not_ok",
+    verdict: options.diagnosisMdVerdict ?? options.verdict ?? "not_ok",
     summary: options.diagnosisSummary ?? "O target encontrou um gap real e reutilizavel.",
     why: options.diagnosisWhy ?? "A evidencia confirma que o workflow desviou do esperado.",
     expected_behavior: "O workflow deveria completar com o artefato correto.",
     observed_behavior: "O workflow concluiu com comportamento incorreto.",
-    confidence: "high",
+    confidence: options.diagnosisJsonConfidence ?? "high",
     behavior_to_change: "Corrigir a superficie que gera a divergencia semantica.",
     probable_fix_surface: ["workflow", "target-entrypoint"],
     evidence_used: ["case-resolution.json", TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT],
@@ -424,12 +447,63 @@ export const writeTargetInvestigateCaseArtifacts = async (
       options.diagnosisNextAction ?? "Abrir o ticket somente se a continuacao publication for necessaria.",
     lineage,
   };
+  const divergentEvidenceIndex = {
+    schema_version: "evidence_index_v2",
+    round_id: "2026-04-09T12-00-00Z",
+    sources: [
+      {
+        source_id: "case-bundle",
+        locator: artifactPaths.evidenceBundlePath,
+        relevance: "primary",
+      },
+    ],
+  };
+  const divergentEvidenceBundle = {
+    schema_version: "case_bundle_v2",
+    round_id: "2026-04-09T12-00-00Z",
+    evidence_index_path: artifactPaths.evidenceIndexPath,
+    collection_state: {
+      status: "sufficient",
+      diagnosis_ready: true,
+      summary: "O envelope target-owned e suficiente para leitura humana.",
+    },
+  };
+  const divergentDiagnosis = {
+    schema_version: "diagnosis_v2",
+    verdict: options.diagnosisJsonVerdict ?? options.verdict ?? "not_ok",
+    confidence: options.diagnosisJsonConfidence ?? "medium_high",
+    summary: options.diagnosisSummary ?? "O target respondeu o caso em envelope proprio.",
+    why: options.diagnosisWhy ?? "A evidencia target-owned foi considerada suficiente.",
+    expected_behavior: "O workflow deveria completar com o artefato correto.",
+    observed_behavior: "O workflow concluiu com comportamento incorreto.",
+    behavior_to_change: "Corrigir a superficie que gera a divergencia semantica.",
+    probable_fix_surface: "workflow, target-entrypoint",
+    next_action:
+      options.diagnosisNextAction ?? "Ler diagnosis.md antes de decidir qualquer continuation.",
+    evidence: [artifactPaths.evidenceBundlePath, artifactPaths.evidenceIndexPath],
+  };
 
   await writeJson(projectPath, artifactPaths.caseResolutionPath, caseResolution);
-  await writeJson(projectPath, artifactPaths.evidenceIndexPath, evidenceIndex);
-  await writeJson(projectPath, artifactPaths.evidenceBundlePath, evidenceBundle);
-  await writeJson(projectPath, artifactPaths.diagnosisJsonPath, diagnosis);
-  await writeText(projectPath, artifactPaths.diagnosisMdPath, createDiagnosisMarkdown(diagnosis));
+  await writeJson(
+    projectPath,
+    artifactPaths.evidenceIndexPath,
+    options.divergentResponseEnvelopes ? divergentEvidenceIndex : evidenceIndex,
+  );
+  await writeJson(
+    projectPath,
+    artifactPaths.evidenceBundlePath,
+    options.divergentResponseEnvelopes ? divergentEvidenceBundle : evidenceBundle,
+  );
+  if (!options.omitDiagnosisJson) {
+    await writeJson(
+      projectPath,
+      artifactPaths.diagnosisJsonPath,
+      options.divergentResponseEnvelopes ? divergentDiagnosis : diagnosis,
+    );
+  }
+  if (!options.omitDiagnosisMd) {
+    await writeText(projectPath, artifactPaths.diagnosisMdPath, createDiagnosisMarkdown(diagnosis));
+  }
 
   if (options.improvementProposal) {
     await writeJson(projectPath, artifactPaths.remediationProposalPath, {

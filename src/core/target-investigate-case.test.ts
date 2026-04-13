@@ -176,3 +176,237 @@ test("ControlledTargetInvestigateCaseExecutor executa apenas os milestones v2 do
     await cleanupTargetInvestigateCaseProjectFixture(fixture);
   }
 });
+
+test("ControlledTargetInvestigateCaseExecutor conclui com warnings quando envelopes target-owned divergem", async () => {
+  const fixture = await createTargetInvestigateCaseProjectFixture();
+
+  try {
+    await writeTargetInvestigateCasePromptFiles(fixture.project.path);
+    await writeTargetInvestigateCaseManifest(
+      fixture.project.path,
+      createTargetInvestigateCaseManifest({
+        includePublicationStage: false,
+        ticketPublicationPolicy: false,
+      }),
+    );
+
+    const executor = new ControlledTargetInvestigateCaseExecutor({
+      targetProjectResolver: {
+        resolveProject: async () => ({
+          ...fixture.project,
+          eligibleForProjects: true,
+        }),
+      },
+      roundPreparer: {
+        prepareRound: async (request) => {
+          await writeTargetInvestigateCaseArtifacts(request.targetProject.path, request.artifactPaths, {
+            verdict: "ok",
+            divergentResponseEnvelopes: true,
+            diagnosisJsonConfidence: "medium_high",
+            ticketProposal: false,
+          });
+          return {
+            status: "prepared",
+            ticketPublisher: null,
+          };
+        },
+      },
+      now: () => new Date("2026-04-09T12:00:00.000Z"),
+    });
+
+    const result = await executor.execute({
+      input:
+        `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 ` +
+        "--workflow billing-core --request-id req-001 " +
+        '--window 2026-04-09T00:00:00Z/2026-04-09T01:00:00Z --symptom "Timeout on save"',
+    });
+
+    assert.equal(result.status, "completed");
+    if (result.status !== "completed") {
+      return;
+    }
+
+    assert.equal(result.summary.finalSummary.diagnosis.verdict, "ok");
+    assert.deepEqual(
+      result.summary.artifactInspectionWarnings?.map((entry) => entry.artifactLabel),
+      ["evidence-index.json", "case-bundle.json", "diagnosis.json"],
+    );
+    assert.equal(
+      result.summary.artifactInspectionWarnings?.every((entry) =>
+        entry.artifactPath.startsWith(fixture.roundDirectory),
+      ),
+      true,
+    );
+    for (const artifactPath of [
+      fixture.artifactPaths.caseResolutionPath,
+      fixture.artifactPaths.evidenceIndexPath,
+      fixture.artifactPaths.evidenceBundlePath,
+      fixture.artifactPaths.diagnosisJsonPath,
+      fixture.artifactPaths.diagnosisMdPath,
+    ]) {
+      assert.equal(result.summary.realizedArtifactPaths.includes(artifactPath), true);
+    }
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});
+
+test("evaluateTargetInvestigateCaseRound nao aceita veredito fora da enum em diagnosis.json divergente", async () => {
+  const fixture = await createTargetInvestigateCaseProjectFixture();
+
+  try {
+    await writeTargetInvestigateCasePromptFiles(fixture.project.path);
+    await writeTargetInvestigateCaseManifest(
+      fixture.project.path,
+      createTargetInvestigateCaseManifest({
+        includePublicationStage: false,
+        ticketPublicationPolicy: false,
+      }),
+    );
+    await writeTargetInvestigateCaseArtifacts(fixture.project.path, fixture.artifactPaths, {
+      diagnosisMdVerdict: "inconclusive",
+      diagnosisJsonVerdict: "medium_high",
+      divergentResponseEnvelopes: true,
+      ticketProposal: false,
+    });
+
+    const result = await evaluateTargetInvestigateCaseRound({
+      targetProject: fixture.project,
+      input:
+        `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 ` +
+        "--workflow billing-core --request-id req-001 " +
+        '--window 2026-04-09T00:00:00Z/2026-04-09T01:00:00Z --symptom "Timeout on save"',
+      artifacts: fixture.artifactPaths,
+    });
+
+    assert.equal(result.summary.diagnosis.verdict, "inconclusive");
+    assert.notEqual(result.summary.diagnosis.verdict, "medium_high");
+    assert.equal(
+      result.artifactInspectionWarnings.some(
+        (entry) => entry.artifactLabel === "diagnosis.json",
+      ),
+      true,
+    );
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});
+
+test("ControlledTargetInvestigateCaseExecutor aceita blocker explicito sem diagnosis.md nem diagnosis.json", async () => {
+  const fixture = await createTargetInvestigateCaseProjectFixture();
+
+  try {
+    await writeTargetInvestigateCasePromptFiles(fixture.project.path);
+    await writeTargetInvestigateCaseManifest(
+      fixture.project.path,
+      createTargetInvestigateCaseManifest({
+        includePublicationStage: false,
+        ticketPublicationPolicy: false,
+      }),
+    );
+
+    const executor = new ControlledTargetInvestigateCaseExecutor({
+      targetProjectResolver: {
+        resolveProject: async () => ({
+          ...fixture.project,
+          eligibleForProjects: true,
+        }),
+      },
+      roundPreparer: {
+        prepareRound: async (request) => {
+          await writeTargetInvestigateCaseArtifacts(request.targetProject.path, request.artifactPaths, {
+            explicitBlocker: true,
+            omitDiagnosisJson: true,
+            omitDiagnosisMd: true,
+            ticketProposal: false,
+          });
+          return {
+            status: "prepared",
+            ticketPublisher: null,
+          };
+        },
+      },
+      now: () => new Date("2026-04-09T12:00:00.000Z"),
+    });
+
+    const result = await executor.execute({
+      input:
+        `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 ` +
+        "--workflow billing-core --request-id req-001 " +
+        '--window 2026-04-09T00:00:00Z/2026-04-09T01:00:00Z --symptom "Timeout on save"',
+    });
+
+    assert.equal(result.status, "completed");
+    if (result.status !== "completed") {
+      return;
+    }
+
+    assert.equal(result.summary.finalSummary.diagnosis.verdict, "inconclusive");
+    assert.match(result.summary.finalSummary.next_action, /Coletar a evidencia ausente/u);
+    assert.equal(
+      result.summary.artifactInspectionWarnings?.some(
+        (entry) =>
+          entry.artifactLabel === "diagnosis.json" && entry.kind === "artifact-missing",
+      ),
+      true,
+    );
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});
+
+test("ControlledTargetInvestigateCaseExecutor falha sem diagnostico nem blocker explicito", async () => {
+  const fixture = await createTargetInvestigateCaseProjectFixture();
+
+  try {
+    await writeTargetInvestigateCasePromptFiles(fixture.project.path);
+    await writeTargetInvestigateCaseManifest(
+      fixture.project.path,
+      createTargetInvestigateCaseManifest({
+        includePublicationStage: false,
+        ticketPublicationPolicy: false,
+      }),
+    );
+
+    const executor = new ControlledTargetInvestigateCaseExecutor({
+      targetProjectResolver: {
+        resolveProject: async () => ({
+          ...fixture.project,
+          eligibleForProjects: true,
+        }),
+      },
+      roundPreparer: {
+        prepareRound: async (request) => {
+          await writeTargetInvestigateCaseArtifacts(request.targetProject.path, request.artifactPaths, {
+            omitDiagnosisJson: true,
+            omitDiagnosisMd: true,
+            ticketProposal: false,
+          });
+          return {
+            status: "prepared",
+            ticketPublisher: null,
+          };
+        },
+      },
+      now: () => new Date("2026-04-09T12:00:00.000Z"),
+    });
+
+    const result = await executor.execute({
+      input:
+        `${TARGET_INVESTIGATE_CASE_V2_COMMAND} ${fixture.project.name} case-001 ` +
+        "--workflow billing-core --request-id req-001 " +
+        '--window 2026-04-09T00:00:00Z/2026-04-09T01:00:00Z --symptom "Timeout on save"',
+    });
+
+    assert.equal(result.status, "failed");
+    if (result.status !== "failed") {
+      return;
+    }
+
+    assert.equal(result.summary?.failureSurface, "round-evaluation");
+    assert.match(result.message, /diagnostico util nem blocker explicito/u);
+    assert.match(result.summary?.nextAction ?? "", /diagnosis-first/u);
+  } finally {
+    await cleanupTargetInvestigateCaseProjectFixture(fixture);
+  }
+});

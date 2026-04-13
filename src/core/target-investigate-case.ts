@@ -22,9 +22,15 @@ import {
   targetInvestigateCaseTicketProposalSchema,
   targetInvestigateCaseTracePayloadSchema,
   TargetInvestigateCaseArtifactSet,
+  TargetInvestigateCaseArtifactAutomationUsability,
+  TargetInvestigateCaseArtifactInspectionEntry,
+  TargetInvestigateCaseArtifactInspectionReport,
+  TargetInvestigateCaseArtifactInspectionWarning,
+  TargetInvestigateCaseArtifactInspectionWarningKind,
   TARGET_INVESTIGATE_CASE_ALLOWED_V2_MINIMUM_PATH_VALUES,
   TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
-  TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS,
+  TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES,
+  TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES,
   TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
   TARGET_INVESTIGATE_CASE_PUBLICATION_DECISION_ARTIFACT,
   TARGET_INVESTIGATE_CASE_REMEDIATION_PROPOSAL_ARTIFACT,
@@ -124,6 +130,7 @@ export interface TargetInvestigateCaseEvaluationResult {
   caseResolution: TargetInvestigateCaseCaseResolution;
   evidenceBundle: TargetInvestigateCaseEvidenceBundleArtifact;
   diagnosis: TargetInvestigateCaseDiagnosis;
+  artifactInspectionWarnings: TargetInvestigateCaseArtifactInspectionWarning[];
   publicationDecision: TargetInvestigateCasePublicationDecision;
   summary: TargetInvestigateCaseFinalSummary;
   tracePayload: TargetInvestigateCaseTracePayload;
@@ -148,6 +155,7 @@ export type TargetInvestigateCaseRoundPreparationResult =
   | {
       status: "prepared";
       ticketPublisher?: TargetInvestigateCaseTicketPublisher | null;
+      artifactInspectionWarnings?: TargetInvestigateCaseArtifactInspectionWarning[];
     }
   | {
       status: "blocked";
@@ -199,6 +207,712 @@ type ArtifactReaderSchema<SchemaOutput> = z.ZodType<SchemaOutput, z.ZodTypeDef, 
 
 const isTargetInvestigateCaseCaseBundlePath = (relativePath: string): boolean =>
   path.posix.basename(relativePath) === TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT;
+
+const TARGET_INVESTIGATE_CASE_INSPECTED_RESPONSE_ARTIFACTS: Array<{
+  artifactLabel: TargetInvestigateCaseArtifactInspectionEntry["artifactLabel"];
+  pathKey: keyof Pick<
+    TargetInvestigateCaseArtifactSet,
+    "evidenceIndexPath" | "evidenceBundlePath" | "diagnosisJsonPath"
+  >;
+  schema: z.ZodTypeAny;
+  recognizedFields: readonly string[];
+}> = [
+  {
+    artifactLabel: TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
+    pathKey: "evidenceIndexPath",
+    schema: targetInvestigateCaseEvidenceIndexSchema,
+    recognizedFields: ["schema_version", "bundle_artifact", "entries", "lineage"],
+  },
+  {
+    artifactLabel: TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
+    pathKey: "evidenceBundlePath",
+    schema: targetInvestigateCaseCaseBundleSchema,
+    recognizedFields: [
+      "schema_version",
+      "collection_plan",
+      "historical_sources",
+      "sensitive_artifact_refs",
+      "replay",
+      "collection_sufficiency",
+      "normative_conflicts",
+      "factual_sufficiency_reason",
+      "lineage",
+    ],
+  },
+  {
+    artifactLabel: "diagnosis.json",
+    pathKey: "diagnosisJsonPath",
+    schema: targetInvestigateCaseDiagnosisSchema,
+    recognizedFields: [
+      "schema_version",
+      "bundle_artifact",
+      "verdict",
+      "summary",
+      "why",
+      "expected_behavior",
+      "observed_behavior",
+      "confidence",
+      "behavior_to_change",
+      "probable_fix_surface",
+      "evidence_used",
+      "next_action",
+      "lineage",
+    ],
+  },
+];
+
+interface OptionalJsonArtifactReadResult {
+  exists: boolean;
+  parseableJson: boolean;
+  decoded: unknown | null;
+  message: string | null;
+}
+
+interface TargetInvestigateCaseExplicitBlocker {
+  present: boolean;
+  summary: string;
+  nextAction: string;
+  codes: string[];
+}
+
+interface TargetInvestigateCaseDiagnosisMarkdownInsight {
+  exists: boolean;
+  useful: boolean;
+  verdict: TargetInvestigateCaseDiagnosis["verdict"] | null;
+  summary: string | null;
+  why: string | null;
+  expectedBehavior: string | null;
+  observedBehavior: string | null;
+  behaviorToChange: string | null;
+  probableFixSurface: string | null;
+  nextAction: string | null;
+}
+
+interface TargetInvestigateCaseDiagnosticClosure {
+  source: "diagnosis-json" | "diagnosis-md" | "explicit-blocker";
+  diagnosis: TargetInvestigateCaseDiagnosis;
+  explicitBlocker: TargetInvestigateCaseExplicitBlocker | null;
+}
+
+export const inspectTargetInvestigateCaseTargetOwnedArtifacts = async (params: {
+  projectPath: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+}): Promise<TargetInvestigateCaseArtifactInspectionReport> => {
+  const entries: TargetInvestigateCaseArtifactInspectionEntry[] = [];
+
+  for (const spec of TARGET_INVESTIGATE_CASE_INSPECTED_RESPONSE_ARTIFACTS) {
+    const artifactPath = params.artifactPaths[spec.pathKey];
+    entries.push(
+      await inspectTargetInvestigateCaseTargetOwnedArtifact({
+        projectPath: params.projectPath,
+        artifactPath,
+        artifactLabel: spec.artifactLabel,
+        schema: spec.schema,
+        recognizedFields: spec.recognizedFields,
+        expectedEvidenceBundlePath: params.artifactPaths.evidenceBundlePath,
+      }),
+    );
+  }
+
+  const warnings = entries.flatMap((entry) => entry.warnings);
+  const automationUsability = entries.some((entry) => entry.automationUsability === "unusable")
+    ? "unusable"
+    : warnings.length > 0
+      ? "degraded"
+      : "full";
+
+  return {
+    artifacts: entries,
+    warnings,
+    automationUsability,
+    hasDegradedAutomation: warnings.length > 0,
+  };
+};
+
+export const resolveTargetInvestigateCaseDiagnosticClosure = async (params: {
+  projectPath: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  caseResolution: TargetInvestigateCaseCaseResolution;
+}): Promise<TargetInvestigateCaseDiagnosticClosure> => {
+  const diagnosisJson = await readOptionalJsonArtifactDecoded(
+    params.projectPath,
+    params.artifactPaths.diagnosisJsonPath,
+    "diagnosis.json",
+  );
+  const diagnosisJsonRecord = asRecord(diagnosisJson.decoded);
+  const strictDiagnosis =
+    diagnosisJson.parseableJson && diagnosisJson.decoded !== null
+      ? targetInvestigateCaseDiagnosisSchema.safeParse(diagnosisJson.decoded)
+      : null;
+  const markdown = await readTargetInvestigateCaseDiagnosisMarkdownInsight(
+    params.projectPath,
+    params.artifactPaths.diagnosisMdPath,
+  );
+  const explicitBlocker = detectTargetInvestigateCaseExplicitBlocker(
+    params.caseResolution,
+  );
+
+  if (strictDiagnosis?.success) {
+    return {
+      source: "diagnosis-json",
+      diagnosis: targetInvestigateCaseDiagnosisSchema.parse({
+        ...strictDiagnosis.data,
+        bundle_artifact: params.artifactPaths.evidenceBundlePath,
+      }),
+      explicitBlocker: null,
+    };
+  }
+
+  const recognizedJsonVerdict = readDiagnosisVerdictField(diagnosisJsonRecord);
+  if (markdown.useful || recognizedJsonVerdict || explicitBlocker.present) {
+    const source = markdown.useful
+      ? "diagnosis-md"
+      : recognizedJsonVerdict
+        ? "diagnosis-json"
+        : "explicit-blocker";
+
+    return {
+      source,
+      diagnosis: buildDegradedTargetInvestigateCaseDiagnosis({
+        artifactPaths: params.artifactPaths,
+        diagnosisJsonRecord,
+        markdown,
+        explicitBlocker,
+      }),
+      explicitBlocker: explicitBlocker.present ? explicitBlocker : null,
+    };
+  }
+
+  throw new Error(
+    "A rodada nao produziu diagnostico util nem blocker explicito: materialize diagnosis.md, diagnosis.json com verdict reconhecido ou um blocker target-owned antes de rerodar.",
+  );
+};
+
+const inspectTargetInvestigateCaseTargetOwnedArtifact = async (params: {
+  projectPath: string;
+  artifactPath: string;
+  artifactLabel: TargetInvestigateCaseArtifactInspectionEntry["artifactLabel"];
+  schema: z.ZodTypeAny;
+  recognizedFields: readonly string[];
+  expectedEvidenceBundlePath: string;
+}): Promise<TargetInvestigateCaseArtifactInspectionEntry> => {
+  const warnings: TargetInvestigateCaseArtifactInspectionWarning[] = [];
+  const absolutePath = resolveProjectRelativePath(
+    params.projectPath,
+    params.artifactPath,
+    params.artifactLabel,
+  );
+  let raw = "";
+
+  try {
+    raw = await fs.readFile(absolutePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+
+    warnings.push(
+      buildArtifactInspectionWarning({
+        artifactPath: params.artifactPath,
+        artifactLabel: params.artifactLabel,
+        kind: "artifact-missing",
+        message: `${params.artifactLabel} nao foi materializado no namespace autoritativo.`,
+        automationUsability: "unusable",
+      }),
+    );
+
+    return {
+      artifactPath: params.artifactPath,
+      artifactLabel: params.artifactLabel,
+      exists: false,
+      parseableJson: false,
+      recommendedSchemaValid: false,
+      recognizedFields: [],
+      automationUsability: "unusable",
+      warnings,
+    };
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch (error) {
+    warnings.push(
+      buildArtifactInspectionWarning({
+        artifactPath: params.artifactPath,
+        artifactLabel: params.artifactLabel,
+        kind: "json-parse-failed",
+        message: `${params.artifactLabel} nao contem JSON parseavel: ${error instanceof Error ? error.message : String(error)}`,
+        automationUsability: "unusable",
+      }),
+    );
+
+    return {
+      artifactPath: params.artifactPath,
+      artifactLabel: params.artifactLabel,
+      exists: true,
+      parseableJson: false,
+      recommendedSchemaValid: false,
+      recognizedFields: [],
+      automationUsability: "unusable",
+      warnings,
+    };
+  }
+
+  const recognizedFields = collectRecognizedFields(decoded, params.recognizedFields);
+  const parsed = params.schema.safeParse(decoded);
+  let recommendedSchemaValid = parsed.success;
+
+  if (!parsed.success) {
+    warnings.push(
+      buildArtifactInspectionWarning({
+        artifactPath: params.artifactPath,
+        artifactLabel: params.artifactLabel,
+        kind: "recommended-schema-invalid",
+        message: `${params.artifactLabel} diverge do envelope recomendado: ${renderZodIssues(parsed.error.issues)}`,
+        automationUsability: "degraded",
+      }),
+    );
+  }
+
+  if (
+    params.artifactLabel === "diagnosis.json" &&
+    parsed.success &&
+    (parsed.data as TargetInvestigateCaseDiagnosis).bundle_artifact !==
+      params.expectedEvidenceBundlePath
+  ) {
+    recommendedSchemaValid = false;
+    warnings.push(
+      buildArtifactInspectionWarning({
+        artifactPath: params.artifactPath,
+        artifactLabel: params.artifactLabel,
+        kind: "recommended-coherence-invalid",
+        message: `diagnosis.json aponta bundle_artifact diferente de ${params.expectedEvidenceBundlePath}; automacoes devem usar o diagnostico de forma degradada.`,
+        automationUsability: "degraded",
+      }),
+    );
+  }
+
+  const automationUsability: TargetInvestigateCaseArtifactAutomationUsability =
+    warnings.length > 0 ? "degraded" : "full";
+
+  return {
+    artifactPath: params.artifactPath,
+    artifactLabel: params.artifactLabel,
+    exists: true,
+    parseableJson: true,
+    recommendedSchemaValid,
+    recognizedFields,
+    automationUsability,
+    warnings,
+  };
+};
+
+const buildArtifactInspectionWarning = (params: {
+  artifactPath: string;
+  artifactLabel: TargetInvestigateCaseArtifactInspectionWarning["artifactLabel"];
+  kind: TargetInvestigateCaseArtifactInspectionWarningKind;
+  message: string;
+  automationUsability: TargetInvestigateCaseArtifactAutomationUsability;
+}): TargetInvestigateCaseArtifactInspectionWarning => ({
+  artifactPath: params.artifactPath,
+  artifactLabel: params.artifactLabel,
+  kind: params.kind,
+  message: params.message,
+  automationUsability: params.automationUsability,
+});
+
+const collectRecognizedFields = (
+  decoded: unknown,
+  recognizedFields: readonly string[],
+): string[] => {
+  const record = asRecord(decoded);
+  if (!record) {
+    return [];
+  }
+
+  return recognizedFields.filter((field) => Object.prototype.hasOwnProperty.call(record, field));
+};
+
+const readOptionalJsonArtifactDecoded = async (
+  projectPath: string,
+  relativePath: string,
+  label: string,
+): Promise<OptionalJsonArtifactReadResult> => {
+  let raw = "";
+  try {
+    raw = await fs.readFile(resolveProjectRelativePath(projectPath, relativePath, label), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        exists: false,
+        parseableJson: false,
+        decoded: null,
+        message: `${label} nao foi materializado.`,
+      };
+    }
+    throw error;
+  }
+
+  try {
+    return {
+      exists: true,
+      parseableJson: true,
+      decoded: JSON.parse(raw),
+      message: null,
+    };
+  } catch (error) {
+    return {
+      exists: true,
+      parseableJson: false,
+      decoded: null,
+      message: `${label} nao contem JSON valido: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+};
+
+const readTargetInvestigateCaseDiagnosisMarkdownInsight = async (
+  projectPath: string,
+  relativePath: string,
+): Promise<TargetInvestigateCaseDiagnosisMarkdownInsight> => {
+  let raw = "";
+  try {
+    raw = await fs.readFile(
+      resolveProjectRelativePath(projectPath, relativePath, "diagnosis.md"),
+      "utf8",
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return emptyDiagnosisMarkdownInsight(false);
+    }
+    throw error;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return emptyDiagnosisMarkdownInsight(true);
+  }
+
+  const sections = extractTargetInvestigateCaseMarkdownSections(raw);
+  const verdictText = readMarkdownSectionOrInlineLabel(sections, raw, ["Veredito"]);
+  const why = readMarkdownSectionOrInlineLabel(sections, raw, [
+    "Por que o caso está ok ou não está",
+    "Por que",
+  ]);
+
+  return {
+    exists: true,
+    useful: true,
+    verdict: verdictText ? deriveDiagnosisVerdictFromText(verdictText) : null,
+    summary:
+      readMarkdownSectionOrInlineLabel(sections, raw, ["Resumo"]) ??
+      why ??
+      extractFirstUsefulDiagnosisParagraph(raw),
+    why,
+    expectedBehavior: readMarkdownSectionOrInlineLabel(sections, raw, [
+      "Objetivo esperado",
+      "Comportamento esperado",
+    ]),
+    observedBehavior: readMarkdownSectionOrInlineLabel(sections, raw, [
+      "O que a evidência mostra",
+      "O que a evidencia mostra",
+      "Comportamento observado",
+    ]),
+    behaviorToChange: readMarkdownSectionOrInlineLabel(sections, raw, [
+      "Comportamento que precisa mudar",
+      "Comportamento a mudar",
+    ]),
+    probableFixSurface: readMarkdownSectionOrInlineLabel(sections, raw, [
+      "Superfície provável de correção",
+      "Superficie provavel de correcao",
+      "Superficie provavel de correção",
+    ]),
+    nextAction: readMarkdownSectionOrInlineLabel(sections, raw, [
+      "Próxima ação",
+      "Proxima acao",
+      "Proxima ação",
+    ]),
+  };
+};
+
+const emptyDiagnosisMarkdownInsight = (
+  exists: boolean,
+): TargetInvestigateCaseDiagnosisMarkdownInsight => ({
+  exists,
+  useful: false,
+  verdict: null,
+  summary: null,
+  why: null,
+  expectedBehavior: null,
+  observedBehavior: null,
+  behaviorToChange: null,
+  probableFixSurface: null,
+  nextAction: null,
+});
+
+const extractTargetInvestigateCaseMarkdownSections = (raw: string): Map<string, string> => {
+  const sections = new Map<string, string[]>();
+  let currentHeading: string | null = null;
+
+  for (const line of raw.split(/\r?\n/u)) {
+    const headingMatch = line.match(DIAGNOSIS_MARKDOWN_HEADING_PATTERN);
+    if (headingMatch) {
+      currentHeading = headingMatch[1].trim();
+      if (!sections.has(currentHeading)) {
+        sections.set(currentHeading, []);
+      }
+      continue;
+    }
+
+    if (currentHeading) {
+      sections.get(currentHeading)?.push(line);
+    }
+  }
+
+  return new Map(
+    [...sections.entries()]
+      .map(([heading, lines]) => [heading, lines.join("\n").trim()] as const)
+      .filter(([, content]) => content.length > 0),
+  );
+};
+
+const readMarkdownSectionOrInlineLabel = (
+  sections: Map<string, string>,
+  raw: string,
+  labels: readonly string[],
+): string | null => {
+  for (const label of labels) {
+    const section = sections.get(label)?.trim();
+    if (section) {
+      return section;
+    }
+  }
+
+  for (const line of raw.split(/\r?\n/u)) {
+    for (const label of labels) {
+      const match = line.match(new RegExp(`^\\s*${escapeRegExp(label)}\\s*:\\s*(.+)$`, "iu"));
+      if (match?.[1]?.trim()) {
+        return match[1].trim();
+      }
+    }
+  }
+
+  return null;
+};
+
+const extractFirstUsefulDiagnosisParagraph = (raw: string): string | null => {
+  for (const paragraph of raw.split(/\n\s*\n/u)) {
+    const normalized = paragraph
+      .split(/\r?\n/u)
+      .map((line) => line.replace(/^#{1,6}\s+/u, "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    if (!normalized || /^diagnosis$/iu.test(normalized) || /^veredito\s*:/iu.test(normalized)) {
+      continue;
+    }
+
+    return normalized;
+  }
+
+  return null;
+};
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+const deriveDiagnosisVerdictFromText = (
+  value: string,
+): TargetInvestigateCaseDiagnosis["verdict"] | null => {
+  const normalized = normalizeLooseText(value);
+
+  if (/\bnot[_ -]?ok\b/u.test(normalized) || /\bnao\s+ok\b/u.test(normalized)) {
+    return "not_ok";
+  }
+
+  if (/\binconclusive\b/u.test(normalized) || /\binconclusiv[ao]\b/u.test(normalized)) {
+    return "inconclusive";
+  }
+
+  if (/\bok\b/u.test(normalized)) {
+    return "ok";
+  }
+
+  return null;
+};
+
+const normalizeLooseText = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+const detectTargetInvestigateCaseExplicitBlocker = (
+  caseResolution: TargetInvestigateCaseCaseResolution,
+): TargetInvestigateCaseExplicitBlocker => {
+  const codes = caseResolution.replay_readiness?.blocker_codes ?? [];
+  const reasons: string[] = [];
+
+  if (caseResolution.attempt_resolution.status === "absent-explicitly") {
+    reasons.push(caseResolution.attempt_resolution.reason);
+  }
+
+  if (codes.length > 0) {
+    reasons.push(
+      caseResolution.replay_readiness?.summary ??
+        `Blockers declarados pelo target: ${codes.join(", ")}.`,
+    );
+  }
+
+  if (reasons.length === 0) {
+    return {
+      present: false,
+      summary: "",
+      nextAction: "",
+      codes: [],
+    };
+  }
+
+  return {
+    present: true,
+    summary: reasons.join(" "),
+    nextAction:
+      caseResolution.replay_readiness?.next_step?.summary ??
+      caseResolution.attempt_candidates?.next_step?.summary ??
+      "Resolver o blocker target-owned antes de continuar a investigation.",
+    codes,
+  };
+};
+
+const buildDegradedTargetInvestigateCaseDiagnosis = (params: {
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  diagnosisJsonRecord: Record<string, unknown> | null;
+  markdown: TargetInvestigateCaseDiagnosisMarkdownInsight;
+  explicitBlocker: TargetInvestigateCaseExplicitBlocker;
+}): TargetInvestigateCaseDiagnosis => {
+  const diagnosisMdPath = params.artifactPaths.diagnosisMdPath;
+  const fallbackEvidencePath = params.markdown.exists
+    ? diagnosisMdPath
+    : params.artifactPaths.diagnosisJsonPath;
+  const fallbackSummary =
+    params.markdown.summary ??
+    params.explicitBlocker.summary ??
+    "Diagnostico target-owned disponivel apenas em superficie humana ou blocker explicito.";
+  const fallbackWhy =
+    params.markdown.why ??
+    params.explicitBlocker.summary ??
+    "O envelope machine-readable recomendado nao esta totalmente consumivel pelo runner.";
+  const probableFixSurface =
+    readStringArrayOrStringField(params.diagnosisJsonRecord, "probable_fix_surface") ??
+    (params.markdown.probableFixSurface ? [params.markdown.probableFixSurface] : null) ??
+    ["target-owned-diagnosis"];
+
+  return targetInvestigateCaseDiagnosisSchema.parse({
+    schema_version:
+      readStringField(params.diagnosisJsonRecord, "schema_version") ?? "diagnosis_degraded_v1",
+    bundle_artifact: params.artifactPaths.evidenceBundlePath,
+    verdict:
+      params.markdown.verdict ??
+      readDiagnosisVerdictField(params.diagnosisJsonRecord) ??
+      "inconclusive",
+    summary: readStringField(params.diagnosisJsonRecord, "summary") ?? fallbackSummary,
+    why: readStringField(params.diagnosisJsonRecord, "why") ?? fallbackWhy,
+    expected_behavior:
+      readStringField(params.diagnosisJsonRecord, "expected_behavior") ??
+      params.markdown.expectedBehavior ??
+      "Consultar diagnosis.md ou blocker explicito target-owned para o comportamento esperado.",
+    observed_behavior:
+      readStringField(params.diagnosisJsonRecord, "observed_behavior") ??
+      params.markdown.observedBehavior ??
+      "Consultar diagnosis.md ou blocker explicito target-owned para o comportamento observado.",
+    confidence: readConfidenceField(params.diagnosisJsonRecord) ?? "medium",
+    behavior_to_change:
+      readStringField(params.diagnosisJsonRecord, "behavior_to_change") ??
+      params.markdown.behaviorToChange ??
+      (params.explicitBlocker.present
+        ? "Resolver o blocker target-owned antes de diagnosticar mudanca funcional."
+        : "Consultar diagnosis.md para a mudanca recomendada."),
+    probable_fix_surface: probableFixSurface,
+    evidence_used:
+      readStringArrayField(params.diagnosisJsonRecord, "evidence_used") ??
+      [fallbackEvidencePath],
+    next_action:
+      readStringField(params.diagnosisJsonRecord, "next_action") ??
+      params.markdown.nextAction ??
+      params.explicitBlocker.nextAction ??
+      `Ler ${diagnosisMdPath} e corrigir o envelope machine-readable apenas se a automacao for necessaria.`,
+    lineage:
+      readStringArrayField(params.diagnosisJsonRecord, "lineage") ??
+      ["target-investigate-case-v2", fallbackEvidencePath],
+  });
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const readStringField = (
+  record: Record<string, unknown> | null,
+  field: string,
+): string | null => {
+  const value = record?.[field];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+const readDiagnosisVerdictField = (
+  record: Record<string, unknown> | null,
+): TargetInvestigateCaseDiagnosis["verdict"] | null => {
+  const verdict = readStringField(record, "verdict");
+  return verdict &&
+    TARGET_INVESTIGATE_CASE_DIAGNOSIS_VERDICT_VALUES.includes(
+      verdict as TargetInvestigateCaseDiagnosis["verdict"],
+    )
+    ? (verdict as TargetInvestigateCaseDiagnosis["verdict"])
+    : null;
+};
+
+const readConfidenceField = (
+  record: Record<string, unknown> | null,
+): TargetInvestigateCaseDiagnosis["confidence"] | null => {
+  const confidence = readStringField(record, "confidence");
+  return confidence &&
+    TARGET_INVESTIGATE_CASE_CONFIDENCE_VALUES.includes(
+      confidence as TargetInvestigateCaseDiagnosis["confidence"],
+    )
+    ? (confidence as TargetInvestigateCaseDiagnosis["confidence"])
+    : null;
+};
+
+const readStringArrayField = (
+  record: Record<string, unknown> | null,
+  field: string,
+): string[] | null => {
+  const value = record?.[field];
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const strings = value
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+
+  return strings.length > 0 ? strings : null;
+};
+
+const readStringArrayOrStringField = (
+  record: Record<string, unknown> | null,
+  field: string,
+): string[] | null => {
+  const strings = readStringArrayField(record, field);
+  if (strings) {
+    return strings;
+  }
+
+  const singleValue = readStringField(record, field);
+  return singleValue ? [singleValue] : null;
+};
 
 export const loadTargetInvestigateCaseManifest = async (
   projectPath: string,
@@ -375,37 +1089,33 @@ export const evaluateTargetInvestigateCaseRound = async (
     relativePath: artifactPaths.caseResolutionPath,
     normalizedInput,
   });
-  const evidenceIndex =
-    artifactPaths.evidenceIndexPath &&
-    (await relativePathExists(request.targetProject.path, artifactPaths.evidenceIndexPath))
-      ? await readJsonArtifact(
-          request.targetProject.path,
-          artifactPaths.evidenceIndexPath,
-          targetInvestigateCaseEvidenceIndexSchema,
-          TARGET_INVESTIGATE_CASE_EVIDENCE_INDEX_ARTIFACT,
-        )
-      : null;
-  const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifact({
+  const artifactInspection = await inspectTargetInvestigateCaseTargetOwnedArtifacts({
     projectPath: request.targetProject.path,
-    relativePath: artifactPaths.evidenceBundlePath,
-  });
-  const diagnosis = await readJsonArtifact(
-    request.targetProject.path,
-    artifactPaths.diagnosisJsonPath,
-    targetInvestigateCaseDiagnosisSchema,
-    "diagnosis.json",
-  );
-  await validateDiagnosisMarkdownArtifact(
-    request.targetProject.path,
-    artifactPaths.diagnosisMdPath,
-  );
-  validateCaseResolution(normalizedInput, caseResolution);
-  validateDiagnosisCoherence(diagnosis, artifactPaths);
-
-  const ticketProposal = await discoverTargetInvestigateCaseTicketProposalArtifact(
-    request.targetProject.path,
     artifactPaths,
+  });
+  const evidenceBundle = await readTargetInvestigateCaseEvidenceBundleArtifactTolerant({
+    projectPath: request.targetProject.path,
+    artifactPaths,
+    caseResolution,
+  });
+  const diagnosticClosure = await resolveTargetInvestigateCaseDiagnosticClosure({
+    projectPath: request.targetProject.path,
+    artifactPaths,
+    caseResolution,
+  });
+  const diagnosis = diagnosticClosure.diagnosis;
+  validateCaseResolution(normalizedInput, caseResolution);
+
+  const hasTicketProposalArtifact = await relativePathExists(
+    request.targetProject.path,
+    artifactPaths.ticketProposalPath,
   );
+  const ticketProposal = artifactInspection.hasDegradedAutomation
+    ? null
+    : await discoverTargetInvestigateCaseTicketProposalArtifact(
+        request.targetProject.path,
+        artifactPaths,
+      );
   const remediationProposalPath =
     artifactPaths.remediationProposalPath &&
     (await relativePathExists(request.targetProject.path, artifactPaths.remediationProposalPath))
@@ -414,7 +1124,7 @@ export const evaluateTargetInvestigateCaseRound = async (
   const shouldTraversePublication = shouldTraverseTargetInvestigateCasePublication({
     manifest: manifestLoad.manifest,
     hasTicketProposal: Boolean(ticketProposal),
-  });
+  }) && !artifactInspection.hasDegradedAutomation;
   const publicationDecision = shouldTraversePublication
     ? await buildPublicationDecisionFromDiagnosis({
         targetProject: request.targetProject,
@@ -432,7 +1142,8 @@ export const evaluateTargetInvestigateCaseRound = async (
     : buildSkippedPublicationDecisionFromDiagnosis({
         manifest: manifestLoad.manifest,
         diagnosis,
-        hasTicketProposal: Boolean(ticketProposal),
+        hasTicketProposal: hasTicketProposalArtifact,
+        automationDegraded: artifactInspection.hasDegradedAutomation,
       });
 
   if (shouldTraversePublication) {
@@ -470,6 +1181,7 @@ export const evaluateTargetInvestigateCaseRound = async (
     caseResolution,
     evidenceBundle,
     diagnosis,
+    artifactInspectionWarnings: artifactInspection.warnings,
     publicationDecision,
     summary,
     tracePayload,
@@ -892,36 +1604,6 @@ export class ControlledTargetInvestigateCaseExecutor
       now: this.now,
     });
 
-    try {
-      await assertRelativeArtifactExists(
-        targetProject.path,
-        artifactPaths.diagnosisJsonPath,
-        "diagnosis.json",
-      );
-      await assertRelativeArtifactExists(
-        targetProject.path,
-        artifactPaths.diagnosisMdPath,
-        "diagnosis.md",
-      );
-    } catch (error) {
-      return buildFailedTargetInvestigateCaseResult({
-        targetProject,
-        roundId,
-        roundDirectory,
-        artifactPaths: await listExistingTargetInvestigateCaseArtifacts(
-          targetProject.path,
-          artifactPaths,
-        ),
-        failedAtMilestone: "diagnosis",
-        failureSurface: "round-materialization",
-        failureKind: "artifact-validation-failed",
-        message: error instanceof Error ? error.message : String(error),
-        nextAction:
-          "Garanta que diagnosis.json e diagnosis.md existam e estejam coerentes antes de rerodar.",
-        versionBoundaryState,
-      });
-    }
-
     const shouldTraversePublication = await shouldTraverseTargetInvestigateCasePublicationFromArtifacts(
       {
         projectPath: targetProject.path,
@@ -1002,6 +1684,7 @@ export class ControlledTargetInvestigateCaseExecutor
       publicationDecision: evaluation.publicationDecision,
       finalSummary: evaluation.summary,
       tracePayload: evaluation.tracePayload,
+      artifactInspectionWarnings: evaluation.artifactInspectionWarnings,
       nextAction: evaluation.summary.next_action,
       versionBoundaryState,
     };
@@ -1034,6 +1717,7 @@ const buildSkippedPublicationDecisionFromDiagnosis = (params: {
   manifest: TargetInvestigateCaseManifest;
   diagnosis: TargetInvestigateCaseDiagnosis;
   hasTicketProposal: boolean;
+  automationDegraded?: boolean;
 }): TargetInvestigateCasePublicationDecision => {
   const gatesApplied = [
     "manifest-canonical-path",
@@ -1054,9 +1738,18 @@ const buildSkippedPublicationDecisionFromDiagnosis = (params: {
       ? "O diagnostico encerrou o caso como comportamento esperado; a continuacao publication nao se aplica."
       : "A continuacao publication nao foi atravessada nesta rodada diagnosis-first.";
 
+  if (params.automationDegraded) {
+    blockedGates.push("artifact-envelope-warnings");
+    if (params.manifest.stages.publication) {
+      publicationStatus = "not_eligible";
+    }
+    outcomeReason =
+      "A rodada produziu diagnostico, mas a publication runner-side nao foi atravessada porque artefatos target-owned exigem automacao degradada.";
+  }
+
   if (params.manifest.stages.publication && !params.hasTicketProposal) {
     blockedGates.push("ticket-projection-missing");
-    if (params.diagnosis.verdict === "not_ok") {
+    if (!params.automationDegraded && params.diagnosis.verdict === "not_ok") {
       publicationStatus = "not_eligible";
       outcomeReason =
         "O target declarou publication, mas ticket-proposal.json ainda nao foi materializado no namespace autoritativo.";
@@ -1289,68 +1982,6 @@ const validateCaseResolution = (
   }
 };
 
-const validateDiagnosisCoherence = (
-  diagnosis: TargetInvestigateCaseDiagnosis,
-  artifactPaths: TargetInvestigateCaseArtifactSet,
-): void => {
-  if (diagnosis.bundle_artifact !== artifactPaths.evidenceBundlePath) {
-    throw new Error(
-      `diagnosis.json precisa apontar bundle_artifact=${artifactPaths.evidenceBundlePath}.`,
-    );
-  }
-};
-
-const validateDiagnosisMarkdownArtifact = async (
-  projectPath: string,
-  relativePath: string,
-): Promise<void> => {
-  const absolutePath = resolveProjectRelativePath(projectPath, relativePath, "diagnosis");
-  const raw = await fs.readFile(absolutePath, "utf8");
-
-  if (!raw.trim()) {
-    throw new Error("diagnosis.md nao pode estar vazio.");
-  }
-
-  const sections = new Map<string, string[]>();
-  let currentHeading: string | null = null;
-
-  for (const line of raw.split(/\r?\n/u)) {
-    const headingMatch = line.match(DIAGNOSIS_MARKDOWN_HEADING_PATTERN);
-    if (headingMatch) {
-      const heading = headingMatch[1].trim();
-      if (
-        TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS.includes(
-          heading as (typeof TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS)[number],
-        )
-      ) {
-        if (sections.has(heading)) {
-          throw new Error(`diagnosis.md nao pode repetir a secao obrigatoria \`${heading}\`.`);
-        }
-        sections.set(heading, []);
-      }
-      currentHeading = heading;
-      continue;
-    }
-
-    if (!currentHeading || !sections.has(currentHeading)) {
-      continue;
-    }
-
-    sections.get(currentHeading)?.push(line);
-  }
-
-  for (const heading of TARGET_INVESTIGATE_CASE_DIAGNOSIS_REQUIRED_SECTIONS) {
-    if (!sections.has(heading)) {
-      throw new Error(`diagnosis.md precisa conter a secao obrigatoria \`${heading}\`.`);
-    }
-
-    const content = sections.get(heading)?.join("\n").trim() ?? "";
-    if (!content) {
-      throw new Error(`diagnosis.md precisa preencher a secao obrigatoria \`${heading}\`.`);
-    }
-  }
-};
-
 const discoverTargetInvestigateCaseTicketProposalArtifact = async (
   projectPath: string,
   artifactPaths: TargetInvestigateCaseArtifactSet,
@@ -1468,6 +2099,72 @@ export const readTargetInvestigateCaseEvidenceBundleArtifact = async (params: {
       : targetInvestigateCaseEvidenceBundleSchema,
     path.posix.basename(params.relativePath),
   );
+
+const readTargetInvestigateCaseEvidenceBundleArtifactTolerant = async (params: {
+  projectPath: string;
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  caseResolution: TargetInvestigateCaseCaseResolution;
+}): Promise<TargetInvestigateCaseEvidenceBundleArtifact> => {
+  if (!(await relativePathExists(params.projectPath, params.artifactPaths.evidenceBundlePath))) {
+    throw new Error(
+      `Artefato obrigatorio ausente: ${TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT} em ${params.artifactPaths.evidenceBundlePath}.`,
+    );
+  }
+
+  try {
+    return await readTargetInvestigateCaseEvidenceBundleArtifact({
+      projectPath: params.projectPath,
+      relativePath: params.artifactPaths.evidenceBundlePath,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/nao contem JSON valido|contem schema invalido/u.test(message)) {
+      throw error;
+    }
+
+    return buildDegradedTargetInvestigateCaseEvidenceBundle({
+      artifactPaths: params.artifactPaths,
+      caseResolution: params.caseResolution,
+    });
+  }
+};
+
+const buildDegradedTargetInvestigateCaseEvidenceBundle = (params: {
+  artifactPaths: TargetInvestigateCaseArtifactSet;
+  caseResolution: TargetInvestigateCaseCaseResolution;
+}): TargetInvestigateCaseEvidenceBundleArtifact => ({
+  collection_plan: {
+    manifest_path: TARGET_INVESTIGATE_CASE_V2_MANIFEST_PATH,
+    strategy_ids: ["target-owned-artifact-inspection"],
+  },
+  historical_sources: [
+    {
+      source_id: "case-bundle",
+      surface: TARGET_INVESTIGATE_CASE_CASE_BUNDLE_ARTIFACT,
+      consulted: true,
+    },
+  ],
+  sensitive_artifact_refs: [
+    {
+      ref: "case-bundle",
+      path: params.artifactPaths.evidenceBundlePath,
+      record_count: 1,
+    },
+  ],
+  replay: {
+    used: false,
+    mode: "historical-only",
+    request_id: params.caseResolution.attempt_resolution.attempt_ref,
+    update_db: false,
+    cache_policy: null,
+    purge_policy: null,
+    namespace: path.posix.dirname(params.artifactPaths.evidenceBundlePath),
+  },
+  collection_sufficiency: "partial",
+  normative_conflicts: [],
+  factual_sufficiency_reason:
+    "case-bundle.json existe, mas o envelope recomendado nao esta consumivel; summary e trace foram montados em modo de automacao degradada.",
+});
 
 const readJsonArtifactDecoded = async (
   projectPath: string,
