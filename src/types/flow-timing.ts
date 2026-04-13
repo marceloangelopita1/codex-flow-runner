@@ -6,6 +6,8 @@ import {
   TargetDeriveTicketSummary,
 } from "./target-derive.js";
 import {
+  TargetInvestigateCaseArtifactAutomationUsability,
+  TargetInvestigateCaseArtifactInspectionWarning,
   TargetInvestigateCaseFinalSummary,
 } from "./target-investigate-case.js";
 import {
@@ -211,6 +213,7 @@ export type TargetCheckupFlowCompletionReason = "completed" | "failed" | "blocke
 export type TargetDeriveFlowCompletionReason = "completed" | "failed" | "blocked" | "cancelled";
 export type TargetInvestigateCaseFlowCompletionReason =
   | "completed"
+  | "diagnosis-completed-with-artifact-warnings"
   | "round-materialization-failed"
   | "round-evaluation-failed"
   | "failed"
@@ -275,6 +278,8 @@ export type TargetInvestigateCaseFlowSummary = TargetFlowSummaryBase<
   TargetInvestigateCaseFlowCompletionReason
 > & {
   completionReason: TargetInvestigateCaseFlowCompletionReason;
+  artifactInspectionWarnings?: TargetInvestigateCaseArtifactInspectionWarning[];
+  artifactAutomationUsability?: TargetInvestigateCaseArtifactAutomationUsability;
 };
 
 export type RunnerFlowSummary =

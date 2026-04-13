@@ -1,7 +1,7 @@
 # [TICKET] /target_investigate_case_v2 summary e Telegram não distinguem diagnóstico produzido com warnings
 
 ## Metadata
-- Status: open
+- Status: closed
 - Status guidance: `open` = elegível para execução; `in-progress` = em andamento manual; `blocked` = aguardando insumo/decisão externa sem próximo passo local executável; `closed` = encerrado em `tickets/closed/`
 - Priority: P1
 - Severity: S2
@@ -9,7 +9,7 @@
 - Reporter: mapita
 - Owner:
 - Source: local-run
-- Parent ticket (optional): tickets/open/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
+- Parent ticket (optional): tickets/closed/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
 - Parent execplan (optional):
 - Parent commit (optional):
 - Analysis stage (when applicable): post-run diagnosis
@@ -32,6 +32,7 @@
   - Decision file:
 - Related docs/execplans:
   - docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md
+  - execplans/2026-04-13-target-investigate-case-v2-summary-deve-reportar-diagnostico-com-warnings.md
 
 ## Classificação de risco (check-up não funcional, quando aplicável)
 - Matriz aplicável: não
@@ -95,8 +96,28 @@ Quando houver diagnóstico útil ou blocker explícito, o summary final, trace e
 - 2026-04-13 - Separar superfície operator-facing do comportamento core - o usuário precisa receber a leitura certa mesmo quando automações estruturadas ficam degradadas.
 
 ## Closure
-- Closed at (UTC):
-- Closure reason: fixed | duplicate | invalid | wont-fix | split-follow-up
-- Related PR/commit/execplan:
-- Follow-up ticket (required when `Closure reason: split-follow-up`):
+- Closed at (UTC): 2026-04-13 16:50Z
+- Closure reason: fixed
+- Related PR/commit/execplan: execplan `execplans/2026-04-13-target-investigate-case-v2-summary-deve-reportar-diagnostico-com-warnings.md`; commit: mesmo changeset de fechamento versionado pelo runner.
+- Follow-up ticket (required when `Closure reason: split-follow-up`): n/a
 - Follow-up status guidance (when `Closure reason: split-follow-up`): se o trabalho remanescente depender apenas de insumo/decisão externa e não houver próximo passo local executável, criar o follow-up em `tickets/open/` com `Status: blocked`; use `Status: open` apenas quando ainda houver trabalho local executável pelo agente.
+
+### Closure evidence
+- Resultado final: GO.
+- Checklist compartilhado aplicado: `docs/workflows/codex-quality-gates.md` foi relido; diff, ticket, ExecPlan, spec de origem e ticket pai foram relidos antes da decisão.
+- RF-26 e CA-07: `src/integrations/telegram-bot.test.ts` cobre `buildTargetInvestigateCaseReply` e `buildRunFlowSummaryMessage` abrindo com diagnóstico, veredito, resumo, porquê e próxima ação antes da visão geral do fluxo, sem linguagem publication-first.
+- RF-29 e CA-09: `src/core/runner.test.ts` cobre resultado `completed` com `artifactInspectionWarnings`, esperando `outcome = "success"`, `finalStage = "diagnosis"`, `completionReason = "diagnosis-completed-with-artifact-warnings"` e ausência de `round-materialization-failed` no trace.
+- Closure criterion 1: `src/integrations/telegram-bot.test.ts` valida mensagem com `diagnostico produzido com warnings de automacao`, caminhos de `diagnosis.md` e `diagnosis.json`, lista de artefatos realizados e bloco separado `Warnings de automacao`.
+- Closure criterion 1, enumeração de artefatos: o teste de Telegram valida evidência positiva para `evidence-index.json`, `case-bundle.json` e `diagnosis.json`, cada um com `recommended-schema-invalid`, `usability=degraded` e path próprio.
+- Closure criterion 2: `src/core/runner.test.ts` inspeciona o trace persistido por `WorkflowTraceStore.recordTargetFlowTrace`, esperando `outcome.status = "success"`, metadata com warnings para os três artefatos enumerados e sem `completionReason = "round-materialization-failed"`.
+- Closure criterion 3: `src/integrations/telegram-bot.test.ts` valida que summary concluído com warnings não renderiza `Fase interrompida`; o teste negativo `buildRunFlowSummaryMessage preserva fase interrompida em falha real` preserva `Fase interrompida: preflight` para `round-materialization-failed`.
+- Allowlist/enumeração finita: `src/integrations/telegram-bot.test.ts` cobre os três `artifactLabel` aceitos (`evidence-index.json`, `case-bundle.json`, `diagnosis.json`) e todos os `kind` aceitos de warning (`artifact-missing`, `json-parse-failed`, `recommended-schema-invalid`, `recommended-coherence-invalid`) sem consolidação agregada. O ticket/ExecPlan não exigem cobertura negativa fora do conjunto para o renderer, e o typecheck valida que labels fora da enumeração não são aceitos.
+- Validações executadas: `npm test -- src/integrations/telegram-bot.test.ts src/core/runner.test.ts src/core/target-investigate-case.test.ts src/integrations/workflow-trace-store.test.ts` em 2026-04-13 16:50Z, com 202 testes passando; `npm run check` em 2026-04-13 16:50Z, com exit 0.
+- Revisão de diff: `git diff --stat` e diffs de `src/core/runner.ts`, `src/types/flow-timing.ts`, `src/integrations/telegram-bot.ts`, `src/core/runner.test.ts`, `src/integrations/telegram-bot.test.ts`, spec e ExecPlan confirmaram escopo local em summary, trace metadata, Telegram, timing, testes e documentação viva.
+
+### Manual validation pending
+- Entrega técnica local runner-side: concluída e validada por testes automatizados e typecheck.
+- Validação manual externa pendente: executar uma rodada real de `/target_investigate_case_v2` via Telegram contra um target aderente e confirmar que a resposta abre com o diagnóstico produzido com warnings de automação quando houver envelope divergente.
+- Como executar: operador deve acionar `/target_investigate_case_v2 <target> <case-ref> --workflow <workflow>` em ambiente real com target aderente, aguardar a conclusão e inspecionar a resposta do Telegram e os artefatos em `output/case-investigation/<round-id>/`.
+- Responsável operacional: operador humano do runner/target no ambiente real.
+- Classificação: validação externa/manual; não bloqueia o GO técnico deste ticket.

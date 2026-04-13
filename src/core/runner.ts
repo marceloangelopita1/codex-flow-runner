@@ -184,6 +184,8 @@ import {
   targetFlowKindToCommand,
 } from "../types/target-flow.js";
 import {
+  TargetInvestigateCaseArtifactAutomationUsability,
+  TargetInvestigateCaseArtifactInspectionWarning,
   TargetInvestigateCaseExecutionResult,
   TargetInvestigateCaseLifecycleHooks,
 } from "../types/target-investigate-case.js";
@@ -3877,12 +3879,20 @@ export class TicketRunner {
         : this.interruptTargetFlowTiming(active, finishedAt);
 
     if (result.status === "completed") {
+      const artifactInspectionWarnings = result.summary.artifactInspectionWarnings ?? [];
+      const artifactAutomationUsability =
+        this.resolveTargetInvestigateCaseArtifactAutomationUsability(
+          artifactInspectionWarnings,
+        );
+      const hasArtifactWarnings = artifactInspectionWarnings.length > 0;
       return {
         flow: active.flow as "target-investigate-case-v2",
         command: active.command,
         outcome: "success",
-        finalStage: "publication",
-        completionReason: "completed",
+        finalStage: active.milestone,
+        completionReason: hasArtifactWarnings
+          ? "diagnosis-completed-with-artifact-warnings"
+          : "completed",
         timestampUtc: new Date(finishedAt).toISOString(),
         targetProjectName: result.summary.targetProject.name,
         targetProjectPath: result.summary.targetProject.path,
@@ -3893,13 +3903,20 @@ export class TicketRunner {
           ...result.summary.publicationDecision.versioned_artifact_paths,
         ]),
         versionedArtifactPaths: [...result.summary.publicationDecision.versioned_artifact_paths],
-        details:
-          `Diagnostico: ${result.summary.finalSummary.diagnosis.verdict} - ${result.summary.finalSummary.diagnosis.summary}. ` +
-          `Investigacao: ${describeTargetInvestigateCaseInvestigationOutcome(result.summary.finalSummary)} ` +
-          `Publication: ${result.summary.publicationDecision.publication_status}/${result.summary.publicationDecision.overall_outcome}. ` +
-          `${describeTargetInvestigateCaseDiagnosisVerdict(result.summary.finalSummary.diagnosis.verdict)}`,
+        details: this.renderTargetInvestigateCaseCompletedDetails(
+          result.summary,
+          artifactAutomationUsability,
+        ),
         timing,
         summary: result.summary.finalSummary,
+        ...(hasArtifactWarnings
+          ? {
+              artifactInspectionWarnings: artifactInspectionWarnings.map((warning) => ({
+                ...warning,
+              })),
+              artifactAutomationUsability,
+            }
+          : {}),
       };
     }
 
@@ -3955,6 +3972,43 @@ export class TicketRunner {
           : result.message,
       timing,
     };
+  }
+
+  private renderTargetInvestigateCaseCompletedDetails(
+    summary: Extract<TargetInvestigateCaseExecutionResult, { status: "completed" }>["summary"],
+    artifactAutomationUsability: TargetInvestigateCaseArtifactAutomationUsability,
+  ): string {
+    const artifactInspectionWarnings = summary.artifactInspectionWarnings ?? [];
+    const details = [
+      `Diagnostico: ${summary.finalSummary.diagnosis.verdict} - ${summary.finalSummary.diagnosis.summary}. ` +
+        `Investigacao: ${describeTargetInvestigateCaseInvestigationOutcome(summary.finalSummary)}`,
+    ];
+
+    if (artifactInspectionWarnings.length > 0) {
+      details.push(
+        `Diagnostico produzido com warnings de automacao (${artifactInspectionWarnings.length}; usability=${artifactAutomationUsability}): ${artifactInspectionWarnings.map((warning) => warning.artifactLabel).join(", ")}.`,
+      );
+    }
+
+    details.push(
+      `Publication: ${summary.publicationDecision.publication_status}/${summary.publicationDecision.overall_outcome}. ` +
+        `${describeTargetInvestigateCaseDiagnosisVerdict(summary.finalSummary.diagnosis.verdict)}`,
+    );
+    return details.join(" ");
+  }
+
+  private resolveTargetInvestigateCaseArtifactAutomationUsability(
+    warnings: readonly TargetInvestigateCaseArtifactInspectionWarning[],
+  ): TargetInvestigateCaseArtifactAutomationUsability {
+    if (warnings.some((warning) => warning.automationUsability === "unusable")) {
+      return "unusable";
+    }
+
+    if (warnings.some((warning) => warning.automationUsability === "degraded")) {
+      return "degraded";
+    }
+
+    return warnings.length > 0 ? "degraded" : "full";
   }
 
   private mapTargetInvestigateCaseFailureCompletionReason(
@@ -4013,7 +4067,12 @@ export class TicketRunner {
       | TargetInvestigateCaseFlowSummary,
   ): string {
     if (summary.outcome === "success") {
-      return `${summary.command.replace("/", "")} concluido para ${summary.targetProjectName}`;
+      const warningSuffix =
+        summary.flow === "target-investigate-case-v2" &&
+        (summary.artifactInspectionWarnings?.length ?? 0) > 0
+          ? " com warnings de automacao"
+          : "";
+      return `${summary.command.replace("/", "")} concluido${warningSuffix} para ${summary.targetProjectName}`;
     }
 
     if (summary.outcome === "cancelled") {
@@ -11185,6 +11244,18 @@ export class TicketRunner {
       | TargetDeriveFlowSummary
       | TargetInvestigateCaseFlowSummary,
   ): Record<string, unknown> {
+    const artifactInspectionWarnings =
+      summary.flow === "target-investigate-case-v2"
+        ? (summary.artifactInspectionWarnings ?? [])
+        : [];
+    const artifactAutomationUsability =
+      summary.flow === "target-investigate-case-v2"
+        ? summary.artifactAutomationUsability ??
+          this.resolveTargetInvestigateCaseArtifactAutomationUsability(
+            artifactInspectionWarnings,
+          )
+        : undefined;
+
     return {
       completionReason: summary.completionReason,
       finalStage: summary.finalStage,
@@ -11194,6 +11265,14 @@ export class TicketRunner {
       ...(summary.summary
         ? {
             summary: JSON.parse(JSON.stringify(summary.summary)) as Record<string, unknown>,
+          }
+        : {}),
+      ...(artifactInspectionWarnings.length > 0
+        ? {
+            artifactInspectionWarnings: artifactInspectionWarnings.map((warning) => ({
+              ...warning,
+            })),
+            artifactAutomationUsability,
           }
         : {}),
       ...(summary.details ? { details: summary.details } : {}),
@@ -11855,6 +11934,13 @@ export class TicketRunner {
       ...(summary.summary
         ? {
             summary: JSON.parse(JSON.stringify(summary.summary)) as typeof summary.summary,
+          }
+        : {}),
+      ...(summary.flow === "target-investigate-case-v2" && summary.artifactInspectionWarnings
+        ? {
+            artifactInspectionWarnings: summary.artifactInspectionWarnings.map((warning) => ({
+              ...warning,
+            })),
           }
         : {}),
     } as RunnerFlowSummary;

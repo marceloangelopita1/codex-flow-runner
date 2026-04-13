@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Logger } from "../core/logger.js";
 import type { TargetInvestigateCaseRequestResult } from "../core/runner.js";
+import type { TargetInvestigateCaseFlowSummary } from "../types/flow-timing.js";
 import type { RunnerState } from "../types/state.js";
+import type { TargetInvestigateCaseArtifactInspectionWarning } from "../types/target-investigate-case.js";
 import { TelegramController } from "./telegram-bot.js";
 
 class StubLogger extends Logger {}
@@ -56,6 +58,30 @@ const callPrivate = <ReturnValue>(
   (controller as unknown as Record<string, (...values: unknown[]) => ReturnValue>)[method](
     ...args,
   );
+
+const artifactInspectionWarnings: TargetInvestigateCaseArtifactInspectionWarning[] = [
+  {
+    artifactLabel: "evidence-index.json",
+    artifactPath: "output/case-investigation/2026-04-09T12-00-00Z/evidence-index.json",
+    kind: "recommended-schema-invalid",
+    automationUsability: "degraded",
+    message: "evidence-index.json diverge do envelope recomendado.",
+  },
+  {
+    artifactLabel: "case-bundle.json",
+    artifactPath: "output/case-investigation/2026-04-09T12-00-00Z/case-bundle.json",
+    kind: "recommended-schema-invalid",
+    automationUsability: "degraded",
+    message: "case-bundle.json diverge do envelope recomendado.",
+  },
+  {
+    artifactLabel: "diagnosis.json",
+    artifactPath: "output/case-investigation/2026-04-09T12-00-00Z/diagnosis.json",
+    kind: "recommended-schema-invalid",
+    automationUsability: "degraded",
+    message: "diagnosis.json diverge do envelope recomendado.",
+  },
+];
 
 const completedResult: TargetInvestigateCaseRequestResult = {
   status: "completed",
@@ -195,6 +221,72 @@ const completedResult: TargetInvestigateCaseRequestResult = {
   },
 };
 
+const completedResultWithWarnings: TargetInvestigateCaseRequestResult = {
+  ...completedResult,
+  summary: {
+    ...completedResult.summary,
+    artifactInspectionWarnings,
+    publicationDecision: {
+      ...completedResult.summary.publicationDecision,
+      publication_status: "not_eligible",
+      outcome_reason:
+        "A rodada produziu diagnostico, mas automacoes estruturadas ficaram degradadas.",
+      blocked_gates: ["artifact-envelope-warnings"],
+    },
+  },
+};
+
+const completedFlowSummaryWithWarnings: TargetInvestigateCaseFlowSummary = {
+  flow: "target-investigate-case-v2",
+  command: "/target_investigate_case_v2",
+  outcome: "success",
+  finalStage: "diagnosis",
+  completionReason: "diagnosis-completed-with-artifact-warnings",
+  timestampUtc: "2026-04-09T12:00:00.000Z",
+  targetProjectName: "alpha-project",
+  targetProjectPath: "/tmp/alpha-project",
+  versionBoundaryState: "before-versioning",
+  nextAction: "No follow-up required.",
+  artifactPaths: [...completedResult.summary.realizedArtifactPaths],
+  versionedArtifactPaths: [],
+  details:
+    "Diagnostico produzido com warnings de automacao: evidence-index.json, case-bundle.json, diagnosis.json.",
+  timing: {
+    startedAtUtc: "2026-04-09T12:00:00.000Z",
+    finishedAtUtc: "2026-04-09T12:00:04.000Z",
+    totalDurationMs: 4000,
+    durationsByStageMs: {
+      preflight: 1000,
+      "resolve-case": 1000,
+      "assemble-evidence": 1000,
+      diagnosis: 1000,
+    },
+    completedStages: ["preflight", "resolve-case", "assemble-evidence", "diagnosis"],
+    interruptedStage: "preflight",
+  },
+  summary: completedResult.summary.finalSummary,
+  artifactInspectionWarnings,
+  artifactAutomationUsability: "degraded",
+};
+
+const failedFlowSummary: TargetInvestigateCaseFlowSummary = {
+  ...completedFlowSummaryWithWarnings,
+  outcome: "failure",
+  finalStage: "preflight",
+  completionReason: "round-materialization-failed",
+  nextAction: "Revise os artefatos antes de rerodar.",
+  artifactPaths: [],
+  details: "Falha operacional em round-materialization.",
+  timing: {
+    ...completedFlowSummaryWithWarnings.timing,
+    completedStages: [],
+    interruptedStage: "preflight",
+  },
+  summary: undefined,
+  artifactInspectionWarnings: undefined,
+  artifactAutomationUsability: undefined,
+};
+
 test("buildStartReply expõe apenas comandos de investigacao v2", () => {
   const controller = createController();
 
@@ -221,6 +313,135 @@ test("buildTargetInvestigateCaseReply mantem a superficie operator-facing diagno
   assert.doesNotMatch(reply, /assessment/u);
   assert.doesNotMatch(reply, /dossier/u);
   assert.doesNotMatch(reply, /semantic-review/u);
+});
+
+test("buildTargetInvestigateCaseReply separa warnings de envelope sem rebaixar diagnostico", () => {
+  const controller = createController();
+
+  const reply = callPrivate<string>(
+    controller,
+    "buildTargetInvestigateCaseReply",
+    completedResultWithWarnings,
+  );
+
+  assert.match(reply, /concluido com warnings de automacao para alpha-project/u);
+  assert.match(
+    reply,
+    /Estado do diagnostico: diagnostico produzido com warnings de automacao/u,
+  );
+  assert.match(reply, /Veredito do diagnostico: ok/u);
+  assert.match(reply, /Proxima acao do diagnostico: No follow-up required\./u);
+  assert.match(reply, /Diagnosis markdown: output\/case-investigation\/2026-04-09T12-00-00Z\/diagnosis\.md/u);
+  assert.match(reply, /Diagnosis JSON: output\/case-investigation\/2026-04-09T12-00-00Z\/diagnosis\.json/u);
+  assert.match(reply, /Artefatos realizados: .*evidence-index\.json.*case-bundle\.json.*diagnosis\.json/u);
+  assert.match(reply, /Warnings de automacao:/u);
+
+  for (const artifactLabel of [
+    "evidence-index.json",
+    "case-bundle.json",
+    "diagnosis.json",
+  ]) {
+    assert.match(
+      reply,
+      new RegExp(
+        `- ${artifactLabel.replace(".", "\\.")}: recommended-schema-invalid; usability=degraded; path=.*${artifactLabel.replace(".", "\\.")}`,
+        "u",
+      ),
+    );
+  }
+
+  assert.equal(
+    reply.indexOf("Warnings de automacao:") > reply.indexOf("Proxima acao do diagnostico"),
+    true,
+  );
+  assert.doesNotMatch(reply, /round-materialization-failed/u);
+});
+
+test("buildTargetInvestigateCaseArtifactWarningLines preserva todos os tipos aceitos de warning", () => {
+  const controller = createController();
+  const warnings: TargetInvestigateCaseArtifactInspectionWarning[] = [
+    {
+      artifactLabel: "evidence-index.json",
+      artifactPath: "output/case-investigation/round/evidence-index.json",
+      kind: "artifact-missing",
+      automationUsability: "unusable",
+      message: "evidence-index.json nao foi materializado.",
+    },
+    {
+      artifactLabel: "case-bundle.json",
+      artifactPath: "output/case-investigation/round/case-bundle.json",
+      kind: "json-parse-failed",
+      automationUsability: "unusable",
+      message: "case-bundle.json nao e JSON valido.",
+    },
+    {
+      artifactLabel: "diagnosis.json",
+      artifactPath: "output/case-investigation/round/diagnosis.json",
+      kind: "recommended-schema-invalid",
+      automationUsability: "degraded",
+      message: "diagnosis.json diverge do schema recomendado.",
+    },
+    {
+      artifactLabel: "diagnosis.json",
+      artifactPath: "output/case-investigation/round/coherence.json",
+      kind: "recommended-coherence-invalid",
+      automationUsability: "degraded",
+      message: "diagnosis.json diverge da coerencia recomendada.",
+    },
+  ];
+
+  const lines = callPrivate<string[]>(
+    controller,
+    "buildTargetInvestigateCaseArtifactWarningLines",
+    warnings,
+  );
+
+  assert.deepEqual(
+    lines.map((line) => line.match(/: ([^;]+);/u)?.[1]),
+    [
+      "artifact-missing",
+      "json-parse-failed",
+      "recommended-schema-invalid",
+      "recommended-coherence-invalid",
+    ],
+  );
+  assert.deepEqual(
+    lines.map((line) => line.match(/usability=([^;]+);/u)?.[1]),
+    ["unusable", "unusable", "degraded", "degraded"],
+  );
+});
+
+test("buildRunFlowSummaryMessage abre target investigate com diagnostico e omite fase interrompida em sucesso com warnings", () => {
+  const controller = createController();
+
+  const reply = callPrivate<string>(
+    controller,
+    "buildRunFlowSummaryMessage",
+    completedFlowSummaryWithWarnings,
+  );
+
+  assert.match(reply, /Diagnostico\nEstado: diagnostico produzido com warnings de automacao/u);
+  assert.match(reply, /Veredito do diagnostico: ok/u);
+  assert.match(reply, /Warnings de automacao\n- evidence-index\.json: recommended-schema-invalid/u);
+  assert.match(reply, /- case-bundle\.json: recommended-schema-invalid/u);
+  assert.match(reply, /- diagnosis\.json: recommended-schema-invalid/u);
+  assert.match(reply, /Motivo de encerramento: diagnosis-completed-with-artifact-warnings/u);
+  assert.equal(reply.indexOf("Diagnostico") < reply.indexOf("Visao geral do fluxo"), true);
+  assert.doesNotMatch(reply, /Fase interrompida/u);
+});
+
+test("buildRunFlowSummaryMessage preserva fase interrompida em falha real", () => {
+  const controller = createController();
+
+  const reply = callPrivate<string>(
+    controller,
+    "buildRunFlowSummaryMessage",
+    failedFlowSummary,
+  );
+
+  assert.match(reply, /Resultado: falha/u);
+  assert.match(reply, /Motivo de encerramento: round-materialization-failed/u);
+  assert.match(reply, /Fase interrompida: preflight/u);
 });
 
 test("buildTargetFlowStatusReply descreve apenas o comando v2 quando nao ha execucao ativa", () => {

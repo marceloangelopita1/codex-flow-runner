@@ -60,6 +60,10 @@ import {
   RunnerFlowSummary,
   TargetFlowMilestoneLifecycleEvent,
 } from "../types/flow-timing.js";
+import type {
+  TargetInvestigateCaseArtifactInspectionWarning,
+  TargetInvestigateCaseCompletedSummary,
+} from "../types/target-investigate-case.js";
 import {
   CALLBACK_CHAT_DELIVERY_POLICY,
   CODEX_CHAT_OUTPUT_DELIVERY_POLICY,
@@ -7079,8 +7083,15 @@ export class TelegramController {
     }
 
     if (result.status === "completed") {
-      return [
-        `✅ ${commandLabel} concluido para ${result.summary.targetProject.name}.`,
+      const artifactInspectionWarnings = result.summary.artifactInspectionWarnings ?? [];
+      const hasArtifactWarnings = artifactInspectionWarnings.length > 0;
+      const lines = [
+        hasArtifactWarnings
+          ? `✅ ${commandLabel} concluido com warnings de automacao para ${result.summary.targetProject.name}.`
+          : `✅ ${commandLabel} concluido para ${result.summary.targetProject.name}.`,
+        hasArtifactWarnings
+          ? "Estado do diagnostico: diagnostico produzido com warnings de automacao"
+          : "Estado do diagnostico: diagnostico produzido",
         `Veredito do diagnostico: ${result.summary.finalSummary.diagnosis.verdict}`,
         `Resumo do diagnostico: ${result.summary.finalSummary.diagnosis.summary}`,
         `Por que: ${result.summary.finalSummary.diagnosis.why}`,
@@ -7101,9 +7112,19 @@ export class TelegramController {
         `Publication automatica: ${result.summary.publicationDecision.publication_status} (${result.summary.publicationDecision.overall_outcome})`,
         `Diagnosis markdown: ${result.summary.finalSummary.diagnosis.diagnosis_md_path}`,
         `Diagnosis JSON: ${result.summary.finalSummary.diagnosis.diagnosis_json_path}`,
+        `Artefatos realizados: ${result.summary.realizedArtifactPaths.join(", ") || "(nenhum)"}`,
         `Ticket path: ${result.summary.publicationDecision.ticket_path ?? "(nenhum)"}`,
         `Proxima acao: ${result.summary.nextAction}`,
-      ].join("\n");
+      ];
+
+      if (hasArtifactWarnings) {
+        lines.push(
+          "Warnings de automacao:",
+          ...this.buildTargetInvestigateCaseArtifactWarningLines(artifactInspectionWarnings),
+        );
+      }
+
+      return lines.join("\n");
     }
 
     if (result.status === "cancelled") {
@@ -7128,6 +7149,32 @@ export class TelegramController {
     }
 
     return `❌ ${result.message}`;
+  }
+
+  private buildTargetInvestigateCaseArtifactWarningLines(
+    warnings: readonly TargetInvestigateCaseArtifactInspectionWarning[],
+  ): string[] {
+    return warnings.map(
+      (warning) =>
+        `- ${warning.artifactLabel}: ${warning.kind}; usability=${warning.automationUsability}; path=${warning.artifactPath}; ${warning.message}`,
+    );
+  }
+
+  private buildTargetInvestigateCaseFlowDiagnosisLines(
+    summary: TargetInvestigateCaseCompletedSummary["finalSummary"],
+    warnings: readonly TargetInvestigateCaseArtifactInspectionWarning[],
+  ): string[] {
+    return [
+      warnings.length > 0
+        ? "Estado: diagnostico produzido com warnings de automacao"
+        : "Estado: diagnostico produzido",
+      `Veredito do diagnostico: ${summary.diagnosis.verdict}`,
+      `Resumo do diagnostico: ${summary.diagnosis.summary}`,
+      `Por que: ${summary.diagnosis.why}`,
+      `Proxima acao do diagnostico: ${summary.diagnosis.next_action}`,
+      `Diagnosis markdown: ${summary.diagnosis.diagnosis_md_path}`,
+      `Diagnosis JSON: ${summary.diagnosis.diagnosis_json_path}`,
+    ];
   }
 
   private buildTargetFlowStatusReply(flow: TargetFlowKind, state: RunnerState): string {
@@ -7612,25 +7659,45 @@ export class TelegramController {
     }
 
     if (summary.flow !== "run-specs") {
-      const sections: EditorialSection[] = [
-        {
-          title: "Visao geral do fluxo",
-          lines: [
-            `Fluxo: ${summary.command}`,
-            `Projeto alvo: ${summary.targetProjectName}`,
-            `Caminho do projeto alvo: ${summary.targetProjectPath}`,
-            `Resultado: ${this.renderOutcome(summary.outcome)}`,
-            `Fase final: ${summary.finalStage}`,
-            `Motivo de encerramento: ${summary.completionReason}`,
-            `Fronteira de versionamento: ${summary.versionBoundaryState}`,
-            `Timestamp UTC: ${summary.timestampUtc}`,
-            `Proxima acao: ${summary.nextAction}`,
-            `Artefatos tocados: ${summary.artifactPaths.join(", ") || "(nenhum)"}`,
-            `Artefatos versionados: ${summary.versionedArtifactPaths.join(", ") || "(nenhum)"}`,
-            ...(summary.details ? [`Detalhes: ${summary.details}`] : []),
-          ],
-        },
-      ];
+      const sections: EditorialSection[] = [];
+
+      if (summary.flow === "target-investigate-case-v2" && summary.summary) {
+        const artifactInspectionWarnings = summary.artifactInspectionWarnings ?? [];
+        sections.push({
+          title: "Diagnostico",
+          lines: this.buildTargetInvestigateCaseFlowDiagnosisLines(
+            summary.summary,
+            artifactInspectionWarnings,
+          ),
+        });
+
+        if (artifactInspectionWarnings.length > 0) {
+          sections.push({
+            title: "Warnings de automacao",
+            lines: this.buildTargetInvestigateCaseArtifactWarningLines(
+              artifactInspectionWarnings,
+            ),
+          });
+        }
+      }
+
+      sections.push({
+        title: "Visao geral do fluxo",
+        lines: [
+          `Fluxo: ${summary.command}`,
+          `Projeto alvo: ${summary.targetProjectName}`,
+          `Caminho do projeto alvo: ${summary.targetProjectPath}`,
+          `Resultado: ${this.renderOutcome(summary.outcome)}`,
+          `Fase final: ${summary.finalStage}`,
+          `Motivo de encerramento: ${summary.completionReason}`,
+          `Fronteira de versionamento: ${summary.versionBoundaryState}`,
+          `Timestamp UTC: ${summary.timestampUtc}`,
+          `Proxima acao: ${summary.nextAction}`,
+          `Artefatos tocados: ${summary.artifactPaths.join(", ") || "(nenhum)"}`,
+          `Artefatos versionados: ${summary.versionedArtifactPaths.join(", ") || "(nenhum)"}`,
+          ...(summary.details ? [`Detalhes: ${summary.details}`] : []),
+        ],
+      });
 
       if (summary.summary) {
         sections.push({
@@ -7652,6 +7719,9 @@ export class TelegramController {
               : summary.flow === "target-derive"
                 ? TARGET_DERIVE_TIMING_STAGE_ORDER
                 : TARGET_INVESTIGATE_CASE_V2_TIMING_STAGE_ORDER,
+          {
+            includeInterruptedStage: summary.outcome !== "success",
+          },
         ),
       });
 
@@ -8044,6 +8114,7 @@ export class TelegramController {
   private buildTimingDetailLines<Stage extends string>(
     timing: FlowTimingSnapshot<Stage>,
     orderedStages: readonly Stage[],
+    options: { includeInterruptedStage?: boolean } = {},
   ): string[] {
     const lines = [
       `Tempo total: ${this.formatDurationMs(timing.totalDurationMs)}`,
@@ -8059,7 +8130,7 @@ export class TelegramController {
       }
     }
 
-    if (timing.interruptedStage) {
+    if (options.includeInterruptedStage !== false && timing.interruptedStage) {
       lines.push(`Fase interrompida: ${timing.interruptedStage}`);
     }
 
