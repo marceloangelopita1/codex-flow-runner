@@ -33,6 +33,7 @@ Contrato:
 - a triagem inicial da spec deriva apenas tickets em `tickets/open/`;
 - `execplans/` surgem somente a partir de tickets, quando necessário para execução segura;
 - para `target-investigate-case-v2`, a primeira onda runner-side já estabilizou o contrato, o slot canônico de `ticket-projection` e a `publication` runner-side; na compatibilização target-side, a primeira onda continua sendo o caminho mínimo diagnosis-first, e `deep-dive`, `improvement-proposal` e `ticket-projection` podem entrar apenas na segunda onda;
+- para `target-investigate-case-v2`, compatibilidade operacional não significa submissão a um schema rígido de resposta runner-side: o runner deve orquestrar, registrar warnings de envelope e preservar diagnósticos úteis ou blockers explícitos produzidos pelo target;
 - `target-investigate-case-v2` é o único fluxo suportado de investigação de caso; o projeto alvo não deve depender de cadeias auxiliares legadas fora desse contrato;
 - o histórico pré-v2 de investigação de caso, quando consultado, fica rebaixado a `docs/history/target-investigate-case/` e não participa do contrato operacional vigente;
 - `ticket-proposal.json` continua target-owned e precisa nascer no namespace autoritativo `output/case-investigation/<round-id>/`; `investigations/<round-id>/` pode espelhar a rodada, mas não substitui a autoridade semântica do target;
@@ -43,6 +44,7 @@ Contrato:
 - compatibilidade do projeto alvo com o workflow completo é pré-requisito operacional do onboarding humano;
 - para projeto externo, esse pré-requisito inclui o acesso determinístico ao checklist compartilhado por `../codex-flow-runner/docs/workflows/codex-quality-gates.md`;
 - o runner não deve gastar tokens tentando demonstrar em runtime, por análise semântica, se o projeto alvo é ou não compatível com o workflow completo;
+- o runner não deve bloquear o caminho mínimo diagnosis-first por validações rígidas de schema dos artefatos target-owned; essas divergências devem aparecer como observabilidade e limitar apenas automações posteriores que dependam de campos específicos;
 - quando houver dúvida, a decisão correta é ajustar o onboarding/documentação do projeto antes de usar `/run_specs` ou o workflow completo.
 
 ## Resumo prático

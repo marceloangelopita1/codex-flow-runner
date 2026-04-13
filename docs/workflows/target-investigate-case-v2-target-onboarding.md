@@ -9,7 +9,9 @@ Use este documento quando um projeto alvo for aderir à v2 pela primeira vez ou 
 
 ## Princípios do contrato
 ### Runner target-agnostic
-O `codex-flow-runner` orquestra a rodada, injeta contexto operacional, valida contrato, persiste rastreabilidade e executa as etapas na ordem certa. Ele não deve aprender semântica específica do target.
+O `codex-flow-runner` orquestra a rodada, injeta contexto operacional, valida apenas pré-condições operacionais, persiste rastreabilidade e executa as etapas na ordem certa. Ele não deve aprender semântica específica do target nem reprovar a investigação por divergência de schema nos artefatos de resposta do target.
+
+No caminho mínimo diagnosis-first, validações de envelope machine-readable devem orientar warnings, summary e automações posteriores. Elas não devem virar hard gate quando o target produziu diagnóstico humano útil ou blocker explícito.
 
 ### Target como autoridade semântica
 O projeto alvo é quem conhece o workflow real, a semântica do caso, os identificadores válidos, os scripts úteis, os logs relevantes, os dados confiáveis e o framing correto do diagnóstico.
@@ -23,6 +25,8 @@ Na primeira onda target-side, porém, o target precisa deixar sólidos apenas os
 - `diagnosis`
 
 `preflight` continua no caminho mínimo, mas é runner-owned. O papel do target aqui é satisfazer as pré-condições contratuais que o runner valida no `preflight`, não “implementar o preflight”.
+
+Hard gates runner-side ficam restritos a condições que impedem ou tornam insegura a orquestração: projeto/manifesto/prompt/entrypoint inacessível, falha de execução do Codex ou do comando oficial, cancelamento, violação de política de segurança, versionamento e fronteiras de publication. Campos ausentes ou diferentes em `case-resolution.json`, `evidence-index.json`, `case-bundle.json` ou `diagnosis.json` devem ser relatados como warnings de automação, não como falha da diagnosis.
 
 ### Continuações opcionais depois
 `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` existem como extensões tardias. Elas não podem virar pré-requisito para responder o caso.
@@ -106,6 +110,8 @@ Ele deve instruir a IA a:
 - salvar ou referenciar as evidências de forma auditável;
 - produzir `evidence-index.json` e `case-bundle.json`.
 
+O target pode escolher o shape que melhor represente suas evidências. O envelope recomendado pelo runner serve para melhorar consumo automático, mas não precisa ser tratado como bloqueio do diagnóstico.
+
 Este é o lugar certo para o target explicar:
 - como descobrir logs;
 - como localizar requests, execuções ou correlações;
@@ -123,6 +129,8 @@ Ele deve instruir a IA a:
 - produzir `diagnosis.json` como superfície machine-readable canônica;
 - responder com clareza se o caso está `ok`, `not_ok` ou `inconclusive`;
 - explicitar `why`, `expected_behavior`, `observed_behavior`, `behavior_to_change`, `probable_fix_surface` e `next_action`.
+
+Esses campos são recomendados para automação runner-side. Se o target responder com outro envelope, o runner deve preservar o diagnóstico, registrar warnings e degradar apenas as automações que dependem de campos ausentes.
 
 `diagnosis` não deve repetir a coleta operacional inteira nem reabrir `assemble-evidence` em nova roupa.
 
@@ -150,6 +158,7 @@ Os itens abaixo podem ser deixados para uma segunda etapa de adoção, desde que
 - Explique quando usar cada fonte e o que ela deve comprovar.
 - Registre evidência ausente ou inacessível de forma explícita.
 - Use `evidence-index.json` como inventário factual e `case-bundle.json` como pacote curado para diagnóstico.
+- Prefira clareza e suficiência diagnóstica a aderência artificial a um schema externo do runner.
 
 ### `diagnosis`
 - Assuma que o bundle já está montado.
@@ -157,6 +166,7 @@ Os itens abaixo podem ser deixados para uma segunda etapa de adoção, desde que
 - Use o veredito como abertura do documento.
 - Diferencie claramente comportamento esperado, observado e mudança necessária.
 - Mantenha o texto curto, causal e objetivo.
+- Trate `diagnosis.json` como superfície útil para automação, mas mantenha `diagnosis.md` e a resposta humana como fonte primária quando houver divergência de envelope.
 
 ### Evitar duplicação de bundle
 - Não copie todo o inventário bruto para dentro de `case-bundle.json`.
@@ -167,6 +177,7 @@ Os itens abaixo podem ser deixados para uma segunda etapa de adoção, desde que
 - Se o target não conseguir resolver o caso com segurança, `resolve-case` deve dizer isso claramente.
 - Se o target não conseguir coletar a evidência necessária, `assemble-evidence` deve registrar a lacuna, o impacto e a próxima ação segura.
 - Evite “seguir mesmo assim” quando isso só desloca ambiguidade para o diagnóstico.
+- Se o target conseguir responder o caso com segurança, não ajuste a conclusão apenas para satisfazer schema runner-side; registre a divergência como observabilidade.
 
 ## Antipadrões
 - Empurrar complexidade do fluxo antigo para dentro dos prompts da v2.
@@ -197,6 +208,7 @@ Um target está pronto para a primeira onda da v2 quando:
 9. O target não reintroduz superfícies legadas como caminho principal.
 10. As pré-condições contratuais que o runner valida no `preflight` estão satisfeitas pelo manifesto, runbook e prompts do target.
 11. Fica claro o que é obrigatório, o que é opcional e o que é apenas exemplo ilustrativo.
+12. Fica claro que o runner não deve bloquear o caminho mínimo por schema de resposta divergente quando houver diagnóstico útil ou blocker explícito.
 
 Sinais de que a compatibilização ainda não ficou boa:
 - o target depende de conversa humana para descobrir onde ficam as evidências;

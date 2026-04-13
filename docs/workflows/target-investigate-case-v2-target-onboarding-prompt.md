@@ -47,7 +47,8 @@ Se algum desses arquivos não existir ou não estiver acessível, pare e reporte
 - orquestra a rodada;
 - injeta contexto operacional;
 - executa as etapas na ordem correta;
-- valida contrato e artefatos;
+- valida apenas pré-condições operacionais, segurança, cancelamento, versionamento e publication;
+- inspeciona artefatos target-owned para registrar warnings de automação, sem reprovar o diagnóstico por schema divergente;
 - permanece target-agnostic.
 
 ### Target
@@ -106,12 +107,14 @@ Só adicione estes arquivos opcionais se eles já puderem nascer claros e realme
 - Faça deste prompt o lugar canônico para explicar logs, scripts, banco, dashboards, APIs, arquivos e critérios de suficiência.
 - Diga como localizar evidências, como agrupá-las e como distingui-las por ambiente.
 - Produza `evidence-index.json` e `case-bundle.json` sem duplicação indiscriminada.
+- Escolha o shape que melhor represente a investigação do target. O envelope recomendado pelo runner ajuda consumo automático, mas não deve distorcer nem bloquear o diagnóstico.
 
 ### `diagnosis`
 - Assuma `case-bundle.json` pronto.
 - Produza `diagnosis.md` e `diagnosis.json`.
 - Responda o caso com clareza humana, curta e causal.
 - Não faça o diagnóstico repetir coleta operacional.
+- Priorize uma resposta humana correta. Campos estruturados ajudam summary e automações, mas não devem virar contrato semântico fechado.
 
 ## Escopo da primeira onda
 Implemente primeiro só:
@@ -129,6 +132,7 @@ Implemente primeiro só:
 - Não transforme exemplos do piloto em contrato global.
 - Não escreva prompts genéricos demais; cada prompt precisa refletir o workflow real do target.
 - Marque claramente o que é obrigatório, o que é opcional e o que é apenas exemplo ilustrativo.
+- Não force um schema de resposta só para agradar o runner; quando houver divergência entre envelope recomendado e diagnóstico correto, preserve o diagnóstico e registre a divergência.
 
 ## Resultado esperado
 Ao final, o target deve estar pronto para materializar o caminho mínimo da v2 e produzir, por rodada mínima:
@@ -137,6 +141,8 @@ Ao final, o target deve estar pronto para materializar o caminho mínimo da v2 e
 - `case-bundle.json`
 - `diagnosis.md`
 - `diagnosis.json`
+
+Esses nomes orientam as superfícies canônicas da rodada. O runner deve tratar diferenças internas de schema nesses arquivos como warnings de automação no caminho mínimo, não como falha do target, desde que exista diagnóstico útil ou blocker explícito.
 
 ## Entrega final obrigatória
 No resumo final, informe:

@@ -19,12 +19,14 @@ O runbook do target deve explicar, no mínimo:
 - o runner usa a primeira entrada de `supportingArtifacts.docs` como runbook operacional principal da capability;
 - o runbook complementa os prompts por estágio;
 - `resolve-case`, `assemble-evidence` e `diagnosis` continuam sendo os lugares canônicos para instruções semânticas da etapa.
+- o runner deve tratar o runbook e os artefatos target-owned como autoridade operacional do target; divergências de envelope JSON recomendado devem virar warnings de automação, não bloqueio do diagnóstico.
 
 ## O que o runbook não deve virar
 - um segundo manifesto;
 - um prompt genérico que substitui os prompts por estágio;
 - um catálogo abstrato de “boas práticas” sem referência ao target real;
-- uma camada paralela de orquestração competindo com o runner.
+- uma camada paralela de orquestração competindo com o runner;
+- um schema rígido imposto para satisfazer validações runner-side em detrimento da resposta diagnóstica correta.
 
 ## Estrutura mínima recomendada para o target
 Use a estrutura abaixo como ponto de partida e adapte ao domínio real:

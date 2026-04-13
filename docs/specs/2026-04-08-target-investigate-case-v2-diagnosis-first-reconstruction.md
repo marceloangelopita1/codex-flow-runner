@@ -2,13 +2,16 @@
 
 ## Metadata
 - Spec ID: 2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction
-- Status: attended
-- Spec treatment: done
+- Status: in_progress
+- Spec treatment: pending
 - Owner: mapita
 - Created at (UTC): 2026-04-08 20:25Z
-- Last reviewed at (UTC): 2026-04-09 21:50Z
+- Last reviewed at (UTC): 2026-04-13 15:49Z
 - Source: technical-evolution
 - Related tickets:
+  - tickets/open/2026-04-13-target-investigate-case-v2-schema-de-resposta-nao-deve-bloquear-diagnostico.md
+  - tickets/open/2026-04-13-target-investigate-case-v2-summary-deve-reportar-diagnostico-com-warnings.md
+  - tickets/open/2026-04-13-target-investigate-case-v2-codex-deve-executar-no-contexto-do-target.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-spec-compatibility-closure-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-evaluation-summary-trace-hard-cut-gap.md
   - tickets/closed/2026-04-09-target-investigate-case-v2-stage-orchestration-gap.md
@@ -42,11 +45,12 @@
 - Contexto funcional:
   esta spec é intencionalmente cross-repo. Ela descreve tanto o comportamento que o runner deve orquestrar quanto o comportamento que o projeto alvo deve expor para ser compatível com a v2. A derivação inicial de tickets deverá começar no runner para introduzir o novo contrato e a nova orquestração. Depois disso, cada projeto alvo que quiser aderir à v2 deverá derivar seus próprios tickets de compatibilização a partir desta mesma spec.
 - Restrições técnicas relevantes:
-  - preservar rastreabilidade consistente entre os artefatos obrigatórios da v2;
+  - preservar rastreabilidade consistente entre os artefatos esperados da v2;
   - preservar publication runner-side conservadora, anti-overfit e rastreabilidade cross-repo;
   - não acoplar o runner à lógica, aos dados e aos scripts de um projeto alvo específico;
   - manter o projeto alvo como autoridade semântica do caso, dos insumos relevantes e do framing do workflow;
   - não reintroduzir cadeias auxiliares fora dos estágios canônicos da v2 como pré-condição do caminho mínimo;
+  - não bloquear uma rodada diagnosis-first por validação rígida do shape de resposta quando o target produziu diagnóstico legível e rastreável;
   - reduzir custo cognitivo e deixar a resposta principal entendível por um humano em menos de 2 minutos.
 
 ## Motivação arquitetural
@@ -68,7 +72,8 @@
   - executar as etapas do fluxo na ordem correta;
   - carregar prompts do target pelos slots canônicos declarados em manifesto;
   - injetar contexto operacional padrão, paths, round id e artefatos esperados;
-  - validar schemas, persistir traces, refletir status em logs e Telegram e manter a publication runner-side;
+  - inspecionar artefatos, registrar warnings de envelope machine-readable, persistir traces, refletir status em logs e Telegram e manter a publication runner-side;
+  - aplicar hard gates apenas a preflight/orquestração, segurança, cancelamento, execução de etapas, versionamento e fronteiras de publication; divergências de schema nos artefatos de resposta do target não devem travar o diagnóstico;
   - permanecer target-agnostic: o runner não deve embutir heurísticas sobre onde estão os logs, como ler banco, qual script consulta GCP, qual arquivo do workflow é relevante ou qual é a semântica esperada de cada domínio.
 - Responsabilidades do projeto alvo:
   - declarar em manifesto os estágios suportados, seus prompts canônicos, artefatos e políticas;
@@ -82,7 +87,7 @@
   - preservar rastreabilidade;
   - manter limites claros de evidência e sensibilidade;
   - evitar overfit a um caso isolado;
-  - manter `lineage` coerente quando o target optar por materializá-la na rodada.
+  - manter `lineage` coerente quando o target optar por materializá-la na rodada, sem tratar sua ausência como falha do caminho mínimo quando houver diagnóstico útil.
 - Não-responsabilidades explícitas:
   - o runner não deve virar um catálogo de procedimentos operacionais específicos de target;
   - o target não deve tomar a decisão final de publication runner-side;
@@ -237,7 +242,7 @@
 - Namespace runner-side durante migração:
   - `investigations/<round-id>/` pode existir como espelho leve de rastreabilidade e compatibilidade;
   - ele não pode se tornar uma segunda autoridade semântica.
-- Artefatos obrigatórios do caminho mínimo:
+- Artefatos esperados do caminho mínimo:
   - `case-resolution.json`
     - registra como as referências recebidas foram resolvidas;
     - deve dizer se o caso foi resolvido, ficou ambíguo ou indisponível;
@@ -257,6 +262,7 @@
   - `diagnosis.json`
     - equivalente estruturado do diagnóstico;
     - fonte canônica machine-readable para summary, Telegram e automações.
+    - quando o shape não estiver no envelope recomendado, o runner deve registrar warning e degradar automações dependentes, não invalidar o diagnóstico humano.
 - Diretório local reservado para evidências:
   - `evidence/` dentro da rodada do target, criado quando a coleta materializar arquivos locais;
   - o conteúdo pode ser local-only e não versionado por default;
@@ -267,7 +273,7 @@
   - `improvement-proposal.json`
   - `ticket-proposal.json`
   - `publication-decision.json`
-- Conteúdo mínimo esperado em `diagnosis.json`:
+- Conteúdo recomendado em `diagnosis.json` para melhor automação runner-side:
   - `schema_version`
   - `bundle_artifact`
   - `verdict = ok | not_ok | inconclusive`
@@ -281,6 +287,7 @@
   - `evidence_used`
   - `next_action`
   - `lineage`
+- Esses campos orientam uma boa resposta machine-readable e ajudam summary, Telegram e publication futura. Eles não são gates cegos para encerrar o caminho mínimo quando `diagnosis.md` ou outra superfície do target já responderem o caso com clareza.
 
 ## Formato esperado de `diagnosis.md`
 - O artefato principal para humanos deve abrir com um veredito explícito.
@@ -327,6 +334,7 @@
   - qual é a superfície provável de correção;
   - qual é a próxima ação recomendada.
 - RF-17: `diagnosis.json` deve usar `verdict = ok | not_ok | inconclusive`.
+- RF-17a: divergências de envelope em `diagnosis.json`, `evidence-index.json` ou `case-bundle.json` devem ser tratadas pelo runner como warnings de automação no caminho mínimo, não como falha operacional, desde que o target tenha produzido uma resposta diagnóstica humana suficiente ou blocker explícito.
 - RF-18: `diagnosis` não pode depender de `deep-dive`, `ticket-projection` ou `publication` para existir.
 - RF-19: `deep-dive` só pode ser acionado quando houver ambiguidade causal, baixa confiança ou necessidade real de localizar a menor mudança plausível.
 - RF-20: `improvement-proposal` só pode nascer depois que o diagnóstico já tiver definido com clareza o comportamento que precisa mudar.
@@ -338,6 +346,7 @@
 - RF-26: artefatos e summaries operator-facing no runner e no Telegram devem ser diagnosis-first, não publication-first.
 - RF-27: artefatos históricos ou espelhos secundários nunca podem voltar a competir com o contrato canônico da v2.
 - RF-28: a spec deve permanecer diagnóstica e normativa, sem ficar acoplada a um projeto alvo específico; exemplos de piloto são apenas ilustrativos.
+- RF-29: o runner deve preferir finalizar a rodada como diagnóstico produzido com warnings, quando houver artefato ou texto diagnóstico útil, em vez de marcar `round-materialization-failed` por incompatibilidade de schema de resposta.
 
 <!-- Heading canônico: use exatamente "## Assumptions and defaults" nas specs locais. O workflow aceita "## Premissas e defaults" apenas como alias de compatibilidade de leitura para specs externas ou legadas. -->
 ## Assumptions and defaults
@@ -347,7 +356,7 @@
 - `investigations/<round-id>/` pode existir apenas como espelho secundário de rastreabilidade;
 - `diagnosis.md` e `diagnosis.json` são os artefatos principais da rodada por default;
 - o primeiro conjunto de tickets derivados desta spec será aberto no runner; a aderência dos targets virá em uma segunda onda de derivação;
-- o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2.
+- o piloto `../guiadomus-matricula` continua sendo exemplo de referência, mas não define sozinho o contrato da v2;
 - o onboarding canônico dos targets aderentes fica em `docs/workflows/target-investigate-case-v2-target-onboarding.md` e no prompt reutilizável `docs/workflows/target-investigate-case-v2-target-onboarding-prompt.md`.
 
 ## Não-escopo
@@ -357,6 +366,7 @@
 - fundir runner e target em uma única autoridade semântica;
 - reabrir publication automática por default;
 - tratar `deep-dive` como fase obrigatória do caminho mínimo;
+- usar validação rígida de schema dos artefatos target-owned como gate para reprovar uma rodada diagnosis-first que já produziu diagnóstico útil ou blocker explícito;
 - substituir julgamento humano por gates cegos de artifact completeness.
 
 ## Critérios de aceitação (observáveis)
@@ -368,6 +378,7 @@
 - [x] CA-06 - a semântica do caso continua target-owned, enquanto a publication final continua runner-side.
 - [x] CA-07 - o summary final do runner e a resposta no Telegram passam a ser diagnosis-first.
 - [x] CA-08 - a mesma spec consegue derivar tickets tanto para o runner quanto, depois, para projetos alvo aderentes.
+- [ ] CA-09 - o runner conclui o caminho mínimo como diagnóstico produzido com warnings quando os artefatos do target têm envelope diferente do recomendado, sem bloquear por schema de resposta.
 
 ## Gate de validação dos tickets derivados
 - Veredito atual: GO
@@ -382,6 +393,7 @@
   - 2 (`initial-validation` + `revalidation`)
 - Nota de uso: quando a spec vier de `/run_specs`, preencher esta seção apenas com o veredito, os gaps, as correções e o histórico funcional do gate formal; fora desse fluxo, registrar `n/a` quando não se aplicar.
 - Política histórica: alinhamentos desta seção não exigem migração retroativa em massa; material histórico só deve ser ajustado quando for tocado depois ou quando houver impacto funcional real.
+- Nota da reabertura manual de 2026-04-13: o veredito `GO` acima registra o pacote derivado em 2026-04-08. Os tickets abertos em 2026-04-13 cobrem o CA-09 pendente e não passaram por execução automática do gate nesta rodada.
 
 ### Última execução registrada
 - Executada em (UTC): 2026-04-08T21:59:25.628Z
@@ -459,13 +471,13 @@
 
 ## Validações pendentes ou manuais
 - Validações obrigatórias ainda não automatizadas:
-  - nenhuma bloqueando o fechamento runner-side desta spec; manifesto v2, schemas canônicos, `lineage`, namespace autoritativo, summary final e integração com Telegram ficaram cobertos por código, tickets fechados e validações automatizadas.
+  - a política de warnings não bloqueantes para envelopes de artefatos target-owned ainda precisa ser implementada no runner e validada em caso real de target aderente.
 - Validações manuais pendentes:
   - validar a legibilidade de `diagnosis.md` em caso real de target aderente; permanece como verificação operacional externa/manual e não bloqueia o fechamento deste pacote runner-side.
   - escolher o primeiro target de adoção da v2 em repositório externo; permanece como passo operacional posterior e não configura gap residual local desta auditoria.
 
 ## Status de atendimento (documento vivo)
-- Estado geral: attended
+- Estado geral: in_progress
 - Itens atendidos:
   - motivação diagnosis-first consolidada em contrato explícito;
   - responsabilidades entre runner e target descritas de forma normativa;
@@ -475,7 +487,7 @@
   - `diagnosis.md`/`diagnosis.json`, summary final do runner, publication tardia runner-side e Telegram operam com superfícies diagnosis-first no branch v2;
   - o contexto técnico mínimo do branch v2 deixou de expor superfícies pré-v2 como parte do contrato efetivo dos prompts por estágio.
 - Pendências em aberto:
-  - nenhuma pendência local runner-side permanece aberta nesta linhagem da spec.
+  - ajustar o runner para não transformar divergências de schema dos artefatos target-owned em `round-materialization-failed` quando houver diagnóstico útil ou blocker explícito.
 - Evidências de validação:
   - revisão arquitetural crítica de 2026-04-09 comparando a spec com `src/types/target-investigate-case.ts`, `src/core/target-investigate-case.ts`, `src/integrations/target-investigate-case-round-preparer.ts`, `src/integrations/codex-client.ts`, `src/integrations/telegram-bot.ts`, `docs/workflows/target-case-investigation-v2-manifest.json` e testes focados;
   - fixture literal da spec em `docs/workflows/target-case-investigation-v2-manifest.json` e cobertura dedicada em `src/core/target-investigate-case.test.ts`;
@@ -498,13 +510,15 @@
 ## Riscos e impacto
 - Risco funcional:
   - targets aderentes podem implementar somente parte do contrato e produzir bundles fracos ou diagnósticos inconsistentes.
+  - validações rígidas de schema runner-side podem bloquear diagnósticos úteis e deslocar a autoridade semântica do target para o runner.
 - Risco operacional:
   - se `assemble-evidence` ficar vago, a complexidade do desenho anterior pode reaparecer disfarçada de coleta improvisada.
 - Mitigação:
   - padronizar slots de prompt, artefatos, manifesto e responsabilidades;
   - manter o onboarding de target explícito, versionado e reaproveitável no próprio `codex-flow-runner`;
   - fazer a primeira onda de implementação no runner antes da adoção em targets;
-  - exigir blockers explícitos em `resolve-case` e `assemble-evidence` quando o target não conseguir fechar o caso com segurança.
+  - exigir blockers explícitos em `resolve-case` e `assemble-evidence` quando o target não conseguir fechar o caso com segurança;
+  - tratar envelopes machine-readable como recomendação de automação e observabilidade, não como gate cego do caminho mínimo.
 
 ## Decisões e trade-offs
 - 2026-04-08 - manter `deep-dive`, `improvement-proposal`, `ticket-projection` e `publication` como continuações opcionais - reduz custo cognitivo do caminho mínimo e preserva evolução tardia quando necessária.
@@ -512,6 +526,7 @@
 - 2026-04-08 - definir prompts canônicos por estágio no target - mantém o runner target-agnostic sem perder direcionamento semântico do projeto alvo.
 - 2026-04-08 - eleger o namespace do projeto alvo como fonte autoritativa da rodada - reduz duplicação semântica e mantém o conhecimento operacional perto das evidências reais.
 - 2026-04-09 - consolidar onboarding canônico e prompt reutilizável para targets aderentes - reduz dependência de conversa tácita e estabiliza a segunda onda de adoção da v2.
+- 2026-04-13 - rebaixar validações rígidas de schema de resposta target-owned para warnings de automação no caminho mínimo - preserva o runner como orquestrador e evita travar diagnósticos úteis por envelope divergente.
 
 ## Histórico de atualização
 - 2026-04-08 20:25Z - Versão inicial da spec.
@@ -525,3 +540,4 @@
 - 2026-04-09 19:57Z - Fechamento formal da trilha reaberta: o ticket local remanescente foi movido para `tickets/closed/`, `Spec treatment` voltou para `done` e a spec permanece `attended` com evidência runner-side observável.
 - 2026-04-09 21:21Z - Limpeza semântica final concluída: a spec passou a se declarar explicitamente v2-only, as referências pré-v2 foram rebaixadas para histórico fora de `docs/specs/` e a narrativa normativa deixou de tratar o desenho anterior como contrato alternativo ou rollout ativo.
 - 2026-04-09 21:50Z - Material de onboarding canônico para targets aderentes adicionado em `docs/workflows/`, com ponteiros mínimos nesta spec e no contrato de compatibilidade.
+- 2026-04-13 - Ajuste normativo pós-teste real: a spec passou a explicitar que divergências de schema em artefatos target-owned não devem bloquear a rodada diagnosis-first quando houver diagnóstico útil ou blocker explícito.
