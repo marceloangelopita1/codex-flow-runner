@@ -2,7 +2,7 @@
 
 Use este prompt dentro do repositório do projeto alvo que será compatibilizado.
 
-Substitua `<RUNNER_REPO_PATH>` pelo caminho local do repositório `codex-flow-runner`. Em setups padrão, ele costuma ser `../codex-flow-runner`.
+Este prompt assume o setup padrão em que o projeto alvo e `codex-flow-runner` são diretórios irmãos, usando `../codex-flow-runner` como caminho local do runner.
 
 ```md
 Você está no repositório de um projeto alvo que precisa aderir ao fluxo `target-investigate-case-v2` do `codex-flow-runner`.
@@ -30,15 +30,15 @@ Se houver conflito entre o contrato v2 do runner e a documentação, as convenç
 
 ## Leitura obrigatória no `codex-flow-runner`
 Leia antes de editar qualquer arquivo:
-- `<RUNNER_REPO_PATH>/AGENTS.md`
-- `<RUNNER_REPO_PATH>/docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-project-compatibility-contract.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-case-investigation-v2-manifest.json`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-case-investigation-v2-runbook.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-investigate-case-v2-target-onboarding.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-investigate-case-v2-resolve-case.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-investigate-case-v2-assemble-evidence.md`
-- `<RUNNER_REPO_PATH>/docs/workflows/target-investigate-case-v2-diagnosis.md`
+- `../codex-flow-runner/AGENTS.md`
+- `../codex-flow-runner/docs/specs/2026-04-08-target-investigate-case-v2-diagnosis-first-reconstruction.md`
+- `../codex-flow-runner/docs/workflows/target-project-compatibility-contract.md`
+- `../codex-flow-runner/docs/workflows/target-case-investigation-v2-manifest.json`
+- `../codex-flow-runner/docs/workflows/target-case-investigation-v2-runbook.md`
+- `../codex-flow-runner/docs/workflows/target-investigate-case-v2-target-onboarding.md`
+- `../codex-flow-runner/docs/workflows/target-investigate-case-v2-resolve-case.md`
+- `../codex-flow-runner/docs/workflows/target-investigate-case-v2-assemble-evidence.md`
+- `../codex-flow-runner/docs/workflows/target-investigate-case-v2-diagnosis.md`
 
 Se algum desses arquivos não existir ou não estiver acessível, pare e reporte o blocker com clareza.
 
