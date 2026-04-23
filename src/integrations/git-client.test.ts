@@ -30,10 +30,52 @@ test("commitTicketClosure faz push automaticamente apos commit", async () => {
       "-m",
       "chore(tickets): close 2026-02-19-ticket.md",
       "-m",
+      "Ticket: 2026-02-19-ticket.md",
+      "-m",
       "ExecPlan: execplans/2026-02-19-ticket.md",
     ],
     ["push"],
   ]);
+});
+
+test("commitTicketClosure encurta mensagem quando ticket excede limite comum de commitlint", async () => {
+  const calls: string[][] = [];
+  const client = new GitCliVersioning("/tmp/repo", {
+    runGit: async (args): Promise<CallResult> => {
+      calls.push(args);
+      if (args[0] === "diff") {
+        throw new Error("ha alteracoes staged");
+      }
+
+      return { stdout: "", stderr: "" };
+    },
+  });
+
+  const ticketName =
+    "2026-04-23-05-retomar-gate-checkout-retornos-e-ativacao-premium-apos-insumos-comerciais.md";
+
+  await client.commitTicketClosure(ticketName, `execplans/${ticketName}`);
+
+  const commitCall = calls.find((call) => call[0] === "commit");
+  assert.ok(commitCall);
+  assert.deepEqual(commitCall, [
+    "commit",
+    "-m",
+    "chore(tickets): close 2026-04-23-05",
+    "-m",
+    `Ticket: ${ticketName}`,
+    "-m",
+    `ExecPlan:\n  execplans/\n  ${ticketName}`,
+  ]);
+
+  const commitMessageParts = commitCall.filter(
+    (arg, index) => index > 0 && commitCall[index - 1] === "-m",
+  );
+  for (const part of commitMessageParts) {
+    for (const line of part.split("\n")) {
+      assert.ok(line.length <= 100, `linha de commit excede 100 caracteres: ${line}`);
+    }
+  }
 });
 
 test("commitTicketClosure nao faz commit/push quando nao ha alteracoes staged", async () => {

@@ -99,13 +99,7 @@ export class GitCliVersioning implements GitVersioning {
       return;
     }
 
-    await this.runGit([
-      "commit",
-      "-m",
-      `chore(tickets): close ${ticketName}`,
-      "-m",
-      `ExecPlan: ${execPlanPath}`,
-    ]);
+    await this.runGit(buildTicketClosureCommitArgs(ticketName, execPlanPath));
 
     await this.runGit(["push"]);
   }
@@ -287,6 +281,90 @@ const buildCommitArgs = (subject: string, bodyParagraphs: string[]): string[] =>
   }
 
   return commitArgs;
+};
+
+const COMMIT_MESSAGE_MAX_LINE_LENGTH = 100;
+const TICKET_CLOSE_COMMIT_SUBJECT_PREFIX = "chore(tickets): close ";
+
+const buildTicketClosureCommitArgs = (ticketName: string, execPlanPath: string): string[] =>
+  buildCommitArgs(buildTicketClosureCommitSubject(ticketName), [
+    formatCommitBodyField("Ticket", ticketName),
+    formatCommitBodyField("ExecPlan", execPlanPath),
+  ]);
+
+const buildTicketClosureCommitSubject = (ticketName: string): string => {
+  const subject = `${TICKET_CLOSE_COMMIT_SUBJECT_PREFIX}${ticketName}`;
+  if (subject.length <= COMMIT_MESSAGE_MAX_LINE_LENGTH) {
+    return subject;
+  }
+
+  const availableLength =
+    COMMIT_MESSAGE_MAX_LINE_LENGTH - TICKET_CLOSE_COMMIT_SUBJECT_PREFIX.length;
+  const compactTicketReference = buildCompactTicketReference(ticketName, availableLength);
+  return `${TICKET_CLOSE_COMMIT_SUBJECT_PREFIX}${compactTicketReference}`;
+};
+
+const buildCompactTicketReference = (ticketName: string, maxLength: number): string => {
+  const dateNumberMatch = /^(\d{4}-\d{2}-\d{2}(?:-\d+)?)/u.exec(ticketName);
+  if (dateNumberMatch?.[1] && dateNumberMatch[1].length <= maxLength) {
+    return dateNumberMatch[1];
+  }
+
+  return truncateCommitLineValue(ticketName, maxLength);
+};
+
+const formatCommitBodyField = (label: string, value: string): string => {
+  const inline = `${label}: ${value}`;
+  if (inline.length <= COMMIT_MESSAGE_MAX_LINE_LENGTH) {
+    return inline;
+  }
+
+  return [`${label}:`, ...wrapCommitBodyValue(value)].join("\n");
+};
+
+const wrapCommitBodyValue = (value: string): string[] => {
+  const indent = "  ";
+  const maxChunkLength = COMMIT_MESSAGE_MAX_LINE_LENGTH - indent.length;
+  const chunks: string[] = [];
+  let remaining = value;
+
+  while (remaining.length > maxChunkLength) {
+    const breakIndex = findCommitLineBreakIndex(remaining, maxChunkLength);
+    chunks.push(`${indent}${remaining.slice(0, breakIndex)}`);
+    remaining = remaining.slice(breakIndex);
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(`${indent}${remaining}`);
+  }
+
+  return chunks;
+};
+
+const findCommitLineBreakIndex = (value: string, maxChunkLength: number): number => {
+  const slashIndex = value.lastIndexOf("/", maxChunkLength - 1);
+  if (slashIndex > 0) {
+    return slashIndex + 1;
+  }
+
+  const hyphenIndex = value.lastIndexOf("-", maxChunkLength - 1);
+  if (hyphenIndex > 0) {
+    return hyphenIndex + 1;
+  }
+
+  return maxChunkLength;
+};
+
+const truncateCommitLineValue = (value: string, maxLength: number): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  if (maxLength <= 3) {
+    return value.slice(0, maxLength);
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`;
 };
 
 const normalizeGitCommandError = (args: string[], error: unknown): Error => {
