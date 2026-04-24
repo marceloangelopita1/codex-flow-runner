@@ -72,6 +72,7 @@ import {
   isTelegramMessageDeliveryDispatchError,
   RUN_FLOW_SUMMARY_DELIVERY_POLICY,
   RUN_SPECS_TRIAGE_MILESTONE_DELIVERY_POLICY,
+  STATUS_REPLY_DELIVERY_POLICY,
   TARGET_FLOW_MILESTONE_DELIVERY_POLICY,
   TelegramDeliveryLogMessages,
   TelegramDeliveryResult,
@@ -1966,7 +1967,23 @@ export class TelegramController {
 
     const state = this.getState();
     const codexPreferencesByProject = await this.resolveStatusCodexPreferences(state);
-    await ctx.reply(this.buildStatusReply(state, codexPreferencesByProject));
+    const reply = this.buildStatusReply(state, codexPreferencesByProject);
+    await this.deliverInteractiveChatMessage({
+      chatId,
+      text: reply,
+      policy: STATUS_REPLY_DELIVERY_POLICY,
+      logicalMessageType: "runner-status",
+      logMessages: {
+        success: "Status do runner enviado no Telegram",
+        transientFailure: "Falha transitoria ao enviar status do runner no Telegram",
+        definitiveFailure: "Falha definitiva ao enviar status do runner no Telegram",
+      },
+      context: {
+        command: "status",
+        payloadLength: reply.length,
+        activeSlotsCount: state.activeSlots.length,
+      },
+    });
   }
 
   private async handleCallbackQuery(ctx: CallbackContext): Promise<void> {

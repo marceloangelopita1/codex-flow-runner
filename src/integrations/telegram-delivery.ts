@@ -175,6 +175,17 @@ export const CALLBACK_CHAT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
   maxBackoffMs: 2_000,
 };
 
+export const STATUS_REPLY_DELIVERY_POLICY: TelegramDeliveryPolicy = {
+  name: "status-reply",
+  maxAttempts: 2,
+  baseBackoffMs: 500,
+  maxBackoffMs: 2_000,
+  chunking: {
+    maxChunkLength: 3500,
+    includePartHeader: true,
+  },
+};
+
 export const TICKET_OPEN_CONTENT_DELIVERY_POLICY: TelegramDeliveryPolicy = {
   name: "ticket-open-content",
   maxAttempts: 2,

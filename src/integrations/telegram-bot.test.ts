@@ -3,6 +3,7 @@ import test from "node:test";
 import { Logger } from "../core/logger.js";
 import type { TargetInvestigateCaseRequestResult } from "../core/runner.js";
 import type { TargetInvestigateCaseFlowSummary } from "../types/flow-timing.js";
+import type { ProjectRef } from "../types/project.js";
 import type { RunnerState } from "../types/state.js";
 import type { TargetInvestigateCaseArtifactInspectionWarning } from "../types/target-investigate-case.js";
 import { TelegramController } from "./telegram-bot.js";
@@ -58,6 +59,30 @@ const callPrivate = <ReturnValue>(
   (controller as unknown as Record<string, (...values: unknown[]) => ReturnValue>)[method](
     ...args,
   );
+
+const createResolvedCodexPreferences = (project: ProjectRef) => ({
+  project,
+  model: "gpt-5.4",
+  reasoningEffort: "medium",
+  speed: "standard" as const,
+  updatedAt: new Date("2026-04-09T12:00:00.000Z"),
+  source: "catalog-default" as const,
+  sources: {
+    model: "catalog-default" as const,
+    reasoningEffort: "catalog-default" as const,
+    speed: "catalog-default" as const,
+  },
+  catalogFetchedAt: new Date("2026-04-09T12:00:00.000Z"),
+  modelDisplayName: "GPT-5.4",
+  modelDescription: null,
+  modelVisibility: "public",
+  modelSelectable: true,
+  supportedReasoningLevels: [],
+  defaultReasoningEffort: "medium",
+  reasoningAdjustedFrom: null,
+  fastModeSupported: true,
+  speedAdjustedFrom: null,
+});
 
 const artifactInspectionWarnings: TargetInvestigateCaseArtifactInspectionWarning[] = [
   {
@@ -458,4 +483,49 @@ test("buildTargetFlowStatusReply descreve apenas o comando v2 quando nao ha exec
     reply,
     "ℹ️ Nenhuma execucao /target_investigate_case_v2 ativa no momento.",
   );
+});
+
+test("handleStatusCommand envia status longo em chunks pela camada central", async () => {
+  const state = createState({
+    lastMessage: "detalhe operacional extenso ".repeat(500),
+  });
+  const sentMessages: Array<{ chatId: string; text: string }> = [];
+  const controller = new TelegramController(
+    "telegram-token",
+    new StubLogger(),
+    () => state,
+    {
+      resolveCodexProjectPreferences: (project: ProjectRef) =>
+        createResolvedCodexPreferences(project),
+    } as never,
+    "123",
+  );
+  const internalController = controller as unknown as {
+    bot: {
+      telegram: {
+        sendMessage: (chatId: string, text: string, extra?: unknown) => Promise<unknown>;
+      };
+    };
+  };
+  internalController.bot.telegram.sendMessage = async (chatId, text) => {
+    sentMessages.push({ chatId, text });
+    return { message_id: sentMessages.length };
+  };
+  const directReplies: string[] = [];
+
+  await callPrivate<Promise<void>>(controller, "handleStatusCommand", {
+    chat: {
+      id: "123",
+    },
+    reply: async (text: string) => {
+      directReplies.push(text);
+      return {};
+    },
+  });
+
+  assert.equal(directReplies.length, 0);
+  assert.equal(sentMessages.length > 1, true);
+  assert.equal(sentMessages.every((message) => message.chatId === "123"), true);
+  assert.equal(sentMessages.every((message) => message.text.length <= 4096), true);
+  assert.match(sentMessages[0]?.text ?? "", /^Parte 1\/\d+\n\nRunner: inativo/u);
 });
